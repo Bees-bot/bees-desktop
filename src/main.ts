@@ -220,6 +220,8 @@ const DARK_THEMES = new Set<string>([
 ]);
 const LIGHT_DEFAULT: ThemePreset = "emerald";
 const DARK_DEFAULT: ThemePreset = "forest";
+const LIGHT_DEFAULT_KEY = "ui_light_theme_preset";
+const DARK_DEFAULT_KEY = "ui_dark_theme_preset";
 const themePresets: { id: ThemePreset; name: string }[] = THEMES.map((id) => ({
   id,
   name: id.charAt(0).toUpperCase() + id.slice(1)
@@ -432,6 +434,8 @@ let assistantPickerOpen = false;
 let prefsTab: PrefsTab = "theme";
 let orgTab: OrgTab = "general";
 let teamTab: TeamTab = "members";
+let lightDefaultTheme: ThemePreset = LIGHT_DEFAULT;
+let darkDefaultTheme: ThemePreset = DARK_DEFAULT;
 let themePreset: ThemePreset = (THEMES as readonly string[]).includes(
   localStorage.getItem("bees-theme-preset") ?? ""
 )
@@ -516,9 +520,21 @@ async function saveTheme(preset: ThemePreset): Promise<void> {
   await repository.setSetting("ui_theme_preset", preset);
 }
 
+async function saveDefaultTheme(mode: "light" | "dark", preset: ThemePreset): Promise<void> {
+  if (mode === "light") lightDefaultTheme = preset;
+  else darkDefaultTheme = preset;
+  await repository.setSetting(mode === "light" ? LIGHT_DEFAULT_KEY : DARK_DEFAULT_KEY, preset);
+}
+
 async function loadTheme(): Promise<void> {
-  const storedPreset = await repository.getSetting("ui_theme_preset", themePreset);
+  const [storedPreset, storedLightDefault, storedDarkDefault] = await Promise.all([
+    repository.getSetting("ui_theme_preset", themePreset),
+    repository.getSetting(LIGHT_DEFAULT_KEY, LIGHT_DEFAULT),
+    repository.getSetting(DARK_DEFAULT_KEY, DARK_DEFAULT)
+  ]);
   if (isThemePreset(storedPreset)) themePreset = storedPreset;
+  if (isThemePreset(storedLightDefault)) lightDefaultTheme = storedLightDefault;
+  if (isThemePreset(storedDarkDefault)) darkDefaultTheme = storedDarkDefault;
   applyTheme();
 }
 
@@ -1586,20 +1602,19 @@ async function renderAgentDetail(): Promise<void> {
               modelRef(resolveModelChoice(agent.config, assistantModel))
             )}</dd></div><div><dt class="text-base-content/45">Trigger status</dt><dd>${escapeHtml(
               stageName(agent.triggerStageId) ?? "None"
-            )}</dd></div><div><dt class="text-base-content/45">This machine</dt><dd><span class="badge badge-sm ${
-              eligibility.active ? "badge-success" : "badge-warning"
-            }">${eligibility.active ? "Active" : "Inactive"}</span> <span class="text-base-content/55">${escapeHtml(
+            )}</dd></div><div><dt class="text-base-content/45">This machine</dt><dd class="flex items-center gap-2">${agentStatusButton(
+              agent,
+              eligibility,
+              enabledOnMachine
+            )}<span class="text-base-content/55">${escapeHtml(
               eligibility.reason
             )}</span></dd></div><div><dt class="text-base-content/45">Instructions</dt><dd class="whitespace-pre-wrap">${escapeHtml(
               agent.config.prompt
             )}</dd></div></dl>
-            <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="edit-agent" data-id="${
-              agent.id
-            }">Edit</button><button class="btn btn-ghost btn-sm" data-action="duplicate-agent" data-id="${
-              agent.id
-            }">Duplicate</button><button class="btn btn-ghost btn-sm" data-action="toggle-agent-machine" data-id="${
-              agent.id
-            }">${enabledOnMachine ? "Disable" : "Enable"} on this machine</button></div>
+            <div class="card-actions justify-end">
+              ${actionIconButton("edit-agent", `Edit ${agent.name}`, ACTION_ICONS.edit, agent.id, "btn-primary")}
+              ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
+            </div>
           </div></section>
           <section class="card border border-base-300 bg-base-100"><div class="card-body">
             <h3 class="card-title">Local scope</h3><p class="break-all text-sm">${escapeHtml(
@@ -1770,38 +1785,39 @@ function renderProcesses(): void {
   swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
     <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
       <div><h2 class="font-bold">Multi-step processes</h2><p class="mt-1 text-sm text-base-content/55">Define the workflow each team follows.</p></div>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn btn-outline btn-sm" data-action="browse-process-library">Browse library</button>
-        <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+      <div class="flex gap-1">
+        ${actionIconButton("browse-process-library", "Browse process library", ACTION_ICONS.library, undefined, "btn-outline", "tooltip-bottom")}
+        ${actionIconButton("new-process", "Create process", ACTION_ICONS.add, undefined, "btn-primary", "tooltip-bottom")}
       </div>
     </header>
-    <div class="divide-y divide-base-300">${
+    ${
       processes.length
-        ? processes
+        ? `<div class="overflow-x-auto"><table class="table min-w-[48rem]">
+            <thead><tr><th>Process</th><th>Statuses</th><th class="text-right">Actions</th></tr></thead>
+            <tbody>${[...processes]
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
             .map(
-              (process) => `<article class="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-                <div class="min-w-0">
-                  <h3 class="flex items-center gap-2 font-bold">${escapeHtml(process.name)}${processStateBadge(
-                    process.id
-                  )}</h3>
+              (process) => `<tr>
+                <td class="min-w-80">
+                  <h3 class="font-bold">${escapeHtml(process.name)}</h3>
                   <p class="mt-1 text-sm text-base-content/55">${escapeHtml(process.description || "No description")}</p>
-                  <div class="mt-3 flex flex-wrap items-center gap-1.5">${process.stages
+                </td>
+                <td class="min-w-64"><div class="flex flex-wrap items-center gap-1.5">${process.stages
                     .map(
                       ({ name }, index) =>
                         `${index ? '<span class="text-base-content/30">→</span>' : ""}<span class="badge badge-ghost badge-sm">${escapeHtml(name)}</span>`
                     )
-                    .join("")}</div>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  ${processRunButtons(process.id, "btn-sm")}
-                  <button class="btn btn-ghost btn-sm" data-action="edit-process" data-id="${process.id}">Edit</button>
-                  <button class="btn btn-ghost btn-sm text-error" data-action="archive-process" data-id="${process.id}">Archive</button>
-                </div>
-              </article>`
+                    .join("")}</div></td>
+                <td><div class="flex justify-end gap-1">
+                  ${processStatusButton(process.id)}
+                  ${actionIconButton("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, process.id)}
+                  ${actionIconButton("archive-process", `Archive ${process.name}`, ACTION_ICONS.archive, process.id, "btn-ghost text-error")}
+                </div></td>
+              </tr>`
             )
-            .join("")
+            .join("")}</tbody></table></div>`
         : `<div class="p-12 text-center text-sm text-base-content/50">No processes yet.</div>`
-    }</div>
+    }
   </section>`);
 }
 
@@ -2033,6 +2049,64 @@ function eligibilityForAgent(agent: Agent) {
   );
 }
 
+const ACTION_ICONS = {
+  add: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+  active: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
+  inactive: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"></path><path d="M12 9v5M12 17.5v.5"></path></svg>',
+  broken: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>',
+  edit: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 5 5 5M4 20l3.5-.7L19 7.8a2.1 2.1 0 0 0-3-3L4.7 16.5 4 20Z"></path></svg>',
+  duplicate: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>',
+  delete: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg>',
+  archive: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16v13H4V7ZM3 4h18v3H3V4ZM9 11h6"></path></svg>',
+  library: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16ZM20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z"></path></svg>'
+} as const;
+
+function actionIconButton(
+  action: string,
+  label: string,
+  icon: string,
+  id?: string,
+  classes = "btn-ghost",
+  tooltip = "tooltip-left"
+): string {
+  const escapedLabel = escapeHtml(label);
+  return `<button class="btn btn-square btn-sm ${classes} tooltip ${tooltip}" data-action="${action}"${
+    id ? ` data-id="${escapeHtml(id)}"` : ""
+  } data-tip="${escapedLabel}" title="${escapedLabel}" aria-label="${escapedLabel}">${icon}</button>`;
+}
+
+function agentStatusButton(
+  agent: Agent,
+  eligibility: ReturnType<typeof eligibilityForAgent>,
+  enabledOnMachine: boolean
+): string {
+  if (!enabledOnMachine) {
+    return actionIconButton(
+      "toggle-agent-machine",
+      "Inactive on this machine. Click to make active.",
+      ACTION_ICONS.inactive,
+      agent.id,
+      "btn-ghost text-warning"
+    );
+  }
+  if (!eligibility.active) {
+    return actionIconButton(
+      "edit-agent",
+      `Broken: ${eligibility.reason}. Click to fix.`,
+      ACTION_ICONS.broken,
+      agent.id,
+      "btn-ghost text-error"
+    );
+  }
+  return actionIconButton(
+    "toggle-agent-machine",
+    "Active on this machine. Click to make inactive.",
+    ACTION_ICONS.active,
+    agent.id,
+    "btn-ghost text-success"
+  );
+}
+
 async function setAgentEnabledOnMachine(agent: Agent, enabled: boolean): Promise<void> {
   if (enabled) disabledAgentIds.delete(agent.id);
   else disabledAgentIds.add(agent.id);
@@ -2090,14 +2164,23 @@ async function saveAgent(agent: Agent, data: FormData): Promise<void> {
   if (provider && model && modelChanged) await rememberModelChoice({ provider, model });
 }
 
-/** Status name for an id, across every process in the team. Null when it no longer exists. */
-function stageName(stageId: string | null): string | null {
+/** Process and status for an id across the team. Null when it no longer exists. */
+function triggerContext(stageId: string | null): { process: Process; stageName: string } | null {
   if (!stageId) return null;
   for (const process of processes) {
     const stage = process.stages.find(({ id }) => id === stageId);
-    if (stage) return stage.name;
+    if (stage) return { process, stageName: stage.name };
   }
   return null;
+}
+
+function stageName(stageId: string | null): string | null {
+  return triggerContext(stageId)?.stageName ?? null;
+}
+
+function agentRelation(agent: Agent): string {
+  const trigger = triggerContext(agent.triggerStageId);
+  return `${trigger?.process.name ?? "No process"} - ${trigger?.stageName ?? "No trigger"} - ${agent.name}`;
 }
 
 async function renderAgents(): Promise<void> {
@@ -2109,51 +2192,52 @@ async function renderAgents(): Promise<void> {
       <div><h2 class="font-bold">Agent library</h2><p class="mt-1 text-sm text-base-content/55">One file per agent in ${escapeHtml(
         mapping?.localPath ? `${mapping.localPath}/agents` : "the team folder"
       )}.</p></div>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn btn-primary btn-sm" data-action="new-agent">New agent</button>
-      </div>
+      ${actionIconButton("new-agent", "New agent", ACTION_ICONS.add, undefined, "btn-primary", "tooltip-bottom")}
     </header>
-    <div class="divide-y divide-base-300">${
+    ${
       agents.length
-        ? agents
+        ? `<div class="overflow-x-auto"><table class="table min-w-[48rem]">
+            <thead><tr><th>Agent</th><th>Skills</th><th class="text-right">Actions</th></tr></thead>
+            <tbody>${[...agents]
+            .sort((a, b) => agentRelation(a).localeCompare(agentRelation(b), undefined, { sensitivity: "base" }))
             .map((agent) => {
-              const trigger = stageName(agent.triggerStageId);
               const eligibility = eligibilityForAgent(agent);
               const enabledOnMachine = !disabledAgentIds.has(agent.id);
-              return `<article class="p-5">
-                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                  <div><div class="flex items-center gap-2"><button class="link link-hover font-bold" data-action="open-agent" data-id="${agent.id}">${escapeHtml(agent.name)}</button>
-                    ${trigger ? `<span class="badge badge-sm badge-success">${escapeHtml(trigger)}</span>` : ""}
-                    <span class="badge badge-sm ${
-                      eligibility.active ? "badge-success" : "badge-warning"
-                    }" title="${escapeHtml(eligibility.reason)}">${
-                      eligibility.active ? "Active here" : "Inactive here"
-                    }</span></div>
-                    <p class="mt-1 text-sm text-base-content/55">${escapeHtml(agent.purpose)} · ${escapeHtml(
+              const skills = selectedAgentCapabilities(registries, agent.config).filter(
+                ({ kind }) => kind === "skill"
+              );
+              return `<tr>
+                <td class="min-w-96">
+                  <button class="link link-hover text-left font-bold" data-action="open-agent" data-id="${escapeHtml(
+                    agent.id
+                  )}">${escapeHtml(agentRelation(agent))}</button>
+                  <p class="mt-1 text-sm text-base-content/55">${escapeHtml(agent.purpose)} · ${escapeHtml(
                       modelRef(resolveModelChoice(agent.config, assistantModel))
                     )}</p>
-                    <div class="mt-2 flex flex-wrap gap-1">${selectedAgentCapabilities(registries, agent.config)
-                      .map(({ name, kind }) => `<span class="badge badge-ghost badge-sm">${escapeHtml(kind)}: ${escapeHtml(name)}</span>`)
-                      .join("")}</div>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <button class="btn btn-ghost btn-sm" data-action="toggle-agent-machine" data-id="${
-                      agent.id
-                    }">${enabledOnMachine ? "Disable" : "Enable"} here</button>
-                    <button class="btn btn-primary btn-sm" data-action="edit-agent" data-id="${agent.id}">Edit</button>
-                    <button class="btn btn-ghost btn-sm" data-action="duplicate-agent" data-id="${agent.id}">Duplicate</button>
-                    <button class="btn btn-ghost btn-sm text-error" data-action="delete-agent" data-id="${agent.id}">Delete</button>
-                  </div>
-                </div>
-              </article>`;
+                </td>
+                <td class="min-w-48"><div class="flex flex-wrap gap-1">${
+                  skills.length
+                    ? skills
+                        .map(({ name }) => `<span class="badge badge-ghost badge-sm">${escapeHtml(name)}</span>`)
+                        .join("")
+                    : '<span class="text-sm text-base-content/40">—</span>'
+                }</div></td>
+                <td><div class="flex justify-end gap-1">
+                  ${agentStatusButton(agent, eligibility, enabledOnMachine)}
+                  ${actionIconButton("edit-agent", `Edit ${agent.name}`, ACTION_ICONS.edit, agent.id)}
+                  ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
+                  ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
+                </div></td>
+              </tr>`;
             })
-            .join("")
+            .join("")}</tbody>
+          </table></div>`
         : `<div class="p-12 text-center text-sm text-base-content/50">${
             mapping?.localPath
               ? "Create an agent, then give it the process status that should start it."
               : "Set a team folder first — agents are files inside it."
           }</div>`
-    }</div>
+    }
   </section>`);
 }
 
@@ -3302,6 +3386,13 @@ async function renderOrgSettings(): Promise<void> {
 // ---- Preferences (tabbed: Mode / Theme / Sign-ins / Org invites / Create org) ----
 
 function prefsThemeContent(): string {
+  const themeOptions = (selected: ThemePreset) =>
+    themePresets
+      .map(
+        (preset) =>
+          `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`
+      )
+      .join("");
   const themeCards = themePresets
     .map(
       (preset) => `<button class="theme-card ${preset.id === themePreset ? "selected" : ""}"
@@ -3319,6 +3410,17 @@ function prefsThemeContent(): string {
     .join("");
   return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
       <h2 class="card-title text-base">Theme</h2>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="form-control gap-1">
+          <span class="text-sm font-medium">Default Dark Theme</span>
+          <select class="select w-full" data-theme-default="dark">${themeOptions(darkDefaultTheme)}</select>
+        </label>
+        <label class="form-control gap-1">
+          <span class="text-sm font-medium">Default Light Theme</span>
+          <select class="select w-full" data-theme-default="light">${themeOptions(lightDefaultTheme)}</select>
+        </label>
+      </div>
+      <h3 class="mt-2 font-semibold">All themes</h3>
       <div class="grid gap-3 sm:grid-cols-3">${themeCards}</div>
     </div></section>`;
 }
@@ -4436,6 +4538,17 @@ function processStateBadge(processId: string): string {
     : '<span class="badge badge-ghost badge-sm">Stopped</span>';
 }
 
+function processStatusButton(processId: string): string {
+  const running = runningProcesses.has(processId);
+  return actionIconButton(
+    running ? "stop-process" : "start-process",
+    running ? "Running. Click to stop." : "Stopped. Click to run.",
+    running ? ACTION_ICONS.active : ACTION_ICONS.inactive,
+    processId,
+    running ? "btn-ghost text-success" : "btn-ghost text-warning"
+  );
+}
+
 function processRunButtons(processId: string, size: string): string {
   const running = runningProcesses.has(processId);
   return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${
@@ -5488,7 +5601,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "toggle-color-mode") {
-      await saveTheme(DARK_THEMES.has(themePreset) ? LIGHT_DEFAULT : DARK_DEFAULT);
+      await saveTheme(DARK_THEMES.has(themePreset) ? lightDefaultTheme : darkDefaultTheme);
       render();
       return;
     }
@@ -6251,6 +6364,16 @@ app.addEventListener("keydown", (event) => {
 
 // Inline org branding controls save on change (no popup).
 document.addEventListener("change", (event) => {
+  const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
+  if (themeDefault && isThemePreset(themeDefault.value)) {
+    const mode = themeDefault.dataset.themeDefault;
+    if (mode === "light" || mode === "dark") {
+      void saveDefaultTheme(mode, themeDefault.value).catch((error) =>
+        showNotice(errorText(error), "error")
+      );
+    }
+    return;
+  }
   const project = (event.target as Element).closest<HTMLSelectElement>(
     "[data-overview-project]"
   );

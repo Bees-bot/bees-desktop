@@ -101,6 +101,8 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
   letter-spacing: -.01em;
 }
 
+.table > tbody > tr:nth-child(odd) { background: var(--color-base-200); }
+
 #app > section,
 .card {
   border-color: color-mix(in oklab, var(--color-base-content) 11%, transparent);
