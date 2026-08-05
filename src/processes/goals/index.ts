@@ -1,4 +1,8 @@
-import { requiredText } from "../../domain.js";
+import {
+  logicalFileReferences,
+  requiredText,
+  type GoalTaskEffect
+} from "../../domain.js";
 
 export const GOALS_PROCESS_NAME = "Goals";
 export const GOALS_PROCESS_DESCRIPTION =
@@ -6,10 +10,15 @@ export const GOALS_PROCESS_DESCRIPTION =
 export const GOALS_BOARD_NAME = "Goals";
 export const GOALS_STAGES = ["Plan", "Work", "Waiting", "Review", "Done"] as const;
 export const TASK_PLAN_OUTPUT = ".tasks.json";
+export const ACTION_RECEIPT_OUTPUT = "action-receipt.json";
 
 export interface PlannedTask {
+  key: string;
   title: string;
   description: string;
+  role: string;
+  effect: GoalTaskEffect;
+  inputs: string[];
 }
 
 /**
@@ -31,23 +40,35 @@ export function parseTaskPlan(value: string): PlannedTask[] {
     throw new Error('A task plan must contain a non-empty "tasks" list');
   }
   if (values.length > 25) throw new Error("A task plan can contain at most 25 tasks");
-  return values.map((entry, index) => {
-    if (typeof entry === "string") {
-      return { title: requiredText(entry, `Task ${index + 1} title`, 180), description: "" };
-    }
+  const tasks = values.map((entry, index) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error(`Task ${index + 1} must be text or an object`);
+      throw new Error(`Task ${index + 1} must be an object`);
     }
-    const task = entry as { title?: unknown; description?: unknown };
-    const description = typeof task.description === "string" ? task.description.trim() : "";
-    if (description.length > 2_000) {
-      throw new Error(`Task ${index + 1} description must be 2000 characters or fewer`);
+    const task = entry as Record<string, unknown>;
+    const accepted = new Set(["key", "title", "description", "role", "effect", "inputs"]);
+    const extra = Object.keys(task).find((key) => !accepted.has(key));
+    if (extra) throw new Error(`Task ${index + 1} field "${extra}" is not supported`);
+    const description = requiredText(task.description, `Task ${index + 1} description`, 2_000);
+    if (!Array.isArray(task.inputs) || task.inputs.length > 100) {
+      throw new Error(`Task ${index + 1} inputs must be a list of at most 100 files`);
+    }
+    const effect = requiredText(task.effect, `Task ${index + 1} effect`, 30);
+    if (!(["read", "prepare", "external_write"] as string[]).includes(effect)) {
+      throw new Error(`Task ${index + 1} effect must be read, prepare, or external_write`);
     }
     return {
+      key: requiredText(task.key, `Task ${index + 1} key`, 500),
       title: requiredText(task.title, `Task ${index + 1} title`, 180),
-      description
+      description,
+      role: requiredText(task.role, `Task ${index + 1} role`, 120),
+      effect: effect as GoalTaskEffect,
+      inputs: logicalFileReferences(task.inputs)
     };
   });
+  if (new Set(tasks.map(({ key }) => key)).size !== tasks.length) {
+    throw new Error("Task keys must be unique within a plan");
+  }
+  return tasks;
 }
 
 /**
@@ -71,21 +92,7 @@ export function recoverGoalPlannerOutput(
   if (candidate.startsWith("{") || candidate.startsWith("[")) {
     return { taskPlan: `${JSON.stringify({ tasks: parseTaskPlan(candidate) }, null, 2)}\n` };
   }
-  const numberedLines = candidate.match(/^[ \t]*\d+[.)][ \t]+.+$/gm) ?? [];
-  const matches = [
-    ...candidate.matchAll(/^[ \t]*(\d+)[.)][ \t]+\*\*(.+?):\*\*[ \t]+(.+)$/gm)
-  ];
-  if (
-    matches.length < 2 ||
-    matches.length !== numberedLines.length ||
-    matches.some((match, index) => Number(match[1]) !== index + 1)
-  ) {
-    return null;
-  }
-  const tasks = matches.map((match) => ({ title: match[2], description: match[3] }));
-  return {
-    taskPlan: `${JSON.stringify({ tasks: parseTaskPlan(JSON.stringify(tasks)) }, null, 2)}\n`
-  };
+  return null;
 }
 
 export function validateGoalRun(
@@ -97,8 +104,11 @@ export function validateGoalRun(
   const stage = currentStage.trim().toLowerCase();
   const taskPlan = outputs.includes(TASK_PLAN_OUTPUT);
   if (taskPlan) {
-    if (stage !== GOALS_STAGES[0].toLowerCase()) {
-      throw new Error("Only the Plan status can propose subtasks");
+    if (outputs.length !== 1) {
+      throw new Error(`${TASK_PLAN_OUTPUT} must be the run's only reviewable output`);
+    }
+    if (stage === GOALS_STAGES[2].toLowerCase() || stage === GOALS_STAGES[4].toLowerCase()) {
+      throw new Error("Waiting and Done cannot propose tasks");
     }
     return;
   }
@@ -119,24 +129,27 @@ export function validateGoalRun(
   }
 }
 
-export const GOAL_PLANNER_PROMPT = `Decide whether this goal is already one concrete task.
+export const GOAL_PLANNER_PROMPT = `Plan only the next safe, executable wave of this goal.
 
-If it is small enough for one agent to execute, create no task plan and choose the Work status.
+If this goal itself is one read-only or preparation task, create no task plan and choose Work.
+An external action must always be a separately approved external_write task, even when it is small.
 
-If it needs multiple independently completable tasks, write only outputs/${TASK_PLAN_OUTPUT} as:
-{"tasks":[{"title":"Specific outcome","description":"Context and acceptance criteria"}]}
-Use 2–25 non-overlapping tasks that together finish the goal. Do not create coordination,
-review, or planning tasks. The human will approve or reject this plan before tasks are created.`;
+Otherwise write only outputs/${TASK_PLAN_OUTPUT} as:
+{"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}
+Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
+and input paths listed in the run context. The human selects and may edit tasks before creation.
+Later waves are planned after these tasks finish; do not plan work that depends on this wave.`;
 
 export const GOAL_WORKER_PROMPT = `Complete this task using the available tools and input files.
 
 Write proposed deliverables under outputs/ so a human can approve consequential changes.
 If a human decision is required, write a short approval-request.md that states the decision,
-options, and your recommendation. Choose Review when the task is ready to be checked; choose
-Plan only when the task genuinely needs decomposition.`;
+options, and your recommendation. You may instead write ${TASK_PLAN_OUTPUT} using the exact task
+schema from the run context when completion requires independently executable child tasks.
+Choose Review when the task is ready to be checked.`;
 
-export const GOAL_REVIEWER_PROMPT = `Check whether the work and approved files satisfy the task description and its parent goal.
+export const GOAL_REVIEWER_PROMPT = `Check whether the completed wave and approved files satisfy the task and its parent goal.
 
 Choose Done only when the task is complete. Choose Work when concrete corrections remain, or
-Plan when it must be decomposed. Write an output only when a human needs to approve a change or
-decision; otherwise finish without creating a file.`;
+Plan when another safe wave is required. Never mark an ongoing campaign Done while its stop
+condition remains unmet. Write an output only when a human needs to approve a change or decision.`;

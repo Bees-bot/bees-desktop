@@ -28,6 +28,40 @@ describe("local repository", () => {
     expect(await repository.listProcesses(teamId)).toEqual([]);
   });
 
+  it("persists ordinary schedules and recurring Goals occurrences as distinct modes", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const goalId = await repository.createWorkItem(goals.id, {
+      stageId: goals.stages[0]!.id,
+      title: "Find relevant conversations"
+    });
+    await repository.createSchedule({
+      teamId: local.teamId,
+      workItemId: goalId,
+      name: "Hourly discovery",
+      recurrence: "hourly",
+      mode: "spawn_goal",
+      role: "researcher",
+      timezone: "America/Los_Angeles",
+      nextRunAt: "2026-08-05T12:00:00.000Z"
+    });
+
+    expect(await repository.listSchedules(local.teamId)).toEqual([
+      expect.objectContaining({ mode: "spawn_goal", role: "researcher" })
+    ]);
+    await expect(repository.createSchedule({
+      teamId: local.teamId,
+      workItemId: goalId,
+      name: "Invalid",
+      recurrence: "daily",
+      mode: "run",
+      role: "researcher",
+      timezone: "UTC",
+      nextRunAt: "2026-08-05T12:00:00.000Z"
+    })).rejects.toThrow("ordinary schedule");
+  });
+
   it("persists ordered offline processes and work items", async () => {
     const database = new NodeDatabase();
     const repository = new LocalRepository(database);
@@ -251,10 +285,11 @@ describe("local repository", () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const goals = (await repository.listProcesses(local.teamId))[0]!;
-    const [plan, , waiting] = goals.stages;
+    const [plan, work, waiting, review] = goals.stages;
     const parentId = await repository.createWorkItem(goals.id, {
       stageId: plan!.id,
-      title: "Launch the site"
+      title: "Launch the site",
+      logicalFiles: ["brief.md"]
     });
     const executionId = await repository.createExecution({
       agentId: "planner",
@@ -265,14 +300,26 @@ describe("local repository", () => {
     await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
     const [output] = await repository.listExecutionOutputs(executionId);
 
+    await expect(repository.approveTaskPlan(
+      output!.id,
+      parentId,
+      plan!.id,
+      work!.id,
+      waiting!.id,
+      review!.id,
+      [{ key: "bad", title: "Bad", description: "Use an unapproved file", role: "goal-worker", effect: "read", inputs: ["private.md"] }]
+    )).rejects.toThrow("not approved on its parent");
+
     const childIds = await repository.approveTaskPlan(
       output!.id,
       parentId,
       plan!.id,
+      work!.id,
       waiting!.id,
+      review!.id,
       [
-        { title: "Build", description: "Implement it" },
-        { title: "Verify", description: "Check it" }
+        { key: "build", title: "Build", description: "Implement it", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] },
+        { key: "verify", title: "Verify", description: "Check it", role: "goal-worker", effect: "read", inputs: [] }
       ]
     );
 
@@ -283,11 +330,45 @@ describe("local repository", () => {
     expect(await repository.listWorkItems(goals.id)).toEqual(
       expect.arrayContaining(
         childIds.map((id) =>
-          expect.objectContaining({ id, parentId, stageId: plan!.id, status: "open" })
+          expect.objectContaining({ id, parentId, stageId: work!.id, status: "open" })
         )
       )
     );
+    expect(await repository.getWorkItem(childIds[0]!)).toMatchObject({
+      logicalFiles: ["brief.md"],
+      goal: {
+        key: "build",
+        role: "goal-worker",
+        effect: "prepare",
+        planOutputId: output!.id,
+        occurrenceOf: null
+      }
+    });
     expect((await repository.listExecutionOutputs(executionId))[0]?.status).toBe("approved");
+
+    const duplicateParentId = await repository.createWorkItem(goals.id, {
+      stageId: plan!.id,
+      title: "Duplicate scan",
+      logicalFiles: ["brief.md"]
+    });
+    const duplicateExecutionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan." },
+      workItemId: duplicateParentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(duplicateExecutionId, [TASK_PLAN_OUTPUT]);
+    const [duplicateOutput] = await repository.listExecutionOutputs(duplicateExecutionId);
+    await expect(repository.approveTaskPlan(
+      duplicateOutput!.id,
+      duplicateParentId,
+      plan!.id,
+      work!.id,
+      waiting!.id,
+      review!.id,
+      [{ key: "build", title: "Build again", description: "Duplicate", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] }]
+    )).resolves.toEqual([]);
+    expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: review!.id });
   });
 
   it("routes a checkpoint to the status the run named, and falls back when it did not", async () => {

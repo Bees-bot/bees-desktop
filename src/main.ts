@@ -31,6 +31,7 @@ import type {
   Execution,
   ExecutionOutput,
   FileLocation,
+  GoalTaskEffect,
   LocalWorkspace,
   McpConnection,
   Organization,
@@ -148,9 +149,15 @@ import {
 import { CLI_TOOLS, detectCliTools } from "./cli-tools.js";
 import {
   completedGoalsReadyForReview,
-  goalStageForRun
+  goalPlanStages,
+  goalStageForRun,
+  isGoalsProcess
 } from "./processes/goals/runtime.js";
 import { GoalsController } from "./processes/goals/controller.js";
+import {
+  parseTaskPlan,
+  type PlannedTask
+} from "./processes/goals/index.js";
 import {
   PROCESS_LIBRARY,
   processLibraryEntry,
@@ -255,9 +262,24 @@ const goalsController = new GoalsController({
     if (!execution.workspaceRef) throw new Error("Output workspace is unavailable");
     return workspaces.readOutput(execution.workspaceRef, output.logicalOutput, teamRoot);
   },
-  approveTaskPlan: async (outputId, itemId, planStageId, waitingStageId, tasks) => {
-    await repository.approveTaskPlan(outputId, itemId, planStageId, waitingStageId, tasks);
-  },
+  approveTaskPlan: (
+    outputId,
+    itemId,
+    sourceStageId,
+    workStageId,
+    waitingStageId,
+    reviewStageId,
+    tasks
+  ) => repository.approveTaskPlan(
+    outputId,
+    itemId,
+    sourceStageId,
+    workStageId,
+    waitingStageId,
+    reviewStageId,
+    tasks
+  ),
+  workerRoles: () => goalWorkerRoles().map(({ role }) => role),
   syncCheckpoint: (itemId) => syncCheckpoint(itemId),
   finishOutputReview: (execution) => finishOutputReview(execution)
 });
@@ -509,7 +531,7 @@ const scheduler = new AppOpenScheduler(
   () => workspace?.teamId ?? "",
   async (schedule) => {
     try {
-      await runItem(schedule.workItemId, true, undefined, undefined, true);
+      await runScheduledOccurrence(schedule, true);
     } catch (error) {
       const message = errorText(error);
       notifyLocal("Scheduled Bees run could not start", message);
@@ -1691,7 +1713,7 @@ function workItemBadges(item: WorkItem): string {
   const execution = activeExecutionForItem(item.id, executions);
   const agent = execution
     ? agents.find(({ id }) => id === execution.agentId)
-    : agentForStage(item.stageId);
+    : agentForItem(item);
   const run =
     execution?.status === "running"
       ? "Running"
@@ -4340,6 +4362,13 @@ function applySettledExecution(
       typeof execution.result.statusName === "string" ? execution.result.statusName : undefined;
 
     if (execution.result.projectionState === "pending") {
+      const projectedItem = await repository.getWorkItem(execution.workItemId);
+      if (
+        execution.status !== "completed" &&
+        projectedItem?.goal?.effect === "external_write"
+      ) {
+        await repository.setWorkItemStatus(projectedItem.id, "blocked");
+      }
       if (
         execution.status === "completed" &&
         outputs.length === 0 &&
@@ -4408,6 +4437,101 @@ function notifyLocal(titleText: string, body: string): void {
 /** The agent wired to a status, if any. Agents own the link now, not stages. */
 function agentForStage(stageId: string | undefined): Agent | undefined {
   return stageId ? agents.find(({ triggerStageId }) => triggerStageId === stageId) : undefined;
+}
+
+function configuredAgentRole(agent: Agent): string {
+  return String(agent.config.role ?? agent.name).trim();
+}
+
+function goalWorkerRoles(): Array<{ role: string; purpose: string; agent: Agent }> {
+  const goalWorkStages = new Set(
+    processes
+      .filter(isGoalsProcess)
+      .flatMap((process) => goalPlanStages(process)?.work.id ?? [])
+  );
+  const reserved = new Set(["goal-planner", "goal-reviewer", "skill-editor"]);
+  const seen = new Set<string>();
+  return agents.flatMap((agent) => {
+    const role = configuredAgentRole(agent);
+    const normalized = role.toLowerCase();
+    if (
+      !role ||
+      !agent.config.prompt.trim() ||
+      reserved.has(normalized) ||
+      (agent.triggerStageId !== null && !goalWorkStages.has(agent.triggerStageId)) ||
+      seen.has(normalized)
+    ) {
+      return [];
+    }
+    seen.add(normalized);
+    return [{ role, purpose: agent.purpose || agent.description, agent }];
+  });
+}
+
+function agentForItem(item: WorkItem): Agent | undefined {
+  const process = processes.find(({ id }) => id === item.processId);
+  const stages = process ? goalPlanStages(process) : null;
+  if (stages?.work.id === item.stageId && item.goal?.role) {
+    return goalWorkerRoles().find(
+      ({ role }) => role.toLowerCase() === item.goal!.role.toLowerCase()
+    )?.agent;
+  }
+  return agentForStage(item.stageId);
+}
+
+async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
+  if (schedule.mode === "run") return schedule.workItemId;
+  const template = await repository.getWorkItem(schedule.workItemId);
+  const process = template ? processes.find(({ id }) => id === template.processId) : null;
+  const stages = process ? goalPlanStages(process) : null;
+  if (!template || !process || !stages) {
+    throw new Error("A goal occurrence schedule must target a Goals work item");
+  }
+  const worker = goalWorkerRoles().find(
+    ({ role }) => role.toLowerCase() === schedule.role?.toLowerCase()
+  );
+  if (!worker) throw new Error(`Scheduled goal role is unavailable: ${schedule.role ?? ""}`);
+  const key = `schedule:${schedule.id}:${schedule.nextRunAt}`;
+  const existing = (await repository.listWorkItems(process.id)).find(
+    (item) => item.goal?.key === key
+  );
+  if (existing) return existing.id;
+  const due = new Date(schedule.nextRunAt).toISOString();
+  return repository.createWorkItem(process.id, {
+    stageId: stages.work.id,
+    parentId: template.id,
+    title: `${template.title} — ${due}`.slice(0, 180),
+    description: [
+      template.description,
+      `Scheduled occurrence: ${due}. Cover the current window, use stable task keys to deduplicate findings, and propose every external action as its own external_write task.`
+    ].filter(Boolean).join("\n\n"),
+    ...(template.owner ? { owner: template.owner } : {}),
+    logicalFiles: template.logicalFiles,
+    goal: {
+      key,
+      role: worker.role,
+      effect: "prepare",
+      planOutputId: null,
+      authorizedAt: new Date().toISOString(),
+      occurrenceOf: template.id
+    }
+  });
+}
+
+async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
+  const itemId = await scheduledWorkItemId(schedule);
+  if (
+    schedule.mode === "spawn_goal" &&
+    (await repository.listExecutionsForWorkItem(itemId)).length
+  ) {
+    return;
+  }
+  try {
+    await runItem(itemId, auto, undefined, undefined, true);
+  } catch (error) {
+    if (schedule.mode === "spawn_goal") await refresh();
+    throw error;
+  }
 }
 
 function runComposition(agent: Agent): {
@@ -4586,6 +4710,46 @@ async function projectToolsByPolicy(
   };
 }
 
+function projectToolsByGoalEffect(
+  effect: GoalTaskEffect | undefined,
+  agent: Agent,
+  composition: ReturnType<typeof runComposition>
+): { agent: Agent; composition: ReturnType<typeof runComposition> } {
+  if (!effect || effect === "external_write") return { agent, composition };
+  const writeGrant = (grant: string): boolean =>
+    grant === BROWSER_WRITE_GRANT || grant.startsWith("local:") || grant.startsWith("mcp:");
+  const nextAgent = {
+    ...agent,
+    config: {
+      ...agent.config,
+      grants: (agent.config.grants ?? []).filter((grant) => !writeGrant(grant))
+    }
+  };
+  const capabilities = composition.capabilities.filter(
+    ({ kind, ref }) => kind !== "tool" || !agent.config.grants?.includes(`local:${ref}`)
+  );
+  const mcpConnections = composition.mcpConnections.flatMap((connection) => {
+    const allowedTools = connection.allowedTools.filter(
+      (name) => connection.tools.find((tool) => tool.name === name)?.readOnly === true
+    );
+    return allowedTools.length ? [{ ...connection, allowedTools }] : [];
+  });
+  const delegates = composition.delegates.map(({ agent: helper, skillRefs }) => ({
+    agent: {
+      ...helper,
+      config: {
+        ...helper.config,
+        grants: (helper.config.grants ?? []).filter((grant) => !writeGrant(grant))
+      }
+    },
+    skillRefs
+  }));
+  return {
+    agent: nextAgent,
+    composition: { ...composition, capabilities, mcpConnections, delegates }
+  };
+}
+
 function processStateBadge(processId: string): string {
   const process = processes.find(({ id }) => id === processId);
   if (process && processModule(process.name)?.mode === "studio") {
@@ -4661,7 +4825,7 @@ async function setProcessRunning(processId: string, running: boolean): Promise<v
 function autopilotNext(): WorkItem | undefined {
   const work = executions.filter((execution) => !isProposal(execution));
   return teamItems.find((item) => {
-    const agent = agentForStage(item.stageId);
+    const agent = agentForItem(item);
     return (
       runningProcesses.has(item.processId) &&
       Boolean(agent?.config.prompt.trim()) &&
@@ -4710,7 +4874,7 @@ async function proposeSkillEdit(item: WorkItem): Promise<void> {
   const stage = processes
     .find(({ id }) => id === item.processId)
     ?.stages.find(({ id }) => id === item.stageId);
-  if (!stage || !agentForStage(stage.id)) return;
+  if (!stage || !agentForItem(item)) return;
   const openProposal = executions.some(
     (execution) =>
       execution.config.proposalStageId === stage.id &&
@@ -4754,7 +4918,7 @@ async function proposeSkillEdit(item: WorkItem): Promise<void> {
 /** Turns explicit "future items" feedback into a direct, reversible standing rule. */
 async function rememberRejection(item: WorkItem, reason: string): Promise<() => Promise<void>> {
   const stage = processes.find(({ id }) => id === item.processId)?.stages.find(({ id }) => id === item.stageId);
-  const agent = agentForStage(stage?.id);
+  const agent = agentForItem(item);
   const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
   if (!stage || !agent || !mapping?.localPath) throw new Error("That status has no writable agent skill");
   const slug = skillSlug(`${stage.name}-${activeProcess?.name ?? "process"}`);
@@ -4915,7 +5079,7 @@ async function runItem(
   const process = processes.find(({ id }) => id === item.processId);
   const stage = process?.stages.find(({ id }) => id === item.stageId);
   if (!process || !stage) throw new Error("This work item has no active process step");
-  const currentAgent = agentForStage(stage.id);
+  const currentAgent = agentForItem(item);
   const originalAgent = continuation
     ? agents.find(({ id }) => id === continuation.execution.agentId)
     : null;
@@ -4943,6 +5107,25 @@ async function runItem(
           }
         }
       : agent;
+  const goalEffect = isGoalsProcess(process) ? item.goal?.effect ?? "prepare" : undefined;
+  if (goalEffect === "external_write") {
+    if (!item.goal?.authorizedAt || !item.goal.planOutputId) {
+      throw new Error("This external action has no approval receipt");
+    }
+    if (continuation || (await repository.listExecutionsForWorkItem(item.id)).length) {
+      throw new Error("This external action approval has already been used; approve a fresh task to retry");
+    }
+    runAgent = {
+      ...runAgent,
+      config: {
+        ...runAgent.config,
+        validationRules: [...new Set([
+          ...(runAgent.config.validationRules ?? []),
+          "action-receipt"
+        ])]
+      }
+    };
+  }
   const eligibility = eligibilityForAgent(runAgent);
   if (!eligibility.active) {
     throw new Error(`${runAgent.name} is inactive: ${eligibility.reason}`);
@@ -5029,6 +5212,9 @@ async function runItem(
       const projected = await projectToolsByPolicy(runAgent, composition);
       runAgent = projected.agent;
       composition = projected.composition;
+      const goalProjection = projectToolsByGoalEffect(goalEffect, runAgent, composition);
+      runAgent = goalProjection.agent;
+      composition = goalProjection.composition;
     }
     const report = controlIdentity();
     const startedAt = Date.now();
@@ -5059,6 +5245,10 @@ async function runItem(
       ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
       stages: process.stages.map(({ name }) => name),
       ...(goalStageForRun(process, stage) ? { goalStage: stage.name } : {}),
+      ...(goalEffect ? { goalEffect } : {}),
+      ...(isGoalsProcess(process)
+        ? { workerRoles: goalWorkerRoles().map(({ role, purpose }) => ({ role, purpose })) }
+        : {}),
       ...(item.parentId
         ? { parent: teamItems.find(({ id }) => id === item.parentId)! }
         : {}),
@@ -5105,6 +5295,13 @@ async function runItem(
         ? String(error.executionId)
         : "";
     const settled = executionId ? await repository.getExecution(executionId) : null;
+    if (
+      goalEffect === "external_write" &&
+      settled?.status !== "completed" &&
+      !settled?.result?.projectionState
+    ) {
+      await repository.setWorkItemStatus(item.id, "blocked").catch(() => undefined);
+    }
     if (settled?.endedAt && settled.result?.projectionState) {
       await applySettledExecution(executionId, true);
     } else {
@@ -5237,7 +5434,12 @@ async function finishOutputReview(execution: Execution): Promise<void> {
   } else {
     // Rejecting is asking for the work again: with no per-task Run button left, the item has to
     // become due on its own or it sits at this status forever.
-    await repository.touchWorkItem(execution.workItemId);
+    const item = await repository.getWorkItem(execution.workItemId);
+    if (item?.goal?.effect === "external_write") {
+      await repository.setWorkItemStatus(item.id, "blocked");
+    } else {
+      await repository.touchWorkItem(execution.workItemId);
+    }
   }
   await releaseClaim(execution.workItemId);
 }
@@ -5591,14 +5793,91 @@ document.addEventListener("click", async (event) => {
       const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
       if (!output || !execution?.workspaceRef || !mapping) throw new Error("Output is unavailable");
       if (goalsController.matchesOutput(output.logicalOutput)) {
+        const proposed = await goalsController.readTaskPlan(output, execution, mapping.localPath);
+        const item = await repository.getWorkItem(execution.workItemId);
+        if (!item) throw new Error("The goal is unavailable");
+        const roles = goalWorkerRoles();
+        const fields: EditorField[] = [
+          {
+            name: "selectedTasks",
+            label: "Tasks to approve",
+            type: "checkboxes",
+            options: proposed.map((task, index) => ({
+              label: task.title,
+              value: String(index),
+              description: `${task.effect} · ${task.role} · ${task.description}`
+            })),
+            checked: [],
+            hint: "Select each task you authorize. Unselected tasks are discarded with this plan."
+          },
+          ...proposed.flatMap((task, index): EditorField[] => [
+            {
+              name: `task-${index}-title`,
+              label: `${index + 1}. Title`,
+              value: task.title
+            },
+            {
+              name: `task-${index}-description`,
+              label: `${index + 1}. Instructions and acceptance criteria`,
+              type: "textarea",
+              value: task.description
+            },
+            {
+              name: `task-${index}-role`,
+              label: `${index + 1}. Worker role`,
+              type: "select",
+              value: task.role,
+              options: roles.map(({ role, purpose }) => ({ label: role, value: role, description: purpose }))
+            },
+            {
+              name: `task-${index}-effect`,
+              label: `${index + 1}. Effect`,
+              type: "select",
+              value: task.effect,
+              options: [
+                { label: "Read only", value: "read" },
+                { label: "Prepare outputs", value: "prepare" },
+                { label: "External action", value: "external_write" }
+              ]
+            },
+            {
+              name: `task-${index}-inputs`,
+              label: `${index + 1}. Approved inputs`,
+              type: "checkboxes",
+              options: item.logicalFiles.map((path) => ({ label: path, value: path })),
+              checked: task.inputs
+            }
+          ])
+        ];
+        const data = await edit("Approve goal tasks", fields, "Approve selected");
+        if (!data) return;
+        const selected = new Set(data.getAll("selectedTasks").map(String));
+        if (!selected.size) throw new Error("Select at least one task to approve");
+        const edited = parseTaskPlan(JSON.stringify({
+          tasks: proposed.flatMap((task, index): PlannedTask[] => selected.has(String(index))
+            ? [{
+                ...task,
+                title: String(data.get(`task-${index}-title`) ?? ""),
+                description: String(data.get(`task-${index}-description`) ?? ""),
+                role: String(data.get(`task-${index}-role`) ?? ""),
+                effect: String(data.get(`task-${index}-effect`) ?? "") as GoalTaskEffect,
+                inputs: data.getAll(`task-${index}-inputs`).map(String)
+              }]
+            : [])
+        }));
         for (const control of app.querySelectorAll<HTMLButtonElement>(
           '[data-action="approve-output"], [data-action="reject-output"]'
         )) {
           if (control.dataset.id === output.id) control.disabled = true;
         }
         try {
-          const count = await goalsController.approveTaskPlan(output, execution, mapping.localPath);
-          showNotice(`${count} task${count === 1 ? "" : "s"} approved and queued`, "success");
+          const count = await goalsController.approveTaskPlan(output, execution, mapping.localPath, edited);
+          showNotice(
+            count
+              ? `${count} task${count === 1 ? "" : "s"} approved and queued`
+              : "Plan approved; duplicate task keys were skipped",
+            "success"
+          );
           return;
         } finally {
           // Reconcile controls with the database even if shared coordination fails afterward.
@@ -5714,6 +5993,7 @@ document.addEventListener("click", async (event) => {
     if (action === "new-schedule") {
       if (!teamItems.length) throw new Error("Create a work item before adding a schedule");
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const roles = goalWorkerRoles();
       const data = await edit("New schedule", [
         { name: "name", label: "Name", value: "Scheduled work" },
         {
@@ -5721,6 +6001,25 @@ document.addEventListener("click", async (event) => {
           label: "Work item",
           type: "select",
           options: teamItems.map(({ id, title }) => ({ label: title, value: id }))
+        },
+        {
+          name: "mode",
+          label: "On each occurrence",
+          type: "select",
+          value: "run",
+          options: [
+            { label: "Run this item again", value: "run" },
+            { label: "Create a new Goals occurrence", value: "spawn_goal" }
+          ],
+          hint: "Goal occurrences preserve history and can propose separately approved actions."
+        },
+        {
+          name: "role",
+          label: "Occurrence worker role",
+          type: "select",
+          value: roles[0]?.role ?? "",
+          options: roles.map(({ role }) => ({ label: role, value: role })),
+          hint: "Used only when creating a Goals occurrence."
         },
         {
           name: "recurrence",
@@ -5733,20 +6032,36 @@ document.addEventListener("click", async (event) => {
       ]);
       if (!data) return;
       const recurrence = String(data.get("recurrence")) as Schedule["recurrence"];
+      const mode = String(data.get("mode")) as Schedule["mode"];
+      const workItemId = String(data.get("workItemId"));
+      const scheduledItem = teamItems.find(({ id }) => id === workItemId);
+      const scheduledProcess = scheduledItem
+        ? processes.find(({ id }) => id === scheduledItem.processId)
+        : null;
+      if (mode === "spawn_goal" && (!scheduledItem || !isGoalsProcess(scheduledProcess))) {
+        throw new Error("New goal occurrences can only be created from a Goals work item");
+      }
+      const role = mode === "spawn_goal" ? String(data.get("role")) : null;
+      if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
+        throw new Error("Choose an available goal worker role");
+      }
       await repository.createSchedule({
         teamId: workspace.teamId,
-        workItemId: String(data.get("workItemId")),
+        workItemId,
         name: String(data.get("name")),
         recurrence,
+        mode,
+        role,
         timezone: String(data.get("timezone")),
         nextRunAt: nextScheduleRun(recurrence, new Date()).toISOString()
       });
+      if (mode === "spawn_goal") await repository.setWorkItemStatus(workItemId, "blocked");
       await refresh();
       return;
     }
     if (action === "run-schedule") {
       const schedule = schedules.find(({ id }) => id === button.dataset.id);
-      if (schedule) await runItem(schedule.workItemId, false, undefined, undefined, true);
+      if (schedule) await runScheduledOccurrence(schedule, false);
       return;
     }
     if (action === "toggle-schedule") {

@@ -13,13 +13,21 @@ describe("Goals process controller", () => {
       completionRules: "",
       archivedAt: null
     }));
-    const item = { id: "goal", processId: "goals" } as WorkItem;
+    const item = { id: "goal", processId: "goals", stageId: "plan" } as WorkItem;
     const process = { id: "goals", name: "Goals", stages } as Process;
     const host = {
       findWorkItem: vi.fn(() => item),
       findProcess: vi.fn(() => process),
-      readOutput: vi.fn().mockResolvedValue('{"tasks":["First task"]}'),
-      approveTaskPlan: vi.fn(),
+      readOutput: vi.fn().mockResolvedValue(JSON.stringify({ tasks: [{
+        key: "first",
+        title: "First task",
+        description: "Do the work",
+        role: "goal-worker",
+        effect: "prepare",
+        inputs: []
+      }] })),
+      approveTaskPlan: vi.fn().mockResolvedValue(["child"]),
+      workerRoles: vi.fn(() => ["goal-worker"]),
       syncCheckpoint: vi.fn(),
       finishOutputReview: vi.fn()
     } satisfies GoalsHost;
@@ -32,8 +40,17 @@ describe("Goals process controller", () => {
       output.id,
       item.id,
       "plan",
+      "work",
       "waiting",
-      [{ title: "First task", description: "" }]
+      "review",
+      [{
+        key: "first",
+        title: "First task",
+        description: "Do the work",
+        role: "goal-worker",
+        effect: "prepare",
+        inputs: []
+      }]
     );
     expect(host.syncCheckpoint).toHaveBeenCalledWith(item.id);
     expect(host.finishOutputReview).toHaveBeenCalledWith(execution);

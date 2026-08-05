@@ -11,8 +11,8 @@ pub fn validate_run(
 ) -> Result<(), String> {
     let stage = current_stage.trim().to_lowercase();
     if outputs.iter().any(|output| output == TASK_PLAN_OUTPUT) {
-        if stage != PLAN {
-            return Err("Only the Plan status can propose subtasks".into());
+        if stage == WAITING || stage == "done" {
+            return Err("Waiting and Done cannot propose tasks".into());
         }
         return Ok(());
     }
@@ -55,7 +55,8 @@ mod tests {
         ];
         let plan = vec![TASK_PLAN_OUTPUT.to_owned()];
         assert!(validate_run("Plan", &plan, "", &stages).is_ok());
-        assert!(validate_run("Work", &plan, "", &stages).is_err());
+        assert!(validate_run("Work", &plan, "", &stages).is_ok());
+        assert!(validate_run("Waiting", &plan, "", &stages).is_err());
         assert!(validate_run("Plan", &[], "Work", &stages).is_ok());
         assert!(validate_run("Plan", &[], "Review", &stages).is_err());
         assert!(validate_run("Work", &[], "Review", &stages).is_ok());

@@ -2436,7 +2436,7 @@ fn cleanup_workspace(app: tauri::AppHandle, workspace_root: String) -> Result<()
 /// added to that file never reaches an install that already has the table, and the statements
 /// at the bottom of the same file then select it and take the app down at startup. Adding it
 /// here is the migration. `schema.sql` still has to carry the column for fresh installs.
-const ADDED_COLUMNS: &[(&str, &str)] = &[
+const EXECUTION_ADDED_COLUMNS: &[(&str, &str)] = &[
     // Runs moved from a stream (`instance_id`, `stream_url`, `stream_offset`) to a
     // conversation. The three stale columns are left alone: dropping them buys nothing.
     ("conversation_id", "TEXT NOT NULL DEFAULT ''"),
@@ -2445,6 +2445,11 @@ const ADDED_COLUMNS: &[(&str, &str)] = &[
     ("conversation_text", "TEXT"),
     ("restarted_from_execution_id", "TEXT"),
 ];
+
+const WORK_ITEM_ADDED_COLUMNS: &[(&str, &str)] = &[("goal_json", "TEXT NOT NULL DEFAULT 'null'")];
+
+const SCHEDULE_ADDED_COLUMNS: &[(&str, &str)] =
+    &[("mode", "TEXT NOT NULL DEFAULT 'run'"), ("role", "TEXT")];
 
 fn column_exists(
     connection: &Connection,
@@ -2465,19 +2470,38 @@ fn column_exists(
 /// Checking each column rather than keeping a version number makes this safe on a database
 /// of any age, including one a crashed build already half-migrated.
 fn migrate_database(connection: &Connection) -> Result<(), rusqlite::Error> {
-    let has_executions = connection
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'executions'")?
-        .exists([])?;
+    let table_exists = |table: &str| -> Result<bool, rusqlite::Error> {
+        connection
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?
+            .exists([table])
+    };
+    let has_executions = table_exists("executions")?;
     // A fresh database has no tables yet; `schema.sql` creates them already correct.
     if !has_executions {
         return Ok(());
     }
 
-    for (column, definition) in ADDED_COLUMNS {
+    for (column, definition) in EXECUTION_ADDED_COLUMNS {
         if !column_exists(connection, "executions", column)? {
             connection.execute_batch(&format!(
                 "ALTER TABLE executions ADD COLUMN {column} {definition}"
             ))?;
+        }
+    }
+
+    for (table, columns) in [
+        ("work_items", WORK_ITEM_ADDED_COLUMNS),
+        ("schedules", SCHEDULE_ADDED_COLUMNS),
+    ] {
+        if !table_exists(table)? {
+            continue;
+        }
+        for (column, definition) in columns {
+            if !column_exists(connection, table, column)? {
+                connection.execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                ))?;
+            }
         }
     }
 

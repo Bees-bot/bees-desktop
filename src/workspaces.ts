@@ -233,6 +233,9 @@ export function validateCollectedOutputs(outputs: string[], rules: string[] = []
   if (rules.includes("require-output") && outputs.length === 0) {
     throw new Error("Agent validation requires at least one output file");
   }
+  if (rules.includes("action-receipt") && !outputs.includes("action-receipt.json")) {
+    throw new Error("An external action must produce action-receipt.json");
+  }
   const extensionRule = rules.find((rule) => rule.startsWith("extension:"));
   if (extensionRule) {
     const extension = extensionRule.slice("extension:".length);

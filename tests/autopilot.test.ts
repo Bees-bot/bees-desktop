@@ -18,6 +18,7 @@ const item = {
   title: "Draft",
   description: "",
   owner: null,
+  goal: null,
   status: "open",
   logicalFiles: [],
   syncVersion: 0,
@@ -81,6 +82,32 @@ describe("runPrompt", () => {
     expect(prompt).not.toContain("rejected");
   });
 
+  it("supplies the strict Goals schema and external-action receipt contract", () => {
+    const prompt = runPrompt({
+      item: {
+        ...item,
+        goal: {
+          key: "reply:123",
+          role: "publisher",
+          effect: "external_write",
+          planOutputId: "output",
+          authorizedAt: item.updatedAt,
+          occurrenceOf: null
+        }
+      },
+      agent,
+      teamRoot: "/team",
+      stages: ["Work", "Review"],
+      goalStage: "Work",
+      goalEffect: "external_write",
+      workerRoles: [{ role: "publisher", purpose: "Publishes approved replies" }]
+    });
+    expect(prompt).toContain('"effect":"read|prepare|external_write"');
+    expect(prompt).toContain("publisher: Publishes approved replies");
+    expect(prompt).toContain("action-receipt.json");
+    expect(prompt).toContain("If success is uncertain");
+  });
+
   it("gives subtasks their parent goal and gives parents their task progress", () => {
     const child = { ...item, id: "child", parentId: item.id, title: "Write copy" };
     const prompt = runPrompt({
@@ -118,6 +145,9 @@ describe("validateGoalRun", () => {
       "approved subtasks"
     );
     expect(() => validateGoalRun("Plan", [TASK_PLAN_OUTPUT], "", stages)).not.toThrow();
+    expect(() => validateGoalRun("Work", [TASK_PLAN_OUTPUT, "draft.md"], "", stages)).toThrow(
+      "only reviewable output"
+    );
     expect(() => validateGoalRun("Work", ["campaign.md"], "Review", stages)).not.toThrow();
   });
 });

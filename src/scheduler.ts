@@ -32,7 +32,7 @@ export class AppOpenScheduler {
 
   async start(): Promise<void> {
     if (this.timer) return;
-    await this.tick(false);
+    await this.tick(true);
     this.timer = setInterval(() => void this.tick(true), this.intervalMs);
   }
 
@@ -49,7 +49,9 @@ export class AppOpenScheduler {
       for (const schedule of schedules.filter(({ enabled }) => enabled)) {
         const due = new Date(schedule.nextRunAt);
         if (due > at) continue;
-        const shouldRun = allowRun && at.getTime() - due.getTime() <= this.graceMs;
+        const shouldRun =
+          allowRun &&
+          (schedule.mode === "spawn_goal" || at.getTime() - due.getTime() <= this.graceMs);
         if (shouldRun) {
           // A failed attempt still consumes this occurrence; v1 never backfills.
           try {

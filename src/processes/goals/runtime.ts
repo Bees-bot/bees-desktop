@@ -9,11 +9,15 @@ export function goalStageForRun(process: Process, stage: Stage): string | undefi
   return isGoalsProcess(process) ? stage.name : undefined;
 }
 
-export function goalPlanStages(process: Process): { plan: Stage; waiting: Stage } | null {
+export function goalPlanStages(
+  process: Process
+): { plan: Stage; work: Stage; waiting: Stage; review: Stage } | null {
   if (!isGoalsProcess(process)) return null;
   const plan = process.stages.find(({ name }) => name === GOALS_STAGES[0]);
+  const work = process.stages.find(({ name }) => name === GOALS_STAGES[1]);
   const waiting = process.stages.find(({ name }) => name === GOALS_STAGES[2]);
-  return plan && waiting ? { plan, waiting } : null;
+  const review = process.stages.find(({ name }) => name === GOALS_STAGES[3]);
+  return plan && work && waiting && review ? { plan, work, waiting, review } : null;
 }
 
 export function completedGoalsReadyForReview(

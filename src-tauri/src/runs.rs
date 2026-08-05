@@ -302,6 +302,13 @@ pub fn validate_collected_outputs(outputs: &[String], rules: &[String]) -> Resul
     if rules.iter().any(|rule| rule == "require-output") && outputs.is_empty() {
         return Err("Agent validation requires at least one output file".into());
     }
+    if rules.iter().any(|rule| rule == "action-receipt")
+        && !outputs.iter().any(|output| output == ACTION_RECEIPT_OUTPUT)
+    {
+        return Err(format!(
+            "An external action must produce {ACTION_RECEIPT_OUTPUT}"
+        ));
+    }
     if let Some(rule) = rules.iter().find(|rule| rule.starts_with("extension:")) {
         let extension = &rule["extension:".len()..];
         if !extension.starts_with('.') || outputs.iter().any(|output| !output.ends_with(extension))
@@ -317,6 +324,54 @@ pub fn validate_collected_outputs(outputs: &[String], rules: &[String]) -> Resul
 // ---------------------------------------------------------------------------
 
 const STATUS_OUTPUT: &str = ".status";
+const ACTION_RECEIPT_OUTPUT: &str = "action-receipt.json";
+
+fn receipt_text<'a>(receipt: &'a JsonValue, field: &str) -> Result<&'a str, String> {
+    receipt
+        .get(field)
+        .and_then(JsonValue::as_str)
+        .filter(|value| value.len() <= 2_048)
+        .ok_or_else(|| format!("Action receipt field {field} must be text"))
+}
+
+fn validate_action_receipt_value(receipt: &JsonValue) -> Result<(), String> {
+    let fields = receipt
+        .as_object()
+        .ok_or_else(|| "Action receipt must be a JSON object".to_string())?;
+    let accepted = ["status", "destination", "externalId", "url", "timestamp"];
+    if fields.len() != accepted.len() || fields.keys().any(|key| !accepted.contains(&key.as_str()))
+    {
+        return Err("Action receipt fields do not match the required schema".into());
+    }
+    if receipt.get("status").and_then(JsonValue::as_str) != Some("succeeded") {
+        return Err("Action receipt status must be succeeded".into());
+    }
+    if receipt_text(receipt, "destination")?.trim().is_empty() {
+        return Err("Action receipt destination is required".into());
+    }
+    let external_id = receipt_text(receipt, "externalId")?;
+    let url = receipt_text(receipt, "url")?;
+    if external_id.trim().is_empty() && url.trim().is_empty() {
+        return Err("Action receipt needs an externalId or URL".into());
+    }
+    let timestamp = receipt_text(receipt, "timestamp")?;
+    if timestamp.len() > 40 || !timestamp.contains('T') || !timestamp.ends_with('Z') {
+        return Err("Action receipt timestamp must be ISO-8601 UTC".into());
+    }
+    Ok(())
+}
+
+fn validate_action_receipt(workspace: &str) -> Result<(), String> {
+    let value = std::fs::read_to_string(
+        Path::new(workspace)
+            .join("outputs")
+            .join(ACTION_RECEIPT_OUTPUT),
+    )
+    .map_err(|_| format!("An external action must produce {ACTION_RECEIPT_OUTPUT}"))?;
+    let receipt: JsonValue = serde_json::from_str(&value)
+        .map_err(|_| "Action receipt must be valid JSON".to_string())?;
+    validate_action_receipt_value(&receipt)
+}
 
 fn collect(workspace: &str) -> Result<Vec<String>, String> {
     let root = Path::new(workspace).join("outputs");
@@ -598,6 +653,21 @@ fn run_to_settlement(
             Some(&conversation),
             Some(&error),
         );
+    }
+    if request
+        .validation_rules
+        .iter()
+        .any(|rule| rule == "action-receipt")
+    {
+        if let Err(error) = validate_action_receipt(&request.workspace) {
+            return finish_terminal(
+                database,
+                request,
+                "failed",
+                Some(&conversation),
+                Some(&error),
+            );
+        }
     }
 
     record(
@@ -890,6 +960,38 @@ mod tests {
         assert!(
             validate_collected_outputs(&["a.md".to_owned()], &["extension:md".to_owned()]).is_err()
         );
+        let action = vec!["action-receipt".to_owned()];
+        assert!(validate_collected_outputs(&[ACTION_RECEIPT_OUTPUT.to_owned()], &action).is_ok());
+        assert!(validate_collected_outputs(&["reply.md".to_owned()], &action).is_err());
+    }
+
+    #[test]
+    fn validates_confirmed_external_action_receipts() {
+        assert!(validate_action_receipt_value(&serde_json::json!({
+            "status": "succeeded",
+            "destination": "LinkedIn",
+            "externalId": "post-123",
+            "url": "https://example.com/post-123",
+            "timestamp": "2026-08-05T12:00:00.000Z"
+        }))
+        .is_ok());
+        assert!(validate_action_receipt_value(&serde_json::json!({
+            "status": "uncertain",
+            "destination": "LinkedIn",
+            "externalId": "",
+            "url": "",
+            "timestamp": "2026-08-05T12:00:00.000Z"
+        }))
+        .is_err());
+        assert!(validate_action_receipt_value(&serde_json::json!({
+            "status": "succeeded",
+            "destination": "LinkedIn",
+            "externalId": "post-123",
+            "url": "",
+            "timestamp": "2026-08-05T12:00:00.000Z",
+            "unexpected": true
+        }))
+        .is_err());
     }
 
     #[test]

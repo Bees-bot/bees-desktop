@@ -143,6 +143,7 @@ describe("metadata synchronization", () => {
         "title",
         "description",
         "owner",
+        "goal",
         "status",
         "logicalFiles",
         "checkpointStageId",

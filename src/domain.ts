@@ -1,6 +1,7 @@
 import type { BeesConversationSnapshotV1 } from "./conversation-snapshot.js";
 
 export type WorkItemStatus = "open" | "blocked" | "done" | "archived";
+export type GoalTaskEffect = "read" | "prepare" | "external_write";
 export type ExecutionStatus =
   | "queued"
   | "running"
@@ -124,6 +125,8 @@ export interface WorkItem {
   title: string;
   description: string;
   owner: string | null;
+  /** Approved Goals task metadata. Null for ordinary process items and unplanned root goals. */
+  goal: GoalWorkMetadata | null;
   status: WorkItemStatus;
   logicalFiles: string[];
   syncVersion: number;
@@ -132,6 +135,19 @@ export interface WorkItem {
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GoalWorkMetadata {
+  /** Stable campaign-scoped identity used to suppress duplicate work across recurring scans. */
+  key: string;
+  /** Existing agent role or agent name approved to execute this task. */
+  role: string;
+  effect: GoalTaskEffect;
+  /** Approval that authorized this task. Null only for schedule-created occurrences. */
+  planOutputId: string | null;
+  authorizedAt: string;
+  /** Standing goal used as the template for a scheduled occurrence. */
+  occurrenceOf: string | null;
 }
 
 /** A file in <teamRoot>/agents/<id>.json. Mutable — duplicate it to keep an old one. */
@@ -242,6 +258,9 @@ export interface Schedule {
   workItemId: string;
   name: string;
   recurrence: ScheduleRecurrence;
+  mode: "run" | "spawn_goal";
+  /** Agent role used by a spawned Goals occurrence. Null for ordinary reruns. */
+  role: string | null;
   timezone: string;
   enabled: boolean;
   nextRunAt: string;

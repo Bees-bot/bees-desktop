@@ -71,6 +71,8 @@ describe("lean launch modules", () => {
       workItemId: "item",
       name: "Daily",
       recurrence: "daily",
+      mode: "run",
+      role: null,
       timezone: "America/Los_Angeles",
       enabled: true,
       nextRunAt: "2026-01-01T12:00:00.000Z",
@@ -101,6 +103,44 @@ describe("lean launch modules", () => {
     await scheduler.tick(true, new Date("2026-01-03T12:00:30.000Z"));
     expect(run).toHaveBeenCalledWith(schedule);
     expect(nextScheduleRun("weekdays", new Date("2026-01-02T12:00:00.000Z")).getDay()).toBe(1);
+  });
+
+  it("creates one catch-up goal occurrence after downtime", async () => {
+    const schedule = {
+      id: "schedule",
+      teamId: "team",
+      workItemId: "goal-template",
+      name: "Hourly discovery",
+      recurrence: "hourly",
+      mode: "spawn_goal",
+      role: "researcher",
+      timezone: "America/Los_Angeles",
+      enabled: true,
+      nextRunAt: "2026-01-01T12:00:00.000Z",
+      lastRunAt: null,
+      createdAt: "",
+      updatedAt: ""
+    } satisfies Schedule;
+    const run = vi.fn();
+    const update = vi.fn();
+    const scheduler = new AppOpenScheduler(
+      {
+        listSchedules: vi.fn().mockResolvedValue([schedule]),
+        updateScheduleAfterTick: update
+      },
+      () => "team",
+      run
+    );
+
+    await scheduler.tick(true, new Date("2026-01-01T15:00:00.000Z"));
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(schedule);
+    expect(update).toHaveBeenCalledWith(
+      schedule.id,
+      "2026-01-01T16:00:00.000Z",
+      true
+    );
   });
 
   it("exports a content-free receipt", () => {
@@ -134,6 +174,7 @@ describe("lean launch modules", () => {
       title: "Review",
       description: "SECRET DESCRIPTION",
       owner: null,
+      goal: null,
       status: "open",
       logicalFiles: [],
       syncVersion: 0,
@@ -198,6 +239,7 @@ describe("lean launch modules", () => {
       title: "Onboarding campaign",
       description: "",
       owner: null,
+      goal: null,
       status: "open",
       logicalFiles: [],
       syncVersion: 0,

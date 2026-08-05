@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS work_items (
   title TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   owner TEXT,
+  goal_json TEXT NOT NULL DEFAULT 'null',
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'blocked', 'done', 'archived')),
   logical_files_json TEXT NOT NULL DEFAULT '[]',
   sync_version INTEGER NOT NULL DEFAULT 0,
@@ -147,6 +148,8 @@ CREATE TABLE IF NOT EXISTS schedules (
   work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   recurrence TEXT NOT NULL CHECK (recurrence IN ('hourly', 'daily', 'weekdays')),
+  mode TEXT NOT NULL CHECK (mode IN ('run', 'spawn_goal')),
+  role TEXT,
   timezone TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
   next_run_at TEXT NOT NULL,
@@ -273,6 +276,9 @@ CREATE INDEX IF NOT EXISTS idx_stages_process ON stages(process_id, position);
 CREATE INDEX IF NOT EXISTS idx_file_locations_org_team ON file_locations(organization_id, team_id, name);
 CREATE INDEX IF NOT EXISTS idx_work_items_stage ON work_items(stage_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_work_items_parent ON work_items(parent_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_goal_key
+ON work_items(process_id, json_extract(goal_json, '$.key'))
+WHERE json_extract(goal_json, '$.key') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_kanban_boards_team ON kanban_boards(team_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_executions_work_item ON executions(work_item_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status, created_at DESC);

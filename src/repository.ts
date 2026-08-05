@@ -25,6 +25,7 @@ import {
   type ExecutionOutput,
   type ExecutionStatus,
   type FileLocation,
+  type GoalWorkMetadata,
   type LocalWorkspace,
   type Organization,
   type Process,
@@ -162,6 +163,7 @@ function workItemRow(row: Row): WorkItem {
     title: stringValue(row.title),
     description: stringValue(row.description),
     owner: nullableString(row.owner),
+    goal: parseJson<GoalWorkMetadata | null>(row.goalJson, null),
     status: stringValue(row.status) as WorkItemStatus,
     logicalFiles: parseJson<string[]>(row.logicalFilesJson, []),
     syncVersion: Number(row.syncVersion),
@@ -280,6 +282,8 @@ function scheduleRow(row: Row): Schedule {
     workItemId: stringValue(row.workItemId),
     name: stringValue(row.name),
     recurrence: stringValue(row.recurrence) as ScheduleRecurrence,
+    mode: stringValue(row.mode) as Schedule["mode"],
+    role: nullableString(row.role),
     timezone: stringValue(row.timezone),
     enabled: Boolean(row.enabled),
     nextRunAt: stringValue(row.nextRunAt),
@@ -781,7 +785,7 @@ export class LocalRepository {
     return (
       await this.database.query<Row>(
         `SELECT id, process_id AS processId, stage_id AS stageId, parent_id AS parentId,
-                title, description, owner,
+                title, description, owner, goal_json AS goalJson,
                 status, logical_files_json AS logicalFilesJson, sync_version AS syncVersion,
                 checkpoint_stage_id AS checkpointStageId, checkpoint_at AS checkpointAt,
                 deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt
@@ -796,7 +800,8 @@ export class LocalRepository {
   async listTeamWorkItems(teamId: string): Promise<WorkItem[]> {
     const rows = await this.database.query<Row>(
       `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
-              w.parent_id AS parentId, w.title, w.description, w.owner, w.status,
+              w.parent_id AS parentId, w.title, w.description, w.owner,
+              w.goal_json AS goalJson, w.status,
               w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
               w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
               w.deleted_at AS deletedAt, w.created_at AS createdAt, w.updated_at AS updatedAt
@@ -812,7 +817,7 @@ export class LocalRepository {
   async getWorkItem(id: string): Promise<WorkItem | null> {
     const rows = await this.database.query<Row>(
       `SELECT id, process_id AS processId, stage_id AS stageId,
-              parent_id AS parentId, title, description, owner, status,
+              parent_id AS parentId, title, description, owner, goal_json AS goalJson, status,
               logical_files_json AS logicalFilesJson, sync_version AS syncVersion,
               checkpoint_stage_id AS checkpointStageId, checkpoint_at AS checkpointAt,
               deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt
@@ -847,6 +852,7 @@ export class LocalRepository {
       title: string;
       description?: string;
       owner?: string;
+      goal?: GoalWorkMetadata | null;
       logicalFiles?: string[];
     }
   ): Promise<string> {
@@ -854,9 +860,9 @@ export class LocalRepository {
     const timestamp = now();
     await this.database.execute(
       `INSERT INTO work_items
-       (id, process_id, stage_id, parent_id, title, description, owner, logical_files_json,
-        created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, process_id, stage_id, parent_id, title, description, owner, goal_json,
+        logical_files_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         processId,
@@ -865,6 +871,7 @@ export class LocalRepository {
         requiredText(input.title, "Work item title", 180),
         input.description?.trim() ?? "",
         input.owner?.trim() || null,
+        JSON.stringify(input.goal ?? null),
         JSON.stringify(logicalFileReferences(input.logicalFiles ?? [])),
         timestamp,
         timestamp
@@ -878,6 +885,14 @@ export class LocalRepository {
     await this.database.execute(
       "UPDATE work_items SET updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [now(), id]
+    );
+  }
+
+  async setWorkItemStatus(id: string, status: WorkItemStatus): Promise<void> {
+    await this.database.execute(
+      `UPDATE work_items SET status = ?, sync_version = sync_version + 1, updated_at = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+      [status, now(), id]
     );
   }
 
@@ -1470,38 +1485,74 @@ export class LocalRepository {
   async approveTaskPlan(
     outputId: string,
     parentId: string,
-    planStageId: string,
+    sourceStageId: string,
+    workStageId: string,
     waitingStageId: string,
+    reviewStageId: string,
     tasks: PlannedTask[]
   ): Promise<string[]> {
+    if (!tasks.length) throw new Error("Select at least one task to approve");
     const pending = await this.database.query<Row>(
-      `SELECT 1 FROM execution_outputs o
+      `SELECT w.process_id AS processId, w.logical_files_json AS logicalFilesJson
+       FROM execution_outputs o
        JOIN executions e ON e.id = o.execution_id
        JOIN work_items w ON w.id = e.work_item_id
        WHERE o.id = ? AND o.status = 'pending' AND e.work_item_id = ? AND w.stage_id = ?`,
-      [outputId, parentId, planStageId]
+      [outputId, parentId, sourceStageId]
     );
     if (!pending[0]) throw new Error("This task plan is no longer waiting for approval");
+    const parentFiles = new Set(parseJson<string[]>(pending[0].logicalFilesJson, []));
+    for (const [index, task] of tasks.entries()) {
+      const unavailable = task.inputs.find((input) => !parentFiles.has(input));
+      if (unavailable) {
+        throw new Error(`Task ${index + 1} input is not approved on its parent: ${unavailable}`);
+      }
+    }
     const validStages = await this.database.query<Row>(
       `SELECT s.id FROM stages s
        JOIN work_items w ON w.process_id = s.process_id
-       WHERE w.id = ? AND s.id IN (?, ?) AND s.archived_at IS NULL`,
-      [parentId, planStageId, waitingStageId]
+       WHERE w.id = ? AND s.id IN (?, ?, ?, ?) AND s.archived_at IS NULL`,
+      [parentId, sourceStageId, workStageId, waitingStageId, reviewStageId]
     );
-    if (validStages.length !== 2) throw new Error("The Goals process definition has changed");
+    const expectedStages = new Set([sourceStageId, workStageId, waitingStageId, reviewStageId]);
+    if (validStages.length !== expectedStages.size) {
+      throw new Error("The Goals process definition has changed");
+    }
+
+    // ponytail: one small process-wide scan beats a dependency graph or dedupe service.
+    const existingKeys = new Set(
+      (
+        await this.database.query<Row>(
+          `SELECT json_extract(goal_json, '$.key') AS goalKey FROM work_items
+           WHERE process_id = ? AND json_extract(goal_json, '$.key') IS NOT NULL`,
+          [stringValue(pending[0].processId)]
+        )
+      ).map((row) => stringValue(row.goalKey))
+    );
+    const createdTasks = tasks.filter(({ key }) => !existingKeys.has(key));
 
     const timestamp = now();
-    const ids = tasks.map(() => createId());
+    const ids = createdTasks.map(() => createId());
     await this.database.transaction([
-      ...tasks.map((task, index) => ({
+      ...createdTasks.map((task, index) => ({
         sql: `INSERT INTO work_items
-              (id, process_id, stage_id, parent_id, title, description, created_at, updated_at)
-              SELECT ?, process_id, ?, id, ?, ?, ?, ? FROM work_items WHERE id = ?`,
+              (id, process_id, stage_id, parent_id, title, description, goal_json,
+               logical_files_json, created_at, updated_at)
+              SELECT ?, process_id, ?, id, ?, ?, ?, ?, ?, ? FROM work_items WHERE id = ?`,
         params: [
           ids[index]!,
-          planStageId,
+          workStageId,
           requiredText(task.title, `Task ${index + 1} title`, 180),
           task.description.trim(),
+          JSON.stringify({
+            key: task.key,
+            role: task.role,
+            effect: task.effect,
+            planOutputId: outputId,
+            authorizedAt: timestamp,
+            occurrenceOf: null
+          } satisfies GoalWorkMetadata),
+          JSON.stringify(task.inputs),
           timestamp,
           timestamp,
           parentId
@@ -1512,7 +1563,7 @@ export class LocalRepository {
               SET checkpoint_stage_id = stage_id, checkpoint_at = ?, stage_id = ?,
                   status = 'open', sync_version = sync_version + 1, updated_at = ?
               WHERE id = ? AND deleted_at IS NULL`,
-        params: [timestamp, waitingStageId, timestamp, parentId]
+        params: [timestamp, ids.length ? waitingStageId : reviewStageId, timestamp, parentId]
       },
       {
         sql: `UPDATE execution_outputs SET status = 'approved', decided_at = ?
@@ -1639,7 +1690,7 @@ export class LocalRepository {
   async listSchedules(teamId: string): Promise<Schedule[]> {
     const rows = await this.database.query<Row>(
       `SELECT id, team_id AS teamId, work_item_id AS workItemId, name, recurrence,
-              timezone, enabled, next_run_at AS nextRunAt, last_run_at AS lastRunAt,
+              mode, role, timezone, enabled, next_run_at AS nextRunAt, last_run_at AS lastRunAt,
               created_at AS createdAt, updated_at AS updatedAt
        FROM schedules WHERE team_id = ? ORDER BY name`,
       [teamId]
@@ -1652,21 +1703,32 @@ export class LocalRepository {
     workItemId: string;
     name: string;
     recurrence: ScheduleRecurrence;
+    mode: Schedule["mode"];
+    role: string | null;
     timezone: string;
     nextRunAt: string;
   }): Promise<string> {
+    if (input.mode === "spawn_goal" && !input.role?.trim()) {
+      throw new Error("A goal occurrence schedule requires an agent role");
+    }
+    if (input.mode === "run" && input.role) {
+      throw new Error("An ordinary schedule cannot assign a goal agent role");
+    }
     const id = createId();
     const timestamp = now();
     await this.database.execute(
       `INSERT INTO schedules
-       (id, team_id, work_item_id, name, recurrence, timezone, next_run_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, team_id, work_item_id, name, recurrence, mode, role, timezone,
+        next_run_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.teamId,
         input.workItemId,
         requiredText(input.name, "Schedule name", 120),
         input.recurrence,
+        input.mode,
+        input.role ? requiredText(input.role, "Schedule agent role", 120) : null,
         requiredText(input.timezone, "Timezone", 120),
         new Date(input.nextRunAt).toISOString(),
         timestamp,
@@ -1879,7 +1941,7 @@ export class LocalRepository {
       ),
       this.database.query<Row>(
         `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.title,
-                w.parent_id AS parentId, w.description, w.owner, w.status,
+                w.parent_id AS parentId, w.description, w.owner, w.goal_json AS goalJson, w.status,
                 w.logical_files_json AS logicalFilesJson,
                 w.sync_version AS syncVersion, w.checkpoint_stage_id AS checkpointStageId,
                 w.checkpoint_at AS checkpointAt, w.deleted_at AS deletedAt,
@@ -1945,6 +2007,7 @@ export class LocalRepository {
           title: stringValue(row.title),
           description: stringValue(row.description),
           owner: nullableString(row.owner),
+          goal: parseJson<GoalWorkMetadata | null>(row.goalJson, null),
           status: stringValue(row.status),
           logicalFiles: parseJson<string[]>(row.logicalFilesJson, []),
           checkpointStageId: nullableString(row.checkpointStageId),
@@ -2055,13 +2118,14 @@ export class LocalRepository {
       const updatedAt = requiredText(payload.updatedAt, "Work item update time");
       await this.database.execute(
         `INSERT INTO work_items
-         (id, process_id, stage_id, parent_id, title, description, owner, status,
+         (id, process_id, stage_id, parent_id, title, description, owner, goal_json, status,
           logical_files_json, sync_version, checkpoint_stage_id, checkpoint_at, deleted_at,
           created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            stage_id = excluded.stage_id, title = excluded.title, description = excluded.description,
-           parent_id = excluded.parent_id, owner = excluded.owner, status = excluded.status,
+           parent_id = excluded.parent_id, owner = excluded.owner, goal_json = excluded.goal_json,
+           status = excluded.status,
            logical_files_json = excluded.logical_files_json, sync_version = excluded.sync_version,
            checkpoint_stage_id = excluded.checkpoint_stage_id,
            checkpoint_at = excluded.checkpoint_at,
@@ -2075,6 +2139,7 @@ export class LocalRepository {
           requiredText(payload.title, "Work item title"),
           typeof payload.description === "string" ? payload.description : "",
           typeof payload.owner === "string" ? payload.owner : null,
+          JSON.stringify(payload.goal ?? null),
           requiredText(payload.status, "Work item status"),
           JSON.stringify(logicalFileReferences(payload.logicalFiles ?? [])),
           record.version,

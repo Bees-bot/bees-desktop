@@ -539,19 +539,27 @@ export function runView(input: {
 
 export function schedulesView(items: WorkItem[], schedules: Schedule[], executions: Execution[]): string {
   return `<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-base-content/60">Runs while Bees is open and this computer is awake. Missed occurrences are skipped.</p>
+      <p class="text-sm text-base-content/60">Runs while Bees is open and this computer is awake. Goal schedules create one catch-up occurrence after downtime.</p>
       <button class="btn btn-primary btn-sm" data-action="new-schedule">New schedule</button>
     </div>
     ${
       schedules.length
         ? `<div class="grid gap-3">${schedules
             .map((schedule) => {
-              const recent = executions.filter(({ workItemId }) => workItemId === schedule.workItemId).slice(0, 3);
+              const occurrenceIds = new Set(
+                items.filter(({ goal }) => goal?.occurrenceOf === schedule.workItemId).map(({ id }) => id)
+              );
+              const recent = executions.filter(
+                ({ workItemId }) => workItemId === schedule.workItemId || occurrenceIds.has(workItemId)
+              ).slice(0, 3);
+              const behavior = schedule.mode === "spawn_goal"
+                ? `new goal occurrence · ${schedule.role}`
+                : "rerun item";
               return `<article class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(schedule.name)}</h3>
                   <p class="text-sm text-base-content/55">${escapeHtml(itemName(items, schedule.workItemId))} · ${escapeHtml(
                     schedule.recurrence
-                  )} · ${escapeHtml(schedule.timezone)}</p>
+                  )} · ${escapeHtml(behavior)} · ${escapeHtml(schedule.timezone)}</p>
                   <p class="mt-1 text-xs">Next: ${when(schedule.nextRunAt)}</p></div>
                   <div class="flex gap-2"><button class="btn btn-primary btn-xs" data-action="run-schedule" data-id="${schedule.id}">Run now</button>
                     <button class="btn btn-ghost btn-xs" data-action="toggle-schedule" data-id="${schedule.id}">${

@@ -7,6 +7,7 @@ import type {
   Execution,
   ExecutionStatus,
   FileLocation,
+  GoalTaskEffect,
   McpConnection,
   WorkItem
 } from "./domain.js";
@@ -21,9 +22,7 @@ import {
   validateCollectedOutputs
 } from "./workspaces.js";
 import {
-  recoverGoalPlannerOutput,
-  TASK_PLAN_OUTPUT,
-  validateGoalRun
+  ACTION_RECEIPT_OUTPUT
 } from "./processes/goals/index.js";
 import { buildBeesRunInitialData } from "./run-config.js";
 
@@ -44,6 +43,8 @@ export interface RunRequest {
   stages: string[];
   /** Present only for the built-in Goals process, whose Waiting status has stricter semantics. */
   goalStage?: string;
+  goalEffect?: GoalTaskEffect;
+  workerRoles?: Array<{ role: string; purpose: string }>;
   parent?: WorkItem;
   children?: WorkItem[];
   /** Why the user rejected earlier attempts at this status, oldest first. */
@@ -136,7 +137,10 @@ export function runPrompt({
   children = [],
   feedback = [],
   feedbackIntro = "Earlier attempts at this step were rejected. Address every point before you finish:",
-  fileLocations = []
+  fileLocations = [],
+  goalStage,
+  goalEffect,
+  workerRoles = []
 }: RunRequest): string {
   if (message !== undefined) {
     const followUp = message.trim();
@@ -150,6 +154,20 @@ export function runPrompt({
     agent.config.prompt,
     `Work item: ${item.title}\n${item.description}`,
     parent ? `Parent goal: ${parent.title}\n${parent.description}` : "",
+    item.logicalFiles.length ? `Approved input files: ${item.logicalFiles.join(", ")}` : "",
+    workerRoles.length
+      ? `Available worker roles:\n${workerRoles
+          .map(({ role, purpose }) => `- ${role}: ${purpose}`)
+          .join("\n")}`
+      : "",
+    goalStage
+      ? `Goals task plans must be written only to outputs/.tasks.json as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}. Every field is required. Use only approved input paths. An external action must be its own external_write task.`
+      : "",
+    goalEffect === "external_write"
+      ? `This approved task authorizes one external action. Perform exactly the described action using only approved inputs. Do not revise its substance. On confirmed success, write outputs/${ACTION_RECEIPT_OUTPUT} as {"status":"succeeded","destination":"service or recipient","externalId":"confirmation id or empty string","url":"result URL or empty string","timestamp":"ISO-8601 UTC"}. If success is uncertain, write no receipt and stop; Bees will block the task instead of retrying.`
+      : goalEffect
+        ? `Task effect: ${goalEffect}. External write tools are unavailable.`
+        : "",
     children.length
       ? `Tasks:\n${children
           .map(
