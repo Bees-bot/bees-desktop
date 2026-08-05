@@ -45,8 +45,14 @@ jobs:
 
       - run: npm run check
 
-      # Rust only. A full tauri build would need the llama runtime, which
-      # prepare:flue compiles from source and takes far too long for a PR.
+      # Tauri's build script resolves externalBin, so cargo check fails with
+      # "resource path binaries/bees-node-... doesn't exist" until prepare:flue
+      # has staged the Node sidecar. On Linux this pulls a prebuilt llama-server
+      # rather than compiling one, so it costs a download and not a build.
+      - run: npm run prepare:flue
+
+      # Rust only. A full tauri build also bundles and signs, which a PR does
+      # not need.
       - run: cargo check --manifest-path src-tauri/Cargo.toml
 
   secrets:
