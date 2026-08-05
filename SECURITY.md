@@ -1,7 +1,8 @@
 # Security policy
 
 Please report suspected vulnerabilities privately through GitHub's security
-advisory form for `AppCafeDotCom/bees-desktop`. Do not include secrets,
+advisory form for `Bees-bot/bees-desktop`, or by email to security@bees.bot.
+Do not include secrets,
 credentials, customer data, or exploit details in a public issue.
 
 Include the affected version, platform, reproduction steps, and expected

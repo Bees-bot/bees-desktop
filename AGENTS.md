@@ -3,7 +3,7 @@
 Related folders:
 
 - Desktop: `../bees-desktop`
-- Server: `../bees.bot`
+- Server: `../bees-server`
 - Website: `../bees-website`
 
 When a task changes more than one repository:

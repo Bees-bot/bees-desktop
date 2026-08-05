@@ -1,0 +1,33 @@
+Bees Desktop
+Copyright 2026 Bees-bot
+
+This product includes software developed by third parties:
+
+  Flue (@flue/cli, @flue/runtime)
+  https://github.com/withastro/flue
+  Licensed under the Apache License, Version 2.0
+
+  playwright-core
+  https://github.com/microsoft/playwright
+  Licensed under the Apache License, Version 2.0
+
+  TypeScript
+  https://github.com/microsoft/TypeScript
+  Licensed under the Apache License, Version 2.0
+
+  llama.cpp
+  https://github.com/ggml-org/llama.cpp
+  Copyright (c) 2023-2026 The ggml authors
+  Licensed under the MIT License
+
+  Tauri and Tauri plugins
+  https://github.com/tauri-apps/tauri
+  Licensed under either Apache License 2.0 or MIT License
+
+  Node.js runtime, bundled as a sidecar
+  https://github.com/nodejs/node
+  Licensed under the MIT License
+
+Model weights are downloaded at first run and are not distributed with this
+software. The default model is Nanbeige 4.2 3B, licensed under the Apache
+License, Version 2.0.
