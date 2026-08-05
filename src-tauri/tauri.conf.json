@@ -28,6 +28,15 @@
       "desktop": {
         "schemes": ["bees"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/Bees-bot/bees-desktop/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY_FROM_TAURI_SIGNER_GENERATE",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {

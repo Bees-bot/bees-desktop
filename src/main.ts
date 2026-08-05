@@ -3,9 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { getCurrent as getCurrentDeepLink, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { checkForUpdate } from "./updates.js";
 import {
   isPermissionGranted,
   requestPermission,
@@ -7292,6 +7293,12 @@ async function resumeInterruptedRuns(resumed: Execution[]): Promise<void> {
 
 async function start(): Promise<void> {
   try {
+    // Before the workspace loads: an update that replaces the app should not land in the
+    // middle of a session. Not awaited, and failures are swallowed inside, so a slow or
+    // unreachable update endpoint cannot hold up startup. `ask` rather than `window.confirm`
+    // because the latter blocks the webview thread until it is answered, which would freeze
+    // the bootstrap running behind it.
+    void checkForUpdate((message) => ask(message, { title: "Update Bees", kind: "info" }));
     workspace = await repository.bootstrap();
     await listen<SettledRun>("run-settled", ({ payload }) => {
       void applySettledExecution(payload.executionId, true).catch((error) =>

@@ -29,7 +29,27 @@ jobs:
     runs-on: ${{ matrix.platform }}
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
-      APPLE_SIGNING_IDENTITY: ${{ matrix.signing_identity }}
+      # Falls back to the matrix value (ad-hoc, `-`) until the Developer ID secret exists, so
+      # the build keeps working meanwhile. An ad-hoc build is NOT notarizable — macOS will
+      # still warn on it. Set these four secrets to get a release people can install cleanly:
+      #   APPLE_SIGNING_IDENTITY  "Developer ID Application: NAME (TEAMID)"
+      #   APPLE_CERTIFICATE       base64 of the .p12
+      #   APPLE_CERTIFICATE_PASSWORD
+      #   APPLE_ID / APPLE_PASSWORD (app-specific) / APPLE_TEAM_ID  for notarytool
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || matrix.signing_identity }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Azure Artifact Signing, ~$10/month. Unset until the account exists; the Windows
+      # build then produces unsigned installers and SmartScreen warns on them.
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+      AZURE_CODE_SIGNING_NAME: ${{ secrets.AZURE_CODE_SIGNING_NAME }}
+      AZURE_CERT_PROFILE_NAME: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
 
     steps:
       - uses: actions/checkout@v7
@@ -55,12 +75,31 @@ jobs:
 
       - run: npm ci
 
+      # Windows code signing through Azure Artifact Signing (renamed from Azure Trusted
+      # Signing — both names still turn up). Skipped until the account exists, so the build
+      # keeps producing unsigned installers meanwhile.
+      #
+      # Installing the tool is only half of it. The other half is a one-line
+      # `bundle.windows.signCommand` in tauri.conf.json, deliberately NOT added yet: Tauri
+      # runs signCommand unconditionally, so committing it before the Azure account exists
+      # breaks every Windows build. Add it in the same change that adds the secrets:
+      #   "signCommand": "trusted-signing-cli -e %AZURE_ENDPOINT% -a %AZURE_CODE_SIGNING_NAME% -c %AZURE_CERT_PROFILE_NAME% %1"
+      - name: Install Windows signing tool
+        if: startsWith(matrix.platform, 'windows-') && env.AZURE_CLIENT_ID != ''
+        run: cargo install trusted-signing-cli@0.5.0
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update manifest. Without both of these the build still produces
+          # installers, but no `latest.json`, and installed apps never see the release.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           tagName: ${{ github.ref_name }}
+          # Writes the signed `latest.json` the updater endpoint points at.
+          includeUpdaterJson: true
           releaseName: "Bees v__VERSION__"
           releaseBody: |
             Private, local-first AI agents for organizations.

@@ -225,14 +225,33 @@ async function prepareLlamaRuntime() {
     if (!target.includes("windows")) chmodSync(join(runtimeRoot, serverName), 0o755);
     // Re-sign on macOS: downloaded and locally linked binaries can carry linker
     // signatures (flags 0x20002) that macOS rejects after they are copied.
-    // A plain adhoc re-sign (flags 0x2) is trusted when spawned by the app.
+    //
+    // Which identity matters. An ad-hoc signature (`--sign -`) is fine for a local build but
+    // notarization rejects it — the whole bundle, not just this file — so a release build has
+    // to use the real Developer ID, with a secure timestamp and the hardened runtime. Those
+    // last two are notarization requirements in their own right: Apple refuses a hardened-
+    // runtime-less or timestamp-less binary even when the identity is correct.
+    //
+    // APPLE_SIGNING_IDENTITY is the same variable the Tauri build reads, so the runtime and
+    // the app it ships inside are always signed by the same identity. `-` is Tauri's own way
+    // of spelling ad-hoc, so it is treated as "no real identity" here too.
     if (target.includes("apple") || target.includes("darwin") || target.includes("macos")) {
       // Strip com.apple.provenance/quarantine first: those xattrs make macOS run a first-launch
       // Gatekeeper/XProtect assessment that can wedge the process uninterruptibly at dyld start.
       execFileSync("xattr", ["-cr", runtimeRoot]);
+      const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+      const adhoc = !identity || identity === "-";
+      const signArgs = adhoc
+        ? ["--force", "--timestamp=none", "--sign", "-"]
+        : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
+      if (adhoc) {
+        console.log("Signing the local-model runtime ad-hoc. Not notarizable — set APPLE_SIGNING_IDENTITY for a release build.");
+      } else {
+        console.log(`Signing the local-model runtime with ${identity}.`);
+      }
       for (const entry of readdirSync(runtimeRoot)) {
         if (entry.startsWith(".") || entry === "LICENSE") continue;
-        execFileSync("codesign", ["--force", "--timestamp=none", "--sign", "-", join(runtimeRoot, entry)]);
+        execFileSync("codesign", [...signArgs, join(runtimeRoot, entry)]);
       }
     }
     writeFileSync(marker, `${llamaRuntimeRevision}\n`);
