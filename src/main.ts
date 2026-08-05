@@ -145,14 +145,16 @@ import {
 } from "./knowledge.js";
 import { CLI_TOOLS, detectCliTools } from "./cli-tools.js";
 import {
-  GOAL_PLANNER_PROMPT,
-  GOAL_REVIEWER_PROMPT,
-  GOAL_WORKER_PROMPT,
   GOALS_PROCESS_NAME,
   GOALS_STAGES,
   TASK_PLAN_OUTPUT,
   parseTaskPlan
 } from "./goals.js";
+import {
+  PROCESS_LIBRARY,
+  processLibraryEntry,
+  type ProcessLibraryEntry
+} from "./process-library.js";
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
@@ -398,6 +400,7 @@ const expandedTeams = new Set<string>();
 // Left-nav dashboards per team id — every team, not only the open one. See loadDashboardsByTeam.
 let dashboardsByTeam = new Map<string, { board: Board; process: Process; count: number }[]>();
 let view: View = "overview";
+let processesPage: "team" | "library" = "team";
 /** The team-record search on the Runs view. Empty shows the recent runs it shows anyway. */
 let searchQuery = "";
 let searchHits: SearchHit[] = [];
@@ -1256,7 +1259,6 @@ function renderPrefsButton(): void {
 async function refresh(): Promise<void> {
   organizations = await repository.listOrganizations();
   teams = await repository.listTeams(workspace.organizationId);
-  await Promise.all(teams.map(({ id }) => repository.ensureGoalsProcess(id)));
   if (!teams.some(({ id }) => id === workspace.teamId)) workspace.teamId = teams[0]?.id ?? "";
   if (workspace.teamId) expandedTeams.add(workspace.teamId); // active team opens by default
 
@@ -1362,55 +1364,34 @@ async function seedGoalsWorkflow(): Promise<void> {
   if (!workspace.teamId) return;
   const key = `goals_workflow_seeded_${workspace.teamId}`;
   if (await repository.getSetting(key, false)) return;
+  const template = processLibraryEntry("goals");
+  if (!template) return;
   const process = processes.find(
-    ({ name }) => name.toLowerCase() === GOALS_PROCESS_NAME.toLowerCase()
-  );
-  const [plan, work, , review] = GOALS_STAGES.map((name) =>
-    process?.stages.find((stage) => stage.name === name)
+    ({ name }) => name.toLowerCase() === template.name.toLowerCase()
   );
   const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
-  if (!process || !plan || !work || !review || !mapping?.localPath) return;
+  if (!process || !mapping?.localPath) return;
   await workspaces.ensureDirectory(mapping.localPath);
-  const defaultSkill = registryCapabilities(registries).find(
-    ({ kind, name }) => kind === "skill" && name === "bees-file-work"
-  );
-  const definitions = [
-    {
-      role: "goal-planner",
-      name: "Goal planner",
-      purpose: "Breaks large goals into an approved task plan",
-      stage: plan,
-      prompt: GOAL_PLANNER_PROMPT
-    },
-    {
-      role: "goal-worker",
-      name: "Goal worker",
-      purpose: "Executes one concrete task at a time",
-      stage: work,
-      prompt: GOAL_WORKER_PROMPT
-    },
-    {
-      role: "goal-reviewer",
-      name: "Goal reviewer",
-      purpose: "Checks completed work and closes or redirects it",
-      stage: review,
-      prompt: GOAL_REVIEWER_PROMPT
-    }
-  ];
-  for (const definition of definitions) {
-    if (agents.some(({ triggerStageId }) => triggerStageId === definition.stage.id)) continue;
+  const skills = registryCapabilities(registries).filter(({ kind }) => kind === "skill");
+  for (const definition of template.agents) {
+    const stage = process.stages.find(({ name }) => name === definition.stage);
+    if (!stage || agents.some(({ triggerStageId }) => triggerStageId === stage.id)) continue;
     const saved = await agentFiles.save(
       mapping.localPath,
       newAgent({
         name: definition.name,
         purpose: definition.purpose,
-        triggerStageId: definition.stage.id,
+        triggerStageId: stage.id,
         config: {
           role: definition.role,
           prompt: definition.prompt,
+          provider: definition.provider,
+          model: definition.model,
           toolRefs: [],
           grants: [],
-          ...(defaultSkill ? { skillRefs: [defaultSkill.ref] } : {})
+          skillRefs: skills
+            .filter(({ name }) => definition.skills?.includes(name))
+            .map(({ ref }) => ref)
         }
       })
     );
@@ -1782,10 +1763,17 @@ function renderBoard(): void {
 
 function renderProcesses(): void {
   setHeader("Processes");
+  if (processesPage === "library") {
+    renderProcessLibrary();
+    return;
+  }
   swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-    <header class="flex items-center justify-between border-b border-base-300 p-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
       <div><h2 class="font-bold">Multi-step processes</h2><p class="mt-1 text-sm text-base-content/55">Define the workflow each team follows.</p></div>
-      <button class="btn btn-primary btn-sm" data-action="new-process">New process</button>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-outline btn-sm" data-action="browse-process-library">Browse library</button>
+        <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+      </div>
     </header>
     <div class="divide-y divide-base-300">${
       processes.length
@@ -1815,6 +1803,204 @@ function renderProcesses(): void {
         : `<div class="p-12 text-center text-sm text-base-content/50">No processes yet.</div>`
     }</div>
   </section>`);
+}
+
+function libraryAgentEligibility(definition: ProcessLibraryEntry["agents"][number]) {
+  return effectiveAgentEligibility(
+    {
+      name: definition.name,
+      config: {
+        prompt: definition.prompt,
+        provider: definition.provider,
+        model: definition.model
+      }
+    },
+    assistantModel,
+    true,
+    machineModelAvailability
+  );
+}
+
+function renderProcessLibrary(): void {
+  swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
+      <div>
+        <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Team processes</button>
+        <h2 class="font-bold">Process library</h2>
+        <p class="mt-1 text-sm text-base-content/55">Curated processes bundled with Bees Desktop and available offline.</p>
+      </div>
+      <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+    </header>
+    <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
+      const installed = processes.some(({ name }) => name.toLowerCase() === entry.name.toLowerCase());
+      const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
+      const models = [...new Set(entry.agents.map(({ provider, model }) => `${provider}/${model}`))];
+      return `<article class="card border border-base-300 bg-base-100">
+        <div class="card-body gap-4 p-5">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div><h3 class="card-title text-base">${escapeHtml(entry.name)}</h3>
+              <p class="mt-1 text-sm text-base-content/60">${escapeHtml(entry.description)}</p></div>
+            <span class="badge badge-outline badge-sm">Bundled</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <span class="badge badge-ghost badge-sm">${entry.stages.length} statuses</span>
+            <span class="badge badge-ghost badge-sm">${entry.agents.length} agents</span>
+            ${models.map((model) => `<span class="badge badge-ghost badge-sm">${escapeHtml(model)}</span>`).join("")}
+          </div>
+          ${
+            unavailable
+              ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. You can change them after adding.</p>`
+              : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`
+          }
+          <div class="card-actions justify-end">
+            <button class="btn btn-primary btn-sm" data-action="add-library-process" data-template="${escapeHtml(
+              entry.id
+            )}" ${installed ? "disabled" : ""}>${installed ? "Added to team" : "Add to team"}</button>
+          </div>
+        </div>
+      </article>`;
+    }).join("")}</div>
+  </section>`);
+}
+
+async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
+  const allProcesses = await repository.listProcesses(workspace.teamId, true);
+  let process = allProcesses.find(({ name }) => name.toLowerCase() === template.name.toLowerCase());
+  if (process && !process.archivedAt) throw new Error(`${template.name} is already in this team`);
+  if (process?.archivedAt) {
+    await repository.restoreProcess(process.id);
+  } else {
+    const id = await repository.createProcess(workspace.teamId, {
+      name: template.name,
+      description: template.description,
+      stages: [...template.stages]
+    });
+    process = (await repository.listProcesses(workspace.teamId)).find((entry) => entry.id === id);
+  }
+  if (!process) {
+    process = (await repository.listProcesses(workspace.teamId)).find(
+      ({ name }) => name.toLowerCase() === template.name.toLowerCase()
+    );
+  }
+  if (!process) throw new Error(`Could not add ${template.name}`);
+
+  const teamRoot = await requireTeamRoot();
+  await workspaces.ensureDirectory(teamRoot);
+  const existingAgents = await agentFiles.list(teamRoot).catch(() => []);
+  const skills = registryCapabilities(registries).filter(({ kind }) => kind === "skill");
+  for (const definition of template.agents) {
+    const stage = process.stages.find(({ name }) => name === definition.stage);
+    if (!stage) throw new Error(`${template.name} is missing the ${definition.stage} status`);
+    if (existingAgents.some(({ triggerStageId }) => triggerStageId === stage.id)) continue;
+    await agentFiles.save(
+      teamRoot,
+      newAgent({
+        name: definition.name,
+        purpose: definition.purpose,
+        triggerStageId: stage.id,
+        config: {
+          role: definition.role,
+          prompt: definition.prompt,
+          provider: definition.provider,
+          model: definition.model,
+          thinkingLevel: "medium",
+          toolRefs: [],
+          grants: [],
+          skillRefs: skills
+            .filter(({ name }) => definition.skills?.includes(name))
+            .map(({ ref }) => ref)
+        }
+      })
+    );
+  }
+
+  const hasBoard = (await repository.listBoards(workspace.teamId, true)).some(
+    ({ processId }) => processId === process.id
+  );
+  if (!hasBoard) {
+    await repository.createBoard(workspace.teamId, {
+      name: template.boardName,
+      processId: process.id,
+      stageIds: process.stages.map(({ id }) => id)
+    });
+  }
+  return process;
+}
+
+async function addLibraryProcess(templateId: string): Promise<void> {
+  const template = processLibraryEntry(templateId);
+  if (!template) throw new Error("That bundled process is unavailable");
+  const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
+  if (!mapping?.localPath || mapping.missing) {
+    const data = await edit(
+      `${template.name} system check`,
+      [
+        {
+          name: "folder",
+          label: "",
+          type: "note",
+          value: "✕ This team needs an available folder before its agents can be added."
+        }
+      ],
+      "Close",
+      "Open team folder settings"
+    );
+    if (data?.get("__action") === "footer") {
+      teamTab = "folder";
+      view = "settings";
+      render();
+    }
+    return;
+  }
+
+  await refreshAssistantCatalog();
+  const checks = template.agents.map((agent) => ({
+    agent,
+    eligibility: libraryAgentEligibility(agent)
+  }));
+  const data = await edit(
+    `${template.name} system check`,
+    [
+      {
+        name: "folder",
+        label: "",
+        type: "note",
+        value: `✓ Team folder: ${mapping.localPath}`
+      },
+      {
+        name: "contents",
+        label: "",
+        type: "note",
+        value: `✓ ${template.stages.length} statuses, one dashboard, and ${template.agents.length} agents with instructions will be added.`
+      },
+      ...checks.map(({ agent, eligibility }, index) => ({
+        name: `agent-${index}`,
+        label: "",
+        type: "note" as const,
+        value: eligibility.active
+          ? `✓ ${agent.name}: ${agent.provider}/${agent.model} is available.`
+          : `✕ ${agent.name}: ${eligibility.reason}. Add the process, then change this model under Agents.`
+      }))
+    ],
+    "Add to team"
+  );
+  if (!data) return;
+
+  const process = await installLibraryProcess(template);
+  if (template.id === "goals") {
+    await repository.setSetting(`goals_workflow_seeded_${workspace.teamId}`, true);
+  }
+  activeProcess = process;
+  workspace.processId = process.id;
+  processesPage = "team";
+  await refresh();
+  const unavailable = checks.filter(({ eligibility }) => !eligibility.active).length;
+  showNotice(
+    unavailable
+      ? `${template.name} added. Update ${unavailable} unavailable agent model${unavailable === 1 ? "" : "s"} under Agents.`
+      : `${template.name} added to this team`,
+    unavailable ? "info" : "success"
+  );
 }
 
 async function requireTeamRoot(): Promise<string> {
@@ -4798,6 +4984,7 @@ async function switchTeam(teamId: string, nextView: View = "board"): Promise<voi
   expandedTeams.add(teamId);
   activeBoard = null;
   activeProcess = null;
+  processesPage = "team";
   view = nextView;
   await refresh();
   await seedDefaultRegistry();
@@ -4911,6 +5098,7 @@ document.addEventListener("click", async (event) => {
   try {
     if (button.dataset.view) {
       view = button.dataset.view as View;
+      if (view === "processes") processesPage = "team";
       if (button.dataset.prefs) prefsTab = button.dataset.prefs as PrefsTab;
       render();
       return;
@@ -4933,6 +5121,7 @@ document.addEventListener("click", async (event) => {
     if (button.dataset.teamView) {
       const teamId = button.dataset.team!;
       const nextView = button.dataset.teamView as View;
+      if (nextView === "processes") processesPage = "team";
       if (teamId !== workspace.teamId) await switchTeam(teamId, nextView);
       else {
         view = nextView;
@@ -5717,6 +5906,21 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "start-process") await setProcessRunning(button.dataset.id!, true);
     if (action === "stop-process") await setProcessRunning(button.dataset.id!, false);
+    if (action === "browse-process-library") {
+      await refreshAssistantCatalog();
+      processesPage = "library";
+      render();
+      return;
+    }
+    if (action === "close-process-library") {
+      processesPage = "team";
+      render();
+      return;
+    }
+    if (action === "add-library-process") {
+      await addLibraryProcess(button.dataset.template ?? "");
+      return;
+    }
     if (action === "new-process") {
       const data = await edit("New process", [
         { name: "name", label: "Name" },
@@ -5730,6 +5934,7 @@ document.addEventListener("click", async (event) => {
           stages: String(data.get("stages") ?? "").split(",")
         });
         activeProcess = (await repository.listProcesses(workspace.teamId)).find(({ id }) => id === processId) ?? null;
+        processesPage = "team";
         await refresh();
       }
     }

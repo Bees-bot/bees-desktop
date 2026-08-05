@@ -4,8 +4,16 @@ import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/goals.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
 
+async function createTestProcess(repository: LocalRepository, teamId: string) {
+  const id = await repository.createProcess(teamId, {
+    name: "Test process",
+    stages: ["To do", "Done"]
+  });
+  return (await repository.listProcesses(teamId)).find((process) => process.id === id)!;
+}
+
 describe("local repository", () => {
-  it("provisions Goals for every team", async () => {
+  it("provisions Goals for the starter team and leaves later teams ready for the library", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const goals = (await repository.listProcesses(local.teamId))[0]!;
@@ -17,10 +25,7 @@ describe("local repository", () => {
 
     const organizationId = await repository.createOrganization("Acme");
     const teamId = await repository.createTeam(organizationId, "Design");
-    expect((await repository.listProcesses(teamId))[0]).toMatchObject({
-      name: "Goals",
-      stages: GOALS_STAGES.map((name) => ({ name }))
-    });
+    expect(await repository.listProcesses(teamId)).toEqual([]);
   });
 
   it("persists ordered offline processes and work items", async () => {
@@ -120,7 +125,7 @@ describe("local repository", () => {
       expect.objectContaining({ id: teamId, name: "Design" })
     ]);
 
-    const process = (await repository.listProcesses(teamId))[0]!;
+    const process = await createTestProcess(repository, teamId);
     const boardId = await repository.createBoard(teamId, {
       name: "Launch board",
       processId: process.id,
@@ -196,7 +201,7 @@ describe("local repository", () => {
     const organizationId = await repository.createOrganization("Acme");
     const kept = await repository.createTeam(organizationId, "Design");
     const doomed = await repository.createTeam(organizationId, "Ops");
-    const process = (await repository.listProcesses(doomed))[0]!;
+    const process = await createTestProcess(repository, doomed);
     await repository.createWorkItem(process.id, {
       stageId: process.stages[0]!.id,
       title: "Ship it"
@@ -459,7 +464,7 @@ describe("local repository", () => {
     });
     const otherOrg = await repository.createOrganization("Other");
     const otherTeam = await repository.createTeam(otherOrg, "Other team");
-    const otherProcess = (await repository.listProcesses(otherTeam))[0]!;
+    const otherProcess = await createTestProcess(repository, otherTeam);
     await repository.createWorkItem(otherProcess.id, {
       stageId: otherProcess.stages[0]!.id,
       title: "Invoice work for someone else"

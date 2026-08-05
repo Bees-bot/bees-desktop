@@ -36,13 +36,8 @@ import {
   type WorkItem,
   type WorkItemStatus
 } from "./domain.js";
-import {
-  GOALS_BOARD_NAME,
-  GOALS_PROCESS_DESCRIPTION,
-  GOALS_PROCESS_NAME,
-  GOALS_STAGES,
-  type PlannedTask
-} from "./goals.js";
+import type { PlannedTask } from "./goals.js";
+import { processLibraryEntry } from "./process-library.js";
 
 type Row = Record<string, DatabaseValue>;
 
@@ -84,25 +79,21 @@ function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
-function newGoalsProcess(teamId: string, timestamp: string): {
+/** The first local workspace stays useful on launch; later teams choose from the library. */
+function newStarterProcess(teamId: string, timestamp: string): {
   processId: string;
   statements: DatabaseStatement[];
 } {
+  const template = processLibraryEntry("goals");
+  if (!template) throw new Error("The bundled Goals process is missing");
   const processId = createId();
-  const stages = GOALS_STAGES.map((name, position) => ({ id: createId(), name, position }));
+  const stages = template.stages.map((name, position) => ({ id: createId(), name, position }));
   return {
     processId,
     statements: [
       {
         sql: "INSERT INTO processes (id, team_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        params: [
-          processId,
-          teamId,
-          GOALS_PROCESS_NAME,
-          GOALS_PROCESS_DESCRIPTION,
-          timestamp,
-          timestamp
-        ]
+        params: [processId, teamId, template.name, template.description, timestamp, timestamp]
       },
       ...stages.map(({ id, name, position }) => ({
         sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
@@ -116,7 +107,7 @@ function newGoalsProcess(teamId: string, timestamp: string): {
           createId(),
           teamId,
           processId,
-          GOALS_BOARD_NAME,
+          template.boardName,
           JSON.stringify(stages.map(({ id }) => id)),
           timestamp,
           timestamp
@@ -319,18 +310,17 @@ export class LocalRepository {
     const existing = await this.database.query<Row>(
       `SELECT o.id AS organizationId, t.id AS teamId, p.id AS processId
        FROM organizations o
-       JOIN teams t ON t.organization_id = o.id
-       JOIN processes p ON p.team_id = t.id
-       WHERE p.archived_at IS NULL
-       ORDER BY p.created_at
+       LEFT JOIN teams t ON t.organization_id = o.id AND t.archived_at IS NULL
+       LEFT JOIN processes p ON p.team_id = t.id AND p.archived_at IS NULL
+       ORDER BY t.id IS NULL, p.id IS NULL, o.created_at, t.created_at, p.created_at
        LIMIT 1`
     );
     const row = existing[0];
     if (row) {
       const organizationId = stringValue(row.organizationId);
       const teamId = stringValue(row.teamId);
-      const processId = await this.ensureGoalsProcess(teamId);
-      await this.ensureBoard(teamId, processId);
+      const processId = stringValue(row.processId);
+      if (teamId && processId) await this.ensureBoard(teamId, processId);
       return {
         organizationId,
         teamId,
@@ -341,7 +331,7 @@ export class LocalRepository {
     const organizationId = createId();
     const teamId = createId();
     const timestamp = now();
-    const goals = newGoalsProcess(teamId, timestamp);
+    const starter = newStarterProcess(teamId, timestamp);
     await this.database.transaction([
       {
         sql: "INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -351,9 +341,9 @@ export class LocalRepository {
         sql: "INSERT INTO teams (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
         params: [teamId, organizationId, "Marketing", timestamp, timestamp]
       },
-      ...goals.statements
+      ...starter.statements
     ]);
-    return { organizationId, teamId, processId: goals.processId };
+    return { organizationId, teamId, processId: starter.processId };
   }
 
   private async ensureBoard(teamId: string, processId: string): Promise<void> {
@@ -528,27 +518,11 @@ export class LocalRepository {
   async createTeam(organizationId: string, name: string, id?: string): Promise<string> {
     const teamId = id ?? createId();
     const timestamp = now();
-    const goals = newGoalsProcess(teamId, timestamp);
-    await this.database.transaction([
-      {
-        sql: "INSERT INTO teams (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        params: [teamId, organizationId, requiredText(name, "Team name", 120), timestamp, timestamp]
-      },
-      ...goals.statements
-    ]);
-    return teamId;
-  }
-
-  /** Adds the default process to teams created by an older Bees version without replacing user work. */
-  async ensureGoalsProcess(teamId: string): Promise<string> {
-    const existing = await this.database.query<Row>(
-      "SELECT id FROM processes WHERE team_id = ? AND lower(name) = lower(?) LIMIT 1",
-      [teamId, GOALS_PROCESS_NAME]
+    await this.database.execute(
+      "INSERT INTO teams (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      [teamId, organizationId, requiredText(name, "Team name", 120), timestamp, timestamp]
     );
-    if (existing[0]) return stringValue(existing[0].id);
-    const goals = newGoalsProcess(teamId, now());
-    await this.database.transaction(goals.statements);
-    return goals.processId;
+    return teamId;
   }
 
   async listBoards(teamId: string, includeArchived = false): Promise<Board[]> {
