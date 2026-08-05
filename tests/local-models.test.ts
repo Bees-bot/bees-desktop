@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LOCAL_MODEL_ID,
   LocalModelService,
+  parseModelRef,
   parseModelSource,
   SEEDED_MODELS,
+  thinkingOptionsForModel,
   type LocalModel,
   type LocalModelPort,
   type LocalModelRuntimeStatus,
@@ -82,6 +84,34 @@ class MemoryRuntime implements LocalModelPort {
 }
 
 const REMOTE = "https://huggingface.co/acme/Qwen-GGUF/resolve/main/qwen2.5-0.5b-q4_k_m.gguf";
+
+describe("model thinking options", () => {
+  it("uses Pi capabilities and keeps Automatic distinct from explicit effort", () => {
+    const values = (provider: string, model: string) =>
+      thinkingOptionsForModel({ provider, model }).map(({ value }) => value);
+
+    expect(values("openai", "gpt-5.6-sol")).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
+    expect(values("openai", "gpt-5.4")).toEqual(["", "off", "low", "medium", "high", "xhigh"]);
+    expect(values("opencode-go", "glm-5.2")).toEqual(["", "high", "max"]);
+    expect(values("codex-cli", "default")).toEqual(["", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(thinkingOptionsForModel({ provider: "bees-local", model: "active" }).map(({ label }) => label)).toEqual([
+      "Automatic",
+      "Off",
+      "On"
+    ]);
+    expect(thinkingOptionsForModel({ provider: "openai", model: "gpt-4o" })).toEqual([
+      { label: "Automatic (thinking not supported)", value: "" }
+    ]);
+  });
+
+  it("splits only the provider slash from nested model ids", () => {
+    expect(parseModelRef("openrouter/anthropic/claude-opus-5")).toEqual({
+      provider: "openrouter",
+      model: "anthropic/claude-opus-5"
+    });
+    expect(parseModelRef("invalid")).toBeNull();
+  });
+});
 
 describe("model sources", () => {
   it("reads a name and a plain file name out of a download link", () => {

@@ -1,4 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
+import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
+import { OPENAI_MODELS } from "@earendil-works/pi-ai/providers/openai.models";
+import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
+import { OPENROUTER_MODELS } from "@earendil-works/pi-ai/providers/openrouter.models";
+import type { ThinkingLevel } from "./domain.js";
 
 export const LOCAL_PROVIDER_MODEL = "bees-local/active";
 export const DEFAULT_LOCAL_MODEL_ID = "nanbeige-4-2-3b-q6-k";
@@ -8,8 +14,8 @@ export const LOCAL_PROVIDER = "bees-local";
 /**
  * Providers a run can name. The value is the pi-ai provider id Flue resolves against,
  * which is not always the id we use for a stored connection (Codex is `openai-codex`).
- * A provider that isn't listed still works — the dropdown keeps whatever an agent file
- * already had, and the model box is free text.
+ * A provider that isn't listed still works — the agent dropdown keeps whatever its file
+ * already had, and custom models can be added through the assistant model picker.
  */
 export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] = [
   { id: LOCAL_PROVIDER, label: "Bees local", models: ["active"] },
@@ -23,8 +29,8 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
   // since a pinned name goes stale and a Codex model the account cannot use fails the run.
   { id: "claude-cli", label: "Claude Code (CLI)", models: ["default", "sonnet", "opus", "haiku"] },
   { id: "codex-cli", label: "Codex (CLI)", models: ["default"] },
-  // Suggestions only, and deliberately short: the box is free text and every id the
-  // provider's pi-ai catalog carries works, listed or not.
+  // Deliberately short: every id the provider's pi-ai catalog carries works, and custom
+  // ids can be added through the assistant model picker.
   {
     id: "openai",
     label: "OpenAI",
@@ -42,11 +48,71 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
   }
 ];
 
+const PI_MODEL_CATALOGS = {
+  anthropic: ANTHROPIC_MODELS,
+  openai: OPENAI_MODELS,
+  "opencode-go": OPENCODE_GO_MODELS,
+  openrouter: OPENROUTER_MODELS
+} as unknown as Record<string, Record<string, Model<Api>>>;
+
+const THINKING_LABELS: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Very High",
+  max: "Maximum"
+};
+
+export interface ThinkingOption {
+  label: string;
+  value: "" | ThinkingLevel;
+}
+
+/** Pi owns cloud-model capabilities; Bees only describes its local and CLI adapters. */
+export function thinkingOptionsForModel(config: { provider?: string; model?: string }): ThinkingOption[] {
+  const provider = config.provider?.trim() ?? "";
+  const modelId = config.model?.trim() ?? "";
+  if (provider === LOCAL_PROVIDER) {
+    return [
+      { label: "Automatic", value: "" },
+      { label: "Off", value: "off" },
+      { label: "On", value: "medium" }
+    ];
+  }
+  const cliLevels: Record<string, ThinkingLevel[]> = {
+    "claude-cli": ["low", "medium", "high", "xhigh", "max"],
+    "codex-cli": ["minimal", "low", "medium", "high", "xhigh"]
+  };
+  const piModel = PI_MODEL_CATALOGS[provider]?.[modelId];
+  const levels = cliLevels[provider] ??
+    (piModel?.reasoning
+      ? getSupportedThinkingLevels(piModel) as ThinkingLevel[]
+      : []);
+  return [
+    {
+      label: piModel && !piModel.reasoning ? "Automatic (thinking not supported)" : "Automatic",
+      value: ""
+    },
+    ...levels.map((value) => ({ label: THINKING_LABELS[value], value }))
+  ];
+}
+
 /** The `provider/model` pair Flue hands to pi-ai. Falls back to the local model. */
 export function modelRef(config: { provider?: string; model?: string }): string {
   const provider = (config.provider ?? "").trim();
   const model = (config.model ?? "").trim();
   return provider && model ? `${provider}/${model}` : LOCAL_PROVIDER_MODEL;
+}
+
+/** Reverse of `modelRef`; model ids may themselves contain slashes. */
+export function parseModelRef(value: string): { provider: string; model: string } | null {
+  const normalized = value.trim();
+  const separator = normalized.indexOf("/");
+  return separator > 0 && separator < normalized.length - 1
+    ? { provider: normalized.slice(0, separator), model: normalized.slice(separator + 1) }
+    : null;
 }
 
 export interface LocalModel {

@@ -26,8 +26,9 @@
     "@tauri-apps/plugin-opener": "^2.5.4"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
+    "@earendil-works/pi-ai": "^0.83.0",
     "@flue/vite": "2.0.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "2.11.4",
     "@types/node": "22.19.11",
     "daisyui": "^5.7.0",

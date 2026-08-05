@@ -20,7 +20,7 @@ describe("lean launch modules", () => {
       purpose: "Review things",
       description: "",
       triggerStageId: null,
-      config: { prompt: "Review.", provider: "anthropic", model: "test" },
+      config: { prompt: "Review.", provider: "anthropic", model: "test", thinkingLevel: "max" },
       updatedAt: "2026-01-01"
     } satisfies Agent;
     const data = buildBeesRunInitialData({
@@ -38,6 +38,7 @@ describe("lean launch modules", () => {
       executionId: "run-1",
       agentId: agent.id,
       model: "anthropic/test",
+      thinkingLevel: "max",
       browser: true,
       browserWrite: false
     });

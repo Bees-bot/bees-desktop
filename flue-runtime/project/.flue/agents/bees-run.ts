@@ -40,7 +40,7 @@ const skillSchema = v.strictObject({
   instructions: text,
   files: skillFilesSchema
 });
-const thinkingSchema = v.picklist(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const thinkingSchema = v.picklist(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const delegateSchema = v.strictObject({
   name: v.pipe(v.string(), v.minLength(1), v.maxLength(80)),
   description: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),

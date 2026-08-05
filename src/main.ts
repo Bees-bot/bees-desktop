@@ -69,6 +69,8 @@ import {
   LocalModelService,
   TauriLocalModelPort,
   modelRef,
+  parseModelRef,
+  thinkingOptionsForModel,
   type LocalModelProgress,
   type LocalModelView
 } from "./local-models.js";
@@ -1918,7 +1920,6 @@ async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Pro
           prompt: definition.prompt,
           provider: definition.provider,
           model: definition.model,
-          thinkingLevel: "medium",
           toolRefs: [],
           grants: [],
           skillRefs: skills
@@ -2117,8 +2118,19 @@ async function setAgentEnabledOnMachine(agent: Agent, enabled: boolean): Promise
 /** Applies an edit dialog to an agent. Two agents on one status would make runs ambiguous. */
 async function saveAgent(agent: Agent, data: FormData): Promise<void> {
   const triggerStageId = String(data.get("trigger") ?? "") || null;
-  const provider = String(data.get("provider") ?? LOCAL_PROVIDER);
-  const model = String(data.get("model") ?? "").trim();
+  const selectedModelRef = String(data.get("model") ?? modelRef(assistantModel)).trim();
+  const selectedModel = parseModelRef(selectedModelRef);
+  if (!selectedModel) throw new Error("Choose a model");
+  const { provider, model } = selectedModel;
+  const thinkingLevel = String(data.get("thinkingLevel") ?? "") as Agent["config"]["thinkingLevel"] | "";
+  if (
+    thinkingLevel &&
+    !thinkingOptionsForModel(selectedModel).some(({ value }) => value === thinkingLevel)
+  ) {
+    throw new Error("Choose a thinking level supported by this model");
+  }
+  const previousConfig = { ...agent.config };
+  delete previousConfig.thinkingLevel;
   const skillRefs = data.getAll("skills").map(String);
   const toolRefs = data.getAll("tools").map(String);
   const mcpConnectionRefs = data.getAll("mcps").map(String);
@@ -2134,11 +2146,11 @@ async function saveAgent(agent: Agent, data: FormData): Promise<void> {
     description: String(data.get("description") ?? ""),
     triggerStageId,
     config: {
-      ...agent.config,
+      ...previousConfig,
       prompt: String(data.get("prompt") ?? ""),
       provider,
       model,
-      thinkingLevel: String(data.get("thinkingLevel") ?? "medium") as NonNullable<Agent["config"]["thinkingLevel"]>,
+      ...(thinkingLevel ? { thinkingLevel } : {}),
       skillRefs,
       toolRefs,
       mcpConnectionRefs,
@@ -3621,10 +3633,8 @@ interface EditorField {
   checked?: string[];
   /** Optional directly selectable section. Most dialogs remain a single short form. */
   step?: "basics" | "instructions" | "capabilities";
-  /** Small line under the control. Rewritten live for the model field. */
+  /** Small line under the control. */
   hint?: string;
-  /** Native datalist entries — suggestions, not a closed set. */
-  suggestions?: string[];
 }
 
 function agentEditorFields(agent?: Agent): EditorField[] {
@@ -3633,13 +3643,17 @@ function agentEditorFields(agent?: Agent): EditorField[] {
     config?.provider?.trim() && config.model?.trim()
       ? { provider: config.provider, model: config.model }
       : assistantModel;
-  const provider = selected.provider;
-  // An agent file can name a provider we do not list; keep it rather than silently
-  // rewriting the agent to something else on the next save.
-  const providers = MODEL_PROVIDERS.some(({ id }) => id === provider)
-    ? MODEL_PROVIDERS
-    : [...MODEL_PROVIDERS, { id: provider, label: provider, models: [] }];
-  const known = knownModelsForProvider(provider);
+  const selectedRef = modelRef(selected);
+  const catalog = overviewAssistantModels();
+  const modelOptions = catalog.map(({ group, label, choice }) => ({
+    label: `${group} · ${label}`,
+    value: modelRef(choice)
+  }));
+  // Keep an unavailable or custom model from an existing agent selectable instead of
+  // silently rewriting the file on its next save.
+  if (!modelOptions.some(({ value }) => value === selectedRef)) {
+    modelOptions.unshift({ label: `Configured · ${selectedRef}`, value: selectedRef });
+  }
   const capabilities = registryCapabilities(registries);
   const customTools = capabilities.filter(({ kind }) => kind === "tool");
   const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
@@ -3671,19 +3685,21 @@ function agentEditorFields(agent?: Agent): EditorField[] {
       step: "basics"
     },
     {
-      name: "provider",
-      label: "Provider",
+      name: "model",
+      label: "Model",
       type: "select",
-      value: provider,
-      options: providers.map(({ id, label }) => ({ label, value: id })),
+      value: selectedRef,
+      options: modelOptions,
+      hint: "Models available to the dashboard assistant on this computer.",
       step: "instructions"
     },
     {
-      name: "model",
-      label: "Model",
-      value: selected.model,
-      suggestions: known,
-      hint: known.length ? `Known models: ${known.join(", ")}` : "Any model id this provider accepts.",
+      name: "thinkingLevel",
+      label: "Thinking",
+      type: "select",
+      value: config?.thinkingLevel ?? "",
+      options: thinkingOptionsForModel(selected),
+      hint: "Automatic uses the model or Flue default.",
       step: "instructions"
     },
     {
@@ -3691,16 +3707,6 @@ function agentEditorFields(agent?: Agent): EditorField[] {
       label: "Instructions",
       type: "textarea",
       value: config?.prompt ?? "",
-      step: "instructions"
-    },
-    {
-      name: "thinkingLevel",
-      label: "Reasoning",
-      type: "select",
-      value: config?.thinkingLevel ?? "medium",
-      // "off" reaches a local model as `enable_thinking: false`. The CLIs cannot switch
-      // reasoning off at all, so it lands on their lowest effort instead.
-      options: ["off", "minimal", "low", "medium", "high", "xhigh"].map((value) => ({ label: value, value })),
       step: "instructions"
     },
     {
@@ -3821,41 +3827,19 @@ function checkboxOptions(name: string, options: EditorOption[], checked: string[
     .join("");
 }
 
-/**
- * Model ids belong to a provider, so the suggestions and the hint follow the dropdown.
- * No-op in dialogs without both fields.
- */
-function linkProviderModel(): void {
-  const provider = dialogForm.querySelector<HTMLSelectElement>('select[name="provider"]');
-  const model = dialogForm.querySelector<HTMLInputElement>('input[name="model"]');
-  if (!provider || !model) return;
-  const hint = dialogForm.querySelector<HTMLElement>('[data-hint="model"]');
-  const list = dialogForm.querySelector<HTMLDataListElement>("#editor-suggest-model");
-  provider.addEventListener("change", () => {
-    const known = knownModelsForProvider(provider.value);
-    if (list) {
-      list.innerHTML = known.map((id) => `<option value="${escapeHtml(id)}"></option>`).join("");
-    }
-    if (hint) {
-      hint.textContent = known.length
-        ? `Known models: ${known.join(", ")}`
-        : "Any model id this provider accepts.";
-    }
+/** A newly selected model starts on Automatic; Pi supplies its supported explicit levels. */
+function linkModelThinking(): void {
+  const model = dialogForm.querySelector<HTMLSelectElement>('select[name="model"]');
+  const thinking = dialogForm.querySelector<HTMLSelectElement>('select[name="thinkingLevel"]');
+  if (!model || !thinking) return;
+  model.addEventListener("change", () => {
+    const choice = parseModelRef(model.value);
+    const options = thinkingOptionsForModel(choice ?? {});
+    thinking.innerHTML = options
+      .map(({ label, value }) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+      .join("");
+    thinking.value = "";
   });
-}
-
-function knownModelsForProvider(provider: string): string[] {
-  const known = MODEL_PROVIDERS.find(({ id }) => id === provider)?.models ?? [];
-  return provider === LOCAL_PROVIDER
-    ? [
-        ...new Set([
-          ...known,
-          ...assistantCatalog
-            .filter(({ choice }) => choice.provider === LOCAL_PROVIDER)
-            .map(({ choice }) => choice.model)
-        ])
-      ]
-    : known;
 }
 
 function editorFieldHtml({
@@ -3866,22 +3850,14 @@ function editorFieldHtml({
   placeholder = "",
   options = [],
   checked = [],
-  hint,
-  suggestions
+  hint
 }: EditorField): string {
   if (type === "note") return `<p class="text-sm text-base-content/75">${escapeHtml(value)}</p>`;
-  const listId = suggestions ? `editor-suggest-${name}` : "";
   let control = `<input class="input input-bordered w-full" type="${
     type === "password" ? "password" : "text"
   }" name="${escapeHtml(name)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(
     placeholder
-  )}" ${listId ? `list="${listId}"` : ""}>${
-    suggestions
-      ? `<datalist id="${listId}">${suggestions
-          .map((option) => `<option value="${escapeHtml(option)}"></option>`)
-          .join("")}</datalist>`
-      : ""
-  }`;
+  )}">`;
   if (type === "textarea") {
     control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${escapeHtml(
       name
@@ -3982,7 +3958,7 @@ function edit(
   for (const button of dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
     button.addEventListener("click", () => showStep(button.dataset.editorStepButton ?? ""));
   }
-  linkProviderModel();
+  linkModelThinking();
   dialog.showModal();
   (dialogFields.querySelector<HTMLElement>("[data-editor-step]:not([hidden])") ?? dialogForm)
     .querySelector<HTMLElement>(

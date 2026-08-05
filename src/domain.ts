@@ -11,7 +11,7 @@ export type ExecutionStatus =
 export type OutputApprovalStatus = "pending" | "approved" | "rejected";
 export type ScheduleRecurrence = "hourly" | "daily" | "weekdays";
 export type CapabilityKind = "skill" | "tool";
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface Organization {
   id: string;
