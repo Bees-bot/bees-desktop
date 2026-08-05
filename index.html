@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="forest">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <script>
+      (() => {
+        document.documentElement.dataset.theme =
+          localStorage.getItem("bees-theme-preset") || "emerald";
+      })();
+    </script>
+    <title>Bees</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body class="app-canvas bg-base-200 text-base-content">
+    <div class="drawer lg:drawer-open">
+      <input id="app-drawer" type="checkbox" class="drawer-toggle">
+      <div class="drawer-content flex min-h-screen min-w-0 flex-col">
+        <header class="app-header navbar sticky top-0 z-20 border-b border-base-300 px-4 lg:px-8">
+          <div class="flex-none lg:hidden">
+            <button id="app-drawer-open" class="btn btn-square btn-ghost" type="button"
+                    aria-label="Open navigation" aria-controls="app-navigation" aria-expanded="false">
+              <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p id="view-context" class="truncate text-[10px] font-bold uppercase tracking-[.2em] text-base-content/45">Local workspace</p>
+            <h1 id="view-title" class="truncate text-2xl font-black tracking-[-.035em]">Work board</h1>
+          </div>
+          <button class="btn btn-square btn-ghost btn-sm mr-1" id="assistant-toggle" aria-label="Assistant" title="Assistant">
+            <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3Z"></path><path d="M18 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"></path></svg>
+          </button>
+          <button class="btn btn-square btn-ghost btn-sm mr-1" id="theme-toggle" data-action="toggle-color-mode" aria-label="Switch to light mode"></button>
+          <button class="btn btn-primary btn-sm shadow-sm" id="new-item">
+            <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"></path></svg>
+            New item
+          </button>
+        </header>
+
+        <div id="notice" role="status" aria-live="polite" class="mx-4 mt-4 lg:mx-8"></div>
+        <main id="app" class="content-canvas min-w-0 flex-1 p-4 lg:p-8" aria-busy="true">
+          <div class="skeleton h-40 w-full"></div>
+        </main>
+      </div>
+
+      <aside id="app-navigation" class="drawer-side z-30">
+        <label for="app-drawer" aria-label="Close navigation" class="drawer-overlay"></label>
+        <div class="sidebar-shell flex min-h-full w-72 flex-col border-r border-base-300">
+          <div class="flex items-center gap-3 px-5 pb-4 pt-6">
+            <span class="logo-mark grid size-10 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-xl font-black text-primary shadow-sm">B</span>
+            <strong class="flex-1 text-lg font-black leading-none tracking-[-.03em]">Bees.bot</strong>
+            <button id="preferences-button" class="btn btn-square btn-ghost btn-sm relative" data-view="preferences" aria-label="Preferences" title="Preferences">
+              <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>
+            </button>
+          </div>
+
+          <div class="px-4 pb-3">
+            <div id="org-row" class="flex flex-wrap items-center gap-1.5" aria-label="Organizations"></div>
+            <div id="org-status" class="mt-2"></div>
+          </div>
+
+          <nav id="team-nav" class="min-h-0 flex-1 overflow-y-auto px-3 pb-4" aria-label="Teams"></nav>
+
+        </div>
+      </aside>
+    </div>
+
+    <!-- Outside #app on purpose: render() replaces that subtree on every view change, which
+         would throw away a conversation mid-answer. Slide-over rather than a modal so the
+         board stays visible while the assistant proposes changes to it. -->
+    <aside id="assistant" aria-label="Assistant" aria-hidden="true" inert
+           class="fixed inset-y-0 right-0 z-40 flex w-full max-w-md translate-x-full flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-transform duration-200">
+      <header class="flex items-center gap-2 border-b border-base-300 px-4 py-3">
+        <strong class="flex-1 text-sm font-black uppercase tracking-[.15em]">Assistant</strong>
+        <button class="btn btn-ghost btn-xs" id="assistant-clear">Clear</button>
+        <button class="btn btn-square btn-ghost btn-sm" id="assistant-close" aria-label="Close assistant">✕</button>
+      </header>
+      <div id="assistant-log" class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"></div>
+      <form id="assistant-form" class="border-t border-base-300 p-3">
+        <textarea id="assistant-input" class="textarea textarea-bordered w-full" rows="2"
+                  placeholder="Create a process for onboarding…"></textarea>
+        <div class="mt-2 flex items-center gap-2">
+          <div id="assistant-model" class="min-w-0 flex-1"></div>
+          <button class="btn btn-primary btn-sm" type="submit" id="assistant-send">Send</button>
+        </div>
+      </form>
+    </aside>
+
+    <dialog id="editor" class="modal" aria-labelledby="editor-title">
+      <div class="modal-box surface-modal max-h-[90vh] max-w-3xl overflow-y-auto p-0">
+        <form method="dialog">
+          <button class="btn btn-circle btn-ghost btn-sm absolute right-3 top-3" value="cancel" aria-label="Close">✕</button>
+        </form>
+        <form id="editor-form">
+          <div class="border-b border-base-300 px-6 py-5">
+            <h2 id="editor-title" class="text-lg font-bold">Create</h2>
+          </div>
+          <div id="editor-fields" class="grid gap-4 px-6 py-5"></div>
+          <div class="modal-action m-0 border-t border-base-300 px-6 py-4">
+            <button class="btn" type="button" data-dialog-cancel>Cancel</button>
+            <button class="btn btn-primary" type="submit" id="editor-save">Save</button>
+          </div>
+          <div id="editor-footer" class="px-6 pb-4 text-center"></div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button value="cancel">close</button></form>
+    </dialog>
+
+    <dialog id="markdown-viewer" class="modal" aria-labelledby="markdown-viewer-title">
+      <div class="modal-box surface-modal max-h-[90vh] max-w-4xl overflow-hidden p-0">
+        <header class="flex items-center gap-3 border-b border-base-300 px-6 py-4">
+          <h2 id="markdown-viewer-title" class="min-w-0 flex-1 truncate font-bold">Markdown</h2>
+          <form method="dialog">
+            <button class="btn btn-circle btn-ghost btn-sm" aria-label="Close Markdown viewer">✕</button>
+          </form>
+        </header>
+        <article id="markdown-viewer-body" class="markdown-viewer max-h-[calc(90vh-4.5rem)] overflow-y-auto px-6 py-5"></article>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button value="cancel">close</button></form>
+    </dialog>
+  </body>
+</html>

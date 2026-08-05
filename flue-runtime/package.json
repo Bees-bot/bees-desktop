@@ -1,0 +1,15 @@
+{
+  "name": "@bees/flue-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
+    "@flue/runtime": "2.0.0",
+    "hono": "4.12.28",
+    "playwright-core": "^1.61.1",
+    "valibot": "1.4.2"
+  }
+}

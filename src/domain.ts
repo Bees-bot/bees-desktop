@@ -1,0 +1,540 @@
+import type { BeesConversationSnapshotV1 } from "./conversation-snapshot.js";
+
+export type WorkItemStatus = "open" | "blocked" | "done" | "archived";
+export type ExecutionStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+export type OutputApprovalStatus = "pending" | "approved" | "rejected";
+export type ScheduleRecurrence = "hourly" | "daily" | "weekdays";
+export type CapabilityKind = "skill" | "tool";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export interface Organization {
+  id: string;
+  name: string;
+}
+
+export interface Team {
+  id: string;
+  organizationId: string;
+  name: string;
+}
+
+/** A synced location name/scope joined to this machine's optional local folder mapping. */
+export interface FileLocation {
+  id: string;
+  organizationId: string;
+  /** Null means every team in the organization can reference the location. */
+  teamId: string | null;
+  name: string;
+  localPath: string | null;
+  missing: boolean;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Board {
+  id: string;
+  teamId: string;
+  processId: string;
+  name: string;
+  stageIds: string[];
+  filters: BoardFilter[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Hide items of `status` once they have sat untouched for `hours` — 0 hides all of them. Hidden
+ * items move to the dashboard's filtered drawer; nothing is deleted.
+ */
+export interface BoardFilter {
+  status: WorkItemStatus;
+  hours: number;
+}
+
+export const defaultBoardFilters: BoardFilter[] = [
+  { status: "done", hours: 24 },
+  { status: "archived", hours: 0 }
+];
+
+const workItemStatuses: WorkItemStatus[] = ["open", "blocked", "done", "archived"];
+
+/** Rules are edited as text, one `<status> <hours>` line each. */
+export function formatBoardFilters(filters: BoardFilter[]): string {
+  return filters.map(({ status, hours }) => `${status} ${hours}`).join("\n");
+}
+
+export function parseBoardFilters(text: string): BoardFilter[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [status = "", hours = "0"] = line.split(/\s+/);
+      if (!workItemStatuses.includes(status as WorkItemStatus)) {
+        throw new Error(`"${status}" is not a status — use one of ${workItemStatuses.join(", ")}`);
+      }
+      const age = Number(hours);
+      if (!Number.isFinite(age) || age < 0) {
+        throw new Error(`"${hours}" is not a number of hours`);
+      }
+      return { status: status as WorkItemStatus, hours: age };
+    });
+}
+
+export function isFiltered(item: WorkItem, filters: BoardFilter[], at = Date.now()): boolean {
+  return filters.some(
+    ({ status, hours }) =>
+      item.status === status && at - Date.parse(item.updatedAt) >= hours * 3_600_000
+  );
+}
+
+export interface Stage {
+  id: string;
+  processId: string;
+  name: string;
+  position: number;
+  completionRules: string;
+  archivedAt: string | null;
+}
+
+export interface Process {
+  id: string;
+  teamId: string;
+  name: string;
+  description: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stages: Stage[];
+}
+
+export interface WorkItem {
+  id: string;
+  processId: string;
+  stageId: string;
+  /** The goal this task was created to complete. Null for top-level work. */
+  parentId: string | null;
+  title: string;
+  description: string;
+  owner: string | null;
+  status: WorkItemStatus;
+  logicalFiles: string[];
+  syncVersion: number;
+  checkpointStageId: string | null;
+  checkpointAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A file in <teamRoot>/agents/<id>.json. Mutable — duplicate it to keep an old one. */
+export interface Agent {
+  id: string;
+  name: string;
+  purpose: string;
+  description: string;
+  /** Process status that starts this agent. Null when nothing triggers it yet. */
+  triggerStageId: string | null;
+  config: AgentConfig;
+  updatedAt: string;
+}
+
+export interface AgentConfig {
+  prompt: string;
+  instructions?: string;
+  /** Provider half of the `provider/model` pair Flue resolves through pi-ai. */
+  provider?: string;
+  model?: string;
+  skillRefs?: string[];
+  toolRefs?: string[];
+  mcpConnectionRefs?: string[];
+  /** Per-agent MCP tool allowlists, intersected with the connection owner's allowlist. */
+  mcpToolRefs?: Record<string, string[]>;
+  delegateRefs?: string[];
+  grants?: string[];
+  thinkingLevel?: ThinkingLevel;
+  validationRules?: string[];
+  [key: string]: unknown;
+}
+
+export interface Execution {
+  id: string;
+  agentId: string;
+  /** What the agent looked like when this run started — agents change under you. */
+  config: AgentConfig;
+  workItemId: string;
+  runtime: string;
+  status: ExecutionStatus;
+  /**
+   * The Flue conversation, the workspace pointer, the sandbox, and the CLI correlation are
+   * all this same id. One run, one address.
+   */
+  conversationId: string;
+  /** Flue incarnation guard: a follow-up must not land on a restarted runtime's conversation. */
+  instanceUid: string | null;
+  /** Rendered when the run is settled, so a closed run needs no sidecar. */
+  conversationSnapshot: BeesConversationSnapshotV1 | null;
+  /** The receipt this run was restarted from, via Restart with current config. */
+  restartedFromExecutionId: string | null;
+  submissionId: string | null;
+  workspaceRef: string | null;
+  /** Current message's recovery context and durable Bees-side settlement projection. */
+  result: ExecutionResult | null;
+  usage: Record<string, unknown> | null;
+  model: Record<string, unknown> | null;
+  logs: string;
+  error: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+}
+
+export interface ExecutionResult extends Record<string, unknown> {
+  /** One Flue idempotency key per user message, never per conversation. */
+  deliveryId?: string;
+  /** Retained only until Flue admits the delivery, so a crash can safely resend it. */
+  prompt?: string;
+  stages?: string[];
+  goalStage?: string;
+  continuation?: boolean;
+  /** Strict, credential-free instance seed; also authorizes capabilities on later submissions. */
+  initialData?: BeesRunInitialData;
+  outputs?: string[];
+  statusName?: string;
+  /** pending -> local_applied -> done; makes webview/app restart reconciliation idempotent. */
+  projectionState?: "pending" | "local_applied" | "done";
+}
+
+/** A deleted run whose Flue conversation has not been removed yet. */
+export interface ConversationPurge {
+  conversationId: string;
+  agentName: string;
+  requestedAt: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+}
+
+export interface ExecutionOutput {
+  id: string;
+  executionId: string;
+  logicalOutput: string;
+  logicalDestination: string;
+  status: OutputApprovalStatus;
+  /** Why the user rejected it — fed back to the agent on the next attempt. */
+  reason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export interface Schedule {
+  id: string;
+  teamId: string;
+  workItemId: string;
+  name: string;
+  recurrence: ScheduleRecurrence;
+  timezone: string;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Registry {
+  id: string;
+  teamId: string;
+  name: string;
+  sourcePath: string;
+  files: string[];
+  copiedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Capability {
+  ref: string;
+  registryId: string;
+  path: string;
+  name: string;
+  kind: CapabilityKind;
+}
+
+export interface SkillSnapshot {
+  ref: string;
+  name: string;
+  description: string;
+  instructions: string;
+  files: Record<string, { encoding: "utf8" | "base64"; content: string }>;
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  readOnly: boolean;
+}
+
+export interface McpConnection {
+  id: string;
+  teamId: string;
+  name: string;
+  url: string;
+  transport: "streamable-http" | "sse";
+  authType: "api-key" | "oauth";
+  secretRef: string;
+  optional: boolean;
+  tools: McpTool[];
+  allowedTools: string[];
+  checkedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BeesRunSkill {
+  name: string;
+  description: string;
+  instructions: string;
+  files: Record<string, { encoding: "utf8" | "base64"; content: string }>;
+}
+
+export interface BeesRunMcpConnection {
+  id: string;
+  name: string;
+  url: string;
+  transport: "streamable-http" | "sse";
+  secretRef: string;
+  tools: string[];
+  optional: boolean;
+}
+
+export interface BeesRunDelegate {
+  name: string;
+  description: string;
+  instructions: string;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
+  browser: boolean;
+  browserWrite: boolean;
+  skills: BeesRunSkill[];
+}
+
+/** Credential-free, immutable definition of one Flue conversation. */
+export interface BeesRunInitialData {
+  version: 1;
+  executionId: string;
+  agentId: string;
+  agentName: string;
+  purpose: string;
+  model: string;
+  thinkingLevel?: ThinkingLevel;
+  instructions: string;
+  teamId: string;
+  browser: boolean;
+  browserWrite: boolean;
+  localTools: boolean;
+  skills: BeesRunSkill[];
+  mcpConnections: BeesRunMcpConnection[];
+  delegates: BeesRunDelegate[];
+  grants: string[];
+}
+
+export interface LocalWorkspace {
+  organizationId: string;
+  teamId: string;
+  processId: string;
+}
+
+/**
+ * A run that proposes a skill edit rather than doing the item's work. It hangs off the same work
+ * item for context, so everything that reasons about "has this item run" must skip it.
+ */
+export function isProposal(execution: Execution): boolean {
+  return typeof execution.config.proposalStageId === "string";
+}
+
+/** The queued or running task execution, excluding skill proposals that only borrow its context. */
+export function activeExecutionForItem(
+  workItemId: string,
+  executions: Execution[]
+): Execution | undefined {
+  return executions.find(
+    (execution) =>
+      execution.workItemId === workItemId &&
+      ["queued", "running"].includes(execution.status) &&
+      !isProposal(execution)
+  );
+}
+
+/**
+ * Keys to record when an autonomous run starts: one for the status, one for the exact version
+ * of the item. See `needsAutonomousRun` for which of the two blocks a repeat.
+ */
+export function autonomousRunKeys(item: WorkItem): string[] {
+  return [`${item.id}:${item.stageId}`, `${item.id}:${item.stageId}:${item.updatedAt}`];
+}
+
+/**
+ * Whether a running process still owes this item a run: nothing has run since the item last
+ * changed, so a finished run waiting on output review is left alone.
+ *
+ * A checkpoint is the process moving itself, and an agent that answers with its own status name
+ * would checkpoint in place forever — so a checkpoint buys exactly one run per status. Any other
+ * change (an edit, a rejected output) is a person asking for the work again, and always counts.
+ */
+export function needsAutonomousRun(
+  item: WorkItem,
+  executions: Execution[],
+  startedKeys: ReadonlySet<string>
+): boolean {
+  if (item.status !== "open") return false;
+  const [stageKey, versionKey] = autonomousRunKeys(item);
+  if (startedKeys.has(item.checkpointAt === item.updatedAt ? stageKey! : versionKey!)) return false;
+  return !executions.some(
+    ({ workItemId, createdAt }) => workItemId === item.id && createdAt >= item.updatedAt
+  );
+}
+
+export function createId(): string {
+  return crypto.randomUUID();
+}
+
+export function now(): string {
+  return new Date().toISOString();
+}
+
+/** Whatever was thrown, as something showable. `catch` gives `unknown`, and this is every use of it. */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function requiredText(value: unknown, field: string, maximum = 500): string {
+  if (typeof value !== "string") {
+    throw new Error(`${field} must be text`);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${field} is required`);
+  }
+  if (normalized.length > maximum) {
+    throw new Error(`${field} must be ${maximum} characters or fewer`);
+  }
+  return normalized;
+}
+
+export function logicalPath(value: unknown): string {
+  const path = requiredText(value, "Logical file path", 1_024).replaceAll("\\", "/");
+  if (
+    path.startsWith("/") ||
+    path.startsWith("//") ||
+    /^[a-zA-Z]:\//.test(path) ||
+    path.split("/").some((segment) => segment === ".." || segment === "." || segment === "")
+  ) {
+    throw new Error("File references must be relative paths inside a configured folder");
+  }
+  return path;
+}
+
+export function logicalPaths(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    throw new Error("Logical file references must be a list");
+  }
+  return [...new Set(values.map(logicalPath))];
+}
+
+/** Coordination stores a stable location id, never a machine-specific absolute folder. */
+export const FILE_LOCATION_SEPARATOR = "::";
+
+export function parseLogicalFileReference(value: unknown): {
+  locationId: string | null;
+  path: string;
+} {
+  const reference = requiredText(value, "Logical file reference", 1_062);
+  const separator = reference.indexOf(FILE_LOCATION_SEPARATOR);
+  if (separator < 0) return { locationId: null, path: logicalPath(reference) };
+  const locationId = reference.slice(0, separator);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      locationId
+    )
+  ) {
+    throw new Error("Linked file references must start with a location UUID");
+  }
+  return { locationId, path: logicalPath(reference.slice(separator + FILE_LOCATION_SEPARATOR.length)) };
+}
+
+export function logicalFileReference(locationId: string, path: unknown): string {
+  const reference = parseLogicalFileReference(
+    `${locationId}${FILE_LOCATION_SEPARATOR}${String(path)}`
+  );
+  return `${reference.locationId}${FILE_LOCATION_SEPARATOR}${reference.path}`;
+}
+
+export function logicalFileReferences(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    throw new Error("Logical file references must be a list");
+  }
+  return [
+    ...new Set(
+      values.map((value) => {
+        const reference = parseLogicalFileReference(value);
+        return reference.locationId
+          ? `${reference.locationId}${FILE_LOCATION_SEPARATOR}${reference.path}`
+          : reference.path;
+      })
+    )
+  ];
+}
+
+const forbiddenSyncKeys = new Set([
+  "absolutePath",
+  "content",
+  "contents",
+  "document",
+  "documentBytes",
+  "extractedContent",
+  "fileBytes",
+  "localPath",
+  "secret",
+  "token"
+]);
+
+export function assertMetadataOnly(value: unknown, key = "payload"): void {
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => assertMetadataOnly(item, key));
+    return;
+  }
+  if (typeof value !== "object") {
+    throw new Error(`${key} contains an unsupported value`);
+  }
+  for (const [childKey, child] of Object.entries(value)) {
+    if (forbiddenSyncKeys.has(childKey)) {
+      throw new Error(`${childKey} is not allowed in synchronized metadata`);
+    }
+    if (childKey === "logicalFiles") {
+      logicalFileReferences(child);
+    }
+    assertMetadataOnly(child, childKey);
+  }
+}
+
+export function parseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@bees/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm ci --omit=dev --prefix flue-runtime",
+    "prepare:flue": "node scripts/prepare-flue-runtime.mjs",
+    "dev": "vite",
+    "build": "vite build && npm run build:flue",
+    "build:flue": "vite build flue-runtime/project",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@flue/sdk": "2.0.0",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-deep-link": "^2.4.9",
+    "@tauri-apps/plugin-dialog": "2.7.2",
+    "@tauri-apps/plugin-http": "^2.5.2",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-opener": "^2.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@flue/vite": "2.0.0",
+    "@tauri-apps/cli": "2.11.4",
+    "@types/node": "22.19.11",
+    "daisyui": "^5.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.1.4",
+    "vitest": "4.1.0"
+  },
+  "overrides": {
+    "postcss": "8.5.25"
+  }
+}

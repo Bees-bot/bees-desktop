@@ -1,0 +1,166 @@
+// Agents live as JSON files in <teamRoot>/agents rather than rows in the local
+// database. The team folder is already shared (Dropbox, iCloud, git), so agents
+// distribute with it and never touch the coordination API — one channel, not two.
+
+import { invoke } from "@tauri-apps/api/core";
+import { createId, now, requiredText, type Agent, type AgentConfig } from "./domain.js";
+
+export interface AgentFilePort {
+  list(teamRoot: string): Promise<string[]>;
+  write(teamRoot: string, agentId: string, contents: string): Promise<void>;
+  remove(teamRoot: string, agentId: string): Promise<void>;
+  /** Writes <teamRoot>/skills/<slug>/SKILL.md and returns the path relative to the folder. */
+  writeSkill(teamRoot: string, slug: string, contents: string): Promise<string>;
+  /** Moves <teamRoot>/skills/<slug> under skills/.archive, recoverable by moving it back. */
+  archiveSkill(teamRoot: string, slug: string): Promise<string>;
+}
+
+export class TauriAgentFilePort implements AgentFilePort {
+  list(teamRoot: string): Promise<string[]> {
+    return invoke("list_agent_files", { teamRoot });
+  }
+
+  write(teamRoot: string, agentId: string, contents: string): Promise<void> {
+    return invoke("write_agent_file", { teamRoot, agentId, contents });
+  }
+
+  remove(teamRoot: string, agentId: string): Promise<void> {
+    return invoke("delete_agent_file", { teamRoot, agentId });
+  }
+
+  writeSkill(teamRoot: string, slug: string, contents: string): Promise<string> {
+    return invoke("write_team_skill", { teamRoot, slug, contents });
+  }
+
+  archiveSkill(teamRoot: string, slug: string): Promise<string> {
+    return invoke("archive_team_skill", { teamRoot, slug });
+  }
+}
+
+/** Slug for a skill folder: what `write_team_skill` accepts, derived from a display name. */
+export function skillSlug(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  if (!slug) throw new Error("Skill name must contain letters or numbers");
+  return slug;
+}
+
+/** A SKILL.md the runtime will accept: frontmatter Flue reads, then the procedure itself. */
+export function skillFile(name: string, description: string, body: string): string {
+  return `---\nname: ${skillSlug(name)}\ndescription: ${description.replace(/\n/g, " ").trim()}\n---\n\n${body.trim()}\n`;
+}
+
+function parseAgent(contents: string): Agent | null {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(contents) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof raw.id !== "string" || typeof raw.name !== "string") return null;
+  const config =
+    raw.config && typeof raw.config === "object" && !Array.isArray(raw.config)
+      ? ({ ...(raw.config as AgentConfig) } as AgentConfig)
+      : ({ prompt: "" } as AgentConfig);
+  config.prompt = typeof config.prompt === "string" ? config.prompt : "";
+  const lists = [
+    "skillRefs",
+    "toolRefs",
+    "mcpConnectionRefs",
+    "delegateRefs",
+    "grants",
+    "validationRules"
+  ] as const;
+  for (const key of lists) {
+    const value = config[key];
+    if (Array.isArray(value)) config[key] = [...new Set(value.filter((entry): entry is string => typeof entry === "string"))];
+    else delete config[key];
+  }
+  if (config.mcpToolRefs && typeof config.mcpToolRefs === "object" && !Array.isArray(config.mcpToolRefs)) {
+    config.mcpToolRefs = Object.fromEntries(
+      Object.entries(config.mcpToolRefs).flatMap(([id, tools]) =>
+        Array.isArray(tools)
+          ? [[id, [...new Set(tools.filter((tool): tool is string => typeof tool === "string"))]]]
+          : []
+      )
+    );
+  } else {
+    delete config.mcpToolRefs;
+  }
+  return {
+    id: raw.id,
+    name: raw.name,
+    purpose: typeof raw.purpose === "string" ? raw.purpose : "",
+    description: typeof raw.description === "string" ? raw.description : "",
+    triggerStageId: typeof raw.triggerStageId === "string" ? raw.triggerStageId : null,
+    config,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : ""
+  };
+}
+
+export class AgentFileStore {
+  constructor(private readonly port: AgentFilePort) {}
+
+  /**
+   * Unreadable files are skipped rather than thrown on: a cloud sync can leave a
+   * half-written or conflicted file in the folder, and one bad file must not take
+   * the whole library down. Duplicate ids (conflict copies) collapse to the newest.
+   */
+  async list(teamRoot: string): Promise<Agent[]> {
+    const parsed = (await this.port.list(teamRoot))
+      .map(parseAgent)
+      .filter((agent): agent is Agent => agent !== null);
+    const byId = new Map<string, Agent>();
+    for (const agent of parsed) {
+      const existing = byId.get(agent.id);
+      if (!existing || agent.updatedAt > existing.updatedAt) byId.set(agent.id, agent);
+    }
+    return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async save(teamRoot: string, agent: Agent): Promise<Agent> {
+    const saved: Agent = {
+      ...agent,
+      name: requiredText(agent.name, "Agent name", 120),
+      purpose: requiredText(agent.purpose, "Agent purpose", 240),
+      description: agent.description.trim(),
+      updatedAt: now()
+    };
+    await this.port.write(teamRoot, saved.id, JSON.stringify(saved, null, 2));
+    return saved;
+  }
+
+  async remove(teamRoot: string, agentId: string): Promise<void> {
+    await this.port.remove(teamRoot, agentId);
+  }
+
+  saveSkill(teamRoot: string, name: string, description: string, body: string): Promise<string> {
+    return this.port.writeSkill(
+      teamRoot,
+      skillSlug(name),
+      skillFile(name, requiredText(description, "Skill description", 240), body)
+    );
+  }
+
+  archiveSkill(teamRoot: string, slug: string): Promise<string> {
+    return this.port.archiveSkill(teamRoot, slug);
+  }
+}
+
+/** Always mints a fresh id, so Duplicate is `newAgent({ ...agent, name })`. */
+export function newAgent(input: Partial<Agent> = {}): Agent {
+  return {
+    name: "",
+    purpose: "",
+    description: "",
+    triggerStageId: null,
+    config: { prompt: "" },
+    ...input,
+    id: createId(),
+    updatedAt: now()
+  };
+}

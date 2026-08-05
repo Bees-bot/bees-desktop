@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bees",
+  "version": "0.1.0",
+  "identifier": "bot.bees.desktop",
+  "build": {
+    "beforeDevCommand": "npm run build:flue && npm run prepare:flue && npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build && npm run prepare:flue",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Bees",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 820,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://127.0.0.1:* http://localhost:3000 https://app.bees.bot; worker-src 'self' blob:; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["bees"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "externalBin": [
+      "binaries/bees-node"
+    ],
+    "resources": {
+      "../flue-runtime/default-registry": "flue-runtime/default-registry",
+      "../flue-runtime/node_modules": "flue-runtime/node_modules",
+      "../flue-runtime/project/dist": "flue-runtime/project/dist",
+      "../flue-runtime/project/capability-server.mjs": "flue-runtime/project/capability-server.mjs",
+      "../flue-runtime/project/start.mjs": "flue-runtime/project/start.mjs",
+      "../llama-runtime": "llama-runtime",
+      "../services/knowledge-worker/bees_knowledge_worker": "knowledge-worker/bees_knowledge_worker"
+    }
+  }
+}
