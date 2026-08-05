@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PROCESS_LIBRARY } from "./process-library.js";
+import { PROCESS_LIBRARY, PROCESS_MODULES } from "./registry.js";
 
 describe("bundled process library", () => {
   it("contains complete, internally consistent process definitions", () => {
     expect(PROCESS_LIBRARY.some(({ id }) => id === "goals")).toBe(true);
+    expect(PROCESS_MODULES.map(({ definition }) => definition)).toEqual(PROCESS_LIBRARY);
+    expect(PROCESS_MODULES.filter(({ starter }) => starter)).toHaveLength(1);
     expect(new Set(PROCESS_LIBRARY.map(({ id }) => id)).size).toBe(PROCESS_LIBRARY.length);
 
     for (const entry of PROCESS_LIBRARY) {

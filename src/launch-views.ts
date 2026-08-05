@@ -7,7 +7,7 @@ import type {
   WorkItem
 } from "./domain.js";
 import { modelRef } from "./local-models.js";
-import { TASK_PLAN_OUTPUT } from "./goals.js";
+import { TASK_PLAN_OUTPUT } from "./processes/goals/index.js";
 import type {
   BeesConversationSnapshotV1,
   SnapshotMessage,

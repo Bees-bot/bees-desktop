@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LocalRepository } from "../src/repository.js";
-import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/goals.js";
+import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/processes/goals/index.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
 

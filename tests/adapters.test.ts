@@ -13,6 +13,7 @@ describe("local adapters", () => {
       defaultRoot: vi.fn().mockResolvedValue("/home/Bees"),
       ensureDirectory: vi.fn().mockResolvedValue("/team"),
       create: vi.fn().mockResolvedValue("/cache/run"),
+      projectWorkspace: vi.fn().mockResolvedValue("/projects/run"),
       copyInputs: vi.fn().mockResolvedValue([]),
       writeOutput: vi.fn().mockResolvedValue(".tasks.json"),
       collectOutputs: vi.fn().mockResolvedValue(["result.md"]),

@@ -7,7 +7,7 @@ import {
 } from "../src/domain.js";
 import { skillFile, skillSlug } from "../src/agent-files.js";
 import type { Agent, Execution, WorkItem } from "../src/domain.js";
-import { TASK_PLAN_OUTPUT, validateGoalRun } from "../src/goals.js";
+import { TASK_PLAN_OUTPUT, validateGoalRun } from "../src/processes/goals/index.js";
 import { runPrompt } from "../src/run-coordinator.js";
 
 const item = {

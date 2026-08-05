@@ -1,4 +1,4 @@
-import { requiredText } from "./domain.js";
+import { requiredText } from "../../domain.js";
 
 export const GOALS_PROCESS_NAME = "Goals";
 export const GOALS_PROCESS_DESCRIPTION =

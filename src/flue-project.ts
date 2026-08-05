@@ -8,7 +8,8 @@ export interface FlueProjectPort {
     workspace: string,
     teamRoot?: string,
     capabilities?: Capability[],
-    grantedCapabilityRefs?: string[]
+    grantedCapabilityRefs?: string[],
+    projectWorkItemId?: string
   ): Promise<SkillSnapshot[]>;
   purgeExecution(executionId: string): Promise<void>;
   restart(): Promise<void>;
@@ -24,14 +25,16 @@ export class TauriFlueProjectPort implements FlueProjectPort {
     workspace: string,
     teamRoot?: string,
     capabilities?: Capability[],
-    grantedCapabilityRefs?: string[]
+    grantedCapabilityRefs?: string[],
+    projectWorkItemId?: string
   ): Promise<SkillSnapshot[]> {
     return invoke("bind_flue_workspace", {
       executionId,
       workspace,
       teamRoot,
       capabilities,
-      grantedCapabilityRefs
+      grantedCapabilityRefs,
+      projectWorkItemId
     });
   }
 
@@ -73,14 +76,16 @@ export class FlueProjectService {
     workspace: string,
     teamRoot?: string,
     capabilities?: Capability[],
-    grantedCapabilityRefs?: string[]
+    grantedCapabilityRefs?: string[],
+    projectWorkItemId?: string
   ): Promise<SkillSnapshot[]> {
     return this.port.bindWorkspace(
       executionId,
       workspace,
       teamRoot,
       capabilities,
-      grantedCapabilityRefs
+      grantedCapabilityRefs,
+      projectWorkItemId
     );
   }
 }

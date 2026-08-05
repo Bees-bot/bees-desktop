@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseTaskPlan, recoverGoalPlannerOutput } from "../src/goals.js";
+import {
+  parseTaskPlan,
+  recoverGoalPlannerOutput
+} from "../src/processes/goals/index.js";
 
 describe("goal task plans", () => {
   it("accepts concise strings and detailed tasks", () => {

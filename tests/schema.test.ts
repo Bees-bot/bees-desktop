@@ -33,6 +33,7 @@ it("creates the complete fresh-install schema", () => {
     "search_index_idx",
     "settings",
     "skill_usage",
+    "software_project_mappings",
     "stages",
     "sync_queue",
     "sync_state",

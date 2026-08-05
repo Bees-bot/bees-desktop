@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS work_items (
   updated_at TEXT NOT NULL
 );
 
+-- Software source stays outside the synced team folder. Only this device knows its paths.
+CREATE TABLE IF NOT EXISTS software_project_mappings (
+  work_item_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+  repository_path TEXT NOT NULL,
+  worktree_path TEXT NOT NULL,
+  base_branch TEXT NOT NULL,
+  project_branch TEXT NOT NULL,
+  validated_at TEXT NOT NULL,
+  missing INTEGER NOT NULL DEFAULT 0 CHECK (missing IN (0, 1))
+);
+
 CREATE TABLE IF NOT EXISTS kanban_boards (
   id TEXT PRIMARY KEY,
   team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,

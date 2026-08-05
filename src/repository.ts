@@ -36,8 +36,8 @@ import {
   type WorkItem,
   type WorkItemStatus
 } from "./domain.js";
-import type { PlannedTask } from "./goals.js";
-import { processLibraryEntry } from "./process-library.js";
+import type { PlannedTask } from "./processes/goals/index.js";
+import { starterProcessModule } from "./processes/registry.js";
 
 type Row = Record<string, DatabaseValue>;
 
@@ -84,8 +84,7 @@ function newStarterProcess(teamId: string, timestamp: string): {
   processId: string;
   statements: DatabaseStatement[];
 } {
-  const template = processLibraryEntry("goals");
-  if (!template) throw new Error("The bundled Goals process is missing");
+  const template = starterProcessModule().definition;
   const processId = createId();
   const stages = template.stages.map((name, position) => ({ id: createId(), name, position }));
   return {
@@ -400,6 +399,8 @@ export class LocalRepository {
       goalStage?: string;
       continuation: boolean;
       initialData?: ExecutionResult["initialData"];
+      manualProjection?: boolean;
+      projectMode?: boolean;
       workspaceRef: string;
     }
   ): Promise<void> {

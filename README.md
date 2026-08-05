@@ -41,6 +41,27 @@ The Bees server has no file-upload route. Connected sync rejects file bytes,
 document contents, secrets, absolute paths, and path traversal. Use local
 models and local tools for fully offline or air-gapped operation.
 
+## Software Project process
+
+Add **Software Project** from the process library to build a website, app, API,
+CLI, or library through explicit gates: requirements, two-model architecture,
+implementation planning, coding/testing loops, per-phase human review, and a
+final review.
+
+Project source is kept in a local Git worktree under `~/Bees/projects`, never
+inside the team's synced folder. Bees commits every coding turn on an isolated
+`bees/project/*` branch. Phase approval, final verification, and the local merge
+are explicit UI actions; Bees never pushes the branch.
+
+## Process modules
+
+Bundled processes live under `src/processes/<process>/`. Each module owns its
+definition, prompts, state rules, tests, and any custom Studio controller. The
+small compile-time registry in `src/processes/registry.ts` exposes definitions
+to the shared installer and identifies data-driven versus Studio processes.
+Native process-specific code follows the same layout under
+`src-tauri/src/processes/`.
+
 ## License
 
 Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the

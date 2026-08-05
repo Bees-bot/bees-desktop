@@ -20,7 +20,11 @@ import {
   linkedLocationInputDirectory,
   validateCollectedOutputs
 } from "./workspaces.js";
-import { recoverGoalPlannerOutput, TASK_PLAN_OUTPUT, validateGoalRun } from "./goals.js";
+import {
+  recoverGoalPlannerOutput,
+  TASK_PLAN_OUTPUT,
+  validateGoalRun
+} from "./processes/goals/index.js";
 import { buildBeesRunInitialData } from "./run-config.js";
 
 export interface RunRequest {
@@ -49,6 +53,10 @@ export interface RunRequest {
   onCreated?: (executionId: string) => void | Promise<void>;
   /** The published config to run instead of the source run's snapshot. Restart with current config. */
   restartedFromExecutionId?: string;
+  /** Run directly in this work item's validated external Git worktree. */
+  projectWorkItemId?: string;
+  /** The Software Project coordinator, not the generic process engine, advances this item. */
+  manualProjection?: boolean;
 }
 
 export interface RunOutcome {
@@ -79,6 +87,8 @@ export interface RustRunRequest {
   validationRules: string[];
   stages: string[];
   goalStage?: string;
+  projectMode: boolean;
+  manualProjection: boolean;
 }
 
 export interface SettledRun {
@@ -211,27 +221,38 @@ export class RunCoordinator {
     let workspacePath = "";
     let handedOff = false;
     try {
-      workspacePath = request.fileLocations
-        ? await this.workspaces.prepare(
-            executionId,
-            request.teamRoot,
-            request.item.logicalFiles,
-            request.fileLocations
-          )
-        : await this.workspaces.prepare(executionId, request.teamRoot, request.item.logicalFiles);
+      workspacePath = request.projectWorkItemId
+        ? await this.workspaces.projectWorkspace(request.projectWorkItemId)
+        : request.fileLocations
+          ? await this.workspaces.prepare(
+              executionId,
+              request.teamRoot,
+              request.item.logicalFiles,
+              request.fileLocations
+            )
+          : await this.workspaces.prepare(executionId, request.teamRoot, request.item.logicalFiles);
       const capabilities = request.capabilities ?? [];
       const grantedCapabilityRefs = capabilities
         .filter(({ kind, ref }) =>
           kind === "skill" ? false : request.agent.config.grants?.includes(`local:${ref}`) ?? false
         )
         .map(({ ref }) => ref);
-      const skillSnapshots = await this.flueProject.bindWorkspace(
-        executionId,
-        workspacePath,
-        request.teamRoot,
-        previous ? undefined : capabilities,
-        previous ? undefined : grantedCapabilityRefs
-      );
+      const skillSnapshots = request.projectWorkItemId
+        ? await this.flueProject.bindWorkspace(
+            executionId,
+            workspacePath,
+            request.teamRoot,
+            previous ? undefined : capabilities,
+            previous ? undefined : grantedCapabilityRefs,
+            request.projectWorkItemId
+          )
+        : await this.flueProject.bindWorkspace(
+            executionId,
+            workspacePath,
+            request.teamRoot,
+            previous ? undefined : capabilities,
+            previous ? undefined : grantedCapabilityRefs
+          );
       const initialData = previous
         ? undefined
         : buildBeesRunInitialData({
@@ -241,7 +262,9 @@ export class RunCoordinator {
             capabilities,
             skillSnapshots,
             mcpConnections: request.mcpConnections ?? [],
-            delegates: request.delegates ?? []
+            delegates: request.delegates ?? [],
+            projectWorkspace: Boolean(request.projectWorkItemId),
+            manualProjection: Boolean(request.manualProjection)
           });
       const capabilitySeed = initialData ?? previous?.result?.initialData;
       await this.repository.beginExecutionDelivery(executionId, {
@@ -249,6 +272,8 @@ export class RunCoordinator {
         prompt,
         stages: request.stages,
         ...(request.goalStage ? { goalStage: request.goalStage } : {}),
+        projectMode: Boolean(request.projectWorkItemId),
+        manualProjection: Boolean(request.manualProjection),
         continuation: previous !== null,
         ...(capabilitySeed ? { initialData: capabilitySeed } : {}),
         workspaceRef: workspacePath
@@ -271,7 +296,9 @@ export class RunCoordinator {
         ...(initialData ? { initialData } : {}),
         validationRules: request.agent.config.validationRules ?? [],
         stages: request.stages,
-        ...(request.goalStage ? { goalStage: request.goalStage } : {})
+        ...(request.goalStage ? { goalStage: request.goalStage } : {}),
+        projectMode: Boolean(request.projectWorkItemId),
+        manualProjection: Boolean(request.manualProjection)
       });
       handedOff = true;
       const outcome = await settled;
@@ -338,7 +365,9 @@ export class RunCoordinator {
               : {}),
             validationRules: execution.config.validationRules ?? [],
             stages: result.stages.filter((stage): stage is string => typeof stage === "string"),
-            ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {})
+            ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {}),
+            projectMode: result.projectMode === true,
+            manualProjection: result.manualProjection === true
           },
           execution.submissionId ?? ""
         );
@@ -378,7 +407,9 @@ export class RunCoordinator {
         ...(!result.continuation && result.initialData ? { initialData: result.initialData } : {}),
         validationRules: execution.config.validationRules ?? [],
         stages: result.stages.filter((stage): stage is string => typeof stage === "string"),
-        ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {})
+        ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {}),
+        projectMode: result.projectMode === true,
+        manualProjection: result.manualProjection === true
       },
       execution.submissionId ?? ""
     );

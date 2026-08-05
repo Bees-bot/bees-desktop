@@ -146,16 +146,18 @@ import {
 } from "./knowledge.js";
 import { CLI_TOOLS, detectCliTools } from "./cli-tools.js";
 import {
-  GOALS_PROCESS_NAME,
-  GOALS_STAGES,
-  TASK_PLAN_OUTPUT,
-  parseTaskPlan
-} from "./goals.js";
+  completedGoalsReadyForReview,
+  goalStageForRun
+} from "./processes/goals/runtime.js";
+import { GoalsController } from "./processes/goals/controller.js";
 import {
   PROCESS_LIBRARY,
   processLibraryEntry,
-  type ProcessLibraryEntry
-} from "./process-library.js";
+  processModule,
+  starterProcessModule,
+  type ProcessLibraryEntry,
+  type ProcessStudio
+} from "./processes/registry.js";
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
@@ -187,6 +189,7 @@ import {
   type OutputPreview
 } from "./workspaces.js";
 import { renderMarkdown } from "./markdown.js";
+import { SoftwareProjectController } from "./processes/software-project/controller.js";
 
 type View =
   | "overview"
@@ -244,6 +247,57 @@ const registryFiles = new RegistryFiles(flueProjectPort);
 const agentFiles = new AgentFileStore(new TauriAgentFilePort());
 const api = new ApiClient();
 const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, ensureFlueRuntime);
+const goalsController = new GoalsController({
+  findWorkItem: (itemId) => teamItems.find(({ id }) => id === itemId) ?? null,
+  findProcess: (processId) => processes.find(({ id }) => id === processId) ?? null,
+  readOutput: (execution, output, teamRoot) => {
+    if (!execution.workspaceRef) throw new Error("Output workspace is unavailable");
+    return workspaces.readOutput(execution.workspaceRef, output.logicalOutput, teamRoot);
+  },
+  approveTaskPlan: async (outputId, itemId, planStageId, waitingStageId, tasks) => {
+    await repository.approveTaskPlan(outputId, itemId, planStageId, waitingStageId, tasks);
+  },
+  syncCheckpoint: (itemId) => syncCheckpoint(itemId),
+  finishOutputReview: (execution) => finishOutputReview(execution)
+});
+const softwareProjectStudio = new SoftwareProjectController({
+  current: () => {
+    const item = teamItems.find(({ id }) => id === activeItemId);
+    const process = item ? processes.find(({ id }) => id === item.processId) : undefined;
+    const stage = process?.stages.find(({ id }) => id === item?.stageId)?.name;
+    return item && process && stage ? { item, process, stage } : null;
+  },
+  getSetting: (key, fallback) => repository.getSetting(key, fallback),
+  setSetting: (key, value) => repository.setSetting(key, value),
+  runAgentTurn: (item, role, prompt, projectMode) =>
+    runProcessAgentTurn(item, role, prompt, projectMode),
+  moveWorkItem: (itemId, stageId) => repository.moveWorkItem(itemId, stageId),
+  setWorkItemStatus: (item, status) =>
+    repository.updateWorkItem(item.id, {
+      title: item.title,
+      description: item.description,
+      owner: item.owner ?? "",
+      status,
+      logicalFiles: item.logicalFiles
+    }),
+  getWorkItem: async (itemId) => (await repository.getWorkItem(itemId)) ?? null,
+  requireTeamRoot,
+  chooseRepository: async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose Git repository"
+    });
+    return Array.isArray(selected) ? selected[0] ?? null : selected;
+  },
+  confirm: async (title, message, button) =>
+    Boolean(
+      await edit(title, [{ name: "warning", label: "", type: "note", value: message }], button)
+    ),
+  refresh,
+  notify: showNotice
+});
+const processStudios: readonly ProcessStudio[] = [softwareProjectStudio];
 
 /**
  * Boot the immutable Flue app. Rust resolves model credentials from the OS vault; the
@@ -1122,23 +1176,9 @@ async function loadDashboardsByTeam(): Promise<void> {
 
 /** A decomposed goal resumes only after every approved child task has reached Done. */
 async function resumeCompletedGoals(): Promise<number> {
-  const waitingPosition = GOALS_STAGES.indexOf("Waiting");
-  const reviewPosition = GOALS_STAGES.indexOf("Review");
-  const ready = teamItems.flatMap((item) => {
-    const process = processes.find(({ id }) => id === item.processId);
-    const waiting = process?.stages.find(({ id }) => id === item.stageId);
-    const review = process?.stages.find(({ position }) => position === reviewPosition);
-    if (waiting?.position !== waitingPosition || !review || item.status !== "open") return [];
-    const children = teamItems.filter(({ parentId }) => parentId === item.id);
-    return children.length > 0 && children.every(({ status }) => status === "done")
-      ? [{ parent: item, review }]
-      : [];
-  });
-  for (const { parent, review } of ready) {
-    const files = teamItems
-      .filter(({ parentId }) => parentId === parent.id)
-      .flatMap(({ logicalFiles }) => logicalFiles);
-    await repository.checkpointWorkItem(parent.id, files, review.name);
+  const ready = completedGoalsReadyForReview(teamItems, processes);
+  for (const { parent, review, logicalFiles } of ready) {
+    await repository.checkpointWorkItem(parent.id, logicalFiles, review.name);
   }
   return ready.length;
 }
@@ -1365,31 +1405,29 @@ async function refresh(): Promise<void> {
 
 async function seedDefaultRegistry(): Promise<void> {
   if (!workspace.teamId) return;
-  const key = `default_registry_seeded_${workspace.teamId}`;
-  if (await repository.getSetting(key, false)) return;
-  const id = crypto.randomUUID();
+  const key = `default_registry_version_${workspace.teamId}`;
+  if ((await repository.getSetting(key, 0)) >= 2) return;
+  const existing = registries.find(({ sourcePath }) => sourcePath === "bundled://bees-default");
+  const id = existing?.id ?? crypto.randomUUID();
   const files = await registryFiles.copyBundled(id);
   await repository.saveRegistry({
     id,
     teamId: workspace.teamId,
-    name: "Bees defaults",
+    name: existing?.name ?? "Bees defaults",
     sourcePath: "bundled://bees-default",
     files
   });
-  await repository.setSetting(key, true);
+  await repository.setSetting(key, 2);
   await refresh();
 }
 
-/**
- * Seeds the three ordinary agents that make Goals useful. The marker means deleting or replacing
- * one later is respected; Bees does not silently recreate user-owned agent files.
- */
-async function seedGoalsWorkflow(): Promise<void> {
+/** Seeds the starter module once; later user-owned agent edits and deletions are respected. */
+async function seedStarterWorkflow(): Promise<void> {
   if (!workspace.teamId) return;
-  const key = `goals_workflow_seeded_${workspace.teamId}`;
+  const module = starterProcessModule();
+  const key = `${module.definition.id}_workflow_seeded_${workspace.teamId}`;
   if (await repository.getSetting(key, false)) return;
-  const template = processLibraryEntry("goals");
-  if (!template) return;
+  const template = module.definition;
   const process = processes.find(
     ({ name }) => name.toLowerCase() === template.name.toLowerCase()
   );
@@ -1421,8 +1459,10 @@ async function seedGoalsWorkflow(): Promise<void> {
     );
     agents.push(saved);
   }
-  runningProcesses.add(process.id);
-  await repository.setSetting(RUNNING_PROCESSES_KEY, [...runningProcesses]);
+  if (module.autoStart) {
+    runningProcesses.add(process.id);
+    await repository.setSetting(RUNNING_PROCESSES_KEY, [...runningProcesses]);
+  }
   await repository.setSetting(key, true);
   await refresh();
 }
@@ -1525,6 +1565,14 @@ async function renderWorkItemDetail(): Promise<void> {
   }
   setHeader(item.title, currentTeam()?.name);
   const runs = executions.filter(({ workItemId }) => workItemId === item.id);
+  const process = processes.find(({ id }) => id === item.processId);
+  const studio = process ? processStudios.find((candidate) => candidate.matches(process.name)) : null;
+  if (process && studio) {
+    const content = await studio.render(item, process, runs);
+    if (view !== "item" || activeItemId !== item.id) return;
+    swap(content);
+    return;
+  }
   const locations = await repository.listAvailableFileLocations(workspace.teamId);
   if (view !== "item" || activeItemId !== item.id) return;
   swap(workItemView(
@@ -1674,7 +1722,9 @@ function renderBoard(): void {
     return;
   }
   const stages = activeProcess.stages.filter(({ id }) => activeBoard?.stageIds.includes(id));
-  const running = runningProcesses.has(activeProcess.id);
+  const projectStudio = processModule(activeProcess.name)?.mode === "studio";
+  const running =
+    projectStudio || runningProcesses.has(activeProcess.id);
   const filters = activeBoard.filters;
   const visible = items.filter((item) => !isFiltered(item, filters));
   const filtered = items
@@ -1740,12 +1790,12 @@ function renderBoard(): void {
                     <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
                     <button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>
                     ${
-                      stageIndex > 0
+                      !projectStudio && stageIndex > 0
                         ? `<button class="btn btn-square btn-ghost btn-xs" aria-label="Move left" data-action="move-item" data-id="${item.id}" data-stage="${stages[stageIndex - 1]!.id}">←</button>`
                         : ""
                     }
                     ${
-                      stageIndex < stages.length - 1
+                      !projectStudio && stageIndex < stages.length - 1
                         ? `<button class="btn btn-square btn-ghost btn-xs" aria-label="Move right" data-action="move-item" data-id="${item.id}" data-stage="${stages[stageIndex + 1]!.id}">→</button>`
                         : ""
                     }
@@ -1754,9 +1804,7 @@ function renderBoard(): void {
               </article>`
             )
             .join("")}
-            <button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${
-              stage.id
-            }">+ Add item</button>
+            ${!projectStudio || stageIndex === 0 ? `<button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${stage.id}">+ Add item</button>` : ""}
           </div>
         </section>`;
       })
@@ -1915,7 +1963,7 @@ async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Pro
   for (const definition of template.agents) {
     const stage = process.stages.find(({ name }) => name === definition.stage);
     if (!stage) throw new Error(`${template.name} is missing the ${definition.stage} status`);
-    if (existingAgents.some(({ triggerStageId }) => triggerStageId === stage.id)) continue;
+    if (existingAgents.some(({ config }) => config.role === definition.role)) continue;
     await agentFiles.save(
       teamRoot,
       newAgent({
@@ -2010,8 +2058,9 @@ async function addLibraryProcess(templateId: string): Promise<void> {
   if (!data) return;
 
   const process = await installLibraryProcess(template);
-  if (template.id === "goals") {
-    await repository.setSetting(`goals_workflow_seeded_${workspace.teamId}`, true);
+  const module = processModule(template.name);
+  if (module?.starter) {
+    await repository.setSetting(`${template.id}_workflow_seeded_${workspace.teamId}`, true);
   }
   activeProcess = process;
   workspace.processId = process.id;
@@ -4284,11 +4333,18 @@ function applySettledExecution(
       ? execution.result.outputs.filter((output): output is string => typeof output === "string")
       : [];
     const continuation = execution.result.continuation === true;
+    const manualProjection = execution.result.manualProjection === true;
+    const projectMode = execution.result.projectMode === true;
     const statusName =
       typeof execution.result.statusName === "string" ? execution.result.statusName : undefined;
 
     if (execution.result.projectionState === "pending") {
-      if (execution.status === "completed" && outputs.length === 0 && !continuation) {
+      if (
+        execution.status === "completed" &&
+        outputs.length === 0 &&
+        !continuation &&
+        !manualProjection
+      ) {
         // Checkpoint and projection marker share one SQLite transaction: a crash cannot advance
         // the work item twice or mark an unapplied checkpoint as applied.
         await repository.checkpointWorkItem(execution.workItemId, [], statusName, execution.id);
@@ -4300,13 +4356,22 @@ function applySettledExecution(
 
     if (execution.result?.projectionState === "local_applied") {
       const scope = await repository.getWorkItemScope(execution.workItemId);
-      if (execution.status === "completed" && outputs.length === 0 && !continuation) {
+      if (
+        execution.status === "completed" &&
+        outputs.length === 0 &&
+        !continuation &&
+        !manualProjection
+      ) {
         if (scope) await syncCheckpoint(execution.workItemId, scope.organizationId, scope.teamId);
         await releaseClaim(execution.workItemId, scope?.organizationId);
-      } else if (execution.status !== "completed" || outputs.length === 0) {
+      } else if (manualProjection || execution.status !== "completed" || outputs.length === 0) {
         await releaseClaim(execution.workItemId, scope?.organizationId);
       }
-      if ((execution.status !== "completed" || outputs.length === 0) && execution.workspaceRef) {
+      if (
+        !projectMode &&
+        (manualProjection || execution.status !== "completed" || outputs.length === 0) &&
+        execution.workspaceRef
+      ) {
         await workspaces.cleanup(execution.workspaceRef).catch(() => undefined);
       }
       await repository.completeExecutionProjection(execution.id);
@@ -4521,12 +4586,20 @@ async function projectToolsByPolicy(
 }
 
 function processStateBadge(processId: string): string {
+  const process = processes.find(({ id }) => id === processId);
+  if (process && processModule(process.name)?.mode === "studio") {
+    return '<span class="badge badge-primary badge-sm">Studio</span>';
+  }
   return runningProcesses.has(processId)
     ? '<span class="badge badge-success badge-sm">Running</span>'
     : '<span class="badge badge-ghost badge-sm">Stopped</span>';
 }
 
 function processStatusButton(processId: string): string {
+  const process = processes.find(({ id }) => id === processId);
+  if (process && processModule(process.name)?.mode === "studio") {
+    return `<button class="btn btn-ghost btn-sm" disabled title="Software projects run from their Studio">Studio</button>`;
+  }
   const running = runningProcesses.has(processId);
   return actionIconButton(
     running ? "stop-process" : "start-process",
@@ -4538,6 +4611,10 @@ function processStatusButton(processId: string): string {
 }
 
 function processRunButtons(processId: string, size: string): string {
+  const process = processes.find(({ id }) => id === processId);
+  if (process && processModule(process.name)?.mode === "studio") {
+    return `<button class="btn btn-ghost ${size}" disabled>Run from Project Studio</button>`;
+  }
   const running = runningProcesses.has(processId);
   return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${
     running ? " disabled" : ""
@@ -4552,6 +4629,10 @@ function processRunButtons(processId: string, size: string): string {
  * Stopping also cancels whatever that process has in flight, so it is a real brake.
  */
 async function setProcessRunning(processId: string, running: boolean): Promise<void> {
+  const process = processes.find(({ id }) => id === processId);
+  if (running && process && processModule(process.name)?.mode === "studio") {
+    throw new Error("Software projects run from the item's Project Studio");
+  }
   if (running) {
     runningProcesses.add(processId);
     // Asking again is a retry: statuses parked by a failed or self-repeating run become eligible.
@@ -4712,6 +4793,115 @@ async function autopilot(): Promise<void> {
   }
 }
 
+async function runProcessAgentTurn(
+  item: WorkItem,
+  role: string,
+  prompt: string,
+  projectMode = false
+): Promise<Execution> {
+  const source = agents.find(({ config }) => config.role === role);
+  if (!source) throw new Error(`The ${role} agent is missing. Reinstall or repair this process.`);
+  const selectedModel = resolveModelChoice(source.config, assistantModel);
+  let agent =
+    modelRef(source.config) === modelRef(selectedModel)
+      ? source
+      : {
+          ...source,
+          config: {
+            ...source.config,
+            provider: selectedModel.provider,
+            model: selectedModel.model
+          }
+        };
+  const eligibility = eligibilityForAgent(agent);
+  if (!eligibility.active) throw new Error(`${agent.name} is inactive: ${eligibility.reason}`);
+  if (activeExecutionForItem(item.id, executions)) {
+    throw new Error("Another process agent is already working on this item");
+  }
+  const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
+  if (!mapping?.localPath) throw new Error("Set a local team folder before running process agents");
+  if (localModels.isLocalModel(modelRef(agent.config))) {
+    await localModels.requireRunning(agent.config.model);
+  }
+  await ensureKnowledgeConnection();
+  let composition = runComposition(agent);
+  const projected = await projectToolsByPolicy(agent, composition);
+  agent = projected.agent;
+  composition = projected.composition;
+  const classification =
+    typeof agent.config.dataClassification === "string"
+      ? agent.config.dataClassification
+      : undefined;
+  const sharedContext = {
+    agentId: agent.id,
+    ...(classification ? { dataClassification: classification } : {}),
+    run: { automatic: false, scheduled: false, continuation: false }
+  };
+  await enforceControl(
+    controlInput("run.start", { type: "work_item", id: item.id, attributes: {} }, sharedContext)
+  );
+  await enforceControl(
+    controlInput(
+      "model.invoke",
+      { type: "model", id: modelRef(agent.config), attributes: {} },
+      {
+        ...sharedContext,
+        agentId: agent.id,
+        model: {
+          id: modelRef(agent.config),
+          provider: agent.config.provider ?? "",
+          location: localModels.isLocalModel(modelRef(agent.config))
+            ? "local-device"
+            : "external"
+        }
+      }
+    ),
+    true
+  );
+  await enforceControl(
+    controlInput(
+      "file.stage",
+      {
+        type: "file_set",
+        attributes: {
+          count: projectMode ? 1 : 0,
+          hasLinkedLocations: false,
+          projectWorkspace: projectMode
+        }
+      },
+      sharedContext
+    )
+  );
+  await acquireClaim(item);
+  try {
+    await repository.recordSkillUse(
+      workspace.teamId,
+      composition.capabilities.filter(({ kind }) => kind === "skill").map(({ ref }) => ref)
+    );
+    const outcome = await runCoordinator.start({
+      item: { ...item, description: prompt, logicalFiles: [] },
+      agent,
+      teamId: workspace.teamId,
+      teamRoot: mapping.localPath,
+      ...composition,
+      stages: [],
+      manualProjection: true,
+      ...(projectMode ? { projectWorkItemId: item.id } : {}),
+      onCreated: async () => refresh()
+    });
+    await applySettledExecution(outcome.executionId, true);
+    const execution = await repository.getExecution(outcome.executionId);
+    if (!execution) throw new Error("The project agent receipt is unavailable");
+    if (execution.status !== "completed") {
+      throw new Error(execution.error ?? `${agent.name} did not complete`);
+    }
+    return execution;
+  } catch (error) {
+    await releaseClaim(item.id).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function runItem(
   itemId: string,
   auto = false,
@@ -4867,9 +5057,7 @@ async function runItem(
         : {}),
       ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
       stages: process.stages.map(({ name }) => name),
-      ...(process.name.toLowerCase() === GOALS_PROCESS_NAME.toLowerCase()
-        ? { goalStage: stage.name }
-        : {}),
+      ...(goalStageForRun(process, stage) ? { goalStage: stage.name } : {}),
       ...(item.parentId
         ? { parent: teamItems.find(({ id }) => id === item.parentId)! }
         : {}),
@@ -4948,7 +5136,9 @@ async function deleteRun(executionId: string): Promise<void> {
     await refresh();
     return;
   }
-  if (execution.workspaceRef) await workspaces.cleanup(execution.workspaceRef).catch(() => undefined);
+  if (execution.workspaceRef && execution.result?.projectMode !== true) {
+    await workspaces.cleanup(execution.workspaceRef).catch(() => undefined);
+  }
   await repository.deleteExecution(executionId, runtimeAgentName(execution.agentId));
   const localPurgeFailed = await flueProjectPort
     .purgeExecution(executionId)
@@ -5033,7 +5223,7 @@ async function finishOutputReview(execution: Execution): Promise<void> {
   if (!outputs.some(({ status }) => status === "rejected")) {
     // approveTaskPlan already checkpointed the parent into Waiting in the same transaction that
     // created its children. A second checkpoint here would skip straight to Review.
-    if (!outputs.some(({ logicalOutput }) => logicalOutput === TASK_PLAN_OUTPUT)) {
+    if (!outputs.some(({ logicalOutput }) => goalsController.matchesOutput(logicalOutput))) {
       await repository.checkpointWorkItem(
         execution.workItemId,
         outputs
@@ -5085,7 +5275,7 @@ async function switchTeam(teamId: string, nextView: View = "board"): Promise<voi
   view = nextView;
   await refresh();
   await seedDefaultRegistry();
-  await seedGoalsWorkflow();
+  await seedStarterWorkflow();
 }
 
 async function createLocalOrg(): Promise<void> {
@@ -5250,6 +5440,9 @@ document.addEventListener("click", async (event) => {
     }
 
     const action = button.dataset.action;
+    for (const studio of processStudios) {
+      if (await studio.handleAction(action ?? "", button)) return;
+    }
     if (action === "knowledge-local") {
       try {
         await configureLocalKnowledge();
@@ -5396,29 +5589,15 @@ document.addEventListener("click", async (event) => {
       const execution = output ? await repository.getExecution(output.executionId) : null;
       const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
       if (!output || !execution?.workspaceRef || !mapping) throw new Error("Output is unavailable");
-      if (output.logicalOutput === TASK_PLAN_OUTPUT) {
+      if (goalsController.matchesOutput(output.logicalOutput)) {
         for (const control of app.querySelectorAll<HTMLButtonElement>(
           '[data-action="approve-output"], [data-action="reject-output"]'
         )) {
           if (control.dataset.id === output.id) control.disabled = true;
         }
         try {
-          const item = teamItems.find(({ id }) => id === execution.workItemId);
-          const process = item ? processes.find(({ id }) => id === item.processId) : null;
-          const plan = process?.stages.find(({ name }) => name === GOALS_STAGES[0]);
-          const waiting = process?.stages.find(({ name }) => name === GOALS_STAGES[2]);
-          if (!item || !plan || !waiting) throw new Error("The Goals process definition has changed");
-          const tasks = parseTaskPlan(
-            await workspaces.readOutput(
-              execution.workspaceRef,
-              output.logicalOutput,
-              mapping.localPath
-            )
-          );
-          await repository.approveTaskPlan(output.id, item.id, plan.id, waiting.id, tasks);
-          await syncCheckpoint(item.id);
-          await finishOutputReview(execution);
-          showNotice(`${tasks.length} task${tasks.length === 1 ? "" : "s"} approved and queued`, "success");
+          const count = await goalsController.approveTaskPlan(output, execution, mapping.localPath);
+          showNotice(`${count} task${count === 1 ? "" : "s"} approved and queued`, "success");
           return;
         } finally {
           // Reconcile controls with the database even if shared coordination fails afterward.
@@ -5457,7 +5636,9 @@ document.addEventListener("click", async (event) => {
       // The reason is the only instruction the retry gets, so ask for it here rather than
       // leaving the agent to guess what was wrong with the same task it just did.
       const data = await edit(
-        output.logicalOutput === TASK_PLAN_OUTPUT ? "Reject task plan" : "Reject file change",
+        goalsController.matchesOutput(output.logicalOutput)
+          ? "Reject task plan"
+          : "Reject file change",
         [
           {
             name: "reason",
@@ -5498,7 +5679,7 @@ document.addEventListener("click", async (event) => {
       showNotice(
         undo
           ? "Rejected — feedback saved for future items"
-          : output.logicalOutput === TASK_PLAN_OUTPUT
+          : goalsController.matchesOutput(output.logicalOutput)
             ? "Task plan rejected — the planner will try again"
             : "File change rejected — the agent will try again",
         "success",
@@ -6265,6 +6446,15 @@ document.addEventListener("click", async (event) => {
 });
 
 app.addEventListener("submit", (event) => {
+  const processForm = (event.target as Element).closest<HTMLFormElement>("form");
+  const studio = processForm
+    ? processStudios.find((candidate) => candidate.handlesSubmit(processForm))
+    : undefined;
+  if (processForm && studio) {
+    event.preventDefault();
+    void studio.handleSubmit(processForm).catch((error) => showNotice(errorText(error), "error"));
+    return;
+  }
   const assistant = (event.target as Element).closest<HTMLFormElement>(
     "form[data-overview-assistant]"
   );
@@ -7183,7 +7373,7 @@ async function start(): Promise<void> {
     }
     await refresh();
     await seedDefaultRegistry();
-    await seedGoalsWorkflow();
+    await seedStarterWorkflow();
     // Re-copied at launch and after each write, not on every refresh: the snapshot only changes
     // when someone edits the team folder. ponytail: add a watcher if hand-edits need to show sooner.
     const teamFolder = await repository.getResolvedTeamFolder(workspace.teamId);

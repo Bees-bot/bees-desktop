@@ -203,6 +203,8 @@ export interface ExecutionResult extends Record<string, unknown> {
   prompt?: string;
   stages?: string[];
   goalStage?: string;
+  projectMode?: boolean;
+  manualProjection?: boolean;
   continuation?: boolean;
   /** Strict, credential-free instance seed; also authorizes capabilities on later submissions. */
   initialData?: BeesRunInitialData;

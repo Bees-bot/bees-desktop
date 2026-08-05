@@ -13,7 +13,11 @@
 //! rendering, which is where latency actually shows. Swap in a streaming read here only if a
 //! settled run visibly lags.
 
-use crate::{canonical_workspace, collect_relative_files, Database};
+use crate::{
+    canonical_workspace, collect_relative_files,
+    processes::goals::{validate_run as validate_goal_run, TASK_PLAN_OUTPUT},
+    Database,
+};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -55,6 +59,10 @@ pub struct RunRequest {
     /// Set only for the built-in Goals process, whose statuses have stricter rules.
     #[serde(default)]
     pub goal_stage: Option<String>,
+    #[serde(default)]
+    pub project_mode: bool,
+    #[serde(default)]
+    pub manual_projection: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -263,13 +271,8 @@ fn conversation_text(conversation: &JsonValue) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Validation, ported from workspaces.ts and goals.ts so settlement never needs the webview.
+// Shared output validation; process-specific settlement rules live under `processes/`.
 // ---------------------------------------------------------------------------
-
-pub const TASK_PLAN_OUTPUT: &str = ".tasks.json";
-const GOAL_PLAN: &str = "plan";
-const GOAL_WORK: &str = "work";
-const GOAL_WAITING: &str = "waiting";
 
 /// Mirrors `logicalPath` in domain.ts: relative paths inside the team folder, nothing else.
 pub fn validate_logical_path(value: &str) -> Result<String, String> {
@@ -305,44 +308,6 @@ pub fn validate_collected_outputs(outputs: &[String], rules: &[String]) -> Resul
         {
             return Err(format!("Agent outputs must use the {extension} extension"));
         }
-    }
-    Ok(())
-}
-
-pub fn validate_goal_run(
-    current_stage: &str,
-    outputs: &[String],
-    status_name: &str,
-    stages: &[String],
-) -> Result<(), String> {
-    let stage = current_stage.trim().to_lowercase();
-    if outputs.iter().any(|output| output == TASK_PLAN_OUTPUT) {
-        if stage != GOAL_PLAN {
-            return Err("Only the Plan status can propose subtasks".into());
-        }
-        return Ok(());
-    }
-    let target = stages
-        .iter()
-        .find(|name| name.trim().to_lowercase() == status_name.trim().to_lowercase());
-    if stage == GOAL_PLAN {
-        if !outputs.is_empty()
-            || target.map(|name| name.trim().to_lowercase()) != Some(GOAL_WORK.to_owned())
-        {
-            return Err(format!(
-                "Goal planner must choose Work or write {TASK_PLAN_OUTPUT} for approval"
-            ));
-        }
-        return Ok(());
-    }
-    let Some(target) = target else {
-        return Err(format!(
-            "Goal run must choose one of: {}",
-            stages.join(", ")
-        ));
-    };
-    if target.trim().to_lowercase() == GOAL_WAITING {
-        return Err("Waiting is reserved for goals with approved subtasks".into());
     }
     Ok(())
 }
@@ -588,7 +553,11 @@ fn run_to_settlement(
         );
     }
 
-    let collected = collect(&request.workspace)?;
+    let collected = if request.project_mode || request.manual_projection {
+        Vec::new()
+    } else {
+        collect(&request.workspace)?
+    };
     let status_name = if collected.iter().any(|output| output == STATUS_OUTPUT) {
         read_status(&request.workspace)
     } else {
@@ -692,7 +661,8 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
     drop(managed);
     let database = app.state::<Database>();
     let connection = database.0.lock().map_err(|error| error.to_string())?;
-    let (_agent_id, workspace, stored_uid, status, result_json): (
+    let (_agent_id, work_item_id, workspace, stored_uid, status, result_json): (
+        String,
         String,
         Option<String>,
         Option<String>,
@@ -700,7 +670,7 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
         Option<String>,
     ) = connection
         .query_row(
-            "SELECT agent_id, workspace_ref, instance_uid, status, result_json
+            "SELECT agent_id, work_item_id, workspace_ref, instance_uid, status, result_json
                  FROM executions WHERE id = ?1",
             params![request.execution_id],
             |row| {
@@ -710,10 +680,12 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
         .map_err(|_| "Execution not found".to_string())?;
+    drop(connection);
     if !matches!(status.as_str(), "queued" | "running") {
         return Err("This execution is already settled".into());
     }
@@ -735,6 +707,19 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
     {
         return Err("The requested delivery does not match this execution".into());
     }
+    if stored_result
+        .get("projectMode")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+        != request.project_mode
+        || stored_result
+            .get("manualProjection")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false)
+            != request.manual_projection
+    {
+        return Err("The requested execution mode does not match this execution".into());
+    }
     if !request.continuation
         && (request.initial_data.is_none()
             || stored_result.get("initialData") != request.initial_data.as_ref())
@@ -742,10 +727,27 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
         return Err("The immutable run configuration does not match this execution".into());
     }
     let expected = workspace.ok_or_else(|| "The execution has no workspace".to_string())?;
-    let expected = canonical_workspace(app, &expected)
-        .map_err(|_| "The execution workspace is unavailable")?;
-    let offered = canonical_workspace(app, &request.workspace)
-        .map_err(|_| "The requested execution workspace is unavailable")?;
+    let (expected, offered) = if request.project_mode {
+        (
+            crate::processes::software_project::canonical_project_workspace(
+                &database,
+                &work_item_id,
+                &expected,
+            )?,
+            crate::processes::software_project::canonical_project_workspace(
+                &database,
+                &work_item_id,
+                &request.workspace,
+            )?,
+        )
+    } else {
+        (
+            canonical_workspace(app, &expected)
+                .map_err(|_| "The execution workspace is unavailable")?,
+            canonical_workspace(app, &request.workspace)
+                .map_err(|_| "The requested execution workspace is unavailable")?,
+        )
+    };
     if offered != expected {
         return Err("The requested workspace does not belong to this execution".into());
     }
@@ -888,23 +890,6 @@ mod tests {
         assert!(
             validate_collected_outputs(&["a.md".to_owned()], &["extension:md".to_owned()]).is_err()
         );
-    }
-
-    #[test]
-    fn mirrors_the_goal_status_rules() {
-        let stages: Vec<String> = ["Plan", "Work", "Waiting", "Review", "Done"]
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect();
-        let plan = vec![TASK_PLAN_OUTPUT.to_owned()];
-
-        assert!(validate_goal_run("Plan", &plan, "", &stages).is_ok());
-        assert!(validate_goal_run("Work", &plan, "", &stages).is_err());
-        assert!(validate_goal_run("Plan", &[], "Work", &stages).is_ok());
-        assert!(validate_goal_run("Plan", &[], "Review", &stages).is_err());
-        assert!(validate_goal_run("Work", &[], "Review", &stages).is_ok());
-        assert!(validate_goal_run("Work", &[], "Waiting", &stages).is_err());
-        assert!(validate_goal_run("Work", &[], "Nonsense", &stages).is_err());
     }
 
     #[test]

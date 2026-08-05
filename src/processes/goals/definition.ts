@@ -6,31 +6,14 @@ import {
   GOALS_PROCESS_DESCRIPTION,
   GOALS_PROCESS_NAME,
   GOALS_STAGES
-} from "./goals.js";
+} from "./index.js";
+import type { ProcessModule } from "../types.js";
 
-export interface ProcessLibraryAgent {
-  role: string;
-  name: string;
-  purpose: string;
-  stage: string;
-  prompt: string;
-  provider: string;
-  model: string;
-  skills?: readonly string[];
-}
-
-export interface ProcessLibraryEntry {
-  id: string;
-  name: string;
-  description: string;
-  boardName: string;
-  stages: readonly string[];
-  agents: readonly ProcessLibraryAgent[];
-}
-
-/** Shipped with Bees Desktop, so browsing and installing never needs an organization connection. */
-export const PROCESS_LIBRARY: readonly ProcessLibraryEntry[] = [
-  {
+export const goalsProcess = {
+  mode: "data-driven",
+  starter: true,
+  autoStart: true,
+  definition: {
     id: "goals",
     name: GOALS_PROCESS_NAME,
     description: GOALS_PROCESS_DESCRIPTION,
@@ -69,8 +52,4 @@ export const PROCESS_LIBRARY: readonly ProcessLibraryEntry[] = [
       }
     ]
   }
-];
-
-export function processLibraryEntry(id: string): ProcessLibraryEntry | undefined {
-  return PROCESS_LIBRARY.find((entry) => entry.id === id);
-}
+} as const satisfies ProcessModule;

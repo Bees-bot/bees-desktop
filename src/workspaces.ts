@@ -12,6 +12,7 @@ export interface WorkspaceNativePort {
   defaultRoot(): Promise<string>;
   ensureDirectory(path: string): Promise<string>;
   create(executionId: string): Promise<string>;
+  projectWorkspace(workItemId: string): Promise<string>;
   copyInputs(
     teamRoot: string,
     workspaceRoot: string,
@@ -63,6 +64,10 @@ export class TauriWorkspacePort implements WorkspaceNativePort {
 
   create(executionId: string): Promise<string> {
     return invoke("create_workspace", { executionId });
+  }
+
+  projectWorkspace(workItemId: string): Promise<string> {
+    return invoke("software_project_workspace", { workItemId });
   }
 
   copyInputs(
@@ -133,6 +138,10 @@ export class TemporaryWorkspaceService {
 
   ensureDirectory(path: string): Promise<string> {
     return this.native.ensureDirectory(path);
+  }
+
+  projectWorkspace(workItemId: string): Promise<string> {
+    return this.native.projectWorkspace(workItemId);
   }
 
   async prepare(

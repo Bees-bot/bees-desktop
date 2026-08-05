@@ -30,11 +30,20 @@ function granted(agent: Agent, value: string): boolean {
   return agent.config.grants?.includes(value) ?? false;
 }
 
-function instructions(agent: Agent, browser: boolean): string {
+function instructions(
+  agent: Agent,
+  browser: boolean,
+  projectWorkspace = false,
+  manualProjection = false
+): string {
   return [
     agent.config.prompt,
     agent.config.instructions,
-    "Read task inputs from /workspace/inputs. Write every proposed output under /workspace/outputs.",
+    projectWorkspace
+      ? "Work directly in the Git project at /workspace. Do not run Git commands or edit .git; Bees owns commits and review history."
+      : manualProjection
+        ? "Return the requested result in your response. Do not write output files; the Project Studio owns approval and workflow state."
+      : "Read task inputs from /workspace/inputs. Write every proposed output under /workspace/outputs.",
     browser
       ? "You can use the browser tools. If a site needs a login, call browser_wait_for_login so the user signs in themselves; never ask for or type a password."
       : ""
@@ -51,6 +60,8 @@ export function buildBeesRunInitialData(input: {
   skillSnapshots: SkillSnapshot[];
   mcpConnections: McpConnection[];
   delegates: Array<{ agent: Agent; skillRefs: string[] }>;
+  projectWorkspace?: boolean;
+  manualProjection?: boolean;
 }): BeesRunInitialData {
   const snapshots = new Map(input.skillSnapshots.map((entry) => [entry.ref, entry]));
   const selectedSkills = input.capabilities
@@ -72,7 +83,12 @@ export function buildBeesRunInitialData(input: {
     ...(input.agent.config.thinkingLevel
       ? { thinkingLevel: input.agent.config.thinkingLevel }
       : {}),
-    instructions: instructions(input.agent, browser),
+    instructions: instructions(
+      input.agent,
+      browser,
+      input.projectWorkspace,
+      input.manualProjection
+    ),
     teamId: input.teamId,
     browser,
     browserWrite: browser && granted(input.agent, BROWSER_WRITE_GRANT),

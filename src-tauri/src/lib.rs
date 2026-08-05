@@ -1,5 +1,6 @@
 mod local_models;
 mod process;
+mod processes;
 mod runs;
 
 use base64::{
@@ -10,6 +11,11 @@ use local_models::{
     cancel_local_model_download, delete_local_model, ensure_local_model, local_model_routes,
     local_model_status, reap_orphan_llama_servers, start_local_model, stop_local_model,
     LocalModelManager,
+};
+use processes::software_project::{
+    software_project_attach, software_project_commit, software_project_create,
+    software_project_get, software_project_merge, software_project_snapshot,
+    software_project_workspace,
 };
 use runs::{resume_run, run_is_active, start_run, stop_run, RunService};
 use rusqlite::{
@@ -1820,14 +1826,24 @@ fn snapshot_skill(
 /// pointer's key. The sandbox factory resolves it from the agent route's `:id`.
 fn bind_flue_workspace(
     app: tauri::AppHandle,
+    database: State<'_, Database>,
     execution_id: String,
     workspace: String,
     team_root: Option<String>,
     capabilities: Option<Vec<RegistryCapabilityFile>>,
     granted_capability_refs: Option<Vec<String>>,
+    project_work_item_id: Option<String>,
 ) -> Result<Vec<SkillSnapshot>, String> {
     let execution_id = safe_identifier(&execution_id, "execution ID")?;
-    let workspace = canonical_workspace(&app, &workspace)?;
+    let workspace = if let Some(work_item_id) = project_work_item_id {
+        processes::software_project::canonical_project_workspace(
+            &database,
+            &work_item_id,
+            &workspace,
+        )?
+    } else {
+        canonical_workspace(&app, &workspace)?
+    };
     let pointer_path = flue_state_dir(&app)?
         .join("instances")
         .join(format!("{execution_id}.json"));
@@ -2501,7 +2517,14 @@ pub fn run() {
             start_run,
             stop_run,
             run_is_active,
-            resume_run
+            resume_run,
+            software_project_get,
+            software_project_create,
+            software_project_attach,
+            software_project_workspace,
+            software_project_commit,
+            software_project_snapshot,
+            software_project_merge
         ])
         .run(tauri::generate_context!())
         .expect("error while running Bees");

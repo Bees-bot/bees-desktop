@@ -132,6 +132,51 @@ describe("RunCoordinator", () => {
     });
   });
 
+  it("runs software coding turns in the validated project worktree", async () => {
+    const repository = {
+      createExecution: vi.fn().mockResolvedValue("run-project"),
+      getExecution: vi.fn().mockResolvedValue(null),
+      beginExecutionDelivery: vi.fn(),
+      updateExecution: vi.fn()
+    };
+    const workspaces = {
+      prepare: vi.fn(),
+      projectWorkspace: vi.fn().mockResolvedValue("/projects/app")
+    };
+    const flueProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
+    const runHost = host();
+
+    await coordinator(repository, workspaces, runHost, flueProject).start({
+      item: { id: "project-1", title: "App", description: "", logicalFiles: [] } as unknown as WorkItem,
+      agent: { id: "coder", config: { prompt: "Code." } } as unknown as Agent,
+      teamRoot: "/team",
+      stages: [],
+      projectWorkItemId: "project-1",
+      manualProjection: true
+    });
+
+    expect(workspaces.prepare).not.toHaveBeenCalled();
+    expect(flueProject.bindWorkspace).toHaveBeenCalledWith(
+      "run-project",
+      "/projects/app",
+      "/team",
+      [],
+      [],
+      "project-1"
+    );
+    expect(repository.beginExecutionDelivery).toHaveBeenCalledWith(
+      "run-project",
+      expect.objectContaining({ projectMode: true, manualProjection: true })
+    );
+    expect(runHost.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: "/projects/app",
+        projectMode: true,
+        manualProjection: true
+      })
+    );
+  });
+
   it("links a restart to the receipt it came from without touching that receipt", async () => {
     const repository = {
       createExecution: vi.fn().mockResolvedValue("run-new"),

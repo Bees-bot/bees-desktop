@@ -1,0 +1,432 @@
+import type { Execution, WorkItem } from "../../domain.js";
+
+export const SOFTWARE_PROJECT_PROCESS_ID = "software-project";
+export const SOFTWARE_PROJECT_PROCESS_NAME = "Software Project";
+export const SOFTWARE_PROJECT_BOARD_NAME = "Software Projects";
+export const SOFTWARE_PROJECT_DESCRIPTION =
+  "Interview, debate architecture, plan small phases, implement, test, and review a Git project.";
+export const SOFTWARE_PROJECT_STAGES = [
+  "Requirements",
+  "Architecture",
+  "Plan",
+  "Implement",
+  "Phase Review",
+  "Final Review",
+  "Done",
+  "Blocked"
+] as const;
+
+export const SOFTWARE_PROJECT_ROLES = {
+  requirements: "software-requirements",
+  openaiArchitect: "software-architect-openai",
+  anthropicArchitect: "software-architect-anthropic",
+  planner: "software-planner",
+  coder: "software-coder",
+  tester: "software-tester"
+} as const;
+
+export const REQUIREMENTS_PROMPT = `You interview a person who wants software built.
+
+Use their brief and inline questionnaire answers. Resolve ambiguity without making them open files.
+Return exactly one JSON object, with no Markdown fence:
+{"summary":"...","users":["..."],"functionalRequirements":["..."],"nonFunctionalRequirements":["..."],"constraints":["..."],"preferences":["..."],"acceptanceCriteria":["..."],"followUpQuestions":["..."]}
+
+Ask at most five follow-up questions and only when an answer would materially change the product or architecture. Empty arrays are valid. Do not design the architecture yet.`;
+
+export const OPENAI_ARCHITECT_PROMPT = `You are the OpenAI-side software architect in a two-architect review.
+
+Produce an independent architecture from the approved requirements and repository evidence. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
+{"summary":"...","decisions":[{"area":"Language and framework","choice":"...","reason":"...","alternatives":["..."]}],"repositoryPlan":["..."],"commands":{"setup":["..."],"check":["..."],"test":["..."],"build":["..."],"dev":["..."]},"risks":["..."],"questions":["..."]}
+
+Prefer the simplest architecture that meets the requirements. Do not edit files or run Git.`;
+
+export const ANTHROPIC_ARCHITECT_PROMPT = `You are the Anthropic-side software architect in a two-architect review.
+
+Produce an independent architecture from the approved requirements and repository evidence. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
+{"summary":"...","decisions":[{"area":"Language and framework","choice":"...","reason":"...","alternatives":["..."]}],"repositoryPlan":["..."],"commands":{"setup":["..."],"check":["..."],"test":["..."],"build":["..."],"dev":["..."]},"risks":["..."],"questions":["..."]}
+
+Prefer the simplest architecture that meets the requirements. Do not edit files or run Git.`;
+
+export const PLANNER_PROMPT = `You turn an approved software architecture into ordered implementation phases.
+
+Each phase must deliver one cohesive, independently testable and human-reviewable outcome. Target 400-1000 changed source lines; split work expected to exceed roughly 1500 source lines. Ignore lockfiles, generated files, vendored code, and snapshots when estimating, but mention them in scope when relevant.
+
+Return exactly one JSON object, with no Markdown fence:
+{"phases":[{"id":"phase-01","title":"...","outcome":"...","scope":["..."],"acceptanceCriteria":["..."],"estimatedChangedLines":700,"dependsOn":[],"tests":["..."],"risks":["..."]}]}
+
+Cover the complete approved architecture. Prefer vertical slices over layers that cannot be reviewed on their own. Do not edit files or run Git.`;
+
+export const CODER_PROMPT = `You implement exactly one approved phase of a software project.
+
+Work directly in the repository at /workspace. Read the approved architecture, active phase, acceptance criteria, and review/test feedback in the prompt. Inspect existing code before editing. Implement only this phase, run the relevant checks, and leave the working tree with the intended changes. Never run git, commit, amend, reset, checkout, clean, push, or edit .git; Bees owns version control. Do not start future phases.
+
+Finish with a concise summary of changes and checks. If blocked, explain the exact blocker without inventing a workaround.`;
+
+export const TESTER_PROMPT = `You independently test one committed software-project phase.
+
+Work in the repository at /workspace. Inspect the active phase, commit, architecture, and acceptance criteria. Do not edit any file and never run Git commands. Run the smallest sufficient lint, type, unit, integration, build, or smoke checks already supported by the project.
+
+Return exactly one JSON object, with no Markdown fence:
+{"passed":true,"summary":"...","commands":[{"command":"...","outcome":"passed|failed|skipped","detail":"..."}],"failures":["..."],"risks":["..."]}
+
+Set passed=false for a failed acceptance criterion, a relevant failing check, or when verification is impossible.`;
+
+export type SoftwareProjectStage = (typeof SOFTWARE_PROJECT_STAGES)[number];
+
+export interface RequirementSpec {
+  summary: string;
+  users: string[];
+  functionalRequirements: string[];
+  nonFunctionalRequirements: string[];
+  constraints: string[];
+  preferences: string[];
+  acceptanceCriteria: string[];
+  followUpQuestions: string[];
+}
+
+export interface ArchitectureDecision {
+  area: string;
+  choice: string;
+  reason: string;
+  alternatives: string[];
+}
+
+export interface ArchitectureProposal {
+  summary: string;
+  decisions: ArchitectureDecision[];
+  repositoryPlan: string[];
+  commands: Record<string, string[]>;
+  risks: string[];
+  questions: string[];
+}
+
+export interface ArchitectureCritique {
+  summary: string;
+  strengths: string[];
+  concerns: string[];
+  recommendedChanges: string[];
+}
+
+export interface ImplementationPhase {
+  id: string;
+  title: string;
+  outcome: string;
+  scope: string[];
+  acceptanceCriteria: string[];
+  estimatedChangedLines: number;
+  dependsOn: string[];
+  tests: string[];
+  risks: string[];
+}
+
+export interface TestReport {
+  passed: boolean;
+  summary: string;
+  commands: Array<{ command: string; outcome: "passed" | "failed" | "skipped"; detail: string }>;
+  failures: string[];
+  risks: string[];
+  executionId?: string;
+}
+
+export interface SoftwareProjectState {
+  version: 1;
+  answers: Record<string, string | string[]>;
+  requirements?: RequirementSpec;
+  requirementsApprovedAt?: string;
+  architecture?: {
+    openai?: ArchitectureProposal;
+    anthropic?: ArchitectureProposal;
+    openaiCritique?: ArchitectureCritique;
+    anthropicCritique?: ArchitectureCritique;
+    decision?: ArchitectureProposal;
+    approvedAt?: string;
+  };
+  phases: ImplementationPhase[];
+  planApprovedAt?: string;
+  currentPhaseIndex: number;
+  phaseStartSha?: string;
+  attempts: number;
+  feedback?: string;
+  testReport?: TestReport;
+  finalReport?: TestReport;
+  lastExecutionId?: string;
+}
+
+export function emptySoftwareProjectState(): SoftwareProjectState {
+  return { version: 1, answers: {}, phases: [], currentPhaseIndex: 0, attempts: 0 };
+}
+
+export type SoftwareProjectEvent =
+  | "requirements-approved"
+  | "architecture-approved"
+  | "plan-approved"
+  | "tests-passed"
+  | "phase-approved"
+  | "phase-changes-requested"
+  | "final-tests-passed"
+  | "blocked"
+  | "resume";
+
+/** Pure state router, adapted from Triagebot's small explicit FSM. */
+export function routeSoftwareProject(
+  stage: SoftwareProjectStage,
+  event: SoftwareProjectEvent,
+  hasMorePhases = true
+): SoftwareProjectStage {
+  if (event === "blocked") return "Blocked";
+  if (stage === "Blocked" && event === "resume") return "Implement";
+  if (stage === "Requirements" && event === "requirements-approved") return "Architecture";
+  if (stage === "Architecture" && event === "architecture-approved") return "Plan";
+  if (stage === "Plan" && event === "plan-approved") return "Implement";
+  if (stage === "Implement" && event === "tests-passed") return "Phase Review";
+  if (stage === "Phase Review" && event === "phase-changes-requested") return "Implement";
+  if (stage === "Phase Review" && event === "phase-approved") {
+    return hasMorePhases ? "Implement" : "Final Review";
+  }
+  if (stage === "Final Review" && event === "final-tests-passed") return "Done";
+  throw new Error(`The ${event} event is invalid while the project is in ${stage}`);
+}
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+const object = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+export function parseAgentJson(value: string): Record<string, unknown> {
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const source = fenced ?? value.slice(value.indexOf("{"), value.lastIndexOf("}") + 1);
+  const parsed = JSON.parse(source) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("The agent did not return a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export function parseRequirementSpec(value: string): RequirementSpec {
+  const raw = parseAgentJson(value);
+  const summary = text(raw.summary);
+  if (!summary) throw new Error("The requirements summary is missing");
+  return {
+    summary,
+    users: stringList(raw.users),
+    functionalRequirements: stringList(raw.functionalRequirements),
+    nonFunctionalRequirements: stringList(raw.nonFunctionalRequirements),
+    constraints: stringList(raw.constraints),
+    preferences: stringList(raw.preferences),
+    acceptanceCriteria: stringList(raw.acceptanceCriteria),
+    followUpQuestions: stringList(raw.followUpQuestions).slice(0, 5)
+  };
+}
+
+export function parseArchitectureProposal(value: string): ArchitectureProposal {
+  const raw = parseAgentJson(value);
+  const summary = text(raw.summary);
+  if (!summary) throw new Error("The architecture summary is missing");
+  const decisions = Array.isArray(raw.decisions)
+    ? raw.decisions.map(object).flatMap((decision) => {
+        const area = text(decision.area);
+        const choice = text(decision.choice);
+        return area && choice
+          ? [{ area, choice, reason: text(decision.reason), alternatives: stringList(decision.alternatives) }]
+          : [];
+      })
+    : [];
+  if (!decisions.length) throw new Error("The architecture has no decisions");
+  return {
+    summary,
+    decisions,
+    repositoryPlan: stringList(raw.repositoryPlan),
+    commands: Object.fromEntries(
+      Object.entries(object(raw.commands)).map(([key, commands]) => [key, stringList(commands)])
+    ),
+    risks: stringList(raw.risks),
+    questions: stringList(raw.questions)
+  };
+}
+
+export function parseArchitectureCritique(value: string): ArchitectureCritique {
+  const raw = parseAgentJson(value);
+  return {
+    summary: text(raw.summary),
+    strengths: stringList(raw.strengths),
+    concerns: stringList(raw.concerns),
+    recommendedChanges: stringList(raw.recommendedChanges)
+  };
+}
+
+export function parseImplementationPlan(value: string): ImplementationPhase[] {
+  const phases = parseAgentJson(value).phases;
+  if (!Array.isArray(phases) || !phases.length) throw new Error("The plan has no phases");
+  const parsed = phases.map(object).map((phase, index) => {
+    const estimatedChangedLines = Math.max(0, Math.round(Number(phase.estimatedChangedLines) || 0));
+    const result: ImplementationPhase = {
+      id: text(phase.id) || `phase-${String(index + 1).padStart(2, "0")}`,
+      title: text(phase.title),
+      outcome: text(phase.outcome),
+      scope: stringList(phase.scope),
+      acceptanceCriteria: stringList(phase.acceptanceCriteria),
+      estimatedChangedLines,
+      dependsOn: stringList(phase.dependsOn),
+      tests: stringList(phase.tests),
+      risks: stringList(phase.risks)
+    };
+    if (!result.title || !result.outcome || !result.acceptanceCriteria.length) {
+      throw new Error(`Phase ${index + 1} needs a title, outcome, and acceptance criteria`);
+    }
+    return result;
+  });
+  if (new Set(parsed.map(({ id }) => id)).size !== parsed.length) {
+    throw new Error("Implementation phase identifiers must be unique");
+  }
+  return parsed;
+}
+
+export function parseTestReport(value: string): TestReport {
+  const raw = parseAgentJson(value);
+  const commands = Array.isArray(raw.commands)
+    ? raw.commands.map(object).flatMap((command) => {
+        const name = text(command.command);
+        const outcome = text(command.outcome);
+        return name && ["passed", "failed", "skipped"].includes(outcome)
+          ? [{ command: name, outcome: outcome as "passed" | "failed" | "skipped", detail: text(command.detail) }]
+          : [];
+      })
+    : [];
+  return {
+    passed: raw.passed === true,
+    summary: text(raw.summary),
+    commands,
+    failures: stringList(raw.failures),
+    risks: stringList(raw.risks)
+  };
+}
+
+export function lastAssistantText(execution: Execution): string {
+  const messages = execution.conversationSnapshot?.messages ?? [];
+  const message = [...messages].reverse().find(({ role }) => role === "assistant");
+  return (
+    message?.parts
+      .filter((part): part is Extract<(typeof message.parts)[number], { kind: "text" }> => part.kind === "text")
+      .map(({ text: part }) => part)
+      .join("\n") ?? ""
+  );
+}
+
+export const SOFTWARE_PROJECT_QUESTIONS = [
+  { id: "product", label: "What are we building?", kind: "textarea", placeholder: "A customer portal that…" },
+  { id: "users", label: "Who will use it?", kind: "text", placeholder: "Customers and support staff" },
+  { id: "success", label: "What makes version one successful?", kind: "textarea", placeholder: "Users can…" },
+  { id: "platform", label: "Primary platform", kind: "select", options: ["Web app", "Website", "iOS", "Android", "Desktop", "Backend or API", "CLI or library", "Choose for me"] },
+  { id: "mustHave", label: "Must-have features", kind: "textarea", placeholder: "One feature per line" },
+  { id: "data", label: "Important data", kind: "textarea", placeholder: "Accounts, orders, documents…" },
+  { id: "integrations", label: "External integrations", kind: "text", placeholder: "Stripe, Slack, none, unknown…" },
+  { id: "auth", label: "Accounts and access", kind: "select", options: ["No accounts", "Email login", "Social login", "Company SSO", "Unsure"] },
+  { id: "quality", label: "Scale, security, or compliance needs", kind: "textarea", placeholder: "Expected users, sensitive data, accessibility…" },
+  { id: "preferences", label: "Technical preferences or constraints", kind: "textarea", placeholder: "Language, framework, hosting, deadline—or choose for me" }
+] as const;
+
+export interface SoftwareProjectMapping {
+  workItemId: string;
+  repositoryPath: string;
+  worktreePath: string;
+  baseBranch: string;
+  projectBranch: string;
+  validatedAt: string;
+  missing: boolean;
+}
+
+export interface SoftwareProjectGitSnapshot {
+  head: string;
+  branch: string;
+  dirty: boolean;
+  status: string[];
+  commits: Array<{ sha: string; subject: string }>;
+  additions: number;
+  deletions: number;
+  generatedChanges: number;
+  diff: string;
+  truncated: boolean;
+}
+
+function html(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function bullets(values: string[]): string {
+  return values.length
+    ? `<ul class="list-disc space-y-1 pl-5 text-sm">${values.map((value) => `<li>${html(value)}</li>`).join("")}</ul>`
+    : '<p class="text-sm text-base-content/45">None</p>';
+}
+
+function proposalCard(title: string, proposal?: ArchitectureProposal, critique?: ArchitectureCritique): string {
+  if (!proposal) return `<article class="rounded-box border border-dashed border-base-300 p-4"><h3 class="font-bold">${html(title)}</h3><p class="mt-2 text-sm text-base-content/50">Waiting for proposal</p></article>`;
+  return `<article class="rounded-box border border-base-300 bg-base-100 p-4">
+    <h3 class="font-bold">${html(title)}</h3><p class="mt-2 text-sm">${html(proposal.summary)}</p>
+    <div class="mt-3 grid gap-2">${proposal.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase text-primary">${html(decision.area)}</div><div class="font-semibold">${html(decision.choice)}</div><p class="text-xs text-base-content/60">${html(decision.reason)}</p></div>`).join("")}</div>
+    ${critique ? `<div class="mt-3 rounded bg-base-200 p-3"><div class="text-xs font-bold uppercase">Cross-critique</div><p class="mt-1 text-sm">${html(critique.summary)}</p>${bullets(critique.concerns)}</div>` : ""}
+  </article>`;
+}
+
+function phaseCard(phase: ImplementationPhase, index: number, editable: boolean): string {
+  const oversize = phase.estimatedChangedLines > 1500;
+  if (!editable) return `<article class="rounded-box border ${oversize ? "border-warning" : "border-base-300"} bg-base-100 p-4"><div class="flex justify-between gap-3"><div><div class="text-xs font-bold uppercase text-primary">Phase ${index + 1}</div><h3 class="font-bold">${html(phase.title)}</h3></div><span class="badge ${oversize ? "badge-warning" : "badge-ghost"}">~${phase.estimatedChangedLines} lines</span></div><p class="mt-2 text-sm">${html(phase.outcome)}</p><div class="mt-3"><div class="text-xs font-bold uppercase">Acceptance</div>${bullets(phase.acceptanceCriteria)}</div></article>`;
+  return `<fieldset class="rounded-box border ${oversize ? "border-warning" : "border-base-300"} bg-base-100 p-4" data-phase-id="${html(phase.id)}">
+    <div class="mb-3 flex items-center justify-between"><legend class="font-bold">Phase ${index + 1}</legend><div class="flex flex-wrap gap-1"><button class="btn btn-ghost btn-xs" type="button" data-action="project-phase-up" data-index="${index}" ${index ? "" : "disabled"}>↑</button><button class="btn btn-ghost btn-xs" type="button" data-action="project-phase-down" data-index="${index}">↓</button><button class="btn btn-ghost btn-xs" type="button" data-action="project-phase-split" data-index="${index}">Split</button><button class="btn btn-ghost btn-xs" type="button" data-action="project-phase-merge" data-index="${index}">Merge next</button><button class="btn btn-ghost btn-xs text-error" type="button" data-action="project-phase-remove" data-index="${index}">Remove</button></div></div>
+    <input type="hidden" name="phaseId" value="${html(phase.id)}"><label class="form-control"><span class="label-text text-xs font-bold">Title</span><input class="input input-bordered w-full" name="phaseTitle" value="${html(phase.title)}" required></label>
+    <label class="form-control mt-2"><span class="label-text text-xs font-bold">Outcome</span><textarea class="textarea textarea-bordered w-full" name="phaseOutcome" required>${html(phase.outcome)}</textarea></label>
+    <div class="mt-2 grid gap-2 md:grid-cols-[1fr_10rem]"><label class="form-control"><span class="label-text text-xs font-bold">Acceptance criteria, one per line</span><textarea class="textarea textarea-bordered w-full" name="phaseAcceptance" required>${html(phase.acceptanceCriteria.join("\n"))}</textarea></label><label class="form-control"><span class="label-text text-xs font-bold">Estimated lines</span><input class="input input-bordered" name="phaseLines" type="number" min="0" value="${phase.estimatedChangedLines}"></label></div>
+  </fieldset>`;
+}
+
+export function softwareProjectStateKey(workItemId: string): string {
+  return `software_project:${workItemId}`;
+}
+
+export function softwareProjectView(input: {
+  item: WorkItem;
+  stage: SoftwareProjectStage;
+  state: SoftwareProjectState;
+  runs: Execution[];
+  mapping: SoftwareProjectMapping | null;
+  git: SoftwareProjectGitSnapshot | null;
+}): string {
+  const { item, stage, state, runs, mapping, git } = input;
+  const busy = runs.some(({ status }) => status === "queued" || status === "running");
+  const current = state.phases[state.currentPhaseIndex];
+  const progress = SOFTWARE_PROJECT_STAGES.slice(0, 7)
+    .map((name) => `<span class="badge ${name === stage ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
+    .join("");
+  let body = "";
+  if (stage === "Requirements") {
+    body = state.requirements
+      ? `<section class="grid gap-4"><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Requirements draft</h2><p class="mt-2">${html(state.requirements.summary)}</p><div class="mt-4 grid gap-4 lg:grid-cols-2"><div><h3 class="mb-2 text-xs font-bold uppercase">Functional</h3>${bullets(state.requirements.functionalRequirements)}</div><div><h3 class="mb-2 text-xs font-bold uppercase">Acceptance</h3>${bullets(state.requirements.acceptanceCriteria)}</div></div>${state.requirements.followUpQuestions.length ? `<div class="mt-4 rounded bg-warning/10 p-3"><h3 class="text-xs font-bold uppercase text-warning">Open questions</h3>${bullets(state.requirements.followUpQuestions)}</div>` : ""}<form class="mt-4" data-project-refine><textarea class="textarea textarea-bordered w-full" name="message" placeholder="Answer open questions or ask the requirements agent to revise something"></textarea><div class="mt-2 flex justify-end gap-2"><button class="btn btn-outline btn-sm" type="submit" ${busy ? "disabled" : ""}>Refine with AI</button><button class="btn btn-primary btn-sm" type="button" data-action="project-approve-requirements" ${busy ? "disabled" : ""}>Approve requirements</button></div></form></article></section>`
+      : `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Tell the team what to build</h2><p class="mt-1 text-sm text-base-content/55">Answer in this screen. “Unsure” and “choose for me” are valid answers.</p><div class="mt-4 grid gap-4 lg:grid-cols-2">${SOFTWARE_PROJECT_QUESTIONS.map((question) => `<label class="form-control"><span class="label-text mb-1 font-semibold">${html(question.label)}</span>${question.kind === "select" ? `<select class="select select-bordered w-full" name="${question.id}">${question.options.map((option) => `<option>${html(option)}</option>`).join("")}</select>` : question.kind === "textarea" ? `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${question.id}" placeholder="${html(question.placeholder)}"></textarea>` : `<input class="input input-bordered w-full" name="${question.id}" placeholder="${html(question.placeholder)}">`}</label>`).join("")}</div><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`;
+  } else if (stage === "Architecture") {
+    const architecture = state.architecture ?? {};
+    const hasProposals = Boolean(architecture.openai && architecture.anthropic);
+    body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : `<div class="alert alert-warning"><span>Choose where the Git project lives before architecture begins.</span><div class="flex gap-2"><button class="btn btn-sm" data-action="project-create-repo">Create new repository</button><button class="btn btn-sm btn-primary" data-action="project-attach-repo">Attach existing repository</button></div></div>`}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !architecture.openaiCritique || !architecture.anthropicCritique ? `<button class="btn btn-primary" data-action="project-critique-architecture" ${busy ? "disabled" : ""}>Cross-critique proposals</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
+  } else if (stage === "Plan") {
+    body = state.phases.length
+      ? `<form class="grid gap-3" data-project-plan>${state.phases.map((phase, index) => phaseCard(phase, index, true)).join("")}<div class="flex flex-wrap justify-end gap-2"><button class="btn btn-outline" type="button" data-action="project-regenerate-plan" ${busy ? "disabled" : ""}>Regenerate</button><button class="btn btn-outline" type="submit">Save edits</button><button class="btn btn-primary" type="button" data-action="project-approve-plan">Approve plan</button></div></form>`
+      : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center"><h2 class="font-bold">Break the architecture into reviewable phases</h2><p class="mt-2 text-sm text-base-content/55">The planner targets about 400–1,000 changed source lines per phase.</p><button class="btn btn-primary mt-4" data-action="project-generate-plan" ${busy ? "disabled" : ""}>Generate implementation plan</button></div>`;
+  } else if (stage === "Implement") {
+    body = current ? `${phaseCard(current, state.currentPhaseIndex, false)}${state.feedback ? `<div class="alert alert-warning mt-4"><span><strong>Review feedback:</strong> ${html(state.feedback)}</span></div>` : ""}${state.testReport ? `<article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Latest test report</h3><p class="mt-1 text-sm">${html(state.testReport.summary)}</p>${bullets(state.testReport.failures)}</article>` : ""}<div class="mt-4 flex justify-end"><button class="btn btn-primary" data-action="project-implement-phase" ${!mapping || busy ? "disabled" : ""}>${state.attempts ? "Continue coding and testing" : "Implement and test phase"}</button></div>` : '<div class="alert alert-error">The approved plan has no current phase.</div>';
+  } else if (stage === "Phase Review") {
+    body = current && git ? `${phaseCard(current, state.currentPhaseIndex, false)}<div class="mt-4 grid gap-4 lg:grid-cols-3"><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Changed lines</div><div class="stat-value text-2xl">+${git.additions} / -${git.deletions}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Commits</div><div class="stat-value text-2xl">${git.commits.length}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Tests</div><div class="stat-value text-2xl ${state.testReport?.passed ? "text-success" : "text-error"}">${state.testReport?.passed ? "Passed" : "Needs work"}</div></div></div><article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Commits</h3>${bullets(git.commits.map(({ sha, subject }) => `${sha.slice(0, 8)} ${subject}`))}<h3 class="mt-4 font-bold">Diff</h3><pre class="mt-2 max-h-[34rem] overflow-auto whitespace-pre-wrap rounded bg-neutral p-3 text-xs text-neutral-content">${html(git.diff || "No textual diff")}</pre>${git.truncated ? '<p class="mt-2 text-xs text-warning">Diff truncated in the UI.</p>' : ""}</article><form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-review><label class="form-control"><span class="label-text font-semibold">Changes requested</span><textarea class="textarea textarea-bordered w-full" name="feedback" placeholder="What should the coding agent change?"></textarea></label><div class="mt-3 flex justify-end gap-2"><button class="btn btn-outline" type="submit">Request changes</button><button class="btn btn-success" type="button" data-action="project-approve-phase">Approve phase</button></div></form>` : '<div class="alert alert-error">Review data is unavailable.</div>';
+  } else if (stage === "Final Review") {
+    body = `<article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Final project review</h2><p class="mt-2 text-sm text-base-content/60">Run independent whole-project verification, inspect the cumulative branch diff, then explicitly merge. Bees never pushes.</p>${git ? `<div class="mt-4 grid gap-3 md:grid-cols-3"><div class="stat rounded border border-base-300"><div class="stat-title">Source lines</div><div class="stat-value text-xl">+${git.additions} / -${git.deletions}</div></div><div class="stat rounded border border-base-300"><div class="stat-title">Commits</div><div class="stat-value text-xl">${git.commits.length}</div></div><div class="stat rounded border border-base-300"><div class="stat-title">Generated files</div><div class="stat-value text-xl">${git.generatedChanges}</div></div></div><details class="mt-4 rounded border border-base-300 p-3"><summary class="cursor-pointer font-semibold">Cumulative diff</summary><pre class="mt-3 max-h-[34rem] overflow-auto whitespace-pre-wrap rounded bg-neutral p-3 text-xs text-neutral-content">${html(git.diff || "No textual diff")}</pre></details>` : ""}${state.finalReport ? `<div class="mt-4 alert ${state.finalReport.passed ? "alert-success" : "alert-error"}"><span>${html(state.finalReport.summary)}</span></div>${bullets(state.finalReport.failures)}` : ""}<div class="mt-4 flex justify-end gap-2"><button class="btn btn-outline" data-action="project-final-test" ${busy ? "disabled" : ""}>Run final verification</button><button class="btn btn-primary" data-action="project-finish" ${state.finalReport?.passed && !busy ? "" : "disabled"}>Merge and finish</button></div></article>`;
+  } else if (stage === "Done") {
+    body = `<div class="hero min-h-72 rounded-box border border-success/30 bg-success/5"><div class="hero-content text-center"><div><div class="text-4xl">✓</div><h2 class="mt-3 text-xl font-bold">Project complete</h2><p class="mt-2 text-sm">The project branch was merged locally. Nothing was pushed.</p></div></div></div>`;
+  } else {
+    body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;
+  }
+  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Software Project Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Repository not configured"}</div></div></div>${body}`;
+}
