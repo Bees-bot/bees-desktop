@@ -9,7 +9,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  // VITE_ only. TAURI_ here would inline every TAURI_-prefixed build variable into
+  // the shipped frontend bundle, and TAURI_SIGNING_PRIVATE_KEY is one of those.
+  envPrefix: ["VITE_"],
   build: {
     target: "es2023",
     minify: false,
