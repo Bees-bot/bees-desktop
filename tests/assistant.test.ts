@@ -256,7 +256,7 @@ describe("model catalog", () => {
     }
   });
 
-  it("lists only what this machine can run right now", () => {
+  it("lists downloaded local models without starting them", () => {
     const catalog = modelCatalog({
       local: [localModel("ready-one", "ready"), localModel("missing", "not-downloaded")],
       connections: [
@@ -278,13 +278,14 @@ describe("model catalog", () => {
       provider: "bees-local",
       model: "ready-one"
     });
+    expect(catalog.find(({ label }) => label === "ready-one")?.note).toBe("not running");
     expect(labels).toContain("claude-opus-5");
     expect(labels).toContain("some/model");
     // No OpenAI key stored, so nothing from OpenAI is offered.
     expect(catalog.some(({ choice }) => choice.provider === "openai")).toBe(false);
   });
 
-  it("defaults to Codex, then Claude, then the largest ready local model", () => {
+  it("defaults to Codex, then Claude, then the largest downloaded local model", () => {
     const local = [
       localModel("small", "ready", "Small 3B"),
       localModel("large", "ready", "Large 70B")
@@ -335,16 +336,19 @@ describe("model catalog", () => {
         connectedProviders: []
       }).reason
     ).toContain("Connect OpenAI");
+    const localAgent = {
+      name: "Local agent",
+      config: { prompt: "Work.", provider: "bees-local", model: "local-1" }
+    };
     expect(
-      effectiveAgentEligibility(
-        {
-          name: "Local agent",
-          config: { prompt: "Work.", provider: "bees-local", model: "missing" }
-        },
-        { provider: "openai", model: "video-1" },
-        true,
-        availability
-      ).active
-    ).toBe(false);
+      effectiveAgentEligibility(localAgent, { provider: "openai", model: "video-1" }, true, availability)
+        .active
+    ).toBe(true);
+    expect(
+      effectiveAgentEligibility(localAgent, { provider: "openai", model: "video-1" }, true, {
+        ...availability,
+        localModelIds: []
+      })
+    ).toMatchObject({ active: false, reason: 'Local model "local-1" is not running on this machine' });
   });
 });

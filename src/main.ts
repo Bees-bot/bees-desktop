@@ -70,8 +70,7 @@ import {
   TauriLocalModelPort,
   modelRef,
   type LocalModelProgress,
-  type LocalModelView,
-  type SystemCapacity
+  type LocalModelView
 } from "./local-models.js";
 import { RunCoordinator, type SettledRun } from "./run-coordinator.js";
 import { drainConversationPurges, purgeNotice } from "./purges.js";
@@ -4822,11 +4821,7 @@ async function runItem(
     )
   );
   if (localModels.isLocalModel(modelRef(runAgent.config))) {
-    // Local bring-up (llama-server boot takes up to a minute) blocks before the run view
-    // appears — without this the Run button looks dead the whole time.
-    showNotice("Starting the local AI model…", "info");
-    const runtimeChanged = await localModels.requireActive(runAgent.config.model);
-    if (runtimeChanged) await flueProjectPort.restart();
+    await localModels.requireRunning(runAgent.config.model);
   }
   // Default folders are created on demand; a vanished override is a real error the user must fix.
   await (mapping.override
@@ -6552,7 +6547,7 @@ async function refreshAssistantCatalog(): Promise<void> {
   });
   machineModelAvailability = {
     localModelIds: local
-      .filter(({ runtime }) => ["ready", "running"].includes(runtime.state))
+      .filter(({ runtime }) => runtime.running)
       .map(({ id }) => id),
     connectedProviders: [...new Set(aiConnections.map(({ provider }) => provider))],
     cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]).map(({ provider }) => provider)
@@ -6654,7 +6649,7 @@ async function sendAssistantMessage(message: string): Promise<void> {
   renderAssistant();
   try {
     if (assistantModel.provider === LOCAL_PROVIDER) {
-      if (await localModels.requireActive(assistantModel.model)) await flueProjectPort.restart();
+      await localModels.requireRunning(assistantModel.model);
     }
     const { baseUrl, token } = await ensureFlueRuntime();
     const result = await new FlueRuntime(baseUrl, undefined, token).execute({
@@ -6693,7 +6688,7 @@ async function curateSkills(): Promise<void> {
   render();
   try {
     if (assistantModel.provider === LOCAL_PROVIDER) {
-      if (await localModels.requireActive(assistantModel.model)) await flueProjectPort.restart();
+      await localModels.requireRunning(assistantModel.model);
     }
     const { baseUrl, token } = await ensureFlueRuntime();
     const result = await new FlueRuntime(baseUrl, undefined, token).execute({
@@ -6737,7 +6732,7 @@ async function runApprovedBeesOperation(
   goal: string
 ): Promise<{ message: string; steps: string[] }> {
   if (assistantModel.provider === LOCAL_PROVIDER) {
-    if (await localModels.requireActive(assistantModel.model)) await flueProjectPort.restart();
+    await localModels.requireRunning(assistantModel.model);
   }
   const { baseUrl, token } = await ensureFlueRuntime();
   const runtime = new FlueRuntime(baseUrl, undefined, token);
@@ -6821,14 +6816,6 @@ async function pickAssistantModel(choice: ModelChoice): Promise<void> {
   assistantPickerOpen = false;
   await rememberModelChoice(choice);
   renderAssistant();
-  // Awaited rather than fired off: the next Send must not race this model's startup.
-  if (choice.localModelId && choice.localModelId !== localModels.wantedRunId) {
-    showNotice("Starting that local model…", "info");
-    if (await localModels.run(choice.localModelId)) await flueProjectPort.restart();
-    showNotice("Local model ready", "success");
-    await refreshAssistantCatalog();
-    renderAssistant();
-  }
   assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
 }
 
@@ -7092,25 +7079,6 @@ async function ensureOrgFolders(): Promise<void> {
   }
 }
 
-/**
- * First launch with no agent CLI or model: pick the best local model for this machine and turn
- * Download and Run on. Same path as the toggles, so the user can see and stop the work.
- */
-async function startFirstLocalModel(): Promise<void> {
-  const installed = await detectCliTools().catch(() => ({} as Record<string, string>));
-  if (
-    (hasUserModelChoice && assistantModel.provider !== LOCAL_PROVIDER) ||
-    (!hasUserModelChoice && CLI_TOOLS.some(({ id }) => installed[id]))
-  )
-    return;
-  const capacity = await invoke<SystemCapacity>("system_capacity").catch(() => null);
-  if (!capacity) return;
-  const modelId = await localModels.startupTarget(capacity).catch(() => null);
-  if (!modelId) return;
-  runLocalModel(modelId);
-  await refreshLocalModelRows();
-}
-
 /** Retry transient sidecar startup failures, then make every unrecoverable row explicit. */
 async function resumeInterruptedRuns(resumed: Execution[]): Promise<void> {
   let lastError: unknown;
@@ -7225,17 +7193,6 @@ async function start(): Promise<void> {
       );
     }
     await refresh();
-    // Bring the last model the user ran back up, so the first agent run doesn't wait on a cold
-    // start. Nothing is downloaded here, and a fresh install with no model stays quiet.
-    void localModels
-      .requireActive()
-      .then(async (runtimeChanged) => {
-        if (runtimeChanged) await flueProjectPort.restart();
-        localModelProgress.clear();
-        await refreshLocalModelRows();
-      })
-      .catch(() => {});
-    void startFirstLocalModel();
     await seedDefaultRegistry();
     await seedGoalsWorkflow();
     // Re-copied at launch and after each write, not on every refresh: the snapshot only changes

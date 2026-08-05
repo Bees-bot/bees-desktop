@@ -3,13 +3,11 @@ import {
   DEFAULT_LOCAL_MODEL_ID,
   LocalModelService,
   parseModelSource,
-  pickStartupModel,
   SEEDED_MODELS,
   type LocalModel,
   type LocalModelPort,
   type LocalModelRuntimeStatus,
-  type LocalModelSettingsStore,
-  type SystemCapacity
+  type LocalModelSettingsStore
 } from "../src/local-models.js";
 
 class MemorySettings implements LocalModelSettingsStore {
@@ -84,7 +82,6 @@ class MemoryRuntime implements LocalModelPort {
 }
 
 const REMOTE = "https://huggingface.co/acme/Qwen-GGUF/resolve/main/qwen2.5-0.5b-q4_k_m.gguf";
-const BIG_REMOTE = "https://huggingface.co/acme/Qwen-GGUF/resolve/main/qwen2.5-70b-q4_k_m.gguf";
 
 describe("model sources", () => {
   it("reads a name and a plain file name out of a download link", () => {
@@ -124,7 +121,7 @@ describe("local model list", () => {
     const service = new LocalModelService(settings, runtime);
 
     expect((await service.list()).map(({ id }) => id)).toEqual(SEEDED_MODELS.map(({ id }) => id));
-    await expect(service.requireActive()).rejects.toThrow(/Download a local AI model/);
+    await expect(service.requireRunning()).rejects.toThrow(/Turn on a local AI model/);
     expect(runtime.ensured).toEqual([]);
     expect(runtime.started).toEqual([]);
   });
@@ -165,75 +162,18 @@ describe("local model list", () => {
     );
   });
 
-  const GB = 1024 ** 3;
-  const capacity = (overrides: Partial<SystemCapacity> = {}): SystemCapacity => ({
-    totalMemoryBytes: 32 * GB,
-    freeDiskBytes: 200 * GB,
-    osName: "Darwin",
-    osVersion: "15.7.7",
-    ...overrides
-  });
-
-  it("picks a first model the machine can actually hold", () => {
-    expect(pickStartupModel(capacity()).id).toBe(DEFAULT_LOCAL_MODEL_ID);
-    // Enough disk, not enough memory — and not enough disk with plenty of memory.
-    expect(pickStartupModel(capacity({ totalMemoryBytes: 4 * GB })).id).toBe(
-      "gemma-4-e2b-it-qat-q4-0"
-    );
-    expect(pickStartupModel(capacity({ freeDiskBytes: 4 * GB })).id).toBe(
-      "gemma-4-e2b-it-qat-q4-0"
-    );
-    expect(pickStartupModel(capacity({ totalMemoryBytes: 4 * GB, osVersion: "26.1" })).id).toBe(
-      "qwen3-0-6b-q8-0"
-    );
-    // Same version number on another OS is not macOS 26.
-    expect(
-      pickStartupModel(capacity({ totalMemoryBytes: 4 * GB, osName: "Windows", osVersion: "26" }))
-        .id
-    ).toBe("gemma-4-e2b-it-qat-q4-0");
-  });
-
-  it("offers a startup model once, and never over a model that is already here", async () => {
-    const settings = new MemorySettings();
-    const service = new LocalModelService(settings, new MemoryRuntime());
-
-    expect(await service.startupTarget(capacity())).toBe(DEFAULT_LOCAL_MODEL_ID);
-    // Second launch: the choice was already made, whatever the user did with it.
-    expect(await service.startupTarget(capacity())).toBeNull();
-
-    const downloaded = new MemorySettings();
-    const runtime = new MemoryRuntime();
-    const other = new LocalModelService(downloaded, runtime);
-    await other.download("qwen3-0-6b-q8-0");
-    expect(await new LocalModelService(downloaded, runtime).startupTarget(capacity())).toBeNull();
-  });
-
-  it("brings a downloaded model back up", async () => {
+  it("requires the user to turn on a downloaded model", async () => {
     const settings = new MemorySettings();
     const runtime = new MemoryRuntime();
     const service = new LocalModelService(settings, runtime);
 
     await service.download(DEFAULT_LOCAL_MODEL_ID);
-    expect(await service.requireActive()).toBe(true);
-    expect(runtime.started).toEqual([DEFAULT_LOCAL_MODEL_ID]);
-    expect(settings.values.get("local_model_last_run_id")).toBe(DEFAULT_LOCAL_MODEL_ID);
-  });
-
-  it("uses the latest local choice, then the largest model when there is no choice", async () => {
-    const settings = new MemorySettings();
-    const runtime = new MemoryRuntime();
-    const service = new LocalModelService(settings, runtime);
-    const biggest = await service.add(BIG_REMOTE);
-
-    await service.download(DEFAULT_LOCAL_MODEL_ID);
-    await service.download(biggest.id);
-    expect(await service.requireActive()).toBe(true);
-    expect(runtime.started).toEqual([biggest.id]);
-
+    await expect(service.requireRunning(DEFAULT_LOCAL_MODEL_ID)).rejects.toThrow(/Turn on local model/);
+    expect(runtime.started).toEqual([]);
     await service.run(DEFAULT_LOCAL_MODEL_ID);
-    await service.wantRun(biggest.id);
-    expect(await service.requireActive()).toBe(true);
-    expect(runtime.started.at(-1)).toBe(biggest.id);
+    await expect(service.requireRunning(DEFAULT_LOCAL_MODEL_ID)).resolves.toBeUndefined();
+    await expect(service.requireRunning()).resolves.toBeUndefined();
+    expect(runtime.started).toEqual([DEFAULT_LOCAL_MODEL_ID]);
   });
 
   it("remembers a Run asked for mid-download and brings it up after a restart", async () => {
@@ -249,7 +189,7 @@ describe("local model list", () => {
     expect(restored.wantedRunId).toBe(DEFAULT_LOCAL_MODEL_ID);
 
     await service.download(DEFAULT_LOCAL_MODEL_ID);
-    expect(await service.requireActive()).toBe(true);
+    await service.run(DEFAULT_LOCAL_MODEL_ID);
     expect(runtime.started).toEqual([DEFAULT_LOCAL_MODEL_ID]);
 
     expect(await service.stop(DEFAULT_LOCAL_MODEL_ID)).toBe(true);
@@ -343,6 +283,6 @@ describe("local model list", () => {
     const settings = new MemorySettings();
     const service = new LocalModelService(settings, new MemoryRuntime());
     await service.remove(DEFAULT_LOCAL_MODEL_ID);
-    await expect(service.requireActive()).rejects.toThrow(/Download a local AI model/);
+    await expect(service.requireRunning()).rejects.toThrow(/Turn on a local AI model/);
   });
 });

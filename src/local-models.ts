@@ -78,19 +78,6 @@ export function localModelParameterBillions(model: Pick<LocalModel, "name" | "fi
   return Math.max(0, ...matches.map((match) => Number(match[1])));
 }
 
-export function biggestLocalModel<T extends Pick<LocalModel, "name" | "fileName" | "bytes">>(
-  models: readonly T[]
-): T | undefined {
-  return models.reduce<T | undefined>((biggest, model) => {
-    if (!biggest) return model;
-    const parameterDifference =
-      localModelParameterBillions(model) - localModelParameterBillions(biggest);
-    return parameterDifference > 0 || (parameterDifference === 0 && model.bytes > biggest.bytes)
-      ? model
-      : biggest;
-  }, undefined);
-}
-
 /**
  * Listed on first launch so a fresh install has something to download without hunting for a URL.
  * Nothing is bundled or fetched on its own — the user downloads and runs it from Preferences → AI.
@@ -131,38 +118,6 @@ export const SEEDED_MODELS: LocalModel[] = [
     licenseUrl: "https://www.apache.org/licenses/LICENSE-2.0"
   }
 ];
-
-export interface SystemCapacity {
-  totalMemoryBytes: number;
-  freeDiskBytes: number;
-  /** Kernel name as the OS reports it — "Darwin" on macOS. */
-  osName: string;
-  /** Product version, e.g. "26.1". Empty when the OS reports none. */
-  osVersion: string;
-}
-
-/** Room a model needs beyond its file: llama-server's KV cache, plus space to finish the download. */
-const MODEL_HEADROOM_BYTES = 2 * 1024 ** 3;
-
-function seed(id: string): LocalModel {
-  const model = SEEDED_MODELS.find((entry) => entry.id === id);
-  if (!model) throw new Error(`Missing seeded model: ${id}`);
-  return model;
-}
-
-/**
- * The model to bring up on a machine that has none yet. The big default only goes to
- * machines that can hold it; everything else gets a smaller one, with macOS 26 (where the
- * bundled llama-server runs natively) taking the smallest and fastest.
- */
-export function pickStartupModel(capacity: SystemCapacity): LocalModel {
-  const preferred = seed(DEFAULT_LOCAL_MODEL_ID);
-  const needed = preferred.bytes + MODEL_HEADROOM_BYTES;
-  if (capacity.totalMemoryBytes >= needed && capacity.freeDiskBytes >= needed) return preferred;
-  const isMac = /darwin|mac/i.test(capacity.osName);
-  const major = Number.parseInt(capacity.osVersion, 10);
-  return isMac && major >= 26 ? seed("qwen3-0-6b-q8-0") : seed("gemma-4-e2b-it-qat-q4-0");
-}
 
 export type LocalModelRuntimeState = "not-downloaded" | "downloading" | "ready" | "running";
 
@@ -231,7 +186,6 @@ const MODELS_KEY = "local_models";
 const REMOVED_SEEDS_KEY = "local_models_removed";
 const LAST_RUN_KEY = "local_model_last_run_id";
 const WANTED_KEY = "local_model_wanted_id";
-const AUTOSTART_KEY = "local_model_autostart_done";
 
 /** Turn a URL or a picked file path into a model entry. Throws on anything we can't load. */
 export function parseModelSource(source: string): LocalModel {
@@ -373,20 +327,6 @@ export class LocalModelService {
     return !running || !active;
   }
 
-  /**
-   * The model to download and run on this machine, once, on the first launch that has
-   * nothing local yet. Returns null after that: a user who deleted or stopped every model
-   * meant it, and a fresh multi-GB download behind their back would be worse than no model.
-   */
-  async startupTarget(capacity: SystemCapacity): Promise<string | null> {
-    await this.load();
-    if (await this.store.getSetting(AUTOSTART_KEY, false)) return null;
-    await this.store.setSetting(AUTOSTART_KEY, true);
-    const statuses = await Promise.all(this.models.map((model) => this.port.status(model)));
-    if (statuses.some(({ state }) => state !== "not-downloaded")) return null;
-    return pickStartupModel(capacity).id;
-  }
-
   /** Stop a running model, or cancel its download if that is what it is doing. */
   async stop(modelId: string): Promise<boolean> {
     const model = this.definition(await this.loadedModels(), modelId);
@@ -419,31 +359,19 @@ export class LocalModelService {
     return running;
   }
 
-  /**
-   * Make sure some local model is serving before an agent run. The user's latest Run choice wins,
-   * even if another model is still serving; with no choice yet, use the largest downloaded model.
-   * Never downloads: a multi-GB fetch is the user's call, started from Preferences → AI.
-   */
-  async requireActive(modelId?: string): Promise<boolean> {
+  /** Validate that the user already turned on the selected local model. Never starts one. */
+  async requireRunning(modelId?: string): Promise<void> {
     const models = await this.loadedModels();
     const statuses = await Promise.all(models.map((model) => this.port.status(model)));
-    const ready = models.filter((_, index) =>
-      ["ready", "running"].includes(statuses[index]?.state ?? "")
-    );
-    const requested =
-      modelId && modelId !== "active" ? models.find(({ id }) => id === modelId) : undefined;
-    if (modelId && modelId !== "active" && !ready.some(({ id }) => id === modelId)) {
-      throw new Error(`Download local model "${requested?.name ?? modelId}" before running it.`);
+    if (modelId && modelId !== "active") {
+      const index = models.findIndex(({ id }) => id === modelId);
+      if (statuses[index]?.running) return;
+      throw new Error(
+        `Turn on local model "${models[index]?.name ?? modelId}" under Preferences → AI first.`
+      );
     }
-    const target =
-      ready.find(({ id }) => id === modelId) ??
-      ready.find(({ id }) => id === this.wantedId) ??
-      ready.find(({ id }) => id === this.lastRunId) ??
-      biggestLocalModel(ready);
-    if (!target) {
-      throw new Error("Download a local AI model under Preferences → AI before running this agent.");
-    }
-    return this.run(target.id);
+    if (statuses.some(({ running }) => running)) return;
+    throw new Error("Turn on a local AI model under Preferences → AI first.");
   }
 
   isLocalModel(model: string | undefined): boolean {

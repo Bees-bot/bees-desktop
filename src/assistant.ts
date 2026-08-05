@@ -558,7 +558,7 @@ export function modelCatalog(input: {
       group: "On this computer",
       label: model.name,
       choice: { provider: LOCAL_PROVIDER, model: model.id, localModelId: model.id },
-      note: model.runtime.running ? "running" : "starts the local model"
+      note: model.runtime.running ? "running" : "not running"
     });
   }
 
@@ -646,15 +646,15 @@ export function effectiveAgentEligibility(
   if (!enabledOnMachine) return { active: false, reason: "Disabled on this machine", model };
 
   if (model.provider === LOCAL_PROVIDER) {
-    const ready =
+    const running =
       model.model === "active"
         ? availability.localModelIds.length > 0
         : availability.localModelIds.includes(model.model);
-    return ready
+    return running
       ? { active: true, reason: "Enabled on this machine", model }
       : {
           active: false,
-          reason: `Local model "${model.model}" is not downloaded on this machine`,
+          reason: `Local model "${model.model}" is not running on this machine`,
           model
         };
   }
