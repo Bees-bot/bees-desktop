@@ -1,0 +1,75 @@
+# Checks on every pull request. release.yml only runs on a tag, which is too late
+# to find out that a change does not compile.
+#
+# Actions are pinned to commit SHAs. A tag can be moved by whoever owns the
+# action, a SHA cannot, and strangers will be opening PRs here.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.3
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - run: npm run check
+
+      # Tauri's build script resolves externalBin, so cargo check fails with
+      # "resource path binaries/bees-node-... doesn't exist" until prepare:flue
+      # has staged the Node sidecar. On Linux this pulls a prebuilt llama-server
+      # rather than compiling one, so it costs a download and not a build.
+      - run: npm run prepare:flue
+
+      # Rust only. A full tauri build also bundles and signs, which a PR does
+      # not need.
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+
+  secrets:
+    name: Scan for secrets
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # The gitleaks *action* refuses to run for an organization without a paid
+      # licence key. The gitleaks binary itself is MIT, so run that instead.
+      - name: gitleaks
+        env:
+          VERSION: 8.28.0
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --redact --no-banner --exit-code 1
