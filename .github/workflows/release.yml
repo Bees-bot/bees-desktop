@@ -30,7 +30,7 @@ jobs:
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
       # Falls back to the matrix value (ad-hoc, `-`) until the Developer ID secret exists, so
-      # the build keeps working meanwhile. An ad-hoc build is NOT notarizable — macOS will
+      # the build keeps working meanwhile. An ad-hoc build is NOT notarizable, so macOS will
       # still warn on it. Set these four secrets to get a release people can install cleanly:
       #   APPLE_SIGNING_IDENTITY  "Developer ID Application: NAME (TEAMID)"
       #   APPLE_CERTIFICATE       base64 of the .p12
@@ -76,7 +76,7 @@ jobs:
       - run: npm ci
 
       # Windows code signing through Azure Artifact Signing (renamed from Azure Trusted
-      # Signing — both names still turn up). Skipped until the account exists, so the build
+      # Signing, and both names still turn up). Skipped until the account exists, so the build
       # keeps producing unsigned installers meanwhile.
       #
       # Installing the tool is only half of it. The other half is a one-line

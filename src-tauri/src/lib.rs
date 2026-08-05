@@ -2431,41 +2431,26 @@ fn cleanup_workspace(app: tauri::AppHandle, workspace_root: String) -> Result<()
     fs::remove_dir_all(workspace).map_err(|error| error.to_string())
 }
 
-/// Columns added to tables that already shipped. `schema.sql` is all
-/// `CREATE TABLE IF NOT EXISTS`, so it silently does nothing to a table that already
-/// exists — an installed app that gets a new column reaches the statements at the
-/// bottom of `schema.sql` and dies at startup with `no such column`. Adding a column
-/// here is the migration; the table definition in `schema.sql` still has to grow the
-/// same column for fresh installs.
-const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+/// Columns `executions` gained after the app shipped. `schema.sql` is all
+/// `CREATE TABLE IF NOT EXISTS`, so it does nothing to a table that already exists: a column
+/// added to that file never reaches an install that already has the table, and the statements
+/// at the bottom of the same file then select it and take the app down at startup. Adding it
+/// here is the migration. `schema.sql` still has to carry the column for fresh installs.
+const ADDED_COLUMNS: &[(&str, &str)] = &[
     // Runs moved from a stream (`instance_id`, `stream_url`, `stream_offset`) to a
-    // conversation. The stale columns are left alone: dropping them buys nothing and
-    // SQLite only learned DROP COLUMN in 3.35.
-    ("executions", "conversation_id", "TEXT NOT NULL DEFAULT ''"),
-    ("executions", "instance_uid", "TEXT"),
-    ("executions", "conversation_snapshot_json", "TEXT"),
-    ("executions", "conversation_text", "TEXT"),
-    ("executions", "restarted_from_execution_id", "TEXT"),
+    // conversation. The three stale columns are left alone: dropping them buys nothing.
+    ("conversation_id", "TEXT NOT NULL DEFAULT ''"),
+    ("instance_uid", "TEXT"),
+    ("conversation_snapshot_json", "TEXT"),
+    ("conversation_text", "TEXT"),
+    ("restarted_from_execution_id", "TEXT"),
 ];
 
-/// Statements that carry data across a rename, as `(table, source column, statement)`. The
-/// first two are the guard: the statement runs only where that old column is still present,
-/// which is what keeps it off a fresh database that never had it. Each statement also has to
-/// be safe to run on every launch, because nothing records that it already ran.
-const BACKFILLS: &[(&str, &str, &str)] = &[(
-    "executions",
-    "instance_id",
-    "UPDATE executions SET instance_uid = instance_id
-     WHERE instance_uid IS NULL AND instance_id IS NOT NULL",
-)];
-
-fn table_exists(connection: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
-    connection
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?
-        .exists([table])
-}
-
-fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool, rusqlite::Error> {
+fn column_exists(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, rusqlite::Error> {
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
@@ -2476,24 +2461,32 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<b
     Ok(false)
 }
 
-/// Runs before `schema.sql`, so the statements at the bottom of it see every column.
-/// Checking each column rather than tracking a version number makes this safe to run on a
-/// database at any age, including one already migrated by a build that crashed later.
+/// Runs before `schema.sql` so the statements at the bottom of it see every column.
+/// Checking each column rather than keeping a version number makes this safe on a database
+/// of any age, including one a crashed build already half-migrated.
 fn migrate_database(connection: &Connection) -> Result<(), rusqlite::Error> {
-    for (table, column, definition) in ADDED_COLUMNS {
-        // A fresh database has no tables yet; `schema.sql` creates them already correct.
-        if !table_exists(connection, table)? || column_exists(connection, table, column)? {
-            continue;
-        }
-        connection.execute_batch(&format!(
-            "ALTER TABLE {table} ADD COLUMN {column} {definition}"
-        ))?;
+    let has_executions = connection
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'executions'")?
+        .exists([])?;
+    // A fresh database has no tables yet; `schema.sql` creates them already correct.
+    if !has_executions {
+        return Ok(());
     }
-    for (table, source, statement) in BACKFILLS {
-        // Only meaningful while the old column is still there; skip on a fresh database.
-        if table_exists(connection, table)? && column_exists(connection, table, source)? {
-            connection.execute_batch(statement)?;
+
+    for (column, definition) in ADDED_COLUMNS {
+        if !column_exists(connection, "executions", column)? {
+            connection.execute_batch(&format!(
+                "ALTER TABLE executions ADD COLUMN {column} {definition}"
+            ))?;
         }
+    }
+
+    // `instance_id` became `instance_uid`. Carrying the values across is a no-op once done,
+    // so it is safe on every launch.
+    if column_exists(connection, "executions", "instance_id")? {
+        connection.execute_batch(
+            "UPDATE executions SET instance_uid = instance_id WHERE instance_uid IS NULL",
+        )?;
     }
     Ok(())
 }
