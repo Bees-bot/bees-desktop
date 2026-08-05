@@ -2432,10 +2432,78 @@ fn cleanup_workspace(app: tauri::AppHandle, workspace_root: String) -> Result<()
     fs::remove_dir_all(workspace).map_err(|error| error.to_string())
 }
 
+/// Columns added to tables that already shipped. `schema.sql` is all
+/// `CREATE TABLE IF NOT EXISTS`, so it silently does nothing to a table that already
+/// exists — an installed app that gets a new column reaches the statements at the
+/// bottom of `schema.sql` and dies at startup with `no such column`. Adding a column
+/// here is the migration; the table definition in `schema.sql` still has to grow the
+/// same column for fresh installs.
+const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+    // Runs moved from a stream (`instance_id`, `stream_url`, `stream_offset`) to a
+    // conversation. The stale columns are left alone: dropping them buys nothing and
+    // SQLite only learned DROP COLUMN in 3.35.
+    ("executions", "conversation_id", "TEXT NOT NULL DEFAULT ''"),
+    ("executions", "instance_uid", "TEXT"),
+    ("executions", "conversation_snapshot_json", "TEXT"),
+    ("executions", "conversation_text", "TEXT"),
+    ("executions", "restarted_from_execution_id", "TEXT"),
+];
+
+/// Statements that carry data across a rename, as `(table, source column, statement)`. The
+/// first two are the guard: the statement runs only where that old column is still present,
+/// which is what keeps it off a fresh database that never had it. Each statement also has to
+/// be safe to run on every launch, because nothing records that it already ran.
+const BACKFILLS: &[(&str, &str, &str)] = &[(
+    "executions",
+    "instance_id",
+    "UPDATE executions SET instance_uid = instance_id
+     WHERE instance_uid IS NULL AND instance_id IS NOT NULL",
+)];
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
+    connection
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?
+        .exists([table])
+}
+
+fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool, rusqlite::Error> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Runs before `schema.sql`, so the statements at the bottom of it see every column.
+/// Checking each column rather than tracking a version number makes this safe to run on a
+/// database at any age, including one already migrated by a build that crashed later.
+fn migrate_database(connection: &Connection) -> Result<(), rusqlite::Error> {
+    for (table, column, definition) in ADDED_COLUMNS {
+        // A fresh database has no tables yet; `schema.sql` creates them already correct.
+        if !table_exists(connection, table)? || column_exists(connection, table, column)? {
+            continue;
+        }
+        connection.execute_batch(&format!(
+            "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        ))?;
+    }
+    for (table, source, statement) in BACKFILLS {
+        // Only meaningful while the old column is still there; skip on a fresh database.
+        if table_exists(connection, table)? && column_exists(connection, table, source)? {
+            connection.execute_batch(statement)?;
+        }
+    }
+    Ok(())
+}
+
 fn initialize_database(app: &tauri::App) -> Result<Database, Box<dyn std::error::Error>> {
     let app_data = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data)?;
     let connection = Connection::open(app_data.join("bees.db"))?;
+    migrate_database(&connection)?;
     connection.execute_batch(include_str!("../schema.sql"))?;
     Ok(Database(Mutex::new(connection)))
 }
