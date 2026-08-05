@@ -23,6 +23,20 @@ pub struct SoftwareProjectMapping {
     missing: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SoftwareProjectKind {
+    New,
+    Existing,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareProjectSelection {
+    mapping: SoftwareProjectMapping,
+    project_kind: SoftwareProjectKind,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCommit {
@@ -68,6 +82,18 @@ fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn git_probe(cwd: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 fn slug(value: &str) -> String {
@@ -212,6 +238,39 @@ fn project_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     canonical_directory(&root.to_string_lossy())
 }
 
+fn selected_project_kind(path: &Path) -> Result<SoftwareProjectKind, String> {
+    let path = fs::canonicalize(path).map_err(|error| error.to_string())?;
+    let contains_project_files = fs::read_dir(&path)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .any(|entry| entry.file_name() != ".git");
+    let repository = git_probe(&path, &["rev-parse", "--show-toplevel"])
+        .map(|value| canonical_directory(&value))
+        .transpose()?;
+    if repository.as_ref().is_some_and(|root| root != &path) {
+        return Err("Choose the Git repository root, not one of its subfolders".into());
+    }
+    let has_commit = repository
+        .as_ref()
+        .is_some_and(|root| git_probe(root, &["rev-parse", "--verify", "HEAD"]).is_some());
+    if contains_project_files && repository.is_none() {
+        return Err(
+            "This folder contains files but is not a Git repository. Initialize or clone it first."
+                .into(),
+        );
+    }
+    if contains_project_files && !has_commit {
+        return Err(
+            "This Git repository needs an initial commit before Bees can continue it".into(),
+        );
+    }
+    Ok(if contains_project_files || has_commit {
+        SoftwareProjectKind::Existing
+    } else {
+        SoftwareProjectKind::New
+    })
+}
+
 #[tauri::command]
 pub fn software_project_get(
     database: State<'_, Database>,
@@ -247,78 +306,48 @@ pub fn software_project_get(
 }
 
 #[tauri::command]
-pub fn software_project_create(
+pub fn software_project_select_folder(
     app: tauri::AppHandle,
     database: State<'_, Database>,
     work_item_id: String,
+    folder_path: String,
     team_root: String,
-) -> Result<SoftwareProjectMapping, String> {
+) -> Result<SoftwareProjectSelection, String> {
     if software_project_get(database.clone(), work_item_id.clone())?.is_some() {
         return Err("This software project already has a repository".into());
     }
-    let title = item_title(&database, &work_item_id)?;
-    let name = slug(&title);
-    let directory = project_root(&app)?.join(format!(
-        "{}-{}",
-        name,
-        &work_item_id[..8.min(work_item_id.len())]
-    ));
-    if directory.exists() {
-        return Err("The new project directory already exists".into());
+    let selected = canonical_directory(&folder_path)?;
+    separate_from_team(&selected, &team_root)?;
+    let project_kind = selected_project_kind(&selected)?;
+    if project_kind == SoftwareProjectKind::New
+        && git_probe(&selected, &["rev-parse", "--show-toplevel"]).is_none()
+    {
+        git(&selected, &["init", "--initial-branch=main"])?;
     }
-    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let directory = canonical_directory(&directory.to_string_lossy())?;
-    separate_from_team(&directory, &team_root)?;
-    git(&directory, &["init", "--initial-branch=main"])?;
-    git(
-        &directory,
-        &[
-            "-c",
-            "user.name=Bees",
-            "-c",
-            "user.email=local@bees.bot",
-            "commit",
-            "--allow-empty",
-            "-m",
-            "chore: initialize project",
-        ],
-    )?;
-    let branch = format!(
-        "bees/project/{}-{}",
-        name,
-        &work_item_id[..8.min(work_item_id.len())]
-    );
-    git(&directory, &["switch", "-c", &branch])?;
-    let value = SoftwareProjectMapping {
-        work_item_id,
-        repository_path: directory.to_string_lossy().into_owned(),
-        worktree_path: directory.to_string_lossy().into_owned(),
-        base_branch: "main".into(),
-        project_branch: branch,
-        validated_at: now(),
-        missing: false,
-    };
-    save_mapping(&database, &value)?;
-    Ok(value)
-}
-
-#[tauri::command]
-pub fn software_project_attach(
-    app: tauri::AppHandle,
-    database: State<'_, Database>,
-    work_item_id: String,
-    repository_path: String,
-    team_root: String,
-) -> Result<SoftwareProjectMapping, String> {
-    if software_project_get(database.clone(), work_item_id.clone())?.is_some() {
-        return Err("This software project already has a repository".into());
-    }
-    let selected = canonical_directory(&repository_path)?;
     let repository = canonical_directory(&git(&selected, &["rev-parse", "--show-toplevel"])?)?;
-    separate_from_team(&repository, &team_root)?;
+    if repository != selected {
+        return Err("Choose the Git repository root, not one of its subfolders".into());
+    }
     let base_branch = git(&repository, &["branch", "--show-current"])?;
     if base_branch.is_empty() {
         return Err("Check out the base branch in the selected repository first".into());
+    }
+    if project_kind == SoftwareProjectKind::New {
+        git(
+            &repository,
+            &[
+                "-c",
+                "user.name=Bees",
+                "-c",
+                "user.email=local@bees.bot",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "chore: initialize project",
+            ],
+        )?;
+    } else if !git(&repository, &["status", "--short"])?.is_empty() {
+        return Err("Commit or discard local changes before selecting this repository".into());
     }
     let title = item_title(&database, &work_item_id)?;
     let name = slug(&title);
@@ -359,7 +388,10 @@ pub fn software_project_attach(
         missing: false,
     };
     save_mapping(&database, &value)?;
-    Ok(value)
+    Ok(SoftwareProjectSelection {
+        mapping: value,
+        project_kind,
+    })
 }
 
 #[tauri::command]
@@ -608,6 +640,59 @@ mod tests {
         assert!(safe_relative("src/app.ts").is_ok());
         assert!(safe_relative("../secret").is_err());
         assert!(safe_relative("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn empty_folders_are_new_and_code_requires_git() {
+        let root = std::env::temp_dir().join(format!(
+            "bees-software-project-kind-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        assert_eq!(
+            selected_project_kind(&root).unwrap(),
+            SoftwareProjectKind::New
+        );
+        fs::write(root.join("README.md"), "existing code").unwrap();
+        assert!(selected_project_kind(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn committed_git_folders_are_existing_projects() {
+        let root = std::env::temp_dir().join(format!(
+            "bees-software-project-existing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        git(&root, &["init", "--initial-branch=main"]).unwrap();
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Bees",
+                "-c",
+                "user.email=local@bees.bot",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            selected_project_kind(&root).unwrap(),
+            SoftwareProjectKind::Existing
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

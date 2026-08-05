@@ -282,11 +282,11 @@ const softwareProjectStudio = new SoftwareProjectController({
     }),
   getWorkItem: async (itemId) => (await repository.getWorkItem(itemId)) ?? null,
   requireTeamRoot,
-  chooseRepository: async () => {
+  chooseProjectFolder: async () => {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Choose Git repository"
+      title: "Choose project folder"
     });
     return Array.isArray(selected) ? selected[0] ?? null : selected;
   },

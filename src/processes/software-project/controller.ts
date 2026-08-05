@@ -41,7 +41,7 @@ export interface SoftwareProjectHost {
   setWorkItemStatus(item: WorkItem, status: WorkItemStatus): Promise<void>;
   getWorkItem(itemId: string): Promise<WorkItem | null>;
   requireTeamRoot(): Promise<string>;
-  chooseRepository(): Promise<string | null>;
+  chooseProjectFolder(): Promise<string | null>;
   confirm(title: string, message: string, button: string): Promise<boolean>;
   refresh(): Promise<void>;
   notify(message: string, kind: "success" | "error"): void;
@@ -79,20 +79,25 @@ export class SoftwareProjectController implements ProcessStudio {
 
   async handleAction(action: string, control: HTMLElement): Promise<boolean> {
     if (!action.startsWith("project-")) return false;
-    if (action === "project-create-repo") {
+    if (action === "project-select-folder") {
       const { item } = this.current();
-      await this.git.create(item.id, await this.host.requireTeamRoot());
-      await this.host.refresh();
-      this.host.notify("Local Git project created outside the team folder", "success");
-      return true;
-    }
-    if (action === "project-attach-repo") {
-      const { item } = this.current();
-      const path = await this.host.chooseRepository();
+      const path = await this.host.chooseProjectFolder();
       if (!path) return true;
-      await this.git.attach(item.id, path, await this.host.requireTeamRoot());
+      const selection = await this.git.selectFolder(
+        item.id,
+        path,
+        await this.host.requireTeamRoot()
+      );
+      const state = await this.state(item.id);
+      state.projectKind = selection.projectKind;
+      await this.save(item.id, state);
       await this.host.refresh();
-      this.host.notify("Isolated project worktree created", "success");
+      this.host.notify(
+        selection.projectKind === "new"
+          ? "New local Git project and isolated worktree created"
+          : "Existing local Git project attached in an isolated worktree",
+        "success"
+      );
       return true;
     }
     if (action === "project-approve-requirements") {
@@ -415,6 +420,7 @@ export class SoftwareProjectController implements ProcessStudio {
   private projectContext(state: SoftwareProjectState): string {
     return JSON.stringify(
       {
+        projectKind: state.projectKind,
         requirements: state.requirements,
         architecture: state.architecture?.decision,
         implementationPhases: state.phases,
@@ -430,12 +436,15 @@ export class SoftwareProjectController implements ProcessStudio {
   ): Promise<void> {
     const { item } = this.current();
     const state = await this.state(item.id);
+    const mapping = await this.git.get(item.id);
+    if (!mapping) throw new Error("Choose the local project folder first");
     state.answers = answers;
     await this.save(item.id, state);
     const execution = await this.host.runAgentTurn(
       item,
       SOFTWARE_PROJECT_ROLES.requirements,
-      `Original brief:\n${item.description}\n\nInline questionnaire answers:\n${JSON.stringify(answers, null, 2)}`
+      `Project kind: ${state.projectKind ?? "existing"}\n\nOriginal brief:\n${item.description}\n\nInline questionnaire answers:\n${JSON.stringify(answers, null, 2)}\n\nInspect the repository before producing the requirements.`,
+      true
     );
     state.requirements = parseRequirementSpec(lastAssistantText(execution));
     state.lastExecutionId = execution.id;
@@ -450,7 +459,8 @@ export class SoftwareProjectController implements ProcessStudio {
     const execution = await this.host.runAgentTurn(
       item,
       SOFTWARE_PROJECT_ROLES.requirements,
-      `Revise the requirements JSON using this user response:\n${message}\n\nCurrent requirements:\n${JSON.stringify(state.requirements, null, 2)}`
+      `Revise the requirements JSON using this user response:\n${message}\n\nCurrent requirements:\n${JSON.stringify(state.requirements, null, 2)}`,
+      true
     );
     state.requirements = parseRequirementSpec(lastAssistantText(execution));
     state.lastExecutionId = execution.id;

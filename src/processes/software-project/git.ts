@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   SoftwareProjectGitSnapshot,
-  SoftwareProjectMapping
+  SoftwareProjectMapping,
+  SoftwareProjectSelection
 } from "./index.js";
 
 export class SoftwareProjectGit {
@@ -9,16 +10,12 @@ export class SoftwareProjectGit {
     return invoke("software_project_get", { workItemId });
   }
 
-  create(workItemId: string, teamRoot: string): Promise<SoftwareProjectMapping> {
-    return invoke("software_project_create", { workItemId, teamRoot });
-  }
-
-  attach(
+  selectFolder(
     workItemId: string,
-    repositoryPath: string,
+    folderPath: string,
     teamRoot: string
-  ): Promise<SoftwareProjectMapping> {
-    return invoke("software_project_attach", { workItemId, repositoryPath, teamRoot });
+  ): Promise<SoftwareProjectSelection> {
+    return invoke("software_project_select_folder", { workItemId, folderPath, teamRoot });
   }
 
   workspace(workItemId: string): Promise<string> {

@@ -13,9 +13,8 @@ use local_models::{
     LocalModelManager,
 };
 use processes::software_project::{
-    software_project_attach, software_project_commit, software_project_create,
-    software_project_get, software_project_merge, software_project_snapshot,
-    software_project_workspace,
+    software_project_commit, software_project_get, software_project_merge,
+    software_project_select_folder, software_project_snapshot, software_project_workspace,
 };
 use runs::{resume_run, run_is_active, start_run, stop_run, RunService};
 use rusqlite::{
@@ -2519,8 +2518,7 @@ pub fn run() {
             run_is_active,
             resume_run,
             software_project_get,
-            software_project_create,
-            software_project_attach,
+            software_project_select_folder,
             software_project_workspace,
             software_project_commit,
             software_project_snapshot,

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { WorkItem } from "../../domain.js";
 import {
+  SOFTWARE_PROJECT_QUESTIONS,
+  emptySoftwareProjectState,
   parseImplementationPlan,
-  routeSoftwareProject
+  routeSoftwareProject,
+  softwareProjectView
 } from "./index.js";
 import {
   SoftwareProjectController,
@@ -33,6 +37,27 @@ describe("software project module contract", () => {
     expect(controller.matches("Software Project")).toBe(true);
     expect(controller.matches("Goals")).toBe(false);
     expect(controller.handlesSubmit(form)).toBe(true);
+  });
+
+  it("collects requirements for new and continued software work", () => {
+    const changeType = SOFTWARE_PROJECT_QUESTIONS.find(({ id }) => id === "changeType");
+    expect(changeType && "options" in changeType ? changeType.options : []).toEqual(
+      expect.arrayContaining(["New project", "Bug fix", "New feature", "Refactor"])
+    );
+    expect(SOFTWARE_PROJECT_QUESTIONS.some(({ id }) => id === "preserve")).toBe(true);
+  });
+
+  it("requires one local project folder before requirements", () => {
+    const view = softwareProjectView({
+      item: { title: "Change the app" } as WorkItem,
+      stage: "Requirements",
+      state: emptySoftwareProjectState(),
+      runs: [],
+      mapping: null,
+      git: null
+    });
+    expect(view).toContain('data-action="project-select-folder"');
+    expect(view).not.toContain("data-project-requirements");
   });
 });
 

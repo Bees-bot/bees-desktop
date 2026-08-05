@@ -26,7 +26,7 @@ export const softwareProjectProcess = {
       {
         role: SOFTWARE_PROJECT_ROLES.requirements,
         name: "Requirements interviewer",
-        purpose: "Turns easy inline answers into an approvable product specification",
+        purpose: "Inspects the selected repository and turns inline answers into approvable requirements",
         stage: SOFTWARE_PROJECT_STAGES[0],
         prompt: REQUIREMENTS_PROMPT,
         provider: "codex-cli",

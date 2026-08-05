@@ -43,8 +43,11 @@ models and local tools for fully offline or air-gapped operation.
 
 ## Software Project process
 
-Add **Software Project** from the process library to build a website, app, API,
-CLI, or library through explicit gates: requirements, two-model architecture,
+Add **Software Project** from the process library to build new software or make
+a substantial fix, feature, refactor, or migration in existing software. Choose
+one local project folder first: an empty folder becomes a new Git project, while
+a folder with code must already be a clean Git repository on the intended base
+branch. Both follow explicit requirements, two-model architecture,
 implementation planning, coding/testing loops, per-phase human review, and a
 final review.
 
@@ -52,6 +55,8 @@ Project source is kept in a local Git worktree under `~/Bees/projects`, never
 inside the team's synced folder. Bees commits every coding turn on an isolated
 `bees/project/*` branch. Phase approval, final verification, and the local merge
 are explicit UI actions; Bees never pushes the branch.
+Cloning, fetching, pulling, selecting the base branch, pushing, and pull requests
+remain the user's responsibility.
 
 ## Process modules
 

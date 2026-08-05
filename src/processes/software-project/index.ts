@@ -4,7 +4,7 @@ export const SOFTWARE_PROJECT_PROCESS_ID = "software-project";
 export const SOFTWARE_PROJECT_PROCESS_NAME = "Software Project";
 export const SOFTWARE_PROJECT_BOARD_NAME = "Software Projects";
 export const SOFTWARE_PROJECT_DESCRIPTION =
-  "Interview, debate architecture, plan small phases, implement, test, and review a Git project.";
+  "Build new software or substantially change a selected local Git project through requirements, architecture, planning, implementation, testing, and review.";
 export const SOFTWARE_PROJECT_STAGES = [
   "Requirements",
   "Architecture",
@@ -25,24 +25,24 @@ export const SOFTWARE_PROJECT_ROLES = {
   tester: "software-tester"
 } as const;
 
-export const REQUIREMENTS_PROMPT = `You interview a person who wants software built.
+export const REQUIREMENTS_PROMPT = `You discover requirements for new software or a substantial change to existing software.
 
-Use their brief and inline questionnaire answers. Resolve ambiguity without making them open files.
+The selected local Git repository is your primary evidence. Inspect it before answering. It may be an empty new project or an existing codebase that needs a bug fix, feature, refactor, reimplementation, or migration. Use the brief, repository evidence, and inline questionnaire answers. For existing code, state current behavior and compatibility constraints that must be preserved. Resolve ambiguity without making the user open files.
 Return exactly one JSON object, with no Markdown fence:
 {"summary":"...","users":["..."],"functionalRequirements":["..."],"nonFunctionalRequirements":["..."],"constraints":["..."],"preferences":["..."],"acceptanceCriteria":["..."],"followUpQuestions":["..."]}
 
-Ask at most five follow-up questions and only when an answer would materially change the product or architecture. Empty arrays are valid. Do not design the architecture yet.`;
+Ask at most five follow-up questions and only when an answer would materially change the required behavior or architecture. Empty arrays are valid. Do not edit files, run Git, or design the architecture yet.`;
 
 export const OPENAI_ARCHITECT_PROMPT = `You are the OpenAI-side software architect in a two-architect review.
 
-Produce an independent architecture from the approved requirements and repository evidence. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
+Produce an independent architecture from the approved requirements and repository evidence. For an existing codebase, preserve its language, framework, public contracts, and conventions unless the approved requirements explicitly justify changing them. A large bug fix, feature, refactor, or reimplementation still requires a complete architecture decision. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
 {"summary":"...","decisions":[{"area":"Language and framework","choice":"...","reason":"...","alternatives":["..."]}],"repositoryPlan":["..."],"commands":{"setup":["..."],"check":["..."],"test":["..."],"build":["..."],"dev":["..."]},"risks":["..."],"questions":["..."]}
 
 Prefer the simplest architecture that meets the requirements. Do not edit files or run Git.`;
 
 export const ANTHROPIC_ARCHITECT_PROMPT = `You are the Anthropic-side software architect in a two-architect review.
 
-Produce an independent architecture from the approved requirements and repository evidence. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
+Produce an independent architecture from the approved requirements and repository evidence. For an existing codebase, preserve its language, framework, public contracts, and conventions unless the approved requirements explicitly justify changing them. A large bug fix, feature, refactor, or reimplementation still requires a complete architecture decision. Do not assume the other architect's answer. Treat constraints as mandatory and preferences as challengeable. Return exactly one JSON object, with no Markdown fence:
 {"summary":"...","decisions":[{"area":"Language and framework","choice":"...","reason":"...","alternatives":["..."]}],"repositoryPlan":["..."],"commands":{"setup":["..."],"check":["..."],"test":["..."],"build":["..."],"dev":["..."]},"risks":["..."],"questions":["..."]}
 
 Prefer the simplest architecture that meets the requirements. Do not edit files or run Git.`;
@@ -130,6 +130,7 @@ export interface TestReport {
 
 export interface SoftwareProjectState {
   version: 1;
+  projectKind?: SoftwareProjectKind;
   answers: Record<string, string | string[]>;
   requirements?: RequirementSpec;
   requirementsApprovedAt?: string;
@@ -316,17 +317,19 @@ export function lastAssistantText(execution: Execution): string {
 }
 
 export const SOFTWARE_PROJECT_QUESTIONS = [
-  { id: "product", label: "What are we building?", kind: "textarea", placeholder: "A customer portal that…" },
-  { id: "users", label: "Who will use it?", kind: "text", placeholder: "Customers and support staff" },
-  { id: "success", label: "What makes version one successful?", kind: "textarea", placeholder: "Users can…" },
-  { id: "platform", label: "Primary platform", kind: "select", options: ["Web app", "Website", "iOS", "Android", "Desktop", "Backend or API", "CLI or library", "Choose for me"] },
-  { id: "mustHave", label: "Must-have features", kind: "textarea", placeholder: "One feature per line" },
-  { id: "data", label: "Important data", kind: "textarea", placeholder: "Accounts, orders, documents…" },
-  { id: "integrations", label: "External integrations", kind: "text", placeholder: "Stripe, Slack, none, unknown…" },
-  { id: "auth", label: "Accounts and access", kind: "select", options: ["No accounts", "Email login", "Social login", "Company SSO", "Unsure"] },
-  { id: "quality", label: "Scale, security, or compliance needs", kind: "textarea", placeholder: "Expected users, sensitive data, accessibility…" },
-  { id: "preferences", label: "Technical preferences or constraints", kind: "textarea", placeholder: "Language, framework, hosting, deadline—or choose for me" }
+  { id: "changeType", label: "What kind of work is this?", kind: "select", options: ["New project", "Bug fix", "New feature", "Refactor", "Language or framework migration", "Choose after inspecting the repository"] },
+  { id: "request", label: "What should be built or changed?", kind: "textarea", placeholder: "Describe the problem or desired capability" },
+  { id: "currentBehavior", label: "What happens today?", kind: "textarea", placeholder: "Current behavior, reproduction steps, or known limitations" },
+  { id: "success", label: "What outcome means this is complete?", kind: "textarea", placeholder: "Observable behavior and acceptance criteria" },
+  { id: "users", label: "Who is affected?", kind: "text", placeholder: "Customers, operators, developers…" },
+  { id: "mustHave", label: "Must-have behavior", kind: "textarea", placeholder: "One requirement per line" },
+  { id: "preserve", label: "What must remain compatible?", kind: "textarea", placeholder: "APIs, data, behavior, platforms, or nothing" },
+  { id: "data", label: "Data or migration concerns", kind: "textarea", placeholder: "Schemas, files, backfills, rollback…" },
+  { id: "quality", label: "Scale, security, or compliance needs", kind: "textarea", placeholder: "Expected load, sensitive data, accessibility…" },
+  { id: "preferences", label: "Technical preferences or constraints", kind: "textarea", placeholder: "Language, framework, hosting, deadline—or preserve the current stack" }
 ] as const;
+
+export type SoftwareProjectKind = "new" | "existing";
 
 export interface SoftwareProjectMapping {
   workItemId: string;
@@ -336,6 +339,11 @@ export interface SoftwareProjectMapping {
   projectBranch: string;
   validatedAt: string;
   missing: boolean;
+}
+
+export interface SoftwareProjectSelection {
+  mapping: SoftwareProjectMapping;
+  projectKind: SoftwareProjectKind;
 }
 
 export interface SoftwareProjectGitSnapshot {
@@ -404,15 +412,20 @@ export function softwareProjectView(input: {
   const progress = SOFTWARE_PROJECT_STAGES.slice(0, 7)
     .map((name) => `<span class="badge ${name === stage ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
     .join("");
+  const projectFolder = mapping
+    ? `<div class="alert alert-success mb-4"><div><div class="font-semibold">${state.projectKind === "new" ? "New project" : "Continued work"}</div><div class="break-all font-mono text-xs">${html(mapping.repositoryPath)}</div><div class="mt-1 text-xs opacity-70">Base branch: ${html(mapping.baseBranch)}. Bees works locally and never fetches, pulls, pushes, or opens pull requests.</div></div></div>`
+    : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-6"><h2 class="font-bold">Choose the local project folder</h2><p class="mt-2 text-sm text-base-content/60">An empty folder starts a new Git project. A folder with code must already be a clean Git repository on the branch you want Bees to use.</p><button class="btn btn-primary mt-4" type="button" data-action="project-select-folder" ${busy ? "disabled" : ""}>Choose project folder</button></div>`;
   let body = "";
   if (stage === "Requirements") {
-    body = state.requirements
+    body = `${projectFolder}${state.requirements
       ? `<section class="grid gap-4"><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Requirements draft</h2><p class="mt-2">${html(state.requirements.summary)}</p><div class="mt-4 grid gap-4 lg:grid-cols-2"><div><h3 class="mb-2 text-xs font-bold uppercase">Functional</h3>${bullets(state.requirements.functionalRequirements)}</div><div><h3 class="mb-2 text-xs font-bold uppercase">Acceptance</h3>${bullets(state.requirements.acceptanceCriteria)}</div></div>${state.requirements.followUpQuestions.length ? `<div class="mt-4 rounded bg-warning/10 p-3"><h3 class="text-xs font-bold uppercase text-warning">Open questions</h3>${bullets(state.requirements.followUpQuestions)}</div>` : ""}<form class="mt-4" data-project-refine><textarea class="textarea textarea-bordered w-full" name="message" placeholder="Answer open questions or ask the requirements agent to revise something"></textarea><div class="mt-2 flex justify-end gap-2"><button class="btn btn-outline btn-sm" type="submit" ${busy ? "disabled" : ""}>Refine with AI</button><button class="btn btn-primary btn-sm" type="button" data-action="project-approve-requirements" ${busy ? "disabled" : ""}>Approve requirements</button></div></form></article></section>`
-      : `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Tell the team what to build</h2><p class="mt-1 text-sm text-base-content/55">Answer in this screen. “Unsure” and “choose for me” are valid answers.</p><div class="mt-4 grid gap-4 lg:grid-cols-2">${SOFTWARE_PROJECT_QUESTIONS.map((question) => `<label class="form-control"><span class="label-text mb-1 font-semibold">${html(question.label)}</span>${question.kind === "select" ? `<select class="select select-bordered w-full" name="${question.id}">${question.options.map((option) => `<option>${html(option)}</option>`).join("")}</select>` : question.kind === "textarea" ? `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${question.id}" placeholder="${html(question.placeholder)}"></textarea>` : `<input class="input input-bordered w-full" name="${question.id}" placeholder="${html(question.placeholder)}">`}</label>`).join("")}</div><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`;
+      : mapping
+        ? `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Describe what to build or change</h2><p class="mt-1 text-sm text-base-content/55">The requirements agent will inspect the selected repository before drafting requirements. “Unsure” and “choose after inspecting” are valid answers.</p><div class="mt-4 grid gap-4 lg:grid-cols-2">${SOFTWARE_PROJECT_QUESTIONS.map((question) => `<label class="form-control"><span class="label-text mb-1 font-semibold">${html(question.label)}</span>${question.kind === "select" ? `<select class="select select-bordered w-full" name="${question.id}">${question.options.map((option) => `<option>${html(option)}</option>`).join("")}</select>` : question.kind === "textarea" ? `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${question.id}" placeholder="${html(question.placeholder)}"></textarea>` : `<input class="input input-bordered w-full" name="${question.id}" placeholder="${html(question.placeholder)}">`}</label>`).join("")}</div><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`
+        : ""}`;
   } else if (stage === "Architecture") {
     const architecture = state.architecture ?? {};
     const hasProposals = Boolean(architecture.openai && architecture.anthropic);
-    body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : `<div class="alert alert-warning"><span>Choose where the Git project lives before architecture begins.</span><div class="flex gap-2"><button class="btn btn-sm" data-action="project-create-repo">Create new repository</button><button class="btn btn-sm btn-primary" data-action="project-attach-repo">Attach existing repository</button></div></div>`}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !architecture.openaiCritique || !architecture.anthropicCritique ? `<button class="btn btn-primary" data-action="project-critique-architecture" ${busy ? "disabled" : ""}>Cross-critique proposals</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
+    body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : '<div class="alert alert-error">The local project folder is unavailable.</div>'}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !architecture.openaiCritique || !architecture.anthropicCritique ? `<button class="btn btn-primary" data-action="project-critique-architecture" ${busy ? "disabled" : ""}>Cross-critique proposals</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
   } else if (stage === "Plan") {
     body = state.phases.length
       ? `<form class="grid gap-3" data-project-plan>${state.phases.map((phase, index) => phaseCard(phase, index, true)).join("")}<div class="flex flex-wrap justify-end gap-2"><button class="btn btn-outline" type="button" data-action="project-regenerate-plan" ${busy ? "disabled" : ""}>Regenerate</button><button class="btn btn-outline" type="submit">Save edits</button><button class="btn btn-primary" type="button" data-action="project-approve-plan">Approve plan</button></div></form>`
@@ -428,5 +441,5 @@ export function softwareProjectView(input: {
   } else {
     body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;
   }
-  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Software Project Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Repository not configured"}</div></div></div>${body}`;
+  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Software Project Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Project folder not selected"}</div></div></div>${body}`;
 }
