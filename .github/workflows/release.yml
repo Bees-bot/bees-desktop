@@ -22,9 +22,16 @@ jobs:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             signing_identity: ""
-          - platform: windows-2025
-            target: x86_64-pc-windows-msvc
-            signing_identity: ""
+          # Windows is deliberately absent. Mac ships first and Windows follows in a
+          # couple of weeks, once Azure Artifact Signing exists. Building it now would
+          # publish an unsigned .msi next to a signed Mac build in the same release, and
+          # SmartScreen blocks that, which is the thing BEE-026 is for. Linux stays: it
+          # has no equivalent gate, so an unsigned build there is normal.
+          #
+          # To add it back, restore this entry and the signCommand noted below:
+          #   - platform: windows-2025
+          #     target: x86_64-pc-windows-msvc
+          #     signing_identity: ""
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -108,6 +115,9 @@ jobs:
 
             macOS builds are ad-hoc signed, not Apple-notarized. On first launch,
             macOS may require approval in System Settings > Privacy & Security.
+            Delete these two lines once the build is notarized, or the notes are wrong.
+
+            There is no Windows build yet. It follows once code signing is set up.
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

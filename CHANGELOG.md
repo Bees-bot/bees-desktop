@@ -4,6 +4,9 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- The release build no longer produces a Windows installer. Mac ships first and
+  Windows follows once code signing is set up, so a release cannot pair a signed Mac
+  build with an unsigned .msi that SmartScreen blocks. Linux is unaffected.
 - The app checks for a new version at startup and can install it and restart. Model weights
   are downloaded separately at first run, so an update never re-downloads them.
 - A release build signs the bundled local-model runtime with the real Developer ID, with a
