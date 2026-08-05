@@ -202,7 +202,14 @@ type View =
   | "settings"
   | "org-settings"
   | "preferences";
-type PrefsTab = "theme" | "local-models" | "connections" | "signins" | "orgs" | "folder";
+type PrefsTab =
+  | "theme"
+  | "local-models"
+  | "remote-models"
+  | "mcp-servers"
+  | "signins"
+  | "orgs"
+  | "folder";
 type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge";
 type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
 // All daisyUI v5 built-in themes (keep in sync with themes: all in styles.css).
@@ -2520,7 +2527,7 @@ function teamIntegrationsContent(): string {
         <div class="mt-2 divide-y divide-base-300">
           <div class="py-4">
             <div class="flex items-center justify-between gap-4">
-              <div><h3 class="text-sm font-bold">Skills and tools</h3><p class="text-xs text-base-content/55">Trusted folders copied to Bees app-data and inventoried by filename. JavaScript and TypeScript tools run as trusted local code outside the file sandbox. Remote MCP services are added under Preferences → Connections.</p></div>
+              <div><h3 class="text-sm font-bold">Skills and tools</h3><p class="text-xs text-base-content/55">Trusted folders copied to Bees app-data and inventoried by filename. JavaScript and TypeScript tools run as trusted local code outside the file sandbox. Remote MCP services are added under Preferences → MCP servers.</p></div>
               <div class="flex gap-2">
                 <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
                 <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Add folder</button>
@@ -3186,7 +3193,7 @@ async function cliToolsSection(): Promise<string> {
   </section>`;
 }
 
-async function prefsConnectionsContent(): Promise<string> {
+async function prefsRemoteModelsContent(): Promise<string> {
   const connections = await listAiConnections(repository, aiConnectionScope());
   const providerButtons = (Object.keys(AI_PROVIDER_LABEL) as AiProvider[])
     .map(
@@ -3217,18 +3224,6 @@ async function prefsConnectionsContent(): Promise<string> {
         )
         .join("")
     : `<li class="px-3 py-6 text-center text-sm text-base-content/50">No AI connections yet.</li>`;
-  const remoteConnections = (await listMcpConnections(repository, workspace.teamId)).filter(
-    (connection) => !isKnowledgeConnection(connection)
-  );
-  const mcpList = remoteConnections.length
-    ? remoteConnections.map((connection) => `<li class="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
-        <div class="min-w-0"><span class="block truncate font-semibold">${escapeHtml(connection.name)}</span>
-          <span class="text-xs text-base-content/50">${escapeHtml(connection.url)} · ${connection.allowedTools.length}/${connection.tools.length} tools allowed · ${connection.optional ? "optional offline" : "required"}</span>
-          ${connection.lastError ? `<div class="mt-1 text-xs text-error">${escapeHtml(connection.lastError)}</div>` : ""}
-        </div>
-        <div class="flex gap-1"><button class="btn btn-ghost btn-xs" data-action="test-mcp" data-id="${connection.id}">Test / allowlist</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-mcp" data-id="${connection.id}">Remove</button></div>
-      </li>`).join("")
-    : `<li class="px-3 py-6 text-center text-sm text-base-content/50">No MCP connections yet.</li>`;
   return `<div class="space-y-5">
     <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
       <h2 class="card-title text-base">Cloud connections</h2>
@@ -3239,13 +3234,30 @@ async function prefsConnectionsContent(): Promise<string> {
       <header class="border-b border-base-300 p-5"><h2 class="font-bold">Active connections</h2></header>
       <ul class="divide-y divide-base-200 p-2">${list}</ul>
     </section>
+    ${await cliToolsSection()}
+  </div>`;
+}
+
+async function prefsMcpServersContent(): Promise<string> {
+  const connections = (await listMcpConnections(repository, workspace.teamId)).filter(
+    (connection) => !isKnowledgeConnection(connection)
+  );
+  const list = connections.length
+    ? connections.map((connection) => `<li class="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
+        <div class="min-w-0"><span class="block truncate font-semibold">${escapeHtml(connection.name)}</span>
+          <span class="text-xs text-base-content/50">${escapeHtml(connection.url)} · ${connection.allowedTools.length}/${connection.tools.length} tools allowed · ${connection.optional ? "optional offline" : "required"}</span>
+          ${connection.lastError ? `<div class="mt-1 text-xs text-error">${escapeHtml(connection.lastError)}</div>` : ""}
+        </div>
+        <div class="flex gap-1"><button class="btn btn-ghost btn-xs" data-action="test-mcp" data-id="${connection.id}">Test / allowlist</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-mcp" data-id="${connection.id}">Remove</button></div>
+      </li>`).join("")
+    : `<li class="px-3 py-6 text-center text-sm text-base-content/50">No MCP servers yet.</li>`;
+  return `<div class="space-y-5">
     <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-      <h2 class="card-title text-base">MCP connections</h2>
+      <h2 class="card-title text-base">MCP servers</h2>
       <p class="text-sm text-base-content/60">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
       <div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button></div>
     </div></section>
-    <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${mcpList}</ul></section>
-    ${await cliToolsSection()}
+    <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${list}</ul></section>
   </div>`;
 }
 
@@ -3597,7 +3609,8 @@ async function renderPreferences(): Promise<void> {
     "prefs-tab",
     [
       { id: "local-models", label: "Local models", content: prefsLocalModelsContent },
-      { id: "connections", label: "Connections", content: prefsConnectionsContent },
+      { id: "remote-models", label: "Remote models", content: prefsRemoteModelsContent },
+      { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
       { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
       { id: "orgs", label: "Orgs", content: prefsOrgsContent },
       { id: "folder", label: "Root Folder", content: prefsFolderContent },
@@ -3771,7 +3784,7 @@ function agentEditorFields(agent?: Agent): EditorField[] {
         };
       }),
       checked: config?.mcpConnectionRefs ?? [],
-      hint: "Remote services receive relevant prompts and tool arguments. Manage connections and their tool allowlists in Preferences.",
+      hint: "Remote services receive relevant prompts and tool arguments. Manage connections and their tool allowlists in Preferences → MCP servers.",
       step: "capabilities"
     },
     {
