@@ -38,7 +38,7 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
       # Falls back to the matrix value (ad-hoc, `-`) until the Developer ID secret exists, so
       # the build keeps working meanwhile. An ad-hoc build is NOT notarizable, so macOS will
-      # still warn on it. Set these four secrets to get a release people can install cleanly:
+      # still warn on it. Set these secrets to get a release people can install cleanly:
       #   APPLE_SIGNING_IDENTITY  "Developer ID Application: NAME (TEAMID)"
       #   APPLE_CERTIFICATE       base64 of the .p12
       #   APPLE_CERTIFICATE_PASSWORD
@@ -95,7 +95,7 @@ jobs:
         if: startsWith(matrix.platform, 'windows-') && env.AZURE_CLIENT_ID != ''
         run: cargo install trusted-signing-cli@0.5.0
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the update manifest. Without both of these the build still produces

@@ -9,6 +9,9 @@ Notable changes, newest first. Dates are release dates.
   build with an unsigned .msi that SmartScreen blocks. Linux is unaffected.
 - The app checks for a new version at startup and can install it and restart. Model weights
   are downloaded separately at first run, so an update never re-downloads them.
+- Releases now publish the update packages that startup check needs. The bundle was never
+  asked to produce them, so a release carried installers only and no installed app ever saw
+  a new version. They are signed with the updater key, which now exists.
 - A release build signs the bundled local-model runtime with the real Developer ID, with a
   secure timestamp and the hardened runtime, instead of ad-hoc signing it. Apple rejects an
   ad-hoc signature at notarization. Local builds are unchanged.
