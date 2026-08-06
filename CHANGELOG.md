@@ -7,6 +7,10 @@ Notable changes, newest first. Dates are release dates.
 - The bundled local-model runtime is signed on every build rather than only when it is first
   downloaded. It is cached between builds, so release builds were shipping a stale ad-hoc
   signature and Apple rejected the whole bundle for it.
+- A goal that one worker could finish in a single run is no longer split into a task nobody
+  needed. The planner was told to plan first and skip planning only as an aside, so small goals
+  came back as a one-task plan with an approval attached. External actions still get their own
+  approved task, however small.
 - The release build no longer produces a Windows installer. Mac ships first and
   Windows follows once code signing is set up, so a release cannot pair a signed Mac
   build with an unsigned .msi that SmartScreen blocks. Linux is unaffected.
