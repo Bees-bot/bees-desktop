@@ -7610,7 +7610,7 @@ async function start(): Promise<void> {
   try {
     // Before the workspace loads: an update that replaces the app should not land in the
     // middle of a session. Not awaited, so a slow endpoint cannot hold up startup.
-    void checkForUpdate();
+    void checkForUpdate().catch((error) => showNotice(errorText(error), "error"));
     workspace = await repository.bootstrap();
     await listen<SettledRun>("run-settled", ({ payload }) => {
       void applySettledExecution(payload.executionId, true).catch((error) =>

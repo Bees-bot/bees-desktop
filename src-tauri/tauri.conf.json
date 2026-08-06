@@ -42,6 +42,9 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "externalBin": [
       "binaries/bees-node"
     ],

@@ -4,6 +4,9 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- The bundled local-model runtime is signed on every build rather than only when it is first
+  downloaded. It is cached between builds, so release builds were shipping a stale ad-hoc
+  signature and Apple rejected the whole bundle for it.
 - The release build no longer produces a Windows installer. Mac ships first and
   Windows follows once code signing is set up, so a release cannot pair a signed Mac
   build with an unsigned .msi that SmartScreen blocks. Linux is unaffected.
@@ -15,6 +18,13 @@ Notable changes, newest first. Dates are release dates.
 - A release build signs the bundled local-model runtime with the real Developer ID, with a
   secure timestamp and the hardened runtime, instead of ad-hoc signing it. Apple rejects an
   ad-hoc signature at notarization. Local builds are unchanged.
+- A signed build no longer kills its own agent runtime. Signing turns on the hardened
+  runtime, which forbids writable-executable memory, and the bundled Node sidecar is V8, so
+  it died on its first JIT allocation. The bundle now carries the two entitlements that
+  allow it.
+- An update that fails after you accept it now says so. The download and install were fired
+  and forgotten, so a dropped connection or a bad package left the app you agreed to restart
+  simply never restarting, with nothing on screen.
 - The app no longer refuses to start when its database predates a column. `schema.sql` is
   all `CREATE TABLE IF NOT EXISTS`, so a shipped update that added a column left every
   existing install crashing at launch with `no such column: conversation_text`. Columns are
