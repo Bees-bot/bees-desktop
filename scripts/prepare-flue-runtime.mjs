@@ -186,6 +186,42 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
   copyFileSync(join(dirname(cmakeFile), "LICENSE"), join(runtimeRoot, "LICENSE"));
 }
 
+// Re-sign on macOS: downloaded and locally linked binaries can carry linker
+// signatures (flags 0x20002) that macOS rejects after they are copied.
+//
+// An ad-hoc signature is fine locally but notarization rejects it, and rejects the whole
+// bundle rather than just this file. A release build needs the real Developer ID, a
+// secure timestamp and the hardened runtime; the last two are notarization requirements
+// on their own, so Apple refuses the binary without them even with the right identity.
+//
+// This runs on every build, not only when the runtime is first fetched. The runtime is
+// cached between builds, so signing it at fetch time left a cached ad-hoc copy in every
+// later release build, and Apple rejected the bundle for it.
+//
+// APPLE_SIGNING_IDENTITY is the variable the Tauri build already reads, so the runtime
+// and the app around it are signed by the same identity. `-` is Tauri's spelling of
+// ad-hoc, so it counts as no real identity here too.
+function signMacRuntime(runtimeRoot) {
+  if (!(target.includes("apple") || target.includes("darwin") || target.includes("macos"))) return;
+  // Strip com.apple.provenance/quarantine first: those xattrs make macOS run a first-launch
+  // Gatekeeper/XProtect assessment that can wedge the process uninterruptibly at dyld start.
+  execFileSync("xattr", ["-cr", runtimeRoot]);
+  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+  const adhoc = !identity || identity === "-";
+  const signArgs = adhoc
+    ? ["--force", "--timestamp=none", "--sign", "-"]
+    : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
+  console.log(
+    adhoc
+      ? "Signing the local-model runtime ad-hoc. Set APPLE_SIGNING_IDENTITY to notarize."
+      : `Signing the local-model runtime with ${identity}.`
+  );
+  for (const entry of readdirSync(runtimeRoot)) {
+    if (entry.startsWith(".") || entry === "LICENSE") continue;
+    execFileSync("codesign", [...signArgs, join(runtimeRoot, entry)]);
+  }
+}
+
 async function prepareLlamaRuntime() {
   const asset = llamaAssets[target];
   if (!asset && !macTarget) {
@@ -200,6 +236,7 @@ async function prepareLlamaRuntime() {
     existsSync(marker) &&
     readFileSync(marker, "utf8").trim() === llamaRuntimeRevision
   ) {
+    signMacRuntime(runtimeRoot);
     return;
   }
 
@@ -223,36 +260,7 @@ async function prepareLlamaRuntime() {
       copyRuntimeDirectory(dirname(server), runtimeRoot);
     }
     if (!target.includes("windows")) chmodSync(join(runtimeRoot, serverName), 0o755);
-    // Re-sign on macOS: downloaded and locally linked binaries can carry linker
-    // signatures (flags 0x20002) that macOS rejects after they are copied.
-    //
-    // An ad-hoc signature is fine locally but notarization rejects it, and rejects the whole
-    // bundle rather than just this file. A release build needs the real Developer ID, a
-    // secure timestamp and the hardened runtime; the last two are notarization requirements
-    // on their own, so Apple refuses the binary without them even with the right identity.
-    //
-    // APPLE_SIGNING_IDENTITY is the variable the Tauri build already reads, so the runtime
-    // and the app around it are signed by the same identity. `-` is Tauri's spelling of
-    // ad-hoc, so it counts as no real identity here too.
-    if (target.includes("apple") || target.includes("darwin") || target.includes("macos")) {
-      // Strip com.apple.provenance/quarantine first: those xattrs make macOS run a first-launch
-      // Gatekeeper/XProtect assessment that can wedge the process uninterruptibly at dyld start.
-      execFileSync("xattr", ["-cr", runtimeRoot]);
-      const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
-      const adhoc = !identity || identity === "-";
-      const signArgs = adhoc
-        ? ["--force", "--timestamp=none", "--sign", "-"]
-        : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
-      console.log(
-        adhoc
-          ? "Signing the local-model runtime ad-hoc. Set APPLE_SIGNING_IDENTITY to notarize."
-          : `Signing the local-model runtime with ${identity}.`
-      );
-      for (const entry of readdirSync(runtimeRoot)) {
-        if (entry.startsWith(".") || entry === "LICENSE") continue;
-        execFileSync("codesign", [...signArgs, join(runtimeRoot, entry)]);
-      }
-    }
+    signMacRuntime(runtimeRoot);
     writeFileSync(marker, `${llamaRuntimeRevision}\n`);
     writeFileSync(join(runtimeRoot, ".gitkeep"), "");
   } finally {

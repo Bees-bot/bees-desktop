@@ -129,12 +129,15 @@ export function validateGoalRun(
   }
 }
 
-export const GOAL_PLANNER_PROMPT = `Plan only the next safe, executable wave of this goal.
+export const GOAL_PLANNER_PROMPT = `Decide first whether this goal needs planning at all.
 
-If this goal itself is one read-only or preparation task, create no task plan and choose Work.
-An external action must always be a separately approved external_write task, even when it is small.
+If one worker could finish it in a single run, create no task plan and choose Work. Planning is
+not free: every task becomes its own run and its own thing for a human to approve, so splitting
+work that was already one job costs time and attention and returns nothing. The one exception is
+an external action, which always needs its own approved external_write task, however small.
 
-Otherwise write only outputs/${TASK_PLAN_OUTPUT} as:
+Only when the goal is genuinely larger than one run, plan the next safe, executable wave.
+Write only outputs/${TASK_PLAN_OUTPUT} as:
 {"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}
 Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
 and input paths listed in the run context. The human selects and may edit tasks before creation.

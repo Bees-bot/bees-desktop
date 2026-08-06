@@ -12,6 +12,10 @@ import { check } from "@tauri-apps/plugin-updater";
 /**
  * Checks once, asks, installs, restarts. An unreachable endpoint or a signature that does
  * not verify must not stop the app from starting, so the check itself cannot throw.
+ *
+ * Installing is different: the user has said yes and is waiting for the app to restart, so
+ * a failure there is thrown for the caller to show. Swallowing it would leave them watching
+ * an update that never arrives.
  */
 export async function checkForUpdate(): Promise<void> {
   let update;
