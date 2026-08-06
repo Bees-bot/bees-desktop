@@ -1,20 +1,25 @@
 import type { Execution, Process, WorkItem, WorkItemStatus } from "../../domain.js";
+import { FOLLOW_UP_LIMIT } from "../../domain.js";
 import type { ProcessStudio } from "../types.js";
 import { SoftwareProjectGit } from "./git.js";
 import {
+  DEBATE_CONCERN_BUDGET,
+  MAX_DEBATE_ROUNDS,
   SOFTWARE_PROJECT_PROCESS_NAME,
   SOFTWARE_PROJECT_ROLES,
   SOFTWARE_PROJECT_STAGES,
+  debateSettled,
   emptySoftwareProjectState,
   lastAssistantText,
-  parseArchitectureCritique,
   parseArchitectureProposal,
+  parseDebateTurn,
   parseImplementationPlan,
   parseRequirementSpec,
   parseTestReport,
   routeSoftwareProject,
   softwareProjectStateKey,
   softwareProjectView,
+  type DebateRound,
   type SoftwareProjectEvent,
   type SoftwareProjectStage,
   type SoftwareProjectState,
@@ -27,16 +32,19 @@ interface SoftwareProjectContext {
   stage: string;
 }
 
+/** One agent turn. `executionId` reopens that conversation instead of starting a cold one. */
+export interface ProcessAgentTurn {
+  role: string;
+  prompt: string;
+  executionId?: string;
+}
+
 export interface SoftwareProjectHost {
   current(): SoftwareProjectContext | null;
   getSetting<T>(key: string, fallback: T): Promise<T>;
   setSetting<T>(key: string, value: T): Promise<void>;
-  runAgentTurn(
-    item: WorkItem,
-    role: string,
-    prompt: string,
-    projectMode?: boolean
-  ): Promise<Execution>;
+  /** Turns passed together run concurrently, so only pass turns that cannot observe each other. */
+  runAgentTurns(item: WorkItem, turns: ProcessAgentTurn[]): Promise<Execution[]>;
   moveWorkItem(itemId: string, stageId: string): Promise<void>;
   setWorkItemStatus(item: WorkItem, status: WorkItemStatus): Promise<void>;
   getWorkItem(itemId: string): Promise<WorkItem | null>;
@@ -114,8 +122,8 @@ export class SoftwareProjectController implements ProcessStudio {
       await this.startArchitectureDebate();
       return true;
     }
-    if (action === "project-critique-architecture") {
-      await this.critiqueArchitecture();
+    if (action === "project-debate-architecture") {
+      await this.runDebateRound();
       return true;
     }
     if (action === "project-synthesize-architecture") {
@@ -341,6 +349,20 @@ export class SoftwareProjectController implements ProcessStudio {
     );
   }
 
+  /** One turn, waited on. Every studio turn runs against the item's project worktree. */
+  private async turn(
+    item: WorkItem,
+    role: string,
+    prompt: string,
+    executionId?: string
+  ): Promise<Execution> {
+    const [execution] = await this.host.runAgentTurns(item, [
+      { role, prompt, ...(executionId ? { executionId } : {}) }
+    ]);
+    if (!execution) throw new Error(`The ${role} turn produced no receipt`);
+    return execution;
+  }
+
   private current(): { item: WorkItem; process: Process; stage: SoftwareProjectStage } {
     const current = this.host.current();
     if (
@@ -440,11 +462,10 @@ export class SoftwareProjectController implements ProcessStudio {
     if (!mapping) throw new Error("Choose the local project folder first");
     state.answers = answers;
     await this.save(item.id, state);
-    const execution = await this.host.runAgentTurn(
+    const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.requirements,
-      `Project kind: ${state.projectKind ?? "existing"}\n\nOriginal brief:\n${item.description}\n\nInline questionnaire answers:\n${JSON.stringify(answers, null, 2)}\n\nInspect the repository before producing the requirements.`,
-      true
+      `Project kind: ${state.projectKind ?? "existing"}\n\nOriginal brief:\n${item.description}\n\nInline questionnaire answers:\n${JSON.stringify(answers, null, 2)}\n\nInspect the repository before producing the requirements.`
     );
     state.requirements = parseRequirementSpec(lastAssistantText(execution));
     state.lastExecutionId = execution.id;
@@ -456,11 +477,10 @@ export class SoftwareProjectController implements ProcessStudio {
     const { item } = this.current();
     const state = await this.state(item.id);
     if (!state.requirements) throw new Error("Create the requirements draft first");
-    const execution = await this.host.runAgentTurn(
+    const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.requirements,
-      `Revise the requirements JSON using this user response:\n${message}\n\nCurrent requirements:\n${JSON.stringify(state.requirements, null, 2)}`,
-      true
+      `Revise the requirements JSON using this user response:\n${message}\n\nCurrent requirements:\n${JSON.stringify(state.requirements, null, 2)}`
     );
     state.requirements = parseRequirementSpec(lastAssistantText(execution));
     state.lastExecutionId = execution.id;
@@ -475,53 +495,137 @@ export class SoftwareProjectController implements ProcessStudio {
       throw new Error("Approve requirements before architecture begins");
     }
     const prompt = `Approved requirements:\n${JSON.stringify(state.requirements, null, 2)}\n\nInspect the repository, then produce your independent proposal.`;
-    const openai = await this.host.runAgentTurn(
-      item,
-      SOFTWARE_PROJECT_ROLES.openaiArchitect,
-      prompt,
-      true
-    );
-    const anthropic = await this.host.runAgentTurn(
-      item,
-      SOFTWARE_PROJECT_ROLES.anthropicArchitect,
-      prompt,
-      true
-    );
+    // Neither architect may see the other's opening position, so the two runs are independent
+    // and hand over together.
+    const [openai, anthropic] = await this.host.runAgentTurns(item, [
+      { role: SOFTWARE_PROJECT_ROLES.openaiArchitect, prompt },
+      { role: SOFTWARE_PROJECT_ROLES.anthropicArchitect, prompt }
+    ]);
+    if (!openai || !anthropic) throw new Error("An architect turn produced no receipt");
     state.architecture = {
       openai: parseArchitectureProposal(lastAssistantText(openai)),
-      anthropic: parseArchitectureProposal(lastAssistantText(anthropic))
+      anthropic: parseArchitectureProposal(lastAssistantText(anthropic)),
+      rounds: [],
+      openaiExecutionId: openai.id,
+      anthropicExecutionId: anthropic.id
     };
     state.lastExecutionId = anthropic.id;
     await this.save(item.id, state);
     await this.host.refresh();
   }
 
-  private async critiqueArchitecture(): Promise<void> {
+  /**
+   * One round of the bounded debate. Each architect reads the other's current proposal and the
+   * transcript, then returns a critique *and* a revised proposal, so the two positions converge
+   * in the artifact rather than only in the commentary. The concern budget shrinks each round and
+   * reaches one on the last, which is what makes three rounds enough to hand the synthesizer a
+   * short list instead of an open argument.
+   *
+   * Both sides answer the same fixed state, so the round's two turns run concurrently, each
+   * continuing its own conversation from the previous round.
+   */
+  private async runDebateRound(): Promise<void> {
     const { item } = this.current();
     const state = await this.state(item.id);
     const architecture = state.architecture;
     if (!architecture?.openai || !architecture.anthropic) {
       throw new Error("Generate both independent proposals first");
     }
-    const schema =
-      '{"summary":"...","strengths":["..."],"concerns":["..."],"recommendedChanges":["..."]}';
-    const openai = await this.host.runAgentTurn(
-      item,
-      SOFTWARE_PROJECT_ROLES.openaiArchitect,
-      `Critique the Anthropic proposal against the approved requirements. Return exactly ${schema} and no other text.\n\nAnthropic proposal:\n${JSON.stringify(architecture.anthropic, null, 2)}`,
-      true
-    );
-    const anthropic = await this.host.runAgentTurn(
-      item,
-      SOFTWARE_PROJECT_ROLES.anthropicArchitect,
-      `Critique the OpenAI proposal against the approved requirements. Return exactly ${schema} and no other text.\n\nOpenAI proposal:\n${JSON.stringify(architecture.openai, null, 2)}`,
-      true
-    );
-    architecture.openaiCritique = parseArchitectureCritique(lastAssistantText(openai));
-    architecture.anthropicCritique = parseArchitectureCritique(lastAssistantText(anthropic));
+    const rounds = architecture.rounds ?? [];
+    if (debateSettled(rounds)) throw new Error("The architecture debate is already settled");
+    const round = rounds.length + 1;
+    const budget = DEBATE_CONCERN_BUDGET[round - 1] ?? 1;
+    const last = round === MAX_DEBATE_ROUNDS;
+    const instructions = `Debate round ${round} of ${MAX_DEBATE_ROUNDS}.
+
+Argue only what changes cost, risk, or whether the approved requirements are met. Concede everything else in this round — style, naming, and preference-level choices are not worth a round. Name each concession in \`critique.strengths\` and adopt the other architect's choice in your revised proposal.
+
+The debate ends after round ${MAX_DEBATE_ROUNDS}, when a synthesizer merges whatever is still open. Every round must therefore close more than it opens: raise at most ${budget} concern${budget === 1 ? "" : "s"}, ranked by impact, and drop any concern you raised earlier that the other architect has since answered.${
+      last
+        ? " This is the final round. Your revised proposal must be one you would accept as the merged decision, with any surviving disagreement reduced to a single explicitly stated trade-off."
+        : ""
+    }
+
+Return exactly one JSON object, with no Markdown fence:
+{"critique":{"summary":"...","strengths":["..."],"concerns":["..."],"recommendedChanges":["..."]},"proposal":{the full architecture proposal schema from your instructions},"resolved":false}
+
+\`critique\` judges the other architect's current proposal. \`proposal\` is your complete revised proposal after absorbing everything you now accept. Set \`resolved\` to true when nothing material is left in dispute.`;
+    // A continued conversation already holds the requirements, this architect's own proposal, and
+    // every round it argued, so resending them only eats into the 20,000-character follow-up
+    // budget. Carry the previous round's *open* items, which is what a rebuttal has to answer, and
+    // let the concessions live in the revised proposals where they belong.
+    const previous = rounds[rounds.length - 1];
+    const open = previous
+      ? `\n\nStill open from round ${rounds.length}:\n${JSON.stringify(
+          {
+            openai: {
+              concerns: previous.openai.critique.concerns,
+              recommendedChanges: previous.openai.critique.recommendedChanges
+            },
+            anthropic: {
+              concerns: previous.anthropic.critique.concerns,
+              recommendedChanges: previous.anthropic.critique.recommendedChanges
+            }
+          },
+          null,
+          2
+        )}`
+      : "";
+    const turn = (
+      role: string,
+      other: string,
+      otherProposal: unknown,
+      own: unknown,
+      executionId?: string
+    ): ProcessAgentTurn => {
+      const rebuttal = `${instructions}${open}\n\n${other} architect's current proposal:\n${JSON.stringify(otherProposal, null, 2)}`;
+      // A big architecture can push even the trimmed rebuttal past the follow-up limit. Rather
+      // than fail the round, fall back to a cold conversation, which carries no cap because it
+      // resends the instructions and context the warm one was relying on.
+      if (executionId && rebuttal.length <= FOLLOW_UP_LIMIT) return { role, prompt: rebuttal, executionId };
+      return {
+        role,
+        prompt: `${instructions}\n\nApproved requirements:\n${JSON.stringify(state.requirements, null, 2)}${open}\n\n${other} architect's current proposal:\n${JSON.stringify(otherProposal, null, 2)}\n\nYour current proposal:\n${JSON.stringify(own, null, 2)}`
+      };
+    };
+    const [openai, anthropic] = await this.host.runAgentTurns(item, [
+      turn(
+        SOFTWARE_PROJECT_ROLES.openaiArchitect,
+        "Anthropic",
+        architecture.anthropic,
+        architecture.openai,
+        architecture.openaiExecutionId
+      ),
+      turn(
+        SOFTWARE_PROJECT_ROLES.anthropicArchitect,
+        "OpenAI",
+        architecture.openai,
+        architecture.anthropic,
+        architecture.anthropicExecutionId
+      )
+    ]);
+    if (!openai || !anthropic) throw new Error("An architect turn produced no receipt");
+    const turns: DebateRound = {
+      openai: parseDebateTurn(lastAssistantText(openai)),
+      anthropic: parseDebateTurn(lastAssistantText(anthropic))
+    };
+    architecture.rounds = [...rounds, turns];
+    architecture.openai = turns.openai.proposal;
+    architecture.anthropic = turns.anthropic.proposal;
+    architecture.openaiCritique = turns.openai.critique;
+    architecture.anthropicCritique = turns.anthropic.critique;
+    architecture.openaiExecutionId = openai.id;
+    architecture.anthropicExecutionId = anthropic.id;
+    delete architecture.decision;
     state.lastExecutionId = anthropic.id;
     await this.save(item.id, state);
     await this.host.refresh();
+    this.host.notify(
+      debateSettled(architecture.rounds)
+        ? "Architecture debate finished; synthesize the decision"
+        : `Debate round ${round} of ${MAX_DEBATE_ROUNDS} complete`,
+      "success"
+    );
   }
 
   private async reviseArchitecture(
@@ -537,21 +641,35 @@ export class SoftwareProjectController implements ProcessStudio {
       architect === "openai"
         ? SOFTWARE_PROJECT_ROLES.openaiArchitect
         : SOFTWARE_PROJECT_ROLES.anthropicArchitect;
-    const execution = await this.host.runAgentTurn(
+    const executionId =
+      architect === "openai" ? architecture.openaiExecutionId : architecture.anthropicExecutionId;
+    const execution = await this.turn(
       item,
       role,
       `The user challenged your proposal: ${message}\n\nReturn a complete revised proposal using the architecture JSON schema from your instructions.\n\nCurrent proposal:\n${JSON.stringify(current, null, 2)}`,
-      true
+      executionId
     );
     architecture[architect] = parseArchitectureProposal(lastAssistantText(execution));
-    delete architecture.openaiCritique;
-    delete architecture.anthropicCritique;
+    // The rounds stay: they are the record of how the proposals got here, and a user nudge is not
+    // grounds for spending the budget again. What does go is the merged decision and the other
+    // architect's critique, which was written against the proposal this call just replaced.
+    if (architect === "openai") {
+      architecture.openaiExecutionId = execution.id;
+      delete architecture.anthropicCritique;
+    } else {
+      architecture.anthropicExecutionId = execution.id;
+      delete architecture.openaiCritique;
+    }
     delete architecture.decision;
     state.lastExecutionId = execution.id;
     await this.save(item.id, state);
     await this.host.refresh();
   }
 
+  /**
+   * Merges the debate into one decision. Deliberately a cold conversation: the transcript is in
+   * the prompt, and an architect still warm from defending its own side is the wrong reader for it.
+   */
   private async synthesizeArchitecture(): Promise<void> {
     const { item } = this.current();
     const state = await this.state(item.id);
@@ -559,11 +677,22 @@ export class SoftwareProjectController implements ProcessStudio {
     if (!architecture?.openai || !architecture.anthropic) {
       throw new Error("Generate both independent proposals first");
     }
-    const execution = await this.host.runAgentTurn(
+    const rounds = architecture.rounds ?? [];
+    if (!debateSettled(rounds)) {
+      throw new Error(
+        `Run the architecture debate first — ${rounds.length} of ${MAX_DEBATE_ROUNDS} rounds are done`
+      );
+    }
+    const debate = {
+      requirements: state.requirements,
+      openaiProposal: architecture.openai,
+      anthropicProposal: architecture.anthropic,
+      rounds
+    };
+    const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.openaiArchitect,
-      `Synthesize the strongest simple architecture from both proposals and critiques. Return the architecture proposal JSON schema from your instructions. Resolve conflicts explicitly in decision reasons.\n\nRequirements and debate:\n${JSON.stringify({ requirements: state.requirements, ...architecture }, null, 2)}`,
-      true
+      `The two architects have finished a bounded ${MAX_DEBATE_ROUNDS}-round debate. Merge their final proposals into one decision. Return the architecture proposal JSON schema from your instructions.\n\nBoth final proposals are positions the architects said they could accept, so prefer the choices they converged on and change them only with a reason. For each point still disputed in the last round, pick the simpler option that meets the approved requirements and state in that decision's \`reason\` what was given up and why. Leave nothing unresolved.\n\nRequirements and debate:\n${JSON.stringify(debate, null, 2)}`
     );
     architecture.decision = parseArchitectureProposal(lastAssistantText(execution));
     state.lastExecutionId = execution.id;
@@ -577,18 +706,16 @@ export class SoftwareProjectController implements ProcessStudio {
     if (!state.architecture?.approvedAt || !state.architecture.decision) {
       throw new Error("Approve the architecture before planning");
     }
-    const execution = await this.host.runAgentTurn(
+    const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.planner,
-      `Approved requirements and architecture:\n${this.projectContext(state)}`,
-      true
+      `Approved requirements and architecture:\n${this.projectContext(state)}`
     );
     const draft = parseImplementationPlan(lastAssistantText(execution));
-    const validation = await this.host.runAgentTurn(
+    const validation = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.anthropicArchitect,
-      `Validate this implementation plan against the approved requirements and architecture. Fix missing coverage, bad dependencies, non-reviewable phases, and phases likely to exceed roughly 1,500 changed source lines. Return exactly one complete {"phases":[...]} object using the planning schema, with no other text.\n\nApproved context:\n${this.projectContext(state)}\n\nDraft plan:\n${JSON.stringify({ phases: draft }, null, 2)}`,
-      true
+      `Validate this implementation plan against the approved requirements and architecture. Fix missing coverage, bad dependencies, non-reviewable phases, and phases likely to exceed roughly 1,500 changed source lines. Return exactly one complete {"phases":[...]} object using the planning schema, with no other text.\n\nApproved context:\n${this.projectContext(state)}\n\nDraft plan:\n${JSON.stringify({ phases: draft }, null, 2)}`
     );
     state.phases = parseImplementationPlan(lastAssistantText(validation));
     state.currentPhaseIndex = 0;
@@ -615,11 +742,10 @@ export class SoftwareProjectController implements ProcessStudio {
       if (beforeCoding.dirty) {
         throw new Error("The project worktree must be clean before the coding agent can continue");
       }
-      const coding = await this.host.runAgentTurn(
+      const coding = await this.turn(
         item,
         SOFTWARE_PROJECT_ROLES.coder,
-        `Approved project context:\n${this.projectContext(state)}\n\nActive phase:\n${JSON.stringify(phase, null, 2)}${feedback ? `\n\nFix every item from the latest test or human review:\n${feedback}` : ""}`,
-        true
+        `Approved project context:\n${this.projectContext(state)}\n\nActive phase:\n${JSON.stringify(phase, null, 2)}${feedback ? `\n\nFix every item from the latest test or human review:\n${feedback}` : ""}`
       );
       const afterCoding = await this.git.snapshot(item.id);
       if (afterCoding.head !== beforeCoding.head) {
@@ -631,11 +757,10 @@ export class SoftwareProjectController implements ProcessStudio {
         coding.id,
         `${phase.id}: ${phase.title}`
       );
-      const testing = await this.host.runAgentTurn(
+      const testing = await this.turn(
         item,
         SOFTWARE_PROJECT_ROLES.tester,
-        `Verify commit ${commit} for this active phase. Do not edit files.\n\nApproved project context:\n${this.projectContext(state)}\n\nActive phase:\n${JSON.stringify(phase, null, 2)}`,
-        true
+        `Verify commit ${commit} for this active phase. Do not edit files.\n\nApproved project context:\n${this.projectContext(state)}\n\nActive phase:\n${JSON.stringify(phase, null, 2)}`
       );
       const report = { ...parseTestReport(lastAssistantText(testing)), executionId: testing.id };
       const testerChangedFiles = (await this.git.snapshot(item.id)).dirty;
@@ -669,11 +794,10 @@ export class SoftwareProjectController implements ProcessStudio {
     const state = await this.state(item.id);
     const before = await this.git.snapshot(item.id);
     if (before.dirty) throw new Error("The project worktree must be clean before final verification");
-    const execution = await this.host.runAgentTurn(
+    const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.tester,
-      `Run whole-project verification for the approved requirements, architecture, and all completed phases. Do not edit files.\n\n${this.projectContext(state)}`,
-      true
+      `Run whole-project verification for the approved requirements, architecture, and all completed phases. Do not edit files.\n\n${this.projectContext(state)}`
     );
     const report: TestReport = {
       ...parseTestReport(lastAssistantText(execution)),

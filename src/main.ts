@@ -58,7 +58,13 @@ import {
   FlueProjectService,
   TauriFlueProjectPort
 } from "./flue-project.js";
-import { AgentFileStore, TauriAgentFilePort, newAgent, skillSlug } from "./agent-files.js";
+import {
+  AgentFileStore,
+  TauriAgentFilePort,
+  firstTriggerConflict,
+  newAgent,
+  skillSlug
+} from "./agent-files.js";
 import { FlueRuntime, type RuntimeEvent } from "./runtime.js";
 import {
   conversationToSnapshotV1,
@@ -197,13 +203,17 @@ import {
   type OutputPreview
 } from "./workspaces.js";
 import { renderMarkdown } from "./markdown.js";
-import { SoftwareProjectController } from "./processes/software-project/controller.js";
+import {
+  SoftwareProjectController,
+  type ProcessAgentTurn
+} from "./processes/software-project/controller.js";
 
 type View =
   | "overview"
   | "inbox"
   | "board"
   | "processes"
+  | "process"
   | "item"
   | "agents"
   | "agent"
@@ -292,8 +302,7 @@ const softwareProjectStudio = new SoftwareProjectController({
   },
   getSetting: (key, fallback) => repository.getSetting(key, fallback),
   setSetting: (key, value) => repository.setSetting(key, value),
-  runAgentTurn: (item, role, prompt, projectMode) =>
-    runProcessAgentTurn(item, role, prompt, projectMode),
+  runAgentTurns: (item, turns) => runProcessAgentTurns(item, turns, true),
   moveWorkItem: (itemId, stageId) => repository.moveWorkItem(itemId, stageId),
   setWorkItemStatus: (item, status) =>
     repository.updateWorkItem(item.id, {
@@ -467,6 +476,11 @@ let activeItemId = "";
 let itemTab: "overview" | "conversation" | "runs" = "overview";
 let activeAgentId = "";
 let agentTab: "builder" | "runs" = "builder";
+// The process whose agents are open on the single configuration screen, and the agent whose
+// panel is showing there. Every agent of the process is in the DOM, so switching panels is a
+// visibility toggle: unsaved edits survive it.
+let configProcessId = "";
+let configAgentId = "";
 const liveEvents = new Map<string, RuntimeEvent[]>();
 const outputPreviews = new Map<string, OutputPreview>();
 const localModelProgress = new Map<string, LocalModelProgress>();
@@ -1297,7 +1311,7 @@ function renderNavigation(): void {
                           })
                           .join("")}
                         <li class="mx-1 my-2 h-px bg-base-content/25 opacity-100"></li>
-                        <li><button class="${activeClass(selected && view === "processes")}" data-team-view="processes" data-team="${
+                        <li><button class="${activeClass(selected && (view === "processes" || view === "process"))}" data-team-view="processes" data-team="${
                           team.id
                         }">Processes</button></li>
                         <li><button class="${activeClass(selected && (view === "agents" || view === "agent"))}" data-team-view="agents" data-team="${
@@ -1562,6 +1576,7 @@ function render(): void {
   }
   if (view === "board") renderBoard();
   if (view === "processes") renderProcesses();
+  if (view === "process") renderProcessAgents();
   if (view === "item") void renderWorkItemDetail();
   if (view === "agents") void renderAgents();
   if (view === "agent") void renderAgentDetail();
@@ -1878,8 +1893,13 @@ function renderProcesses(): void {
             .map(
               (process) => `<tr>
                 <td class="min-w-80">
-                  <h3 class="font-bold">${escapeHtml(process.name)}</h3>
+                  <button class="link link-hover text-left font-bold" data-action="open-process" data-id="${escapeHtml(
+                    process.id
+                  )}">${escapeHtml(process.name)}</button>
                   <p class="mt-1 text-sm text-base-content/55">${escapeHtml(process.description || "No description")}</p>
+                  <p class="mt-1 text-xs text-base-content/45">${processAgents(process).length} agent${
+                    processAgents(process).length === 1 ? "" : "s"
+                  } · open to configure them all on one screen</p>
                 </td>
                 <td class="min-w-64"><div class="flex flex-wrap items-center gap-1.5">${process.stages
                     .map(
@@ -1898,6 +1918,257 @@ function renderProcesses(): void {
         : `<div class="p-12 text-center text-sm text-base-content/50">No processes yet.</div>`
     }
   </section>`);
+}
+
+/** Agents this process starts, in status order — the population of its configuration screen. */
+function processAgents(process: Process): Agent[] {
+  const order = new Map(process.stages.map(({ id }, index) => [id, index]));
+  return agents
+    .filter(({ triggerStageId }) => triggerStageId && order.has(triggerStageId))
+    .sort(
+      (a, b) =>
+        (order.get(a.triggerStageId!) ?? 0) - (order.get(b.triggerStageId!) ?? 0) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    );
+}
+
+/**
+ * One screen for every agent of one process: statuses down the left with their agents, the
+ * selected agent's full configuration on the right, one Save for the lot. Each agent's controls
+ * carry an `<id>:<field>` name, so every panel stays in the form — and in the DOM — while only
+ * the selected one is visible. Switching agents therefore costs a click and loses nothing.
+ */
+function renderProcessAgents(): void {
+  const process = processes.find(({ id }) => id === configProcessId);
+  if (!process) {
+    view = "processes";
+    renderProcesses();
+    return;
+  }
+  setHeader(process.name, currentTeam()?.name);
+  const own = processAgents(process);
+  if (!own.some(({ id }) => id === configAgentId)) configAgentId = own[0]?.id ?? "";
+  const studio = processModule(process.name)?.mode === "studio";
+  const rowsFor = (stageId: string): string =>
+    own
+      .filter((agent) => agent.triggerStageId === stageId)
+      .map((agent) => {
+        const fields = agentEditorFields(agent);
+        const model = fields.find(({ name }) => name === "model");
+        const eligibility = eligibilityForAgent(agent);
+        const selected = agent.id === configAgentId;
+        return `<div class="flex flex-wrap items-center gap-2 border-t border-base-200 px-4 py-3 ${
+          selected ? "bg-primary/10" : ""
+        }" data-agent-row="${escapeHtml(agent.id)}">
+          <button class="link link-hover min-w-32 flex-1 text-left text-sm font-semibold" type="button"
+            data-action="select-process-agent" data-id="${escapeHtml(agent.id)}">${escapeHtml(
+              agent.name || "Untitled agent"
+            )}</button>
+          <select class="select select-bordered select-sm w-52" name="${escapeHtml(
+            agent.id
+          )}:model" data-agent-model="${escapeHtml(agent.id)}" aria-label="Model for ${escapeHtml(
+            agent.name
+          )}">${(model?.options ?? [])
+            .map(
+              (option) =>
+                `<option value="${escapeHtml(option.value)}" ${
+                  option.value === model?.value ? "selected" : ""
+                }>${escapeHtml(option.label)}</option>`
+            )
+            .join("")}</select>
+          <label class="label cursor-pointer gap-1.5 text-xs" title="Active on this machine">
+            <input class="checkbox checkbox-sm" type="checkbox" name="${escapeHtml(agent.id)}:enabled" ${
+              disabledAgentIds.has(agent.id) ? "" : "checked"
+            }><span>On</span>
+          </label>
+          ${
+            eligibility.active
+              ? ""
+              : `<span class="badge badge-error badge-sm" title="${escapeHtml(
+                  eligibility.reason
+                )}">Needs attention</span>`
+          }
+          ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
+        </div>`;
+      })
+      .join("");
+  const stageBlocks = process.stages
+    .map((stage) => {
+      const rows = rowsFor(stage.id);
+      return `<div>
+        <div class="flex items-center justify-between gap-2 bg-base-200/60 px-4 py-2">
+          <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">${escapeHtml(
+            stage.name
+          )}</span>
+          <button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${escapeHtml(
+            stage.id
+          )}">+ Add agent</button>
+        </div>
+        ${
+          rows ||
+          `<p class="border-t border-base-200 px-4 py-3 text-sm text-base-content/40">No agent runs on this status.</p>`
+        }
+      </div>`;
+    })
+    .join("");
+  const panels = own
+    .map((agent) => {
+      const fields = agentEditorFields(agent)
+        .filter(({ name }) => name !== "model")
+        .map((field) =>
+          field.name === "trigger"
+            ? {
+                ...field,
+                label: "Status",
+                hint: "Moves this agent to another status of this process.",
+                options: [
+                  { label: "None", value: "" },
+                  ...process.stages.map(({ id, name }) => ({ label: name, value: id }))
+                ]
+              }
+            : field
+        );
+      const sections = (["basics", "instructions", "capabilities"] as const)
+        .map((step) => {
+          const group = fields.filter((field) => field.step === step);
+          if (!group.length) return "";
+          return `<div class="grid gap-4">
+            <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/45">${step}</h4>
+            ${group
+              .map((field) => editorFieldHtml({ ...field, name: `${agent.id}:${field.name}` }))
+              .join("")}
+          </div>`;
+        })
+        .join("");
+      return `<section class="grid gap-5 p-5" data-agent-pane="${escapeHtml(agent.id)}" ${
+        agent.id === configAgentId ? "" : "hidden"
+      }>
+        <h3 class="font-bold">${escapeHtml(agent.name || "Untitled agent")}</h3>
+        ${sections}
+      </section>`;
+    })
+    .join("");
+  swap(`<form data-process-agents>
+    <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <button class="link link-primary mb-1 text-sm" type="button" data-view="processes">← Processes</button>
+        <h2 class="font-bold">Agents of ${escapeHtml(process.name)}</h2>
+        <p class="mt-1 text-sm text-base-content/55">${
+          studio
+            ? "This process picks its agent by role, so several agents may share a status."
+            : "One agent per status. Configure them all here, then save once."
+        }</p>
+      </div>
+      <div class="flex items-center gap-1">
+        ${processStateBadge(process.id)}
+        ${processStatusButton(process.id)}
+        ${actionIconButton("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, process.id)}
+      </div>
+    </header>
+    <div class="grid gap-4 lg:grid-cols-5">
+      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm lg:col-span-2">
+        <h3 class="border-b border-base-300 p-4 font-bold">Statuses</h3>
+        ${stageBlocks}
+      </section>
+      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm lg:col-span-3">
+        ${
+          panels ||
+          '<p class="p-12 text-center text-sm text-base-content/50">Add an agent to a status to configure it.</p>'
+        }
+      </section>
+    </div>
+    <div class="mt-4 flex justify-end gap-2">
+      <button class="btn btn-ghost" type="button" data-action="reload-process-agents">Discard changes</button>
+      <button class="btn btn-primary" type="submit" ${own.length ? "" : "disabled"}>Save all</button>
+    </div>
+  </form>`);
+  linkProcessModelThinking();
+}
+
+/**
+ * A model picked in a row narrows that agent's thinking levels, same as the dialog editor does.
+ * The shared icon buttons carry no `type`, which inside a form means submit — the pass below
+ * keeps Save the only thing that saves.
+ */
+function linkProcessModelThinking(): void {
+  for (const button of app.querySelectorAll<HTMLButtonElement>(
+    "form[data-process-agents] button:not([type])"
+  )) {
+    button.type = "button";
+  }
+  for (const select of app.querySelectorAll<HTMLSelectElement>("select[data-agent-model]")) {
+    select.addEventListener("change", () => {
+      const thinking = app.querySelector<HTMLSelectElement>(
+        `select[name="${select.dataset.agentModel}:thinkingLevel"]`
+      );
+      if (!thinking) return;
+      thinking.innerHTML = thinkingOptionsForModel(parseModelRef(select.value) ?? {})
+        .map(({ label, value }) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+        .join("");
+      thinking.value = "";
+    });
+  }
+}
+
+/** The `<id>:<field>` entries of one agent, renamed back to what `applyAgentEdit` reads. */
+function scopedFormData(form: HTMLFormElement, agentId: string): FormData {
+  const scoped = new FormData();
+  const prefix = `${agentId}:`;
+  for (const [key, value] of new FormData(form)) {
+    if (key.startsWith(prefix)) scoped.append(key.slice(prefix.length), value);
+  }
+  return scoped;
+}
+
+/**
+ * Saves every agent on the process screen. The status clash is checked across the whole screen
+ * before anything is written: agent by agent, swapping two agents' statuses would be rejected
+ * because the first write leaves the second one's old status still taken.
+ */
+async function saveProcessAgents(form: HTMLFormElement, notify = true): Promise<void> {
+  const edits = [...form.querySelectorAll<HTMLElement>("[data-agent-pane]")]
+    .map((pane) => agents.find(({ id }) => id === pane.dataset.agentPane))
+    .filter((agent): agent is Agent => Boolean(agent))
+    .map((agent) => ({ agent, data: scopedFormData(form, agent.id) }));
+  if (!edits.length) return;
+  const edited = new Set(edits.map(({ agent }) => agent.id));
+  const assignment = (name: string, triggerStageId: string | null) => {
+    const context = triggerContext(triggerStageId);
+    return {
+      name,
+      triggerStageId,
+      exempt: Boolean(context && processModule(context.process.name)?.mode === "studio")
+    };
+  };
+  const conflict = firstTriggerConflict([
+    ...agents
+      .filter(({ id }) => !edited.has(id))
+      .map(({ name, triggerStageId }) => assignment(name, triggerStageId)),
+    ...edits.map(({ agent, data }) =>
+      assignment(String(data.get("name") ?? "") || agent.name, String(data.get("trigger") ?? "") || null)
+    )
+  ]);
+  if (conflict) {
+    throw new Error(
+      `${conflict.first} and ${conflict.second} would both run on ${
+        stageName(conflict.triggerStageId) ?? "one status"
+      }`
+    );
+  }
+  for (const { agent, data } of edits) {
+    await applyAgentEdit(agent, data);
+    if (data.get("enabled")) disabledAgentIds.delete(agent.id);
+    else disabledAgentIds.add(agent.id);
+  }
+  await repository.setSetting(`disabled_agents:${workspace.teamId}`, [...disabledAgentIds]);
+  await refresh();
+  if (notify) showNotice(`Saved ${edits.length} agent${edits.length === 1 ? "" : "s"}`, "success");
+}
+
+/** Writes the open edits before an action that re-renders the screen, so no typing is lost. */
+async function commitProcessAgentEdits(): Promise<void> {
+  const form = app.querySelector<HTMLFormElement>("form[data-process-agents]");
+  if (form) await saveProcessAgents(form, false);
 }
 
 function libraryAgentEligibility(definition: ProcessLibraryEntry["agents"][number]) {
@@ -2194,8 +2465,27 @@ async function setAgentEnabledOnMachine(agent: Agent, enabled: boolean): Promise
   showNotice(`${agent.name} ${enabled ? "enabled" : "disabled"} on this machine`, "success");
 }
 
-/** Applies an edit dialog to an agent. Two agents on one status would make runs ambiguous. */
+/**
+ * Applies an edit dialog to an agent. Two agents on one status would make an autopilot run
+ * ambiguous, so status-dispatched processes keep the trigger unique. A studio process picks its
+ * agent by `config.role` instead, so several of its agents legitimately share one status.
+ */
 async function saveAgent(agent: Agent, data: FormData): Promise<void> {
+  const triggerStageId = String(data.get("trigger") ?? "") || null;
+  const triggerProcess = triggerContext(triggerStageId)?.process;
+  const clash =
+    triggerProcess &&
+    processModule(triggerProcess.name)?.mode !== "studio" &&
+    agents.find((other) => other.id !== agent.id && other.triggerStageId === triggerStageId);
+  if (clash) throw new Error(`${clash.name} already runs on ${stageName(triggerStageId)}`);
+  await applyAgentEdit(agent, data);
+}
+
+/**
+ * Writes one agent from editor fields. The trigger is taken as given: callers that edit several
+ * agents at once check the statuses across the whole set first — see `saveProcessAgents`.
+ */
+async function applyAgentEdit(agent: Agent, data: FormData): Promise<void> {
   const triggerStageId = String(data.get("trigger") ?? "") || null;
   const selectedModelRef = String(data.get("model") ?? modelRef(assistantModel)).trim();
   const selectedModel = parseModelRef(selectedModelRef);
@@ -2214,10 +2504,6 @@ async function saveAgent(agent: Agent, data: FormData): Promise<void> {
   const toolRefs = data.getAll("tools").map(String);
   const mcpConnectionRefs = data.getAll("mcps").map(String);
   const modelChanged = provider !== agent.config.provider || model !== agent.config.model;
-  const clash = agents.find(
-    (other) => other.id !== agent.id && triggerStageId && other.triggerStageId === triggerStageId
-  );
-  if (clash) throw new Error(`${clash.name} already runs on ${stageName(triggerStageId)}`);
   await writeAgent({
     ...agent,
     name: String(data.get("name") ?? ""),
@@ -4958,12 +5244,16 @@ async function autopilot(): Promise<void> {
   }
 }
 
-async function runProcessAgentTurn(
-  item: WorkItem,
+/**
+ * Everything a process turn needs before the item is claimed: the agent behind the role, the
+ * policy-projected tool composition, and the control decisions. Kept separate from the run so a
+ * batch of concurrent turns clears policy for all of them before any of them starts.
+ */
+async function prepareProcessAgentTurn(
   role: string,
-  prompt: string,
-  projectMode = false
-): Promise<Execution> {
+  item: WorkItem,
+  projectMode: boolean
+): Promise<{ agent: Agent; composition: ReturnType<typeof runComposition>; teamRoot: string }> {
   const source = agents.find(({ config }) => config.role === role);
   if (!source) throw new Error(`The ${role} agent is missing. Reinstall or repair this process.`);
   const selectedModel = resolveModelChoice(source.config, assistantModel);
@@ -4980,9 +5270,6 @@ async function runProcessAgentTurn(
         };
   const eligibility = eligibilityForAgent(agent);
   if (!eligibility.active) throw new Error(`${agent.name} is inactive: ${eligibility.reason}`);
-  if (activeExecutionForItem(item.id, executions)) {
-    throw new Error("Another process agent is already working on this item");
-  }
   const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
   if (!mapping?.localPath) throw new Error("Set a local team folder before running process agents");
   if (localModels.isLocalModel(modelRef(agent.config))) {
@@ -5037,34 +5324,69 @@ async function runProcessAgentTurn(
       sharedContext
     )
   );
-  await acquireClaim(item);
-  try {
-    await repository.recordSkillUse(
-      workspace.teamId,
-      composition.capabilities.filter(({ kind }) => kind === "skill").map(({ ref }) => ref)
-    );
-    const outcome = await runCoordinator.start({
-      item: { ...item, description: prompt, logicalFiles: [] },
-      agent,
-      teamId: workspace.teamId,
-      teamRoot: mapping.localPath,
-      ...composition,
-      stages: [],
-      manualProjection: true,
-      ...(projectMode ? { projectWorkItemId: item.id } : {}),
-      onCreated: async () => refresh()
-    });
-    await applySettledExecution(outcome.executionId, true);
-    const execution = await repository.getExecution(outcome.executionId);
-    if (!execution) throw new Error("The project agent receipt is unavailable");
-    if (execution.status !== "completed") {
-      throw new Error(execution.error ?? `${agent.name} did not complete`);
-    }
-    return execution;
-  } catch (error) {
-    await releaseClaim(item.id).catch(() => undefined);
-    throw error;
+  return { agent, composition, teamRoot: mapping.localPath };
+}
+
+/**
+ * Runs process agent turns and waits for their receipts. Turns handed over together run
+ * concurrently: they share the item's read-only project worktree but nothing else, since Flue
+ * binds capabilities and conversation state per execution. Only pass turns that cannot observe
+ * each other's writes — the architecture debate's two sides, not a coder and its tester.
+ *
+ * A turn carrying `executionId` reopens that conversation instead of starting a cold one, so a
+ * multi-round exchange keeps the repository analysis the model already paid for.
+ */
+async function runProcessAgentTurns(
+  item: WorkItem,
+  turns: ProcessAgentTurn[],
+  projectMode = false
+): Promise<Execution[]> {
+  if (!turns.length) return [];
+  if (activeExecutionForItem(item.id, executions)) {
+    throw new Error("Another process agent is already working on this item");
   }
+  const prepared = await Promise.all(
+    turns.map((turn) => prepareProcessAgentTurn(turn.role, item, projectMode))
+  );
+  await acquireClaim(item);
+  // allSettled, not all: a rejected sibling must not leave the other run orphaned behind a
+  // released claim. Every hand-over finishes before the first failure is reported.
+  const settled = await Promise.allSettled(
+    prepared.map(async ({ agent, composition, teamRoot }, index) => {
+      const turn = turns[index]!;
+      await repository.recordSkillUse(
+        workspace.teamId,
+        composition.capabilities.filter(({ kind }) => kind === "skill").map(({ ref }) => ref)
+      );
+      const outcome = await runCoordinator.start({
+        item: { ...item, description: turn.prompt, logicalFiles: [] },
+        agent,
+        teamId: workspace.teamId,
+        teamRoot,
+        ...composition,
+        stages: [],
+        manualProjection: true,
+        ...(turn.executionId ? { executionId: turn.executionId, message: turn.prompt } : {}),
+        ...(projectMode ? { projectWorkItemId: item.id } : {}),
+        onCreated: async () => refresh()
+      });
+      await applySettledExecution(outcome.executionId, true);
+      const execution = await repository.getExecution(outcome.executionId);
+      if (!execution) throw new Error("The project agent receipt is unavailable");
+      if (execution.status !== "completed") {
+        throw new Error(execution.error ?? `${agent.name} did not complete`);
+      }
+      return execution;
+    })
+  );
+  const failures = settled.flatMap((result) =>
+    result.status === "rejected" ? [result.reason as Error] : []
+  );
+  if (failures.length) {
+    await releaseClaim(item.id).catch(() => undefined);
+    throw failures.length === 1 ? failures[0] : new AggregateError(failures, errorText(failures[0]));
+  }
+  return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
 }
 
 async function runItem(
@@ -5685,6 +6007,37 @@ document.addEventListener("click", async (event) => {
       agentTab = "builder";
       view = "agent";
       render();
+      return;
+    }
+    if (action === "open-process") {
+      configProcessId = button.dataset.id!;
+      configAgentId = "";
+      view = "process";
+      render();
+      return;
+    }
+    // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
+    // same form and would be thrown away by one.
+    if (action === "select-process-agent") {
+      configAgentId = button.dataset.id!;
+      for (const pane of app.querySelectorAll<HTMLElement>("[data-agent-pane]")) {
+        pane.hidden = pane.dataset.agentPane !== configAgentId;
+      }
+      for (const row of app.querySelectorAll<HTMLElement>("[data-agent-row]")) {
+        row.classList.toggle("bg-primary/10", row.dataset.agentRow === configAgentId);
+      }
+      return;
+    }
+    if (action === "reload-process-agents") {
+      render();
+      return;
+    }
+    if (action === "add-process-agent") {
+      await commitProcessAgentEdits();
+      const created = newAgent({ name: "New agent", triggerStageId: button.dataset.stage! });
+      await writeAgent(created);
+      configAgentId = created.id;
+      await refresh();
       return;
     }
     if (action === "open-folder-settings") {
@@ -6589,11 +6942,12 @@ document.addEventListener("click", async (event) => {
     if (action === "delete-agent") {
       const agent = agents.find(({ id }) => id === button.dataset.id)!;
       if (!confirm(`Delete ${agent.name}? This removes its file from the team folder.`)) return;
+      if (view === "process") await commitProcessAgentEdits();
       await agentFiles.remove(await requireTeamRoot(), agent.id);
       if (disabledAgentIds.delete(agent.id)) {
         await repository.setSetting(`disabled_agents:${workspace.teamId}`, [...disabledAgentIds]);
       }
-      if (activeAgentId === agent.id) view = "agents";
+      if (view === "agent" && activeAgentId === agent.id) view = "agents";
       await refresh();
       showNotice(`Deleted ${agent.name}`, "success");
       return;
@@ -6762,6 +7116,12 @@ document.addEventListener("click", async (event) => {
 });
 
 app.addEventListener("submit", (event) => {
+  const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
+  if (agentsForm) {
+    event.preventDefault();
+    void saveProcessAgents(agentsForm).catch((error) => showNotice(errorText(error), "error"));
+    return;
+  }
   const processForm = (event.target as Element).closest<HTMLFormElement>("form");
   const studio = processForm
     ? processStudios.find((candidate) => candidate.handlesSubmit(processForm))

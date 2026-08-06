@@ -151,6 +151,25 @@ export class AgentFileStore {
   }
 }
 
+/**
+ * First pair of agents that would start on one status, or null. Editing several agents at once
+ * has to be judged as a set: checked one at a time, swapping two agents' statuses looks like a
+ * conflict with the state being replaced. Statuses of a studio process dispatch by role instead,
+ * so their assignments come in `exempt`.
+ */
+export function firstTriggerConflict(
+  assignments: readonly { name: string; triggerStageId: string | null; exempt?: boolean }[]
+): { first: string; second: string; triggerStageId: string } | null {
+  const taken = new Map<string, string>();
+  for (const { name, triggerStageId, exempt } of assignments) {
+    if (!triggerStageId || exempt) continue;
+    const first = taken.get(triggerStageId);
+    if (first) return { first, second: name, triggerStageId };
+    taken.set(triggerStageId, name);
+  }
+  return null;
+}
+
 /** Always mints a fresh id, so Duplicate is `newAgent({ ...agent, name })`. */
 export function newAgent(input: Partial<Agent> = {}): Agent {
   return {

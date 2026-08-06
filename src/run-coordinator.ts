@@ -13,7 +13,7 @@ import type {
 } from "./domain.js";
 import type { FlueProjectService } from "./flue-project.js";
 import { runtimeAgentName } from "./flue-project.js";
-import { errorText } from "./domain.js";
+import { FOLLOW_UP_LIMIT, errorText } from "./domain.js";
 import type { LocalRepository } from "./repository.js";
 import type { TemporaryWorkspaceService } from "./workspaces.js";
 import {
@@ -145,7 +145,9 @@ export function runPrompt({
   if (message !== undefined) {
     const followUp = message.trim();
     if (!followUp) throw new Error("Enter a message to continue the conversation");
-    if (followUp.length > 20_000) throw new Error("Message must be 20,000 characters or fewer");
+    if (followUp.length > FOLLOW_UP_LIMIT) {
+      throw new Error(`Message must be ${FOLLOW_UP_LIMIT.toLocaleString()} characters or fewer`);
+    }
     return followUp;
   }
   const menu = stages.filter((stage) => stage.trim());

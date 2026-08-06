@@ -107,6 +107,47 @@ export interface ArchitectureCritique {
   recommendedChanges: string[];
 }
 
+/**
+ * The debate is bounded so it always terminates: each round narrows the number of disagreements
+ * an architect may still raise, and whatever survives the last round is merged by the synthesizer
+ * rather than argued further.
+ */
+export const MAX_DEBATE_ROUNDS = 3;
+
+/** Open concerns an architect may still raise in each round. Zero by construction after the last. */
+export const DEBATE_CONCERN_BUDGET = [5, 3, 1] as const;
+
+/** One architect's contribution to a round: what it still disputes, and its revised position. */
+export interface DebateTurn {
+  critique: ArchitectureCritique;
+  proposal: ArchitectureProposal;
+  /** The architect sees nothing material left in dispute. Both sides agreeing ends the debate. */
+  resolved: boolean;
+}
+
+export interface DebateRound {
+  openai: DebateTurn;
+  anthropic: DebateTurn;
+}
+
+export function parseDebateTurn(value: string): DebateTurn {
+  const raw = parseAgentJson(value);
+  if (!raw.critique || !raw.proposal) {
+    throw new Error("A debate turn needs both a critique and a revised proposal");
+  }
+  return {
+    critique: parseArchitectureCritique(JSON.stringify(raw.critique)),
+    proposal: parseArchitectureProposal(JSON.stringify(raw.proposal)),
+    resolved: raw.resolved === true
+  };
+}
+
+/** True once both sides concede, or the round budget is spent. Nothing else ends the debate. */
+export function debateSettled(rounds: DebateRound[]): boolean {
+  const last = rounds[rounds.length - 1];
+  return rounds.length >= MAX_DEBATE_ROUNDS || Boolean(last?.openai.resolved && last.anthropic.resolved);
+}
+
 export interface ImplementationPhase {
   id: string;
   title: string;
@@ -135,10 +176,19 @@ export interface SoftwareProjectState {
   requirements?: RequirementSpec;
   requirementsApprovedAt?: string;
   architecture?: {
+    /** Each architect's current position. Rewritten by every debate round it survives. */
     openai?: ArchitectureProposal;
     anthropic?: ArchitectureProposal;
+    /** The latest round's critique of the *other* side, kept unpacked for the proposal cards. */
     openaiCritique?: ArchitectureCritique;
     anthropicCritique?: ArchitectureCritique;
+    rounds?: DebateRound[];
+    /**
+     * The architects' own conversations, reused across rounds so a rebuttal costs one exchange
+     * instead of a fresh repository read.
+     */
+    openaiExecutionId?: string;
+    anthropicExecutionId?: string;
     decision?: ArchitectureProposal;
     approvedAt?: string;
   };
@@ -374,12 +424,55 @@ function bullets(values: string[]): string {
     : '<p class="text-sm text-base-content/45">None</p>';
 }
 
+/** How much of the fixed round budget is spent, so the debate never looks open-ended. */
+function debateProgress(rounds: DebateRound[], settled: boolean): string {
+  const previous = rounds[rounds.length - 1];
+  const open = previous
+    ? previous.openai.critique.concerns.length + previous.anthropic.critique.concerns.length
+    : 0;
+  const pips = Array.from({ length: MAX_DEBATE_ROUNDS }, (_, index) =>
+    `<span class="badge badge-sm ${index < rounds.length ? "badge-primary" : "badge-ghost"}">${index + 1}</span>`
+  ).join("");
+  return `<div class="mt-4 flex flex-wrap items-center gap-3 rounded-box border border-base-300 bg-base-100 px-4 py-3">
+    <span class="text-xs font-bold uppercase text-primary">Debate</span><div class="flex gap-1">${pips}</div>
+    <span class="text-sm text-base-content/60">${
+      settled
+        ? rounds.length < MAX_DEBATE_ROUNDS
+          ? "Both architects agreed early; ready to synthesize"
+          : "Round budget spent; the synthesizer merges what is left"
+        : rounds.length
+          ? `${open} open concern${open === 1 ? "" : "s"} after ${rounds.length} round${rounds.length === 1 ? "" : "s"}`
+          : "Two independent proposals; the debate has not started"
+    }</span>
+  </div>`;
+}
+
+function debateTranscript(rounds: DebateRound[]): string {
+  return `<details class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><summary class="cursor-pointer font-bold">Debate transcript</summary>${rounds
+    .map(
+      ({ openai, anthropic }, index) => `<div class="mt-3 border-t border-base-300 pt-3">
+        <div class="text-xs font-bold uppercase text-primary">Round ${index + 1}</div>
+        <div class="mt-2 grid gap-3 md:grid-cols-2">${[
+          { name: "OpenAI on Anthropic", turn: openai },
+          { name: "Anthropic on OpenAI", turn: anthropic }
+        ]
+          .map(
+            ({ name, turn }) => `<div><div class="text-xs font-semibold">${html(name)}${
+              turn.resolved ? ' <span class="badge badge-success badge-xs">resolved</span>' : ""
+            }</div><p class="mt-1 text-sm">${html(turn.critique.summary)}</p>${bullets(turn.critique.concerns)}</div>`
+          )
+          .join("")}</div>
+      </div>`
+    )
+    .join("")}</details>`;
+}
+
 function proposalCard(title: string, proposal?: ArchitectureProposal, critique?: ArchitectureCritique): string {
   if (!proposal) return `<article class="rounded-box border border-dashed border-base-300 p-4"><h3 class="font-bold">${html(title)}</h3><p class="mt-2 text-sm text-base-content/50">Waiting for proposal</p></article>`;
   return `<article class="rounded-box border border-base-300 bg-base-100 p-4">
     <h3 class="font-bold">${html(title)}</h3><p class="mt-2 text-sm">${html(proposal.summary)}</p>
     <div class="mt-3 grid gap-2">${proposal.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase text-primary">${html(decision.area)}</div><div class="font-semibold">${html(decision.choice)}</div><p class="text-xs text-base-content/60">${html(decision.reason)}</p></div>`).join("")}</div>
-    ${critique ? `<div class="mt-3 rounded bg-base-200 p-3"><div class="text-xs font-bold uppercase">Cross-critique</div><p class="mt-1 text-sm">${html(critique.summary)}</p>${bullets(critique.concerns)}</div>` : ""}
+    ${critique ? `<div class="mt-3 rounded bg-base-200 p-3"><div class="text-xs font-bold uppercase">Open against this proposal</div><p class="mt-1 text-sm">${html(critique.summary)}</p>${bullets(critique.concerns)}</div>` : ""}
   </article>`;
 }
 
@@ -425,7 +518,9 @@ export function softwareProjectView(input: {
   } else if (stage === "Architecture") {
     const architecture = state.architecture ?? {};
     const hasProposals = Boolean(architecture.openai && architecture.anthropic);
-    body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : '<div class="alert alert-error">The local project folder is unavailable.</div>'}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !architecture.openaiCritique || !architecture.anthropicCritique ? `<button class="btn btn-primary" data-action="project-critique-architecture" ${busy ? "disabled" : ""}>Cross-critique proposals</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
+    const rounds = architecture.rounds ?? [];
+    const settled = hasProposals && debateSettled(rounds);
+    body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : '<div class="alert alert-error">The local project folder is unavailable.</div>'}${hasProposals ? debateProgress(rounds, settled) : ""}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${rounds.length ? debateTranscript(rounds) : ""}${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !settled ? `<button class="btn btn-primary" data-action="project-debate-architecture" ${busy ? "disabled" : ""}>Run debate round ${rounds.length + 1} of ${MAX_DEBATE_ROUNDS}</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
   } else if (stage === "Plan") {
     body = state.phases.length
       ? `<form class="grid gap-3" data-project-plan>${state.phases.map((phase, index) => phaseCard(phase, index, true)).join("")}<div class="flex flex-wrap justify-end gap-2"><button class="btn btn-outline" type="button" data-action="project-regenerate-plan" ${busy ? "disabled" : ""}>Regenerate</button><button class="btn btn-outline" type="submit">Save edits</button><button class="btn btn-primary" type="button" data-action="project-approve-plan">Approve plan</button></div></form>`

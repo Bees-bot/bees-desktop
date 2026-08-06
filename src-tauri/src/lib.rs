@@ -1311,22 +1311,25 @@ fn resolve_cli(name: &str) -> Option<String> {
     let output = if cfg!(target_os = "windows") {
         Command::new("where").arg(name).output().ok()?
     } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        // Launched from Finder there is no SHELL and no terminal PATH: launchd hands the app a
+        // bare `/usr/bin:/bin`. The shell has to be interactive as well as login, because nvm,
+        // pnpm and homebrew all write their PATH into ~/.zshrc, which a login shell alone skips.
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            if cfg!(target_os = "macos") { "/bin/zsh".into() } else { "/bin/sh".into() }
+        });
         Command::new(shell)
-            .args(["-lc", &format!("command -v {name}")])
+            .args(["-ilc", &format!("command -v {name}")])
             .output()
             .ok()?
     };
-    let path = String::from_utf8_lossy(&output.stdout)
+    // An interactive shell may greet us first, so take the first line that is a real path
+    // rather than assuming the output starts with the answer.
+    String::from_utf8_lossy(&output.stdout)
         .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if !path.is_empty() && Path::new(&path).exists() {
-        return Some(path);
-    }
-    bundled_cli(name)
+        .map(str::trim)
+        .find(|line| line.starts_with('/') && Path::new(line).exists())
+        .map(str::to_string)
+        .or_else(|| bundled_cli(name))
 }
 
 /// A CLI that ships inside a desktop app instead of installing onto PATH. The Codex app was

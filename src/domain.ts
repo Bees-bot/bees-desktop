@@ -150,6 +150,13 @@ export interface GoalWorkMetadata {
   occurrenceOf: string | null;
 }
 
+/**
+ * Longest follow-up that may be sent into an existing conversation. A first prompt carries the
+ * agent's instructions and the work item, so it is not capped; a follow-up is only the new
+ * message, and anything approaching this length belongs in a fresh conversation instead.
+ */
+export const FOLLOW_UP_LIMIT = 20_000;
+
 /** A file in <teamRoot>/agents/<id>.json. Mutable — duplicate it to keep an old one. */
 export interface Agent {
   id: string;
