@@ -2,7 +2,10 @@
 
 Notable changes, newest first. Dates are release dates.
 
-## Unreleased
+## 0.1.1
+
+First release signed with a real Developer ID and notarized by Apple, so macOS opens it
+without a warning. Apple Silicon only for now.
 
 - The bundled local-model runtime is signed on every build rather than only when it is first
   downloaded. It is cached between builds, so release builds were shipping a stale ad-hoc
