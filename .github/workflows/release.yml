@@ -128,11 +128,29 @@ jobs:
           releaseBody: |
             Private, local-first AI agents for organizations.
 
-            Choose the installer for your operating system below.
+            Mac builds are signed and notarized, so they open with no warning. Apple Silicon and Intel below.
 
-            macOS builds are signed and notarized by Apple, so they open without a warning.
-
-            There is no Windows build yet. It follows once code signing is set up.
+            No Windows build yet.
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
+
+      # Tauri notarizes the .app but not the .dmg wrapped around it, so the disk image itself
+      # comes back "Unnotarized Developer ID" from Gatekeeper even though the app inside is fine.
+      # Notarize the image too and staple the ticket onto it, then replace the uploaded asset.
+      # Stapling matters offline: without the ticket the check needs Apple reachable.
+      - name: Notarize and staple the disk image
+        if: startsWith(matrix.platform, 'macos-') && env.APPLE_ID != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg=$(find src-tauri/target -name "*.dmg" -type f | head -1)
+          if [ -z "$dmg" ]; then
+            echo "The build produced no .dmg to notarize."
+            exit 1
+          fi
+          xcrun notarytool submit "$dmg" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+          spctl --assess --verbose=2 --type install "$dmg"
+          gh release upload "${{ github.ref_name }}" "$dmg" --clobber
