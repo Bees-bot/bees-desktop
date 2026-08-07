@@ -31,6 +31,16 @@ describe("processRuns", () => {
     expect(older.startedAt).toBe("2026-08-01T11:00:00.000Z");
   });
 
+  // The item whose first agent never started is the one someone opens this page to explain,
+  // and it is the normal state of a studio item, which only runs when a person presses something.
+  it("lists an item that has not run yet, dated by when it was created", () => {
+    const fresh = { ...item("fresh"), createdAt: "2026-08-03T08:00:00.000Z" } as WorkItem;
+    const runs = processRuns([...items, fresh], executions);
+    expect(runs.map(({ item: run }) => run.id)).toEqual(["fresh", "newer", "older"]);
+    expect(runs[0]!.steps).toEqual([]);
+    expect(runs[0]!.startedAt).toBe("2026-08-03T08:00:00.000Z");
+  });
+
   it("ignores executions of another process's items", () => {
     expect(processRuns([item("older")], executions).map(({ item: run }) => run.id)).toEqual(["older"]);
   });

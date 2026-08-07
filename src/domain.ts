@@ -414,6 +414,10 @@ export interface ProcessRun {
  * The history of a process, newest run first. A process has no run record of its own — a run is
  * a work item plus the runs its agents did on it, so the item's steps are ordered by when they
  * started, and the earliest of those dates the run.
+ *
+ * An item with no steps is still a run: it is the one whose first agent never started, which is
+ * exactly the case someone opens this page to explain. Building from the executions instead
+ * hid it, and hid every studio item — those only run when a person presses something.
  */
 export function processRuns(items: WorkItem[], executions: Execution[]): ProcessRun[] {
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -423,10 +427,12 @@ export function processRuns(items: WorkItem[], executions: Execution[]): Process
     steps.set(execution.workItemId, [...(steps.get(execution.workItemId) ?? []), execution]);
   }
   const startOf = (execution: Execution): string => execution.startedAt ?? execution.createdAt;
-  return [...steps]
-    .map(([itemId, runs]) => {
-      const ordered = [...runs].sort((a, b) => startOf(a).localeCompare(startOf(b)));
-      return { item: byId.get(itemId)!, steps: ordered, startedAt: startOf(ordered[0]!) };
+  return items
+    .map((item) => {
+      const ordered = [...(steps.get(item.id) ?? [])].sort((a, b) =>
+        startOf(a).localeCompare(startOf(b))
+      );
+      return { item, steps: ordered, startedAt: ordered[0] ? startOf(ordered[0]) : item.createdAt };
     })
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
@@ -471,6 +477,33 @@ export function now(): string {
 /** Whatever was thrown, as something showable. `catch` gives `unknown`, and this is every use of it. */
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The sentence inside a machine's error, for the places a person reads.
+ *
+ * Runtimes, CLIs and HTTP layers each wrap the one useful line in their own envelope, often
+ * more than once — `direct(sub_…) failed: 502: {"message":"You've hit your usage limit…"}`,
+ * whose message is itself sometimes another JSON document. Everything outside the innermost
+ * `message` is addressed to a machine, so unwrap until there is nothing left to unwrap. The
+ * raw text stays on the run, which is where someone debugging goes looking for it.
+ */
+export function readableError(value: string, depth = 4): string {
+  const text = value.trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (depth <= 0 || start === -1 || end <= start) return text;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return text;
+  }
+  const message = [parsed]
+    .flatMap((value) => (value && typeof value === "object" ? [value as Record<string, unknown>] : []))
+    .flatMap((object) => [object.message, (object.error as Record<string, unknown>)?.message])
+    .find((candidate): candidate is string => typeof candidate === "string" && candidate.trim() !== "");
+  return message ? readableError(message, depth - 1) : text;
 }
 
 export function requiredText(value: unknown, field: string, maximum = 500): string {

@@ -8,6 +8,7 @@ import { buildBeesRunInitialData } from "../src/run-config.js";
 import { runReceipt } from "../src/run-receipt.js";
 import { AppOpenScheduler, nextScheduleRun } from "../src/scheduler.js";
 import { inboxView, overviewView, runView } from "../src/launch-views.js";
+import { escalationGroups } from "../src/supervision.js";
 import { renderMarkdown } from "../src/markdown.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 import { beesRunInitialDataSchema } from "../flue-runtime/project/.flue/agents/bees-run.js";
@@ -250,12 +251,36 @@ describe("lean launch modules", () => {
       updatedAt: ""
     } satisfies WorkItem;
 
-    expect(inboxView([item], [execution], [])).toContain(
-      'data-action="dismiss-run"'
+    const failed = escalationGroups(
+      new Map([
+        [
+          item.id,
+          { kind: "stalled", reason: "run-failed", label: "A run failed", detail: "Runtime unavailable" }
+        ]
+      ]),
+      [item]
     );
-    expect(
-      inboxView([item], [execution], [], new Set([execution.id]))
-    ).toContain("Inbox clear");
+    expect(inboxView(failed, [execution])).toContain('data-action="dismiss-run"');
+    // A dismissed failure is one a person has answered for: the sweep stops reporting it, so
+    // the inbox has nothing to render rather than filtering runs itself.
+    expect(inboxView([], [execution])).toContain("Inbox clear");
+    // A step only a person can start belongs here too — it produces no run at all, so a
+    // run-shaped inbox never mentioned it and the work looked like nothing was wrong.
+    const waiting = inboxView(
+      escalationGroups(
+        new Map([
+          [
+            item.id,
+            { kind: "waiting", reason: "human-step", label: "Waiting on you", detail: "Requirements" }
+          ]
+        ]),
+        [item]
+      ),
+      [execution]
+    );
+    expect(waiting).not.toContain("Inbox clear");
+    expect(waiting).toContain("Waiting on you");
+    expect(waiting).toContain('data-action="open-item" data-id="item"');
     expect(
       overviewView([item], [execution], [], new Set([execution.id]))
     ).toMatch(/Needs attention.*?stat-value[^>]*>0<\/div>/s);

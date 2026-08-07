@@ -3,7 +3,6 @@ import { FOLLOW_UP_LIMIT } from "../../domain.js";
 import type { Execution, Process, WorkItem } from "../../domain.js";
 import {
   MAX_DEBATE_ROUNDS,
-  SOFTWARE_PROJECT_QUESTIONS,
   SOFTWARE_PROJECT_ROLES,
   emptySoftwareProjectState,
   parseDebateTurn,
@@ -11,6 +10,7 @@ import {
   routeSoftwareProject,
   softwareProjectStateKey,
   softwareProjectView,
+  type SoftwareProjectMapping,
   type SoftwareProjectState
 } from "./index.js";
 import {
@@ -52,12 +52,18 @@ describe("software project module contract", () => {
     expect(controller.handlesSubmit(form)).toBe(true);
   });
 
-  it("collects requirements for new and continued software work", () => {
-    const changeType = SOFTWARE_PROJECT_QUESTIONS.find(({ id }) => id === "changeType");
-    expect(changeType && "options" in changeType ? changeType.options : []).toEqual(
-      expect.arrayContaining(["New project", "Bug fix", "New feature", "Refactor"])
-    );
-    expect(SOFTWARE_PROJECT_QUESTIONS.some(({ id }) => id === "preserve")).toBe(true);
+  it("asks for the brief in one textbox", () => {
+    const view = softwareProjectView({
+      item: { title: "Change the app" } as WorkItem,
+      stage: "Requirements",
+      state: emptySoftwareProjectState(),
+      runs: [],
+      mapping: { repositoryPath: "/tmp/repo", baseBranch: "main" } as SoftwareProjectMapping,
+      git: null
+    });
+    expect(view.match(/<textarea/g)).toHaveLength(1);
+    expect(view).toContain('name="brief"');
+    expect(view).not.toContain("<select");
   });
 
   it("requires one local project folder before requirements", () => {

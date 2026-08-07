@@ -15,6 +15,7 @@ import type {
 } from "./conversation-snapshot.js";
 import type { OutputPreview } from "./workspaces.js";
 import type { SearchHit } from "./repository.js";
+import type { EscalationGroup } from "./supervision.js";
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -202,47 +203,53 @@ export function overviewView(
     </section>`;
 }
 
-export function inboxView(
-  items: WorkItem[],
-  executions: Execution[],
-  pendingOutputs: ExecutionOutput[],
-  dismissedRunIds: ReadonlySet<string> = new Set()
-): string {
-  const failed = executions.filter(
-    ({ id, status }) =>
-      ["failed", "interrupted"].includes(status) && !dismissedRunIds.has(id)
-  );
-  if (!pendingOutputs.length && !failed.length) {
-    return empty("Inbox clear", "Approvals and failed runs will appear here.");
+/**
+ * One list over everything that owes a person an answer, grouped by why. The view knows nothing
+ * about causes — `escalationGroups` decides what is stuck and how it reads, so a new state shows
+ * up here without this function changing.
+ */
+export function inboxView(groups: EscalationGroup[], executions: Execution[]): string {
+  if (!groups.length) {
+    return empty("Inbox clear", "Work that is stuck, waiting, or failed will appear here.");
   }
-  return `<div class="grid gap-3">
-    ${pendingOutputs
-      .map((output) => {
-        const run = executions.find(({ id }) => id === output.executionId);
-        return `<article class="card border border-warning/40 bg-base-100 shadow-sm"><div class="card-body p-4">
-          <div class="flex items-center justify-between gap-3"><div><div class="text-xs font-bold uppercase tracking-wide text-warning">${
-            output.logicalOutput === TASK_PLAN_OUTPUT ? "Task plan approval" : "File approval"
-          }</div>
-          <h3 class="font-bold">${escapeHtml(outputName(output))}</h3>
-          <p class="text-sm text-base-content/55">${escapeHtml(run ? itemName(items, run.workItemId) : "Run")}</p></div>
-          <button class="btn btn-primary btn-sm" data-action="open-run" data-id="${output.executionId}">Review</button></div>
-        </div></article>`;
-      })
-      .join("")}
-    ${failed
-      .map(
-        (run) => `<article class="card border border-error/30 bg-base-100 shadow-sm"><div class="card-body p-4">
-          <div class="flex items-center justify-between gap-3"><div>${statusBadge(run.status)}
-          <h3 class="mt-1 font-bold">${escapeHtml(itemName(items, run.workItemId))}</h3>
-          <p class="line-clamp-2 text-sm text-error">${escapeHtml(run.error || run.logs || "Run stopped before the step completed.")}</p></div>
-          <div class="flex shrink-0 gap-2">
-            <button class="btn btn-ghost btn-sm" data-action="dismiss-run" data-id="${run.id}">Dismiss</button>
-            <button class="btn btn-ghost btn-sm" data-action="open-run" data-id="${run.id}">Open run</button>
-          </div></div>
-        </div></article>`
-      )
-      .join("")}
-  </div>`;
+  const failedRun = (itemId: string): Execution | undefined =>
+    executions.find(
+      ({ workItemId, status }) =>
+        workItemId === itemId && (status === "failed" || status === "interrupted")
+    );
+  return `<div class="grid gap-4">${groups
+    .map(
+      (group) => `<section>
+      <h2 class="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${
+        group.kind === "stalled" ? "text-error" : "text-warning"
+      }">${escapeHtml(group.label)}<span class="badge badge-ghost badge-sm">${group.escalations.length}</span></h2>
+      <div class="grid gap-2">${group.escalations
+        .map(({ item, state }) => {
+          const run = group.reason === "run-failed" ? failedRun(item.id) : undefined;
+          return `<article class="card border ${
+            group.kind === "stalled" ? "border-error/30" : "border-warning/40"
+          } bg-base-100 shadow-sm"><div class="card-body p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <h3 class="font-bold">${escapeHtml(item.title)}</h3>
+                <p class="line-clamp-2 text-sm text-base-content/55">${escapeHtml(state.detail)}</p>
+              </div>
+              <div class="flex shrink-0 gap-2">
+                ${
+                  run
+                    ? `<button class="btn btn-ghost btn-sm" data-action="dismiss-run" data-id="${run.id}">Dismiss</button>
+                       <button class="btn btn-ghost btn-sm" data-action="open-run" data-id="${run.id}">Open run</button>`
+                    : ""
+                }
+                <button class="btn btn-primary btn-sm" data-action="open-item" data-id="${item.id}">Open</button>
+              </div>
+            </div>
+          </div></article>`;
+        })
+        .join("")}</div>
+    </section>`
+    )
+    .join("")}</div>`;
 }
 
 export function runsView(items: WorkItem[], executions: Execution[]): string {

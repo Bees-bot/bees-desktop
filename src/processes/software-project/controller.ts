@@ -85,6 +85,8 @@ export class SoftwareProjectController implements ProcessStudio {
     });
   }
 
+  // Failures are not caught here: the app's error boundary records whatever throws against
+  // this item, so a studio step gets escalated without the studio knowing how.
   async handleAction(action: string, control: HTMLElement): Promise<boolean> {
     if (!action.startsWith("project-")) return false;
     if (action === "project-select-folder") {
@@ -301,10 +303,9 @@ export class SoftwareProjectController implements ProcessStudio {
 
   async handleSubmit(form: HTMLFormElement): Promise<boolean> {
     if (form.matches("form[data-project-requirements]")) {
-      const answers = Object.fromEntries(
-        [...new FormData(form).entries()].map(([key, value]) => [key, String(value).trim()])
-      );
-      await this.synthesizeRequirements(answers);
+      const brief = String(new FormData(form).get("brief") ?? "").trim();
+      if (!brief) throw new Error("Describe what to build or change");
+      await this.synthesizeRequirements(brief);
       return true;
     }
     if (form.matches("form[data-project-refine]")) {
@@ -453,19 +454,17 @@ export class SoftwareProjectController implements ProcessStudio {
     );
   }
 
-  private async synthesizeRequirements(
-    answers: Record<string, string | string[]>
-  ): Promise<void> {
+  private async synthesizeRequirements(brief: string): Promise<void> {
     const { item } = this.current();
     const state = await this.state(item.id);
     const mapping = await this.git.get(item.id);
     if (!mapping) throw new Error("Choose the local project folder first");
-    state.answers = answers;
+    state.brief = brief;
     await this.save(item.id, state);
     const execution = await this.turn(
       item,
       SOFTWARE_PROJECT_ROLES.requirements,
-      `Project kind: ${state.projectKind ?? "existing"}\n\nOriginal brief:\n${item.description}\n\nInline questionnaire answers:\n${JSON.stringify(answers, null, 2)}\n\nInspect the repository before producing the requirements.`
+      `Project kind: ${state.projectKind ?? "existing"}\n\nOriginal brief:\n${item.description}\n\nWhat the user wants:\n${brief}\n\nInspect the repository before producing the requirements. Answer what the repository can answer; put anything genuinely undecidable in followUpQuestions.`
     );
     state.requirements = parseRequirementSpec(lastAssistantText(execution));
     state.lastExecutionId = execution.id;

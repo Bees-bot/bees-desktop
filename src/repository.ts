@@ -76,6 +76,12 @@ function stringValue(value: DatabaseValue | undefined): string {
   return String(value ?? "");
 }
 
+const ITEM_ERROR_PREFIX = "item_error:";
+
+function itemErrorKey(itemId: string): string {
+  return `${ITEM_ERROR_PREFIX}${itemId}`;
+}
+
 function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
 }
@@ -1852,6 +1858,34 @@ export class LocalRepository {
       `INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
       [requiredText(key, "Setting key", 120), JSON.stringify(value), now()]
+    );
+  }
+
+  /**
+   * The app's error boundary writes here, for any work item in any process. One row per item:
+   * the newest failure is the one a person needs, and the record clears itself as soon as the
+   * item moves again (see `supervise` in main.ts), so nothing has to remember to delete it.
+   */
+  async recordItemError(itemId: string, message: string): Promise<void> {
+    await this.setSetting(itemErrorKey(itemId), { message, at: now() });
+  }
+
+  async clearItemError(itemId: string): Promise<void> {
+    await this.database.execute("DELETE FROM settings WHERE key = ?", [itemErrorKey(itemId)]);
+  }
+
+  async listItemErrors(): Promise<Map<string, { message: string; at: string }>> {
+    const rows = await this.database.query<Row>(
+      "SELECT key, value_json AS valueJson FROM settings WHERE key LIKE ?",
+      [`${ITEM_ERROR_PREFIX}%`]
+    );
+    return new Map(
+      rows.flatMap((row) => {
+        const value = parseJson<{ message?: string; at?: string }>(row.valueJson, {});
+        return value.message && value.at
+          ? [[stringValue(row.key).slice(ITEM_ERROR_PREFIX.length), { message: value.message, at: value.at }] as const]
+          : [];
+      })
     );
   }
 

@@ -27,7 +27,7 @@ export const SOFTWARE_PROJECT_ROLES = {
 
 export const REQUIREMENTS_PROMPT = `You discover requirements for new software or a substantial change to existing software.
 
-The selected local Git repository is your primary evidence. Inspect it before answering. It may be an empty new project or an existing codebase that needs a bug fix, feature, refactor, reimplementation, or migration. Use the brief, repository evidence, and inline questionnaire answers. For existing code, state current behavior and compatibility constraints that must be preserved. Resolve ambiguity without making the user open files.
+The selected local Git repository is your primary evidence. Inspect it before answering. It may be an empty new project or an existing codebase that needs a bug fix, feature, refactor, reimplementation, or migration. The user writes one free-form brief and answers nothing else, so answer every requirement question yourself from the brief and the repository: change type, current behavior, affected users, must-have behavior, compatibility, data and migration concerns, scale, security, and technical preferences. For existing code, state current behavior and compatibility constraints that must be preserved. Resolve ambiguity without making the user open files.
 Return exactly one JSON object, with no Markdown fence:
 {"summary":"...","users":["..."],"functionalRequirements":["..."],"nonFunctionalRequirements":["..."],"constraints":["..."],"preferences":["..."],"acceptanceCriteria":["..."],"followUpQuestions":["..."]}
 
@@ -172,7 +172,7 @@ export interface TestReport {
 export interface SoftwareProjectState {
   version: 1;
   projectKind?: SoftwareProjectKind;
-  answers: Record<string, string | string[]>;
+  brief: string;
   requirements?: RequirementSpec;
   requirementsApprovedAt?: string;
   architecture?: {
@@ -204,7 +204,7 @@ export interface SoftwareProjectState {
 }
 
 export function emptySoftwareProjectState(): SoftwareProjectState {
-  return { version: 1, answers: {}, phases: [], currentPhaseIndex: 0, attempts: 0 };
+  return { version: 1, brief: "", phases: [], currentPhaseIndex: 0, attempts: 0 };
 }
 
 export type SoftwareProjectEvent =
@@ -365,19 +365,6 @@ export function lastAssistantText(execution: Execution): string {
       .join("\n") ?? ""
   );
 }
-
-export const SOFTWARE_PROJECT_QUESTIONS = [
-  { id: "changeType", label: "What kind of work is this?", kind: "select", options: ["New project", "Bug fix", "New feature", "Refactor", "Language or framework migration", "Choose after inspecting the repository"] },
-  { id: "request", label: "What should be built or changed?", kind: "textarea", placeholder: "Describe the problem or desired capability" },
-  { id: "currentBehavior", label: "What happens today?", kind: "textarea", placeholder: "Current behavior, reproduction steps, or known limitations" },
-  { id: "success", label: "What outcome means this is complete?", kind: "textarea", placeholder: "Observable behavior and acceptance criteria" },
-  { id: "users", label: "Who is affected?", kind: "text", placeholder: "Customers, operators, developers…" },
-  { id: "mustHave", label: "Must-have behavior", kind: "textarea", placeholder: "One requirement per line" },
-  { id: "preserve", label: "What must remain compatible?", kind: "textarea", placeholder: "APIs, data, behavior, platforms, or nothing" },
-  { id: "data", label: "Data or migration concerns", kind: "textarea", placeholder: "Schemas, files, backfills, rollback…" },
-  { id: "quality", label: "Scale, security, or compliance needs", kind: "textarea", placeholder: "Expected load, sensitive data, accessibility…" },
-  { id: "preferences", label: "Technical preferences or constraints", kind: "textarea", placeholder: "Language, framework, hosting, deadline—or preserve the current stack" }
-] as const;
 
 export type SoftwareProjectKind = "new" | "existing";
 
@@ -552,7 +539,7 @@ export function softwareProjectView(input: {
     body = `${projectFolder}${state.requirements
       ? `<section class="grid gap-4"><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Requirements draft</h2><p class="mt-2">${html(state.requirements.summary)}</p><div class="mt-4 grid gap-4 lg:grid-cols-2"><div><h3 class="mb-2 text-xs font-bold uppercase">Functional</h3>${bullets(state.requirements.functionalRequirements)}</div><div><h3 class="mb-2 text-xs font-bold uppercase">Acceptance</h3>${bullets(state.requirements.acceptanceCriteria)}</div></div>${state.requirements.followUpQuestions.length ? `<div class="mt-4 rounded bg-warning/10 p-3"><h3 class="text-xs font-bold uppercase text-warning">Open questions</h3>${bullets(state.requirements.followUpQuestions)}</div>` : ""}<form class="mt-4" data-project-refine><textarea class="textarea textarea-bordered w-full" name="message" placeholder="Answer open questions or ask the requirements agent to revise something"></textarea><div class="mt-2 flex justify-end gap-2"><button class="btn btn-outline btn-sm" type="submit" ${busy ? "disabled" : ""}>Refine with AI</button><button class="btn btn-primary btn-sm" type="button" data-action="project-approve-requirements" ${busy ? "disabled" : ""}>Approve requirements</button></div></form></article></section>`
       : mapping
-        ? `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Describe what to build or change</h2><p class="mt-1 text-sm text-base-content/55">The requirements agent will inspect the selected repository before drafting requirements. “Unsure” and “choose after inspecting” are valid answers.</p><div class="mt-4 grid gap-4 lg:grid-cols-2">${SOFTWARE_PROJECT_QUESTIONS.map((question) => `<label class="form-control"><span class="label-text mb-1 font-semibold">${html(question.label)}</span>${question.kind === "select" ? `<select class="select select-bordered w-full" name="${question.id}">${question.options.map((option) => `<option>${html(option)}</option>`).join("")}</select>` : question.kind === "textarea" ? `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${question.id}" placeholder="${html(question.placeholder)}"></textarea>` : `<input class="input input-bordered w-full" name="${question.id}" placeholder="${html(question.placeholder)}">`}</label>`).join("")}</div><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`
+        ? `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Describe what to build or change</h2><p class="mt-1 text-sm text-base-content/55">Write it however you like. The requirements agent inspects the repository, answers what it can from the code, and asks you only what it cannot work out.</p><textarea class="textarea textarea-bordered mt-4 min-h-56 w-full" name="brief" placeholder="What should be built or changed, and anything else worth knowing" required>${html(state.brief)}</textarea><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`
         : ""}`;
   } else if (stage === "Architecture") {
     const architecture = state.architecture ?? {};

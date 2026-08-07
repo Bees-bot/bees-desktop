@@ -95,6 +95,8 @@ import {
 import { AppOpenScheduler, nextScheduleRun } from "./scheduler.js";
 import { HttpSyncTransport, MetadataSyncService } from "./sync.js";
 import { runReceipt } from "./run-receipt.js";
+import { escalationGroups, needsAttention, workState } from "./supervision.js";
+import type { WorkState } from "./supervision.js";
 import {
   duration,
   inboxView,
@@ -472,6 +474,8 @@ let executions: Execution[] = [];
 let executionOutputs: ExecutionOutput[] = [];
 /** Studio items that already have a validated project folder. The rest are waiting on a person. */
 let projectFolderItemIds = new Set<string>();
+/** What last threw on each item, written by the error boundary and read by the supervision sweep. */
+let itemErrors = new Map<string, { message: string; at: string }>();
 const DISMISSED_RUNS_KEY = "dismissed_runs";
 let dismissedRunIds = new Set<string>();
 let schedules: Schedule[] = [];
@@ -1337,11 +1341,12 @@ function renderNavigation(): void {
     return;
   }
 
+  const inboxCount = [...supervise().values()].filter(needsAttention).length;
   teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
       <li><button class="${activeClass(view === "overview")}" data-view="overview">Overview</button></li>
       <li><button class="${activeClass(view === "inbox")}" data-view="inbox">Inbox${
-        executionOutputs.some(({ status }) => status === "pending")
-          ? ` <span class="badge badge-warning badge-xs ml-auto">${executionOutputs.filter(({ status }) => status === "pending").length}</span>`
+        inboxCount
+          ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
           : ""
       }</button></li>
     </ul>
@@ -1504,6 +1509,7 @@ async function refresh(): Promise<void> {
     executions = [];
     executionOutputs = [];
     projectFolderItemIds = new Set();
+    itemErrors = new Map();
     schedules = [];
     registries = [];
     mcpConnections = [];
@@ -1542,6 +1548,7 @@ async function refresh(): Promise<void> {
       executionIds.has(executionId)
     );
     projectFolderItemIds = new Set(await repository.listProjectFolderItemIds());
+    itemErrors = await repository.listItemErrors();
     activeBoard =
       boards.find(
         (board) => board.id === activeBoard?.id && processes.some((process) => process.id === board.processId)
@@ -1690,14 +1697,9 @@ function render(): void {
     );
   }
   if (view === "inbox") {
-    setHeader("Inbox", "Approvals and runs that need attention");
+    setHeader("Inbox", "Work, approvals, and runs that need you");
     swap(
-      inboxView(
-        teamItems,
-        executions,
-        executionOutputs.filter(({ status }) => status === "pending"),
-        dismissedRunIds
-      )
+      inboxView(escalationGroups(supervise(), teamItems), executions)
     );
   }
   if (view === "board") renderBoard();
@@ -1733,15 +1735,18 @@ async function renderWorkItemDetail(): Promise<void> {
   const runs = executions.filter(({ workItemId }) => workItemId === item.id);
   const process = processes.find(({ id }) => id === item.processId);
   const studio = process ? processStudios.find((candidate) => candidate.matches(process)) : null;
+  // The same sentence the inbox shows, above whatever this item's view is — a person working on
+  // the item should not have to visit the inbox to learn it is stuck.
+  const banner = escalationBanner(supervise().get(item.id) ?? null);
   if (process && studio) {
     const content = await studio.render(item, process, runs);
     if (view !== "item" || activeItemId !== item.id) return;
-    swap(content);
+    swap(`${banner}${content}`);
     return;
   }
   const locations = await repository.listAvailableFileLocations(workspace.teamId);
   if (view !== "item" || activeItemId !== item.id) return;
-  swap(workItemView(
+  swap(banner + workItemView(
     { ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) },
     runs,
     runs.map(conversationFor).filter(Boolean) as BeesConversationSnapshotV1[],
@@ -1823,6 +1828,7 @@ function renderBoard(): void {
   const running =
     projectStudio || runningProcesses.has(activeProcess.id);
   const filters = activeBoard.filters;
+  const waiting = supervise();
   const visible = items.filter((item) => !isFiltered(item, filters));
   const filtered = items
     .filter((item) => isFiltered(item, filters))
@@ -1882,12 +1888,24 @@ function renderBoard(): void {
                     }
                     ${item.status === "blocked" ? '<span class="badge badge-error badge-sm">Blocked</span>' : ""}
                     ${
-                      projectStudio && !projectFolderItemIds.has(item.id)
-                        ? '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'
+                      // Silence is the normal look of stuck work, so the card always says which
+                      // of the four states this item is in. The badge carries the heading only —
+                      // a badge does not wrap, and a runtime error is long.
+                      needsAttention(waiting.get(item.id) ?? null)
+                        ? `<span class="badge badge-sm ${
+                            waiting.get(item.id)!.kind === "stalled" ? "badge-error" : "badge-warning"
+                          }">${escapeHtml(waiting.get(item.id)!.label)}</span>`
                         : ""
                     }
                     ${item.logicalFiles.length ? `<span class="badge badge-outline badge-sm">${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
                   </div>
+                  ${
+                    needsAttention(waiting.get(item.id) ?? null)
+                      ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${
+                          waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-base-content/60"
+                        }">${escapeHtml(waiting.get(item.id)!.detail)}</p>`
+                      : ""
+                  }
                   <div class="card-actions items-center justify-end">
                     <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
                     <button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>
@@ -1995,7 +2013,9 @@ function renderProcessEditor(): void {
   if (!selectable.some(({ id }) => id === configAgentId)) configAgentId = selectable[0]?.id ?? "";
   const studio = processModule(process.tags)?.mode === "studio";
   const card = (agent: Agent): string => {
-    const model = agentEditorFields(agent).find(({ name }) => name === "model");
+    const model = agent.config.provider && agent.config.model
+      ? `${agent.config.provider} · ${agent.config.model}`
+      : "No model";
     const eligibility = eligibilityForAgent(agent);
     return `<div class="grid gap-2 rounded-box border p-3 ${
       agent.id === configAgentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100"
@@ -2010,18 +2030,7 @@ function renderProcessEditor(): void {
           ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
         </span>
       </div>
-      <select class="select select-bordered select-sm w-full" name="${escapeHtml(
-        agent.id
-      )}:model" data-agent-model="${escapeHtml(agent.id)}" aria-label="Model for ${escapeHtml(agent.name)}">${(
-        model?.options ?? []
-      )
-        .map(
-          (option) =>
-            `<option value="${escapeHtml(option.value)}" ${
-              option.value === model?.value ? "selected" : ""
-            }>${escapeHtml(option.label)}</option>`
-        )
-        .join("")}</select>
+      <p class="truncate text-xs text-base-content/55" title="${escapeHtml(model)}">${escapeHtml(model)}</p>
       <div class="flex items-center justify-between gap-1">
         <label class="label cursor-pointer gap-1.5 text-xs" title="Active on this machine">
           <input class="checkbox checkbox-xs" type="checkbox" name="${escapeHtml(agent.id)}:enabled" ${
@@ -2073,7 +2082,6 @@ function renderProcessEditor(): void {
   const panels = selectable
     .map((agent) => {
       const fields = agentEditorFields(agent)
-        .filter(({ name }) => name !== "model")
         .map((field) =>
           field.name === "trigger"
             ? {
@@ -2135,18 +2143,19 @@ function renderProcessEditor(): void {
 }
 
 /**
- * A model picked in a row narrows that agent's thinking levels, same as the dialog editor does.
- * The shared icon buttons carry no `type`, which inside a form means submit — the pass below
- * keeps Save the only thing that saves.
+ * A model picked in an agent's panel narrows that agent's thinking levels. The shared icon
+ * buttons carry no `type`, which inside a form means submit — the pass below keeps Save the
+ * only thing that saves.
  */
 function linkProcessModelThinking(): void {
   for (const button of app.querySelectorAll<HTMLButtonElement>("form button:not([type])")) {
     button.type = "button";
   }
-  for (const select of app.querySelectorAll<HTMLSelectElement>("select[data-agent-model]")) {
+  for (const select of app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
+    const agentId = select.name.slice(0, -":model".length);
     select.addEventListener("change", () => {
       const thinking = app.querySelector<HTMLSelectElement>(
-        `select[name="${select.dataset.agentModel}:thinkingLevel"]`
+        `select[name="${agentId}:thinkingLevel"]`
       );
       if (!thinking) return;
       thinking.innerHTML = thinkingOptionsForModel(parseModelRef(select.value) ?? {})
@@ -2243,6 +2252,108 @@ async function saveProcessDefinition(data: FormData): Promise<void> {
   showNotice(`Created ${input.name}`, "success");
 }
 
+/** One line of "why is this not moving", or nothing when it is. */
+function escalationBanner(state: WorkState | null): string {
+  if (!needsAttention(state)) return "";
+  return `<div class="alert ${state!.kind === "stalled" ? "alert-error" : "alert-warning"} mb-4">
+    <div class="min-w-0">
+      <div class="font-semibold">${escapeHtml(state!.label)}</div>
+      <div class="break-words text-sm">${escapeHtml(state!.detail)}</div>
+    </div>
+  </div>`;
+}
+
+/** An open item may sit untouched with nothing running for this long before it counts as stalled. */
+const STALL_AFTER_MS = 15 * 60_000;
+
+/**
+ * Where every failure a person can trigger ends up. The notice is transient and the record is
+ * not, so a workflow that throws — anywhere, including in code that never thought about this —
+ * escalates on its own instead of relying on whoever wrote it to report the problem.
+ *
+ * Attribution is best-effort: the item the failure names, else the one on screen. A wrong guess
+ * costs a line in someone's inbox, which is cheaper than the silence it replaces.
+ */
+function reportFailure(error: unknown, itemId?: string): void {
+  const message = errorText(error);
+  showNotice(message, "error");
+  const subject = [itemId, view === "item" ? activeItemId : ""].find((candidate) =>
+    teamItems.some(({ id }) => id === candidate)
+  );
+  if (!subject) return;
+  void repository
+    .recordItemError(subject, message)
+    .then(() => refresh())
+    .catch(() => undefined);
+}
+
+/**
+ * The supervision sweep: what state every item in this team is in, keyed by item id.
+ *
+ * Assembles facts and hands them to `workState` — the decision itself lives in supervision.ts
+ * so it is one ordered list of rules rather than conditionals spread across the views. Every
+ * reader (board badge, inbox, item banner, nav count) reads this map, so they cannot disagree.
+ */
+function supervise(): Map<string, WorkState> {
+  const now = new Date().toISOString();
+  const states = new Map<string, WorkState>();
+  for (const item of teamItems) {
+    const process = processes.find(({ id }) => id === item.processId);
+    if (!process) continue;
+    const studio = processModule(process.tags)?.mode === "studio";
+    const agent = agentForItem(item);
+    const eligibility = agent ? eligibilityForAgent(agent) : null;
+    const runs = executions.filter(
+      ({ workItemId, id, status }) =>
+        workItemId === item.id &&
+        // A dismissed failure is one a person has already answered for.
+        !(dismissedRunIds.has(id) && (status === "failed" || status === "interrupted"))
+    );
+    // An error the item has already moved past is history, not an escalation — so the record
+    // expires on its own and no code has to remember to clear it.
+    const recorded = itemErrors.get(item.id);
+    const lastError =
+      recorded &&
+      item.updatedAt <= recorded.at &&
+      !executions.some(({ workItemId, createdAt }) => workItemId === item.id && createdAt > recorded.at)
+        ? recorded
+        : undefined;
+    const state = workState({
+      item,
+      stageName: process.stages.find(({ id }) => id === item.stageId)?.name ?? "this status",
+      runs,
+      pendingApprovals: executionOutputs.filter(
+        ({ executionId, status }) =>
+          status === "pending" && runs.some(({ id }) => id === executionId)
+      ).length,
+      ...(studio
+        ? {
+            humanStep: projectFolderItemIds.has(item.id)
+              ? process.stages.find(({ id }) => id === item.stageId)?.name ?? "Open the project"
+              : "Choose a folder"
+          }
+        : {}),
+      ...(agent && eligibility && !eligibility.active ? { agentBlocked: eligibility.reason } : {}),
+      // A studio drives itself from its own screen, so neither an agent for the status nor a
+      // started process is what it is missing.
+      hasAgent: studio || Boolean(agent?.config.prompt.trim()),
+      processRunning: studio || runningProcesses.has(process.id),
+      ...(schedules.find(({ workItemId, enabled }) => workItemId === item.id && enabled)?.nextRunAt
+        ? {
+            scheduledFor: when(
+              schedules.find(({ workItemId, enabled }) => workItemId === item.id && enabled)!.nextRunAt
+            )
+          }
+        : {}),
+      ...(lastError ? { lastError } : {}),
+      now,
+      stallAfterMs: STALL_AFTER_MS
+    });
+    if (state) states.set(item.id, state);
+  }
+  return states;
+}
+
 function runStageId(execution: Execution): string | null {
   return agents.find(({ id }) => id === execution.agentId)?.triggerStageId ?? null;
 }
@@ -2264,12 +2375,14 @@ function renderProcessRuns(): void {
   const open = runs.find(({ item }) => item.id === openRunItemId) ?? null;
   const list = runs
     .map(({ item, steps, startedAt }) => {
-      const last = steps.at(-1)!;
+      const last = steps.at(-1);
       return `<li><button class="${activeClass(item.id === openRunItemId)} block h-auto py-2 text-left"
         data-action="open-process-run" data-id="${escapeHtml(item.id)}">
         <span class="block truncate text-sm font-semibold">${escapeHtml(item.title)}</span>
         <span class="mt-1 flex flex-wrap items-center gap-1 text-xs text-base-content/55">
-          ${when(startedAt)} · ${steps.length} step${steps.length === 1 ? "" : "s"} ${statusBadge(last.status)}
+          ${when(startedAt)} · ${steps.length} step${steps.length === 1 ? "" : "s"} ${
+            last ? statusBadge(last.status) : '<span class="badge badge-ghost badge-sm">Not started</span>'
+          }
         </span>
       </button></li>`;
     })
@@ -2280,7 +2393,7 @@ function renderProcessRuns(): void {
       ${
         runs.length
           ? `<ul class="menu menu-sm gap-1 p-2">${list}</ul>`
-          : '<p class="p-8 text-center text-sm text-base-content/50">This process has not run yet.</p>'
+          : '<p class="p-8 text-center text-sm text-base-content/50">This process has no work items yet.</p>'
       }
     </section>
     <section class="grid min-w-0 gap-4">${open ? processRunDetail(process, open) : ""}</section>
@@ -2363,7 +2476,7 @@ function processRunDetail(process: Process, run: ProcessRun): string {
   return `<article class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="border-b border-base-300 p-4">
         <h3 class="font-bold">${escapeHtml(item.title)}</h3>
-        <p class="mt-1 text-sm text-base-content/55">Started ${when(run.startedAt)} · now on ${escapeHtml(
+        <p class="mt-1 text-sm text-base-content/55">${steps.length ? "Started" : "Created"} ${when(run.startedAt)} · now on ${escapeHtml(
           process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status"
         )}</p>
         <div class="mt-3 flex flex-wrap items-center gap-1.5">${
@@ -2482,7 +2595,16 @@ async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Pro
   for (const definition of template.agents) {
     const stage = process.stages.find(({ name }) => name === definition.stage);
     if (!stage) throw new Error(`${template.name} is missing the ${definition.stage} status`);
-    if (existingAgents.some(({ config }) => config.role === definition.role)) continue;
+    // Role alone is not enough: an agent left over from an earlier install of this module still
+    // carries that install's stage id, so keeping it would leave every lane of the new process
+    // empty. Only an agent already on one of this process's statuses counts as present.
+    if (
+      existingAgents.some(
+        ({ config, triggerStageId }) =>
+          config.role === definition.role && triggerStageId === stage.id
+      )
+    )
+      continue;
     await agentFiles.save(
       teamRoot,
       newAgent({
@@ -7205,7 +7327,7 @@ document.addEventListener("click", async (event) => {
       render();
     }
   } catch (error) {
-    showNotice(errorText(error), "error");
+    reportFailure(error, button.dataset.id);
   }
 });
 
@@ -7213,15 +7335,13 @@ app.addEventListener("submit", (event) => {
   const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
   if (definitionForm) {
     event.preventDefault();
-    void saveProcessDefinition(new FormData(definitionForm)).catch((error) =>
-      showNotice(errorText(error), "error")
-    );
+    void saveProcessDefinition(new FormData(definitionForm)).catch(reportFailure);
     return;
   }
   const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
   if (agentsForm) {
     event.preventDefault();
-    void saveProcessAgents(agentsForm).catch((error) => showNotice(errorText(error), "error"));
+    void saveProcessAgents(agentsForm).catch(reportFailure);
     return;
   }
   const processForm = (event.target as Element).closest<HTMLFormElement>("form");
@@ -7230,7 +7350,7 @@ app.addEventListener("submit", (event) => {
     : undefined;
   if (processForm && studio) {
     event.preventDefault();
-    void studio.handleSubmit(processForm).catch((error) => showNotice(errorText(error), "error"));
+    void studio.handleSubmit(processForm).catch(reportFailure);
     return;
   }
   const assistant = (event.target as Element).closest<HTMLFormElement>(
@@ -8161,6 +8281,10 @@ async function start(): Promise<void> {
     if (teamFolder?.localPath) await ensureTeamSkillsRegistry(teamFolder.localPath);
     await scheduler.start();
     startBackgroundSync();
+    // Nothing in the app is required to hand its errors to the boundary — these catch the ones
+    // that were never handed anywhere, which is exactly the class that used to vanish.
+    window.addEventListener("error", (event) => reportFailure(event.error ?? event.message));
+    window.addEventListener("unhandledrejection", (event) => reportFailure(event.reason));
     if (resumed.length) {
       // These continue where they were, so the language must not promise a fresh start.
       notifyLocal(
