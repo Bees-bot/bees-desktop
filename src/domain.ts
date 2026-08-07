@@ -561,6 +561,32 @@ export function parseLogicalFileReference(value: unknown): {
   return { locationId, path: logicalPath(reference.slice(separator + FILE_LOCATION_SEPARATOR.length)) };
 }
 
+export interface FileTreeNode {
+  folders: Map<string, FileTreeNode>;
+  files: string[];
+}
+
+/** Flat relative paths back into the folder hierarchy the file picker draws. */
+export function fileTree(paths: string[]): FileTreeNode {
+  const root: FileTreeNode = { folders: new Map(), files: [] };
+  for (const path of paths) {
+    const parts = path.split("/").filter(Boolean);
+    const name = parts.pop();
+    if (!name) continue;
+    let node = root;
+    for (const folder of parts) {
+      let child = node.folders.get(folder);
+      if (!child) {
+        child = { folders: new Map(), files: [] };
+        node.folders.set(folder, child);
+      }
+      node = child;
+    }
+    node.files.push(name);
+  }
+  return root;
+}
+
 export function logicalFileReference(locationId: string, path: unknown): string {
   const reference = parseLogicalFileReference(
     `${locationId}${FILE_LOCATION_SEPARATOR}${String(path)}`

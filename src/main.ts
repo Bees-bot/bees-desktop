@@ -48,11 +48,13 @@ import {
   isFiltered,
   isProposal,
   errorText,
+  fileTree,
   logicalFileReference,
   needsAutonomousRun,
   parseBoardFilters,
   parseLogicalFileReference,
   processRuns,
+  type FileTreeNode,
   type ProcessRun
 } from "./domain.js";
 import {
@@ -234,6 +236,7 @@ type View =
   | "process-runs"
   | "process-library"
   | "item"
+  | "item-new"
   | "runs"
   | "run"
   | "schedules"
@@ -520,6 +523,9 @@ let autopilotBusy = false;
 // Left-nav dashboards per team id — every team, not only the open one. See loadDashboardsByTeam.
 let dashboardsByTeam = new Map<string, { board: Board; process: Process; count: number }[]>();
 let view: View = "overview";
+// The New work item page: the status column it lands in, and the folders its file picker browses.
+let newItemStageId = "";
+let newItemSources: FileSource[] = [];
 /** The team-record search on the Runs view. Empty shows the recent runs it shows anyway. */
 let searchQuery = "";
 let searchHits: SearchHit[] = [];
@@ -1713,6 +1719,7 @@ function render(): void {
   if (view === "process-runs") renderProcessRuns();
   if (view === "process-library") renderProcessLibrary();
   if (view === "item") void renderWorkItemDetail();
+  if (view === "item-new") renderNewItem();
   if (view === "runs") {
     setHeader("Runs", currentTeam()?.name);
     swap(`${searchBox()}${searchQuery.trim() ? searchResultsView(searchHits) : runsView(teamItems, executions)}`);
@@ -4635,31 +4642,135 @@ function edit(
   });
 }
 
+/** A new work item is a page, not a dialog: the file picker below needs the room. */
 async function createItem(stageId?: string): Promise<void> {
   if (!activeProcess || !activeBoard) throw new Error("Open a board first");
   const targetStage = stageId ?? activeBoard.stageIds[0];
   if (!targetStage) throw new Error("This board needs a status column");
+  newItemStageId = targetStage;
+  newItemSources = await workItemFileSources();
+  view = "item-new";
+  render();
+}
+
+/**
+ * The folders a work item can reference — the team folder, then every linked location mapped on
+ * this machine — each with its files listed relative to that folder, which is the form a logical
+ * reference takes. A folder that will not list (permissions, unplugged drive) comes back empty
+ * rather than failing the whole page.
+ */
+async function workItemFileSources(): Promise<FileSource[]> {
+  const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
   const locations = await repository.listAvailableFileLocations(workspace.teamId);
-  const data = await edit("New work item", [
-    { name: "title", label: "Title" },
-    { name: "description", label: "Description", type: "textarea" },
-    { name: "owner", label: "Owner" },
-    {
-      name: "files",
-      label: "File references",
-      placeholder: "Drafts/brief.md, @Shared drive/Reports/q2.pdf",
-      hint: fileReferenceHint(locations)
-    }
-  ]);
-  if (!data) return;
+  const roots = [
+    ...(mapping?.localPath ? [{ id: "", name: "Team folder", path: mapping.localPath }] : []),
+    ...locations.flatMap(({ id, name, localPath, missing }) =>
+      localPath && !missing ? [{ id, name, path: localPath }] : []
+    )
+  ];
+  return Promise.all(
+    roots.map(async ({ id, name, path }) => ({
+      id,
+      name,
+      files: await invoke<string[]>("list_location_files", { path }).catch(() => [])
+    }))
+  );
+}
+
+function renderNewItem(): void {
+  setHeader("New work item", activeBoard?.name ?? currentTeam()?.name);
+  const stage = activeProcess?.stages.find(({ id }) => id === newItemStageId);
+  swap(`<form class="grid max-w-3xl gap-4" data-new-item>
+      <label class="form-control">
+        <span class="label-text mb-1">Title</span>
+        <input class="input input-bordered" name="title" autofocus>
+      </label>
+      <label class="form-control">
+        <span class="label-text mb-1">Description</span>
+        <textarea class="textarea textarea-bordered min-h-40" name="description"></textarea>
+      </label>
+      <label class="form-control">
+        <span class="label-text mb-1">Owner</span>
+        <input class="input input-bordered" name="owner">
+      </label>
+      <div class="form-control">
+        <span class="label-text mb-1">Files</span>
+        ${filePickerHtml(newItemSources)}
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-primary" type="submit">Create item</button>
+        <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
+        ${stage ? `<span class="text-sm text-base-content/50">Lands in ${escapeHtml(stage.name)}</span>` : ""}
+      </div>
+    </form>`);
+}
+
+function filePickerHtml(sources: FileSource[]): string {
+  if (!sources.length) {
+    return `<p class="rounded-box border border-dashed border-base-300 px-3 py-5 text-sm text-base-content/50">No folder is mapped on this machine. Set a team folder or map a linked location in Team settings → Folder.</p>`;
+  }
+  return `<div class="max-h-96 overflow-y-auto rounded-box border border-base-300 p-2">${sources
+    .map(
+      ({ id, name, files }) => `<details>
+        <summary class="cursor-pointer py-1 text-sm font-semibold">${escapeHtml(name)}${
+          files.length ? "" : " — empty or unreadable"
+        }</summary>
+        <ul class="border-l border-base-300 pl-4">${fileTreeHtml(fileTree(files), id, "")}</ul>
+      </details>`
+    )
+    .join("")}</div>`;
+}
+
+interface FileSource {
+  id: string;
+  name: string;
+  files: string[];
+}
+
+/**
+ * Folders are `<details>` so the tree collapses without a line of script, and a folder's box is
+ * a select-all for what is under it — only files are references, so only files carry a value.
+ */
+function fileTreeHtml(node: FileTreeNode, locationId: string, prefix: string): string {
+  const folders = [...node.folders]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([name, child]) => `<li><details>
+        <summary class="cursor-pointer py-1 text-sm">
+          <input class="checkbox checkbox-xs mr-2 align-middle" type="checkbox" data-folder-check>${escapeHtml(
+            name
+          )}/
+        </summary>
+        <ul class="border-l border-base-300 pl-4">${fileTreeHtml(
+          child,
+          locationId,
+          `${prefix}${name}/`
+        )}</ul>
+      </details></li>`
+    );
+  const files = node.files.sort().map((name) => {
+    const path = `${prefix}${name}`;
+    const value = locationId ? logicalFileReference(locationId, path) : path;
+    return `<li><label class="flex cursor-pointer items-center gap-2 py-1 text-sm">
+        <input class="checkbox checkbox-xs" type="checkbox" name="files" value="${escapeHtml(
+          value
+        )}">${escapeHtml(name)}
+      </label></li>`;
+  });
+  return [...folders, ...files].join("");
+}
+
+async function submitNewItem(data: FormData): Promise<void> {
+  if (!activeProcess) throw new Error("Open a board first");
   const studio = processModule(activeProcess.tags)?.mode === "studio";
   const itemId = await repository.createWorkItem(activeProcess.id, {
-    stageId: targetStage,
+    stageId: newItemStageId,
     title: String(data.get("title") ?? ""),
     description: String(data.get("description") ?? ""),
     owner: String(data.get("owner") ?? ""),
-    logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
+    logicalFiles: data.getAll("files").map(String)
   });
+  view = "board";
   await refresh();
   // A studio item cannot start until a person points it at a Git folder, and the board says
   // nothing about that until it is opened — so open it, on the step that is waiting.
@@ -7089,6 +7200,10 @@ document.addEventListener("click", async (event) => {
       await refresh();
     }
     if (action === "new-item-in-stage") await createItem(button.dataset.stage);
+    if (action === "cancel-new-item") {
+      view = "board";
+      render();
+    }
     if (action === "edit-item") {
       const item = items.find(({ id }) => id === button.dataset.id)!;
       const locations = await repository.listAvailableFileLocations(workspace.teamId);
@@ -7382,7 +7497,26 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+// A folder's checkbox sits inside its <summary>, where a plain click would also open the folder.
+// Taking over both actions keeps ticking a folder from collapsing the tree under it.
+app.addEventListener("click", (event) => {
+  const folder = (event.target as Element).closest<HTMLInputElement>("input[data-folder-check]");
+  const row = folder?.closest("li");
+  if (!folder || !row) return;
+  event.preventDefault();
+  folder.checked = !folder.checked;
+  for (const box of row.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) {
+    if (box !== folder) box.checked = folder.checked;
+  }
+});
+
 app.addEventListener("submit", (event) => {
+  const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
+  if (newItemForm) {
+    event.preventDefault();
+    void submitNewItem(new FormData(newItemForm)).catch(reportFailure);
+    return;
+  }
   const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
   if (definitionForm) {
     event.preventDefault();

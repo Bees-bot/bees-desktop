@@ -2230,6 +2230,58 @@ fn validate_directory(path: String) -> Result<String, String> {
     canonical_directory(&path).map(|path| path.to_string_lossy().into_owned())
 }
 
+/// Folders nobody picks a work-item input from, and that would dominate the walk if kept.
+const PICKER_SKIPPED: [&str; 3] = ["node_modules", "target", "dist"];
+const PICKER_LIMIT: usize = 5_000;
+
+/// Symlinks are skipped rather than followed: a link out of the folder would list files the
+/// picker cannot reference anyway, and a link back into it would loop.
+fn collect_picker_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        if files.len() >= PICKER_LIMIT {
+            return Ok(());
+        }
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || PICKER_SKIPPED.contains(&name.as_str()) {
+            continue;
+        }
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_picker_files(root, &entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(
+                entry
+                    .path()
+                    .strip_prefix(root)
+                    .map_err(|error| error.to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The file tree behind the work-item file picker: paths relative to a mapped folder, which is
+/// exactly the form a logical file reference takes. Capped at PICKER_LIMIT so a huge folder
+/// cannot hang the page — an unreadable subfolder fails the whole call, as with the other walks.
+#[tauri::command]
+fn list_location_files(path: String) -> Result<Vec<String>, String> {
+    let root = canonical_directory(&path)?;
+    let mut files = Vec::new();
+    collect_picker_files(&root, &root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
 /// Agents are JSON files in <teamRoot>/agents, so they ride whatever sync the team
 /// folder already has (Dropbox, iCloud, git) instead of a second sync channel.
 fn agents_directory(team_root: &str) -> Result<PathBuf, String> {
@@ -2758,6 +2810,7 @@ pub fn run() {
             db_execute,
             db_transaction,
             validate_directory,
+            list_location_files,
             list_agent_files,
             write_agent_file,
             write_team_skill,
