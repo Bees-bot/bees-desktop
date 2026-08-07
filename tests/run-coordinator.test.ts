@@ -177,6 +177,47 @@ describe("RunCoordinator", () => {
     );
   });
 
+  it("stages a project run's approved files and tells the agent where they landed", async () => {
+    const repository = {
+      createExecution: vi.fn().mockResolvedValue("run-project"),
+      getExecution: vi.fn().mockResolvedValue(null),
+      beginExecutionDelivery: vi.fn(),
+      updateExecution: vi.fn()
+    };
+    const workspaces = {
+      prepare: vi.fn(),
+      prepareProject: vi.fn(),
+      projectWorkspace: vi.fn().mockResolvedValue("/projects/app")
+    };
+    const runHost = host();
+
+    await coordinator(repository, workspaces, runHost).start({
+      item: {
+        id: "project-1",
+        title: "App",
+        description: "Requirements are in roteris.txt",
+        logicalFiles: ["roteris.txt"]
+      } as unknown as WorkItem,
+      agent: { id: "coder", config: { prompt: "Code." } } as unknown as Agent,
+      teamRoot: "/team",
+      stages: [],
+      projectWorkItemId: "project-1"
+    });
+
+    expect(workspaces.prepareProject).toHaveBeenCalledWith(
+      "/projects/app",
+      "/team",
+      ["roteris.txt"],
+      [],
+      "project-1"
+    );
+    expect(runHost.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("/workspace/.bees/inputs: roteris.txt")
+      })
+    );
+  });
+
   it("links a restart to the receipt it came from without touching that receipt", async () => {
     const repository = {
       createExecution: vi.fn().mockResolvedValue("run-new"),

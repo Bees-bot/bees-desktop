@@ -17,6 +17,7 @@ import { FOLLOW_UP_LIMIT, errorText } from "./domain.js";
 import type { LocalRepository } from "./repository.js";
 import type { TemporaryWorkspaceService } from "./workspaces.js";
 import {
+  PROJECT_INPUT_PREFIX,
   STATUS_OUTPUT,
   linkedLocationInputDirectory,
   validateCollectedOutputs
@@ -140,7 +141,8 @@ export function runPrompt({
   fileLocations = [],
   goalStage,
   goalEffect,
-  workerRoles = []
+  workerRoles = [],
+  projectWorkItemId
 }: RunRequest): string {
   if (message !== undefined) {
     const followUp = message.trim();
@@ -152,11 +154,18 @@ export function runPrompt({
   }
   const menu = stages.filter((stage) => stage.trim());
   const rejections = feedback.map((note) => note.trim()).filter(Boolean);
+  // A project run works in the repository itself, so its inputs are staged beside it rather
+  // than in the plain workspace layout. Either way the agent is told the folder, because a
+  // bare file name reads as "somewhere in this repository" and sends it looking for a file
+  // the repository never had.
+  const inputRoot = projectWorkItemId ? `/workspace/${PROJECT_INPUT_PREFIX}` : "/workspace/inputs";
   return [
     agent.config.prompt,
     `Work item: ${item.title}\n${item.description}`,
     parent ? `Parent goal: ${parent.title}\n${parent.description}` : "",
-    item.logicalFiles.length ? `Approved input files: ${item.logicalFiles.join(", ")}` : "",
+    item.logicalFiles.length
+      ? `Approved input files, staged in ${inputRoot}: ${item.logicalFiles.join(", ")}`
+      : "",
     workerRoles.length
       ? `Available worker roles:\n${workerRoles
           .map(({ role, purpose }) => `- ${role}: ${purpose}`)
@@ -185,7 +194,7 @@ export function runPrompt({
       ? `Linked inputs:\n${fileLocations
           .map(
             (location) =>
-              `- ${location.name}: /workspace/inputs/${linkedLocationInputDirectory(location)}`
+              `- ${location.name}: ${inputRoot}/${linkedLocationInputDirectory(location)}`
           )
           .join("\n")}`
       : "",
@@ -251,6 +260,15 @@ export class RunCoordinator {
               request.fileLocations
             )
           : await this.workspaces.prepare(executionId, request.teamRoot, request.item.logicalFiles);
+      if (request.projectWorkItemId && request.item.logicalFiles.length) {
+        await this.workspaces.prepareProject(
+          workspacePath,
+          request.teamRoot,
+          request.item.logicalFiles,
+          request.fileLocations ?? [],
+          request.projectWorkItemId
+        );
+      }
       const capabilities = request.capabilities ?? [];
       const grantedCapabilityRefs = capabilities
         .filter(({ kind, ref }) =>

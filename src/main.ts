@@ -5700,8 +5700,10 @@ async function prepareProcessAgentTurn(
       {
         type: "file_set",
         attributes: {
-          count: projectMode ? 1 : 0,
-          hasLinkedLocations: false,
+          count: item.logicalFiles.length + (projectMode ? 1 : 0),
+          hasLinkedLocations: item.logicalFiles.some(
+            (reference) => Boolean(parseLogicalFileReference(reference).locationId)
+          ),
           projectWorkspace: projectMode
         }
       },
@@ -5720,6 +5722,20 @@ async function prepareProcessAgentTurn(
  * A turn carrying `executionId` reopens that conversation instead of starting a cold one, so a
  * multi-round exchange keeps the repository analysis the model already paid for.
  */
+/** The linked locations an item's approved files point at, so a run can stage them. */
+async function referencedFileLocations(item: WorkItem): Promise<FileLocation[]> {
+  const referenced = new Set(
+    item.logicalFiles.flatMap((reference) => {
+      const locationId = parseLogicalFileReference(reference).locationId;
+      return locationId ? [locationId] : [];
+    })
+  );
+  if (!referenced.size) return [];
+  return (await repository.listAvailableFileLocations(workspace.teamId)).filter(({ id }) =>
+    referenced.has(id)
+  );
+}
+
 async function runProcessAgentTurns(
   item: WorkItem,
   turns: ProcessAgentTurn[],
@@ -5732,6 +5748,7 @@ async function runProcessAgentTurns(
   const prepared = await Promise.all(
     turns.map((turn) => prepareProcessAgentTurn(turn.role, item, projectMode))
   );
+  const fileLocations = await referencedFileLocations(item);
   await acquireClaim(item);
   // allSettled, not all: a rejected sibling must not leave the other run orphaned behind a
   // released claim. Every hand-over finishes before the first failure is reported.
@@ -5743,10 +5760,13 @@ async function runProcessAgentTurns(
         composition.capabilities.filter(({ kind }) => kind === "skill").map(({ ref }) => ref)
       );
       const outcome = await runCoordinator.start({
-        item: { ...item, description: turn.prompt, logicalFiles: [] },
+        // The item's approved files ride along: a brief that says "the requirements are in
+        // roteris.txt" is useless to an agent that was never handed the file.
+        item: { ...item, description: turn.prompt },
         agent,
         teamId: workspace.teamId,
         teamRoot,
+        fileLocations,
         ...composition,
         stages: [],
         manualProjection: true,
@@ -5902,15 +5922,7 @@ async function runItem(
   if (!continuation) await ensureKnowledgeConnection();
   await acquireClaim(item);
   try {
-    const referencedLocationIds = new Set(
-      item.logicalFiles.flatMap((reference) => {
-        const locationId = parseLogicalFileReference(reference).locationId;
-        return locationId ? [locationId] : [];
-      })
-    );
-    const fileLocations = (await repository.listAvailableFileLocations(workspace.teamId)).filter(
-      ({ id }) => referencedLocationIds.has(id)
-    );
+    const fileLocations = await referencedFileLocations(item);
     let composition = continuation
       ? { capabilities: [], mcpConnections: [], delegates: [] }
       : runComposition(runAgent);

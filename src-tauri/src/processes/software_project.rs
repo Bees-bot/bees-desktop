@@ -200,6 +200,34 @@ fn separate_from_team(worktree: &Path, team_root: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Where a project run's approved inputs are staged, relative to the worktree root. The agent
+/// sandbox cannot see outside the worktree, so the files have to live inside it.
+pub(crate) const PROJECT_INPUT_PREFIX: &str = ".bees/inputs";
+
+/// Keep the staged inputs out of the user's Git status, commits, and merges. Git resolves
+/// `info/exclude` to the shared common directory even from a linked worktree — a per-worktree
+/// exclude file is not read — so the pattern goes there, once, and is left alone afterwards.
+pub(crate) fn ignore_bees_directory(worktree: &Path) -> Result<(), String> {
+    let common = git(worktree, &["rev-parse", "--git-common-dir"])?;
+    let common = if Path::new(&common).is_absolute() {
+        PathBuf::from(common)
+    } else {
+        worktree.join(common)
+    };
+    let exclude = common.join("info").join("exclude");
+    let current = fs::read_to_string(&exclude).unwrap_or_default();
+    if current.lines().any(|line| line.trim() == "/.bees/") {
+        return Ok(());
+    }
+    let separator = if current.is_empty() || current.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    fs::create_dir_all(exclude.parent().unwrap_or(&common)).map_err(|error| error.to_string())?;
+    fs::write(&exclude, format!("{current}{separator}/.bees/\n")).map_err(|error| error.to_string())
+}
+
 pub(crate) fn canonical_project_workspace(
     database: &Database,
     work_item_id: &str,
@@ -740,6 +768,63 @@ mod tests {
             selected_project_kind(&root).unwrap(),
             SoftwareProjectKind::Existing
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn staged_inputs_stay_out_of_the_project_worktree_status() {
+        let root = std::env::temp_dir().join(format!(
+            "bees-software-project-inputs-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repository = root.join("repository");
+        let worktree = root.join("worktree");
+        fs::create_dir_all(&repository).unwrap();
+        git(&repository, &["init", "--initial-branch=main"]).unwrap();
+        git(
+            &repository,
+            &[
+                "-c",
+                "user.name=Bees",
+                "-c",
+                "user.email=local@bees.bot",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        )
+        .unwrap();
+        git(
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "bees/project/app",
+                &worktree.to_string_lossy(),
+                "main",
+            ],
+        )
+        .unwrap();
+
+        let inputs = worktree.join(PROJECT_INPUT_PREFIX);
+        fs::create_dir_all(&inputs).unwrap();
+        fs::write(inputs.join("roteris.txt"), "the requirements").unwrap();
+        assert!(!git(&worktree, &["status", "--short"]).unwrap().is_empty());
+
+        ignore_bees_directory(&worktree).unwrap();
+        // Idempotent: a second run must not stack duplicate patterns in the user's repository.
+        ignore_bees_directory(&worktree).unwrap();
+
+        assert_eq!(git(&worktree, &["status", "--short"]).unwrap(), "");
+        assert!(changed_paths(&worktree).unwrap().is_empty());
+        let exclude = fs::read_to_string(repository.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude.matches("/.bees/").count(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -2479,15 +2479,36 @@ fn create_workspace(app: tauri::AppHandle, execution_id: String) -> Result<Strin
 #[tauri::command]
 fn copy_input_files(
     app: tauri::AppHandle,
+    database: State<'_, Database>,
     team_root: String,
     workspace_root: String,
     logical_paths: Vec<String>,
     destination_prefix: String,
+    project_work_item_id: Option<String>,
 ) -> Result<Vec<String>, String> {
     let team_root = canonical_directory(&team_root)?;
-    let workspace_root = canonical_workspace(&app, &workspace_root)?;
-    let input_root =
-        fs::canonicalize(workspace_root.join("inputs")).map_err(|error| error.to_string())?;
+    // A Software Project run works in the user's own worktree, which is not Bees run data and
+    // has no inputs/ folder. Its inputs go to a Bees-owned folder Git is told to ignore.
+    let (workspace_root, input_root) = match project_work_item_id {
+        Some(work_item_id) => {
+            let worktree = processes::software_project::canonical_project_workspace(
+                &database,
+                &work_item_id,
+                &workspace_root,
+            )?;
+            let inputs = worktree.join(processes::software_project::PROJECT_INPUT_PREFIX);
+            fs::create_dir_all(&inputs).map_err(|error| error.to_string())?;
+            processes::software_project::ignore_bees_directory(&worktree)?;
+            let inputs = fs::canonicalize(inputs).map_err(|error| error.to_string())?;
+            (worktree, inputs)
+        }
+        None => {
+            let workspace = canonical_workspace(&app, &workspace_root)?;
+            let inputs =
+                fs::canonicalize(workspace.join("inputs")).map_err(|error| error.to_string())?;
+            (workspace, inputs)
+        }
+    };
     if !input_root.starts_with(&workspace_root) {
         return Err("workspace input folder escapes Bees run data".into());
     }

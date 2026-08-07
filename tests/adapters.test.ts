@@ -61,13 +61,47 @@ describe("local adapters", () => {
       }]
     );
 
-    expect(copyInputs).toHaveBeenNthCalledWith(1, "/team", "/app/runs/run-1", ["brief.md"]);
+    expect(copyInputs).toHaveBeenNthCalledWith(
+      1,
+      "/team",
+      "/app/runs/run-1",
+      ["brief.md"],
+      "",
+      undefined
+    );
     expect(copyInputs).toHaveBeenNthCalledWith(
       2,
       "/drive",
       "/app/runs/run-1",
       ["Reports/q2.pdf"],
-      "locations/company-drive-123e4567"
+      "locations/company-drive-123e4567",
+      undefined
+    );
+  });
+
+  it("stages a project run's inputs inside the worktree, under the Bees folder", async () => {
+    const copyInputs = vi.fn().mockResolvedValue([]);
+    const native = {
+      validateDirectory: vi.fn(async (path: string) => path),
+      create: vi.fn(),
+      copyInputs
+    } as unknown as WorkspaceNativePort;
+
+    await new TemporaryWorkspaceService(native).prepareProject(
+      "/projects/app",
+      "/team",
+      ["roteris.txt"],
+      [],
+      "project-1"
+    );
+
+    expect(native.create).not.toHaveBeenCalled();
+    expect(copyInputs).toHaveBeenCalledWith(
+      "/team",
+      "/projects/app",
+      ["roteris.txt"],
+      "",
+      "project-1"
     );
   });
 

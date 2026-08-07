@@ -17,7 +17,8 @@ export interface WorkspaceNativePort {
     teamRoot: string,
     workspaceRoot: string,
     paths: string[],
-    destinationPrefix?: string
+    destinationPrefix?: string,
+    projectWorkItemId?: string
   ): Promise<string[]>;
   writeOutput(workspaceRoot: string, output: string, contents: string): Promise<string>;
   collectOutputs(workspaceRoot: string): Promise<string[]>;
@@ -42,6 +43,9 @@ export interface WorkspaceNativePort {
  * outputs so it never shows up as a document to approve.
  */
 export const STATUS_OUTPUT = ".status";
+
+/** Where a Software Project run finds its approved inputs, relative to the worktree root. */
+export const PROJECT_INPUT_PREFIX = ".bees/inputs";
 
 export interface OutputPreview {
   before: string | null;
@@ -74,13 +78,15 @@ export class TauriWorkspacePort implements WorkspaceNativePort {
     teamRoot: string,
     workspaceRoot: string,
     logicalPaths: string[],
-    destinationPrefix = ""
+    destinationPrefix = "",
+    projectWorkItemId?: string
   ): Promise<string[]> {
     return invoke("copy_input_files", {
       teamRoot,
       workspaceRoot,
       logicalPaths,
-      destinationPrefix
+      destinationPrefix,
+      projectWorkItemId
     });
   }
 
@@ -151,15 +157,44 @@ export class TemporaryWorkspaceService {
     locations: FileLocation[] = []
   ): Promise<string> {
     const validatedRoot = await this.native.validateDirectory(teamRoot);
+    const workspace = await this.native.create(executionId);
+    await this.copyInputs(workspace, validatedRoot, inputs, locations);
+    return workspace;
+  }
+
+  /**
+   * The same approved inputs, staged into a Software Project worktree. A project run works in
+   * the user's repository, so the files land under `.bees/inputs` — inside the agent's sandbox,
+   * which cannot see past the worktree, and outside what Git reports as project changes.
+   */
+  async prepareProject(
+    workspace: string,
+    teamRoot: string,
+    inputs: string[],
+    locations: FileLocation[],
+    projectWorkItemId: string
+  ): Promise<void> {
+    const validatedRoot = await this.native.validateDirectory(teamRoot);
+    await this.copyInputs(workspace, validatedRoot, inputs, locations, projectWorkItemId);
+  }
+
+  private async copyInputs(
+    workspace: string,
+    teamRoot: string,
+    inputs: string[],
+    locations: FileLocation[],
+    projectWorkItemId?: string
+  ): Promise<void> {
     const groups = new Map<string, string[]>();
     for (const value of logicalFileReferences(inputs)) {
       const reference = parseLogicalFileReference(value);
       const key = reference.locationId ?? "";
       groups.set(key, [...(groups.get(key) ?? []), reference.path]);
     }
-    const workspace = await this.native.create(executionId);
     const primary = groups.get("") ?? [];
-    if (primary.length) await this.native.copyInputs(validatedRoot, workspace, primary);
+    if (primary.length) {
+      await this.native.copyInputs(teamRoot, workspace, primary, "", projectWorkItemId);
+    }
     for (const [locationId, paths] of groups) {
       if (!locationId) continue;
       const location = locations.find(({ id }) => id === locationId);
@@ -172,9 +207,14 @@ export class TemporaryWorkspaceService {
       const root = await this.native.validateDirectory(location.localPath).catch(() => {
         throw new Error(`Linked location is unavailable: ${location.name}`);
       });
-      await this.native.copyInputs(root, workspace, paths, linkedLocationInputDirectory(location));
+      await this.native.copyInputs(
+        root,
+        workspace,
+        paths,
+        linkedLocationInputDirectory(location),
+        projectWorkItemId
+      );
     }
-    return workspace;
   }
 
   collect(workspace: string): Promise<string[]> {
