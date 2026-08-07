@@ -142,7 +142,12 @@ interface CliSpec {
 function claudeSettings(workspace: string): string {
   return JSON.stringify({
     permissions: {
-      disableBypassPermissionsMode: "disable"
+      disableBypassPermissionsMode: "disable",
+      // Nobody is watching a run, so a prompt is a dead end: the CLI reports it as a
+      // request for approval and the run settles with no output. The sandbox below is the
+      // real boundary — it is what keeps writes inside the workspace — so file edits are
+      // allowed outright instead of leaning on the permission mode to wave them through.
+      allow: ["Write", "Edit"]
     },
     sandbox: {
       enabled: true,
@@ -151,7 +156,9 @@ function claudeSettings(workspace: string): string {
       filesystem: {
         // Block the user's home; re-open the run workspace if it lives underneath it.
         denyRead: ["~/"],
-        allowRead: [workspace]
+        allowRead: [workspace],
+        // Writable without relying on the sandbox's default working-directory rule.
+        allowWrite: [workspace]
       },
       network: {
         allowedDomains: [],

@@ -159,7 +159,7 @@ import {
   parseKnowledgePolicy,
   type KnowledgePolicy
 } from "./knowledge.js";
-import { CLI_TOOLS, detectCliTools } from "./cli-tools.js";
+import { CLI_TOOLS, detectCliTools, setCliToolPath, type CliToolPath } from "./cli-tools.js";
 import {
   completedGoalsReadyForReview,
   goalPlanStages,
@@ -3763,21 +3763,35 @@ async function prefsLocalModelsContent(): Promise<string> {
  * found them, and the model an agent names to run through one.
  */
 async function cliToolsSection(): Promise<string> {
-  const installed = await detectCliTools().catch(() => ({}) as Record<string, string>);
+  const installed = await detectCliTools().catch(() => ({}) as Record<string, CliToolPath>);
   const rows = CLI_TOOLS.map((tool) => {
-    const path = installed[tool.id];
+    const found = installed[tool.id];
     return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
       <div class="min-w-0">
         <span class="block truncate font-semibold">${escapeHtml(tool.label)}</span>
         <span class="text-xs text-base-content/50">${
-          path
-            ? `agent model <code>${escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${escapeHtml(path)}</span>`
+          found
+            ? `agent model <code>${escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${escapeHtml(found.path)}</span>`
             : `Not installed — <button class="link" data-action="open-external" data-url="${escapeHtml(
                 tool.installUrl
-              )}">install it</button>, then reopen this page`
+              )}">install it</button>, or point Bees at it below`
         }</span>
       </div>
-      <span class="badge badge-sm ${path ? "badge-success" : "badge-ghost"}">${path ? "Found" : "Missing"}</span>
+      <div class="flex shrink-0 items-center gap-1">
+        <span class="badge badge-sm ${found ? "badge-success" : "badge-ghost"}">${
+          found ? (found.custom ? "Chosen" : "Found") : "Missing"
+        }</span>
+        <button class="btn btn-ghost btn-xs" data-action="pick-cli-tool" data-tool="${escapeHtml(
+          tool.id
+        )}">Choose…</button>
+        ${
+          found?.custom
+            ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${escapeHtml(
+                tool.id
+              )}">Use detected</button>`
+            : ""
+        }
+      </div>
     </li>`;
   }).join("");
   return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
@@ -6813,6 +6827,17 @@ document.addEventListener("click", async (event) => {
       showNotice(warning ?? "MCP connection removed", warning ? "error" : "success");
       return;
     }
+    if (action === "pick-cli-tool" || action === "clear-cli-tool") {
+      // No extension filter: these CLIs ship as bare executables on macOS and Linux.
+      const picked = action === "clear-cli-tool" ? "" : await open({ multiple: false });
+      if (typeof picked !== "string") return;
+      await setCliToolPath(button.dataset.tool ?? "", picked);
+      // The path reaches the CLI providers as an environment variable set at launch.
+      await flueProjectPort.restart();
+      await refresh();
+      showNotice(picked ? "Command-line agent updated" : "Back to the detected CLI", "success");
+      return;
+    }
     if (action === "browse-local-model") {
       const selected = await open({
         multiple: false,
@@ -7614,7 +7639,7 @@ async function refreshAssistantCatalog(): Promise<void> {
   const [local, aiConnections, cliInstalled] = await Promise.all([
     localModels.list().catch(() => []),
     listAiConnections(repository, aiConnectionScope()).catch(() => []),
-    detectCliTools().catch(() => ({} as Record<string, string>))
+    detectCliTools().catch(() => ({} as Record<string, CliToolPath>))
   ]);
   assistantCatalog = modelCatalog({
     local,

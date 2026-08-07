@@ -196,14 +196,21 @@ describe("CLI-backed providers", () => {
     ).toEqual(["--setting-sources", ""]);
     const claudeSettings = JSON.parse(claudeArgs[claudeArgs.indexOf("--settings") + 1]!) as {
       sandbox: Record<string, unknown>;
+      permissions: Record<string, unknown>;
     };
     expect(claudeSettings.sandbox).toMatchObject({
       enabled: true,
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
-      filesystem: { denyRead: ["~/"], allowRead: [realpathSync(root)] },
+      filesystem: {
+        denyRead: ["~/"],
+        allowRead: [realpathSync(root)],
+        allowWrite: [realpathSync(root)]
+      },
       network: { allowedDomains: [], strictAllowlist: true }
     });
+    // Writing an output must never come back as a request for approval nobody can answer.
+    expect(claudeSettings.permissions).toMatchObject({ allow: ["Write", "Edit"] });
     expect(claudeLaunch).toMatchObject({ secret: null, ssh: null, scrub: "1" });
 
     const codexLaunch = await launchFor("codex-cli", "high");

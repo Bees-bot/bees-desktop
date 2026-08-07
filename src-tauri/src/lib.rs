@@ -1204,9 +1204,10 @@ fn ensure_flue_runtime_blocking(
         );
     // A GUI app's PATH does not include the per-user bin dirs the CLIs install into, so
     // resolve them here and hand the runtime absolute paths.
-    for (variable, name) in [("BEES_CLAUDE_CLI", "claude"), ("BEES_CODEX_CLI", "codex")] {
-        if let Some(path) = resolve_cli(name) {
-            command.env(variable, path);
+    let overrides = usable_cli_overrides(app);
+    for (id, name, variable) in CLI_TOOLS {
+        if let Some(tool) = cli_tool_path(&overrides, id, name) {
+            command.env(variable, tool.path);
         }
     }
     let log = open_runtime_log(app)?;
@@ -1388,13 +1389,100 @@ fn system_capacity(app: tauri::AppHandle) -> Result<SystemCapacity, String> {
     })
 }
 
+/// The agent CLIs Bees can run: tool id, the command name on PATH, and the environment
+/// variable the Flue runtime reads the binary's path from.
+const CLI_TOOLS: [(&str, &str, &str); 2] = [
+    ("claude", "claude", "BEES_CLAUDE_CLI"),
+    ("codex", "codex", "BEES_CODEX_CLI"),
+];
+
+/// A CLI the app will run: where it is, and whether the user picked it themselves.
+#[derive(Serialize)]
+struct CliToolPath {
+    path: String,
+    custom: bool,
+}
+
+fn cli_overrides_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("cli-tools.json"))
+        .map_err(|error| error.to_string())
+}
+
+/// Binaries the user picked by hand, keyed by tool id, exactly as stored.
+fn stored_cli_overrides(app: &tauri::AppHandle) -> BTreeMap<String, String> {
+    cli_overrides_path(app)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// The same picks, minus any whose file is gone: a binary that was moved or uninstalled
+/// falls back to PATH detection instead of failing every run that names the tool.
+fn usable_cli_overrides(app: &tauri::AppHandle) -> BTreeMap<String, String> {
+    drop_missing_binaries(stored_cli_overrides(app))
+}
+
+fn drop_missing_binaries(overrides: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    overrides
+        .into_iter()
+        .filter(|(_, path)| Path::new(path).is_file())
+        .collect()
+}
+
+/// The binary a CLI-backed provider runs: the user's own pick first, else what is on PATH.
+fn cli_tool_path(
+    overrides: &BTreeMap<String, String>,
+    id: &str,
+    name: &str,
+) -> Option<CliToolPath> {
+    match overrides.get(id) {
+        Some(path) => Some(CliToolPath {
+            path: path.clone(),
+            custom: true,
+        }),
+        None => resolve_cli(name).map(|path| CliToolPath {
+            path,
+            custom: false,
+        }),
+    }
+}
+
 /// Which agent CLIs this computer has, for the Preferences → Cloud connections list.
 #[tauri::command]
-fn detect_cli_tools() -> BTreeMap<String, String> {
-    [("claude", "claude"), ("codex", "codex")]
+fn detect_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
+    let overrides = usable_cli_overrides(&app);
+    CLI_TOOLS
         .into_iter()
-        .filter_map(|(key, name)| resolve_cli(name).map(|path| (key.to_string(), path)))
+        .filter_map(|(id, name, _)| {
+            cli_tool_path(&overrides, id, name).map(|tool| (id.to_string(), tool))
+        })
         .collect()
+}
+
+/// Point a CLI-backed provider at a binary the user browsed to. An empty path drops the
+/// pick and goes back to PATH detection.
+#[tauri::command]
+fn set_cli_tool_path(app: tauri::AppHandle, tool: String, path: String) -> Result<(), String> {
+    if !CLI_TOOLS.iter().any(|(id, _, _)| *id == tool) {
+        return Err(format!("{tool} is not a command-line agent"));
+    }
+    // Read what is stored rather than what is usable, so another tool's pick is not dropped
+    // here only because its binary happens to be missing right now.
+    let mut overrides = stored_cli_overrides(&app);
+    let path = path.trim().to_string();
+    if path.is_empty() {
+        overrides.remove(&tool);
+    } else {
+        if !Path::new(&path).is_file() {
+            return Err(format!("{path} is not a file on this computer"));
+        }
+        overrides.insert(tool, path);
+    }
+    let content = serde_json::to_vec(&overrides).map_err(|error| error.to_string())?;
+    write_atomic(&cli_overrides_path(&app)?, &content)
 }
 
 #[tauri::command]
@@ -2601,6 +2689,7 @@ pub fn run() {
             ensure_knowledge_worker,
             restart_flue_runtime,
             detect_cli_tools,
+            set_cli_tool_path,
             system_capacity,
             oauth_start,
             oauth_await,
@@ -2659,6 +2748,28 @@ mod tests {
             .unwrap()
             .contains("Use fewer words"));
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_chosen_cli_wins_until_its_binary_disappears() {
+        let binary = std::env::temp_dir().join(format!(
+            "bees-cli-{}",
+            loopback_token().expect("random name")
+        ));
+        fs::write(&binary, b"#!/bin/sh\n").expect("binary");
+        let chosen = BTreeMap::from([
+            ("claude".to_string(), binary.display().to_string()),
+            ("codex".to_string(), "/nowhere/codex".to_string()),
+        ]);
+
+        let usable = drop_missing_binaries(chosen);
+
+        let claude = cli_tool_path(&usable, "claude", "claude").expect("chosen binary");
+        assert_eq!(claude.path, binary.display().to_string());
+        assert!(claude.custom);
+        // The missing pick is ignored, so this falls through to PATH detection.
+        assert!(cli_tool_path(&usable, "codex", "codex").is_none_or(|tool| !tool.custom));
+        fs::remove_file(binary).expect("cleanup");
     }
 
     #[test]

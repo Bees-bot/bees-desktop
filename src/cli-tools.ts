@@ -38,7 +38,18 @@ export function isCliProvider(provider: string | undefined): boolean {
   return CLI_TOOLS.some((tool) => tool.provider === provider);
 }
 
-/** Absolute paths of the CLIs found on this computer, keyed by tool id. Missing = not installed. */
-export function detectCliTools(): Promise<Record<string, string>> {
+export interface CliToolPath {
+  path: string;
+  /** The user browsed to this binary; false means it was found on PATH. */
+  custom: boolean;
+}
+
+/** The CLIs this computer can run, keyed by tool id. Missing = not installed and not picked. */
+export function detectCliTools(): Promise<Record<string, CliToolPath>> {
   return invoke("detect_cli_tools");
+}
+
+/** Point a tool at a binary of the user's choosing; an empty path goes back to detection. */
+export function setCliToolPath(id: string, path: string): Promise<void> {
+  return invoke("set_cli_tool_path", { tool: id, path });
 }

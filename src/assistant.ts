@@ -541,7 +541,8 @@ export function sameChoice(left: ModelChoice, right: ModelChoice): boolean {
 export function modelCatalog(input: {
   local: LocalModelView[];
   connections: AiConnection[];
-  cliInstalled: Record<string, string>;
+  /** Keyed by CLI tool id; only presence matters here, not what the value describes. */
+  cliInstalled: Record<string, unknown>;
   extras: ModelChoice[];
 }): ModelOption[] {
   const options: ModelOption[] = [];
