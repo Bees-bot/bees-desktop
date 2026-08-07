@@ -172,7 +172,11 @@ import {
 import {
   PROCESS_LIBRARY,
   processLibraryEntry,
+  libraryRename,
   processModule,
+  processModuleById,
+  processModuleTag,
+  processModuleTagForName,
   starterProcessModule,
   type ProcessLibraryEntry,
   type ProcessStudio
@@ -1196,6 +1200,10 @@ async function loadDashboardsByTeam(): Promise<void> {
       repository.listProcesses(team.id),
       repository.listTeamWorkItems(team.id)
     ]);
+    // Before anything reads them: the left menu renders straight out of this map, so the repairs
+    // have to land here rather than on the active team's copy loaded further down.
+    teamProcesses = await backfillProcessTags(teamProcesses);
+    teamBoards = await backfillBoardNames(teamBoards, teamProcesses, team.id);
     const undashboarded = teamProcesses.filter(
       ({ id }) => !teamBoards.some(({ processId }) => processId === id)
     );
@@ -1239,7 +1247,7 @@ function processNavItem(teamId: string, board: Board, process: Process, count: n
   const history = view === "process-runs" && configProcessId === process.id;
   const scheduled = view === "schedules" && configProcessId === process.id;
   const running = runningProcesses.has(process.id);
-  const studio = processModule(process.name)?.mode === "studio";
+  const studio = processModule(process.tags)?.mode === "studio";
   const icon = (action: string, label: string, svg: string, extra = ""): string =>
     `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${
       process.id
@@ -1251,9 +1259,8 @@ function processNavItem(teamId: string, board: Board, process: Process, count: n
         running ? "bg-success/20 text-success" : "bg-secondary/15 text-secondary"
       }" title="${running ? "Running" : "Stopped"}">P</span>
       <span class="truncate">${escapeHtml(process.name)}</span>
-      ${studio ? '<span class="badge badge-primary badge-xs ml-auto">Studio</span>' : ""}
       ${
-        count && !studio
+        count
           ? `<span class="badge badge-ghost badge-xs ml-auto" title="${count} open task${
               count === 1 ? "" : "s"
             }">${count}</span>`
@@ -1410,6 +1417,67 @@ function renderPrefsButton(): void {
     "beforeend",
     `<span class="invite-badge badge badge-warning badge-xs absolute -right-1 -top-1">${pendingInvitations.length}</span>`
   );
+}
+
+/**
+ * Two one-time repairs on load. Processes created before tags existed carry no module tag, so
+ * their behaviour would be lost: match those by the only handle they have — the name they were
+ * installed under — and write the tag. Then bring any row still named after an older release of
+ * its module up to the current library name. A process a team renamed itself keeps that name, and
+ * one renamed before tags shipped stays untagged; re-adding it from the library is the way back.
+ */
+async function backfillProcessTags(loaded: Process[]): Promise<Process[]> {
+  const patched = new Map<string, Process>();
+  for (const process of loaded) {
+    const tag = process.tags[0] ?? processModuleTagForName(process.name);
+    const module = tag ? processModule([tag]) : undefined;
+    if (!tag || !module) continue;
+    if (!process.tags.length) await repository.setTags("process", process.id, [tag]);
+    const renamed = libraryRename(
+      process.name,
+      module.legacyNames ?? [],
+      module.definition.name
+    );
+    if (renamed) {
+      await repository.updateProcess(process.id, { name: renamed, description: process.description });
+    }
+    if (!process.tags.length || renamed) {
+      patched.set(process.id, { ...process, tags: [tag], name: renamed ?? process.name });
+    }
+  }
+  return patched.size ? loaded.map((process) => patched.get(process.id) ?? process) : loaded;
+}
+
+/** The board half of the same repair: a dashboard still named after an older release follows it. */
+async function backfillBoardNames(
+  loaded: Board[],
+  known: Process[],
+  teamId: string
+): Promise<Board[]> {
+  const renamed = new Map<string, string>();
+  for (const board of loaded) {
+    const process = known.find(({ id }) => id === board.processId);
+    const module = process && processModule(process.tags);
+    if (!module) continue;
+    const current = libraryRename(
+      board.name,
+      module.legacyBoardNames ?? [],
+      module.definition.boardName
+    );
+    if (!current) continue;
+    await repository.updateBoard(board.id, teamId, {
+      name: current,
+      processId: board.processId,
+      stageIds: board.stageIds,
+      filters: board.filters
+    });
+    renamed.set(board.id, current);
+  }
+  return renamed.size
+    ? loaded.map((board) =>
+        renamed.has(board.id) ? { ...board, name: renamed.get(board.id)! } : board
+      )
+    : loaded;
 }
 
 async function refresh(): Promise<void> {
@@ -1660,7 +1728,7 @@ async function renderWorkItemDetail(): Promise<void> {
   setHeader(item.title, currentTeam()?.name);
   const runs = executions.filter(({ workItemId }) => workItemId === item.id);
   const process = processes.find(({ id }) => id === item.processId);
-  const studio = process ? processStudios.find((candidate) => candidate.matches(process.name)) : null;
+  const studio = process ? processStudios.find((candidate) => candidate.matches(process)) : null;
   if (process && studio) {
     const content = await studio.render(item, process, runs);
     if (view !== "item" || activeItemId !== item.id) return;
@@ -1747,7 +1815,7 @@ function renderBoard(): void {
     return;
   }
   const stages = activeProcess.stages.filter(({ id }) => activeBoard?.stageIds.includes(id));
-  const projectStudio = processModule(activeProcess.name)?.mode === "studio";
+  const projectStudio = processModule(activeProcess.tags)?.mode === "studio";
   const running =
     projectStudio || runningProcesses.has(activeProcess.id);
   const filters = activeBoard.filters;
@@ -1878,33 +1946,33 @@ function processAgents(process: Process): Agent[] {
 function renderProcessEditor(): void {
   const process = processes.find(({ id }) => id === configProcessId) ?? null;
   setHeader(process ? process.name : "New process", currentTeam()?.name);
-  const definition = `<form class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm" data-process-form>
-    <div class="grid gap-4 lg:grid-cols-3">
-      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Name</span>
-        <input class="input input-bordered" name="name" value="${escapeHtml(process?.name ?? "")}"
+  const definition = `<form class="min-w-0 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm" data-process-form>
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="form-control grid min-w-0 flex-1 basis-56 gap-1.5"><span class="label-text text-sm font-semibold">Name</span>
+        <input class="input input-bordered w-full" name="name" value="${escapeHtml(process?.name ?? "")}"
           placeholder="Support triage" required></label>
-      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
-        <input class="input input-bordered" name="description" value="${escapeHtml(process?.description ?? "")}"></label>
-      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
-        <input class="input input-bordered" name="stages" value="${escapeHtml(
-          process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done"
-        )}" required>
-        <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
+      <label class="form-control grid min-w-0 flex-[2] basis-72 gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
+        <input class="input input-bordered w-full" name="description" value="${escapeHtml(process?.description ?? "")}"></label>
+      <div class="ml-auto flex shrink-0 items-center gap-2">
+        ${
+          process
+            ? `${processStatusButton(process.id)}${actionIconButton(
+                "archive-process",
+                `Archive ${process.name}`,
+                ACTION_ICONS.archive,
+                process.id,
+                "btn-ghost text-error"
+              )}`
+            : ""
+        }
+        <button class="btn btn-primary" type="submit">${process ? "Save process" : "Create process"}</button>
+      </div>
     </div>
-    <div class="mt-4 flex items-center justify-end gap-2">
-      ${
-        process
-          ? `${processStatusButton(process.id)}${actionIconButton(
-              "archive-process",
-              `Archive ${process.name}`,
-              ACTION_ICONS.archive,
-              process.id,
-              "btn-ghost text-error"
-            )}`
-          : ""
-      }
-      <button class="btn btn-primary" type="submit">${process ? "Save process" : "Create process"}</button>
-    </div>
+    <label class="form-control mt-4 grid min-w-0 gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
+      <input class="input input-bordered w-full" name="stages" value="${escapeHtml(
+        process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done"
+      )}" required>
+      <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
   </form>`;
   if (!process) {
     swap(`<div class="grid gap-4">${definition}
@@ -1916,7 +1984,7 @@ function renderProcessEditor(): void {
   const unassigned = agents.filter(({ triggerStageId }) => !triggerStageId);
   const selectable = [...own, ...unassigned];
   if (!selectable.some(({ id }) => id === configAgentId)) configAgentId = selectable[0]?.id ?? "";
-  const studio = processModule(process.name)?.mode === "studio";
+  const studio = processModule(process.tags)?.mode === "studio";
   const card = (agent: Agent): string => {
     const model = agentEditorFields(agent).find(({ name }) => name === "model");
     const eligibility = eligibilityForAgent(agent);
@@ -2014,25 +2082,28 @@ function renderProcessEditor(): void {
         .map((step) => {
           const group = fields.filter((field) => field.step === step);
           if (!group.length) return "";
-          return `<div class="grid gap-4">
-            <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/45">${step}</h4>
-            ${group
+          // Collapsed sections still submit their inputs, so `scopedFormData` reads them either way.
+          return `<details class="min-w-0 rounded-box border border-base-300 p-4" ${
+            step === "basics" ? "open" : ""
+          }>
+            <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-base-content/45">${step}</summary>
+            <div class="mt-4 grid min-w-0 gap-4">${group
               .map((field) => editorFieldHtml({ ...field, name: `${agent.id}:${field.name}` }))
-              .join("")}
-          </div>`;
+              .join("")}</div>
+          </details>`;
         })
         .join("");
-      return `<section class="grid gap-5 p-5 lg:grid-cols-3" data-agent-pane="${escapeHtml(agent.id)}" ${
+      return `<section class="grid min-w-0 gap-3 p-5" data-agent-pane="${escapeHtml(agent.id)}" ${
         agent.id === configAgentId ? "" : "hidden"
       }>
-        <h3 class="font-bold lg:col-span-3">${escapeHtml(agent.name || "Untitled agent")}</h3>
+        <h3 class="font-bold">${escapeHtml(agent.name || "Untitled agent")}</h3>
         ${sections}
       </section>`;
     })
     .join("");
-  swap(`<div class="grid gap-4">
+  swap(`<div class="grid min-w-0 gap-4">
     ${definition}
-    <form data-process-agents>
+    <form class="min-w-0" data-process-agents>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 p-4">
           <div><h3 class="font-bold">Agents by status</h3>
@@ -2104,7 +2175,7 @@ async function saveProcessAgents(form: HTMLFormElement, notify = true): Promise<
     return {
       name,
       triggerStageId,
-      exempt: Boolean(context && processModule(context.process.name)?.mode === "studio")
+      exempt: Boolean(context && processModule(context.process.tags)?.mode === "studio")
     };
   };
   const conflict = firstTriggerConflict([
@@ -2203,7 +2274,7 @@ function renderProcessRuns(): void {
           : '<p class="p-8 text-center text-sm text-base-content/50">This process has not run yet.</p>'
       }
     </section>
-    <section class="grid gap-4">${open ? processRunDetail(process, open) : ""}</section>
+    <section class="grid min-w-0 gap-4">${open ? processRunDetail(process, open) : ""}</section>
   </div>`);
 }
 
@@ -2362,23 +2433,37 @@ function renderProcessLibrary(): void {
 
 async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
   const allProcesses = await repository.listProcesses(workspace.teamId, true);
-  let process = allProcesses.find(({ name }) => name.toLowerCase() === template.name.toLowerCase());
-  if (process && !process.archivedAt) throw new Error(`${template.name} is already in this team`);
+  const tag = processModuleTag(template.id);
+  // The tag finds an install the team has since renamed; the name still finds one from a build
+  // that predates tags, which the backfill has not reached because it skips archived processes.
+  let process =
+    allProcesses.find((entry) => entry.tags.includes(tag)) ??
+    allProcesses.find(({ name }) => name.toLowerCase() === template.name.toLowerCase());
+  if (process && !process.archivedAt) {
+    throw new Error(`${process.name} is already in this team`);
+  }
+  let processId: string;
   if (process?.archivedAt) {
     await repository.restoreProcess(process.id);
+    await repository.setTags("process", process.id, [tag]);
+    // Adding from the library is a fresh install, so the restored row takes the library's current
+    // name. Without this it keeps whatever it was called when it was archived.
+    await repository.updateProcess(process.id, {
+      name: template.name,
+      description: template.description
+    });
+    processId = process.id;
   } else {
-    const id = await repository.createProcess(workspace.teamId, {
+    processId = await repository.createProcess(workspace.teamId, {
       name: template.name,
       description: template.description,
-      stages: [...template.stages]
+      stages: [...template.stages],
+      tags: [tag]
     });
-    process = (await repository.listProcesses(workspace.teamId)).find((entry) => entry.id === id);
   }
-  if (!process) {
-    process = (await repository.listProcesses(workspace.teamId)).find(
-      ({ name }) => name.toLowerCase() === template.name.toLowerCase()
-    );
-  }
+  process = (await repository.listProcesses(workspace.teamId)).find(
+    (entry) => entry.id === processId
+  );
   if (!process) throw new Error(`Could not add ${template.name}`);
 
   const teamRoot = await requireTeamRoot();
@@ -2483,7 +2568,7 @@ async function addLibraryProcess(templateId: string): Promise<void> {
   if (!data) return;
 
   const process = await installLibraryProcess(template);
-  const module = processModule(template.name);
+  const module = processModuleById(template.id);
   if (module?.starter) {
     await repository.setSetting(`${template.id}_workflow_seeded_${workspace.teamId}`, true);
   }
@@ -5060,7 +5145,7 @@ function projectToolsByGoalEffect(
 
 function processStateBadge(processId: string): string {
   const process = processes.find(({ id }) => id === processId);
-  if (process && processModule(process.name)?.mode === "studio") {
+  if (process && processModule(process.tags)?.mode === "studio") {
     return '<span class="badge badge-primary badge-sm">Studio</span>';
   }
   return runningProcesses.has(processId)
@@ -5070,9 +5155,9 @@ function processStateBadge(processId: string): string {
 
 function processStatusButton(processId: string): string {
   const process = processes.find(({ id }) => id === processId);
-  if (process && processModule(process.name)?.mode === "studio") {
-    return `<button class="btn btn-ghost btn-sm" disabled title="Software projects run from their Studio">Studio</button>`;
-  }
+  // ponytail: studio processes have no process-level run, so the footer shows nothing here.
+  // The board header carries the explanation, where people look for Run.
+  if (process && processModule(process.tags)?.mode === "studio") return "";
   const running = runningProcesses.has(processId);
   return actionIconButton(
     running ? "stop-process" : "start-process",
@@ -5085,7 +5170,7 @@ function processStatusButton(processId: string): string {
 
 function processRunButtons(processId: string, size: string): string {
   const process = processes.find(({ id }) => id === processId);
-  if (process && processModule(process.name)?.mode === "studio") {
+  if (process && processModule(process.tags)?.mode === "studio") {
     return `<button class="btn btn-ghost ${size}" disabled>Run from Project Studio</button>`;
   }
   const running = runningProcesses.has(processId);
@@ -5103,8 +5188,8 @@ function processRunButtons(processId: string, size: string): string {
  */
 async function setProcessRunning(processId: string, running: boolean): Promise<void> {
   const process = processes.find(({ id }) => id === processId);
-  if (running && process && processModule(process.name)?.mode === "studio") {
-    throw new Error("Software projects run from the item's Project Studio");
+  if (running && process && processModule(process.tags)?.mode === "studio") {
+    throw new Error("Code projects run from the item's Studio");
   }
   if (running) {
     runningProcesses.add(processId);

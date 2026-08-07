@@ -16,6 +16,8 @@ import type { ProcessModule } from "../types.js";
 
 export const softwareProjectProcess = {
   mode: "studio",
+  legacyNames: ["Software Project"],
+  legacyBoardNames: ["Software Projects"],
   definition: {
     id: SOFTWARE_PROJECT_PROCESS_ID,
     name: SOFTWARE_PROJECT_PROCESS_NAME,

@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS processes (
   updated_at TEXT NOT NULL
 );
 
+-- Free-form labels on any row, so identity never has to ride on an editable display name.
+-- `entity` is the table the id belongs to ('process' today).
+CREATE TABLE IF NOT EXISTS tags (
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (entity, entity_id, tag)
+);
+
 CREATE TABLE IF NOT EXISTS stages (
   id TEXT PRIMARY KEY,
   process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,

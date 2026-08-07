@@ -114,6 +114,8 @@ export interface Process {
   createdAt: string;
   updatedAt: string;
   stages: Stage[];
+  /** Stable labels. Renaming the process leaves these alone, so code keys off them, not `name`. */
+  tags: string[];
 }
 
 export interface WorkItem {

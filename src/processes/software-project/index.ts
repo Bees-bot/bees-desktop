@@ -1,8 +1,8 @@
 import type { Execution, WorkItem } from "../../domain.js";
 
 export const SOFTWARE_PROJECT_PROCESS_ID = "software-project";
-export const SOFTWARE_PROJECT_PROCESS_NAME = "Software Project";
-export const SOFTWARE_PROJECT_BOARD_NAME = "Software Projects";
+export const SOFTWARE_PROJECT_PROCESS_NAME = "Code";
+export const SOFTWARE_PROJECT_BOARD_NAME = "Code";
 export const SOFTWARE_PROJECT_DESCRIPTION =
   "Build new software or substantially change a selected local Git project through requirements, architecture, planning, implementation, testing, and review.";
 export const SOFTWARE_PROJECT_STAGES = [
@@ -536,5 +536,5 @@ export function softwareProjectView(input: {
   } else {
     body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;
   }
-  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Software Project Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Project folder not selected"}</div></div></div>${body}`;
+  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Project folder not selected"}</div></div></div>${body}`;
 }

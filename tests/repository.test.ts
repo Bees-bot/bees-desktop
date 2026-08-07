@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { LocalRepository } from "../src/repository.js";
 import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/processes/goals/index.js";
+import {
+  libraryRename,
+  processModule,
+  processModuleTagForName
+} from "../src/processes/registry.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
 
@@ -26,6 +31,52 @@ describe("local repository", () => {
     const organizationId = await repository.createOrganization("Acme");
     const teamId = await repository.createTeam(organizationId, "Design");
     expect(await repository.listProcesses(teamId)).toEqual([]);
+  });
+
+  it("keeps a process's module tag across a rename", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const seeded = (await repository.listProcesses(local.teamId))[0]!;
+    expect(seeded.tags).toEqual(["module:goals"]);
+
+    await repository.updateProcess(seeded.id, { name: "Objectives" });
+    const renamed = (await repository.listProcesses(local.teamId))[0]!;
+    expect(renamed.name).toBe("Objectives");
+    expect(processModule(renamed.tags)?.definition.id).toBe("goals");
+
+    // setTags replaces rather than appends, so re-tagging cannot accumulate duplicates.
+    await repository.setTags("process", seeded.id, ["module:goals", "module:goals", "starred"]);
+    expect((await repository.listProcesses(local.teamId))[0]!.tags).toEqual([
+      "module:goals",
+      "starred"
+    ]);
+  });
+
+  it("tags a process created from the library and finds its module by tag", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const id = await repository.createProcess(local.teamId, {
+      name: "Anything",
+      stages: ["To do"],
+      tags: ["module:software-project"]
+    });
+    const created = (await repository.listProcesses(local.teamId)).find(
+      (process) => process.id === id
+    )!;
+    expect(processModule(created.tags)?.mode).toBe("studio");
+    expect(processModuleTagForName("Software Project")).toBe("module:software-project");
+    expect(processModuleTagForName("code")).toBe("module:software-project");
+    expect(processModuleTagForName("Anything")).toBeUndefined();
+  });
+
+  it("follows a library rename only for a name the library itself gave the row", () => {
+    const legacy = ["Software Project"];
+    expect(libraryRename("Software Project", legacy, "Code")).toBe("Code");
+    expect(libraryRename("  software project  ", legacy, "Code")).toBe("Code");
+    // A name the team chose, and one already current, both stay put.
+    expect(libraryRename("dev", legacy, "Code")).toBeUndefined();
+    expect(libraryRename("Code", legacy, "Code")).toBeUndefined();
+    expect(libraryRename("Software Project", [], "Code")).toBeUndefined();
   });
 
   it("persists ordinary schedules and recurring Goals occurrences as distinct modes", async () => {

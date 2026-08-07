@@ -38,7 +38,7 @@ import {
   type WorkItemStatus
 } from "./domain.js";
 import type { PlannedTask } from "./processes/goals/index.js";
-import { starterProcessModule } from "./processes/registry.js";
+import { processModuleTag, starterProcessModule } from "./processes/registry.js";
 
 type Row = Record<string, DatabaseValue>;
 
@@ -95,6 +95,10 @@ function newStarterProcess(teamId: string, timestamp: string): {
         sql: "INSERT INTO processes (id, team_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         params: [processId, teamId, template.name, template.description, timestamp, timestamp]
       },
+      {
+        sql: "INSERT INTO tags (entity, entity_id, tag) VALUES ('process', ?, ?)",
+        params: [processId, processModuleTag(template.id)]
+      },
       ...stages.map(({ id, name, position }) => ({
         sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
         params: [id, processId, name, position]
@@ -130,7 +134,7 @@ function boardRow(row: Row): Board {
   };
 }
 
-function processRow(row: Row, stages: Stage[]): Process {
+function processRow(row: Row, stages: Stage[], tags: string[]): Process {
   return {
     id: stringValue(row.id),
     teamId: stringValue(row.teamId),
@@ -139,7 +143,8 @@ function processRow(row: Row, stages: Stage[]): Process {
     archivedAt: nullableString(row.archivedAt),
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt),
-    stages
+    stages,
+    tags
   };
 }
 
@@ -636,19 +641,42 @@ export class LocalRepository {
        ORDER BY s.process_id, s.position`,
       [teamId]
     );
+    const tags = await this.database.query<Row>(
+      `SELECT t.entity_id AS entityId, t.tag
+       FROM tags t
+       JOIN processes p ON p.id = t.entity_id
+       WHERE t.entity = 'process' AND p.team_id = ?
+       ORDER BY t.tag`,
+      [teamId]
+    );
     return rows.map((row) =>
       processRow(
         row,
         stages
           .map(stageRow)
-          .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt)
+          .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt),
+        tags
+          .filter((tag) => stringValue(tag.entityId) === stringValue(row.id))
+          .map((tag) => stringValue(tag.tag))
       )
     );
   }
 
+  /** Replaces every tag on one row. Tags are the stable handle; names are free to change. */
+  async setTags(entity: string, entityId: string, tags: readonly string[]): Promise<void> {
+    const unique = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+    await this.database.transaction([
+      { sql: "DELETE FROM tags WHERE entity = ? AND entity_id = ?", params: [entity, entityId] },
+      ...unique.map((tag) => ({
+        sql: "INSERT INTO tags (entity, entity_id, tag) VALUES (?, ?, ?)",
+        params: [entity, entityId, tag]
+      }))
+    ]);
+  }
+
   async createProcess(
     teamId: string,
-    input: { name: string; description?: string; stages: string[] }
+    input: { name: string; description?: string; stages: string[]; tags?: readonly string[] }
   ): Promise<string> {
     const name = requiredText(input.name, "Process name", 120);
     const stageNames = input.stages.map((stage) => requiredText(stage, "Stage name", 80));
@@ -665,6 +693,10 @@ export class LocalRepository {
       ...stageNames.map((stage, position) => ({
         sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
         params: [createId(), id, stage, position]
+      })),
+      ...(input.tags ?? []).map((tag) => ({
+        sql: "INSERT INTO tags (entity, entity_id, tag) VALUES ('process', ?, ?)",
+        params: [id, tag]
       }))
     ]);
     return id;

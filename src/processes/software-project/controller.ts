@@ -1,11 +1,11 @@
 import type { Execution, Process, WorkItem, WorkItemStatus } from "../../domain.js";
 import { FOLLOW_UP_LIMIT } from "../../domain.js";
-import type { ProcessStudio } from "../types.js";
+import { processModuleTag, type ProcessStudio } from "../types.js";
 import { SoftwareProjectGit } from "./git.js";
 import {
   DEBATE_CONCERN_BUDGET,
   MAX_DEBATE_ROUNDS,
-  SOFTWARE_PROJECT_PROCESS_NAME,
+  SOFTWARE_PROJECT_PROCESS_ID,
   SOFTWARE_PROJECT_ROLES,
   SOFTWARE_PROJECT_STAGES,
   debateSettled,
@@ -60,14 +60,14 @@ export class SoftwareProjectController implements ProcessStudio {
 
   constructor(private readonly host: SoftwareProjectHost) {}
 
-  matches(processName: string): boolean {
-    return processName === SOFTWARE_PROJECT_PROCESS_NAME;
+  matches(process: Process): boolean {
+    return process.tags.includes(processModuleTag(SOFTWARE_PROJECT_PROCESS_ID));
   }
 
   async render(item: WorkItem, process: Process, runs: Execution[]): Promise<string> {
     const stage = process.stages.find(({ id }) => id === item.stageId)?.name;
     if (!SOFTWARE_PROJECT_STAGES.includes(stage as SoftwareProjectStage)) {
-      throw new Error("The Software Project process definition has changed");
+      throw new Error("The Code process definition has changed");
     }
     const state = await this.state(item.id);
     const mapping = await this.git.get(item.id);
@@ -367,10 +367,10 @@ export class SoftwareProjectController implements ProcessStudio {
     const current = this.host.current();
     if (
       !current ||
-      !this.matches(current.process.name) ||
+      !this.matches(current.process) ||
       !SOFTWARE_PROJECT_STAGES.includes(current.stage as SoftwareProjectStage)
     ) {
-      throw new Error("Open a Software Project item first");
+      throw new Error("Open a Code item first");
     }
     return { ...current, stage: current.stage as SoftwareProjectStage };
   }
@@ -434,7 +434,7 @@ export class SoftwareProjectController implements ProcessStudio {
   ): Promise<SoftwareProjectStage> {
     const next = routeSoftwareProject(stage, event, hasMorePhases);
     const destination = process.stages.find(({ name }) => name === next);
-    if (!destination) throw new Error(`The Software Project process is missing ${next}`);
+    if (!destination) throw new Error(`The Code process is missing ${next}`);
     await this.host.moveWorkItem(item.id, destination.id);
     return next;
   }
@@ -783,7 +783,7 @@ Return exactly one JSON object, with no Markdown fence:
       feedback = state.feedback;
     }
     const blocked = process.stages.find(({ name }) => name === "Blocked");
-    if (!blocked) throw new Error("The Software Project process is missing Blocked");
+    if (!blocked) throw new Error("The Code process is missing Blocked");
     await this.host.moveWorkItem(item.id, blocked.id);
     await this.host.setWorkItemStatus(item, "blocked");
     await this.host.refresh();

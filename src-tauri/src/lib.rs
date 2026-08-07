@@ -1317,8 +1317,14 @@ fn resolve_cli(name: &str) -> Option<String> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| {
             if cfg!(target_os = "macos") { "/bin/zsh".into() } else { "/bin/sh".into() }
         });
+        // `npm run` exports npm_config_prefix, and nvm refuses to load when it is set — the
+        // shell then comes up without the nvm bin dir and finds nothing. Bees started from a
+        // terminal (`npm run tauri:dev`) inherits that, so the probe drops it to see the same
+        // PATH a shell of the user's own would have.
         Command::new(shell)
             .args(["-ilc", &format!("command -v {name}")])
+            .env_remove("npm_config_prefix")
+            .env_remove("NPM_CONFIG_PREFIX")
             .output()
             .ok()?
     };

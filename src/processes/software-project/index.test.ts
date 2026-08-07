@@ -42,8 +42,13 @@ describe("software project module contract", () => {
     const form = {
       matches: (selector: string) => selector.includes("form[data-project-plan]")
     } as HTMLFormElement;
-    expect(controller.matches("Software Project")).toBe(true);
-    expect(controller.matches("Goals")).toBe(false);
+    const tagged = { name: "Code", tags: ["module:software-project"] } as Process;
+    // Renaming the process must not change what the Studio claims, and the tag is what decides.
+    const renamed = { ...tagged, name: "Anything else" } as Process;
+    expect(controller.matches(tagged)).toBe(true);
+    expect(controller.matches(renamed)).toBe(true);
+    expect(controller.matches({ name: "Code", tags: ["module:goals"] } as Process)).toBe(false);
+    expect(controller.matches({ name: "Code", tags: [] } as unknown as Process)).toBe(false);
     expect(controller.handlesSubmit(form)).toBe(true);
   });
 
@@ -120,7 +125,11 @@ function debateHost(reply: (round: number) => string): {
   const host = {
     current: () => ({
       item: DEBATE_ITEM,
-      process: { name: "Software Project", stages: [] } as unknown as Process,
+      process: {
+        name: "Code",
+        tags: ["module:software-project"],
+        stages: []
+      } as unknown as Process,
       stage: "Architecture"
     }),
     getSetting: async (key: string, fallback: unknown) =>

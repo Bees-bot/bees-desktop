@@ -37,6 +37,7 @@ it("creates the complete fresh-install schema", () => {
     "stages",
     "sync_queue",
     "sync_state",
+    "tags",
     "team_folder_mappings",
     "teams",
     "work_items"
