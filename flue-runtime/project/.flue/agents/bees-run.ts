@@ -17,7 +17,7 @@ import type { AgentFunction, AgentProps, SkillDefinition, ThinkingLevel } from "
 import * as v from "valibot";
 import { browserTools } from "../browser.ts";
 import { connectionSecret } from "../credentials.ts";
-import { compactionFor } from "../models.ts";
+import { compactionFor, declareModel } from "../models.ts";
 import { beesWorkspace } from "../sandboxes/bees-workspace.ts";
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(1_000_000));
@@ -113,7 +113,7 @@ function mcpName(name: string, id: string): string {
 export function BeesRun({ id }: AgentProps): string {
   const data = useInitialData<RunData>();
   const compaction = compactionFor(data.model);
-  useModel(data.model, {
+  useModel(declareModel(data.model), {
     ...(data.thinkingLevel ? { thinkingLevel: data.thinkingLevel as ThinkingLevel } : {}),
     ...(compaction ? { compaction } : {})
   });

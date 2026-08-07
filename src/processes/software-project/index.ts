@@ -487,6 +487,45 @@ function phaseCard(phase: ImplementationPhase, index: number, editable: boolean)
   </fieldset>`;
 }
 
+/**
+ * Every run this project has done, newest first — including the ones that failed before they
+ * produced anything. A studio replaces the generic work item view, so this is the only place
+ * its runs are visible, and a failure that only ever appeared in a toast is unreadable by the
+ * time the user asks what happened.
+ */
+function runHistory(runs: Execution[]): string {
+  const tone: Record<string, string> = {
+    completed: "badge-success",
+    running: "badge-info",
+    queued: "badge-warning",
+    failed: "badge-error",
+    cancelled: "badge-ghost",
+    interrupted: "badge-warning"
+  };
+  const ordered = [...runs].sort((a, b) =>
+    (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt)
+  );
+  return `<section class="mt-6 rounded-box border border-base-300 bg-base-100 p-4">
+    <h2 class="font-bold">Runs</h2>
+    ${
+      ordered.length
+        ? `<ul class="mt-2 divide-y divide-base-300">${ordered
+            .map(
+              (run) => `<li class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span class="min-w-0">
+                  <span class="badge badge-sm ${tone[run.status] ?? "badge-ghost"}">${html(run.status)}</span>
+                  <span class="ml-2">${html(new Date(run.startedAt ?? run.createdAt).toLocaleString())}</span>
+                  ${run.error ? `<span class="ml-2 break-all text-xs text-error">${html(run.error)}</span>` : ""}
+                </span>
+                <button class="btn btn-ghost btn-xs" data-action="open-run" data-id="${html(run.id)}">Open</button>
+              </li>`
+            )
+            .join("")}</ul>`
+        : '<p class="mt-2 text-sm text-base-content/50">No agent has run on this project yet.</p>'
+    }
+  </section>`;
+}
+
 export function softwareProjectStateKey(workItemId: string): string {
   return `software_project:${workItemId}`;
 }
@@ -536,5 +575,5 @@ export function softwareProjectView(input: {
   } else {
     body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;
   }
-  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : "Project folder not selected"}</div></div></div>${body}`;
+  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'}</div></div></div>${body}${runHistory(runs)}`;
 }

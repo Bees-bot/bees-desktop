@@ -470,6 +470,8 @@ let teamItems: WorkItem[] = [];
 let agents: Agent[] = [];
 let executions: Execution[] = [];
 let executionOutputs: ExecutionOutput[] = [];
+/** Studio items that already have a validated project folder. The rest are waiting on a person. */
+let projectFolderItemIds = new Set<string>();
 const DISMISSED_RUNS_KEY = "dismissed_runs";
 let dismissedRunIds = new Set<string>();
 let schedules: Schedule[] = [];
@@ -1501,6 +1503,7 @@ async function refresh(): Promise<void> {
     agents = [];
     executions = [];
     executionOutputs = [];
+    projectFolderItemIds = new Set();
     schedules = [];
     registries = [];
     mcpConnections = [];
@@ -1538,6 +1541,7 @@ async function refresh(): Promise<void> {
     executionOutputs = (await repository.listExecutionOutputs()).filter(({ executionId }) =>
       executionIds.has(executionId)
     );
+    projectFolderItemIds = new Set(await repository.listProjectFolderItemIds());
     activeBoard =
       boards.find(
         (board) => board.id === activeBoard?.id && processes.some((process) => process.id === board.processId)
@@ -1877,6 +1881,11 @@ function renderBoard(): void {
                         : ""
                     }
                     ${item.status === "blocked" ? '<span class="badge badge-error badge-sm">Blocked</span>' : ""}
+                    ${
+                      projectStudio && !projectFolderItemIds.has(item.id)
+                        ? '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'
+                        : ""
+                    }
                     ${item.logicalFiles.length ? `<span class="badge badge-outline badge-sm">${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
                   </div>
                   <div class="card-actions items-center justify-end">
@@ -4494,7 +4503,8 @@ async function createItem(stageId?: string): Promise<void> {
     }
   ]);
   if (!data) return;
-  await repository.createWorkItem(activeProcess.id, {
+  const studio = processModule(activeProcess.tags)?.mode === "studio";
+  const itemId = await repository.createWorkItem(activeProcess.id, {
     stageId: targetStage,
     title: String(data.get("title") ?? ""),
     description: String(data.get("description") ?? ""),
@@ -4502,6 +4512,13 @@ async function createItem(stageId?: string): Promise<void> {
     logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
   });
   await refresh();
+  // A studio item cannot start until a person points it at a Git folder, and the board says
+  // nothing about that until it is opened — so open it, on the step that is waiting.
+  if (studio) {
+    activeItemId = itemId;
+    view = "item";
+    render();
+  }
 }
 
 function fileReferenceHint(locations: FileLocation[]): string {

@@ -77,6 +77,28 @@ describe("Bees-owned model limits", () => {
     });
   });
 
+  // The regression this guards: Flue resolves a model specifier against the ids its provider
+  // declared, so every CLI run failed with "Unknown model ID default@<execution>" — the id
+  // that carries the run's workspace to the shim was never declared.
+  it("declares the run-scoped CLI model id before a run resolves it", async () => {
+    const { declareModel, registerCliProviders } = await load();
+    // The runtime copy models.ts registers into: the project has its own node_modules, so a
+    // bare "@flue/runtime/internal" here would read a second, empty provider registry.
+    const { resolveModel } = await import(
+      "../flue-runtime/node_modules/@flue/runtime/dist/internal.mjs"
+    );
+    registerCliProviders();
+    expect(() => resolveModel("codex-cli/default@run-1")).toThrow(/Unknown model ID/);
+    expect(declareModel("codex-cli/default@run-1")).toBe("codex-cli/default@run-1");
+    // Declared with the CLI's real limits, not a zero-metadata placeholder: a 0 window would
+    // switch compaction off, and the shim re-sends the whole transcript every turn.
+    expect(resolveModel("codex-cli/default@run-1").contextWindow).toBe(400_000);
+    // The baseline id and other runs keep working — registration accumulates, never replaces.
+    expect(declareModel("codex-cli/default@run-2")).toBe("codex-cli/default@run-2");
+    expect(resolveModel("codex-cli/default@run-1").id).toBe("default@run-1");
+    expect(resolveModel("codex-cli/default").id).toBe("default");
+  });
+
   it("asks the local model for thinking through its chat template", async () => {
     const { loopbackModel } = await load();
     const model = loopbackModel("bees-local", "active");

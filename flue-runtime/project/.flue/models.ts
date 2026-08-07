@@ -2,7 +2,10 @@
 // consumers need them and must not disagree: `app.ts` registers the pi-ai models, and the
 // agents derive their compaction settings from the same windows.
 
+import { createProvider } from "@earendil-works/pi-ai";
 import type { Model, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { setProvider } from "@flue/runtime";
 import type { CompactionConfig } from "@flue/runtime";
 import { CLI_PROVIDERS, type CliProvider } from "./cli-provider.ts";
 
@@ -143,6 +146,62 @@ export function loopbackModel(
 }
 
 /**
+ * Model ids each CLI provider has declared to the runtime, `default` plus one per run.
+ *
+ * Flue resolves a model specifier against the ids its provider declared and throws on any
+ * other, so the catch-all entry the CLI shim was designed around does not exist: Bees names
+ * the model `default@<execution>` — the only channel an OpenAI request has for saying which
+ * run's workspace the CLI must work in — and every one of those ids has to be declared
+ * before the run resolves it.
+ *
+ * ponytail: one short string per run, never pruned. The runtime restarts often enough that
+ * it does not matter; prune by last use if a single session ever holds thousands.
+ */
+const declaredCliModels = new Map<CliProvider, Set<string>>(
+  CLI_PROVIDERS.map((provider) => [provider, new Set(["default"])])
+);
+
+/** pi-ai resolves auth per request; these endpoints are loopback, so the key is a constant. */
+function loopbackAuth(name: string) {
+  const key = process.env.BEES_FLUE_TOKEN ?? "";
+  return { apiKey: { name, resolve: async () => ({ auth: { apiKey: key }, source: name }) } };
+}
+
+function registerCliProvider(provider: CliProvider): void {
+  setProvider(
+    createProvider({
+      id: provider,
+      name: provider,
+      auth: loopbackAuth(provider),
+      models: [...declaredCliModels.get(provider)!].map((id) => loopbackModel(provider, id)),
+      api: openAICompletionsApi()
+    })
+  );
+}
+
+/** Register the CLI-backed providers with their baseline model. Called once, from `app.ts`. */
+export function registerCliProviders(): void {
+  for (const provider of CLI_PROVIDERS) registerCliProvider(provider);
+}
+
+/**
+ * Declare a `provider/model` reference before an agent runs on it, and return it unchanged.
+ * Only the CLI providers need this — every other model id is static and already declared.
+ */
+export function declareModel(ref: string): string {
+  const slash = ref.indexOf("/");
+  const provider = slash === -1 ? "" : ref.slice(0, slash);
+  if (!isCliProvider(provider)) return ref;
+  const declared = declaredCliModels.get(provider)!;
+  const id = ref.slice(slash + 1);
+  if (!declared.has(id)) {
+    declared.add(id);
+    registerCliProvider(provider);
+  }
+  return ref;
+}
+
+/**
  * Compaction settings for a `provider/model` reference, or undefined to leave Flue's
  * defaults alone.
  *
@@ -176,7 +235,9 @@ export function modelForInstance(id: string): string {
   if (!/^[A-Za-z0-9._-]+\/\S+$/.test(ref)) return DEFAULT_INSTANCE_MODEL;
   // CLI-backed providers loop back into this runtime and can only tell runs apart by the
   // instance id smuggled onto the model name — same contract a generated agent uses.
-  return CLI_PROVIDERS.some((provider) => ref.startsWith(`${provider}/`)) ? `${ref}@${id}` : ref;
+  return CLI_PROVIDERS.some((provider) => ref.startsWith(`${provider}/`))
+    ? declareModel(`${ref}@${id}`)
+    : ref;
 }
 
 const DEFAULT_INSTANCE_MODEL = "bees-local/active";

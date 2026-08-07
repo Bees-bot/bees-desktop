@@ -5,10 +5,10 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { openSite } from "./browser.ts";
-import { CLI_PROVIDERS, cliProviderRoutes } from "./cli-provider.ts";
+import { cliProviderRoutes } from "./cli-provider.ts";
 import { connectionSecret } from "./credentials.ts";
 import { localModelRoutes, proxyLocalModelRequest } from "./local-provider.ts";
-import { LOCAL_PROVIDER, loopbackModel } from "./models.ts";
+import { LOCAL_PROVIDER, loopbackModel, registerCliProviders } from "./models.ts";
 import { BeesRun } from "./agents/bees-run.ts";
 import { BeesAssistant } from "./agents/bees-assistant.ts";
 import { BeesCurator } from "./agents/bees-curator.ts";
@@ -38,20 +38,8 @@ setProvider(
 
 // The CLI-backed providers loop back into this same server (see cli-provider.ts), so they
 // need the port this process was started on — the desktop app passes it as BEES_SELF_URL.
-for (const provider of CLI_PROVIDERS) {
-  setProvider(
-    createProvider({
-      id: provider,
-      name: provider,
-      auth: staticKey(provider, runtimeToken),
-      // The desktop names the CLI model freely (`claude-cli/sonnet@<execution>`); the shim
-      // parses it back out, so one catch-all entry is the whole static list. Every model a
-      // CLI can reach shares that CLI's window, so one entry loses nothing.
-      models: [loopbackModel(provider, "default")],
-      api: openAICompletionsApi()
-    })
-  );
-}
+// Their per-run model ids are declared as the runs start; see `declareModel` in models.ts.
+registerCliProviders();
 
 const app = new Hono();
 const localRoutes = localModelRoutes();

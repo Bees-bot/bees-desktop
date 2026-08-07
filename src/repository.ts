@@ -1485,6 +1485,17 @@ export class LocalRepository {
     );
   }
 
+  /**
+   * Work items whose Git project folder is selected and still there. Rust owns the table; the
+   * board only needs to know which studio items are still waiting on a person to choose one.
+   */
+  async listProjectFolderItemIds(): Promise<string[]> {
+    const rows = await this.database.query<{ workItemId: string }>(
+      `SELECT work_item_id AS workItemId FROM software_project_mappings WHERE missing = 0`
+    );
+    return rows.map(({ workItemId }) => workItemId);
+  }
+
   async listExecutionOutputs(executionId?: string, status?: ExecutionOutput["status"]): Promise<ExecutionOutput[]> {
     const rows = await this.database.query<Row>(
       `SELECT id, execution_id AS executionId, logical_output AS logicalOutput,
