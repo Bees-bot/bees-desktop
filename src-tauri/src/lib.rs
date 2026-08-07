@@ -1205,9 +1205,10 @@ fn ensure_flue_runtime_blocking(
     // A GUI app's PATH does not include the per-user bin dirs the CLIs install into, so
     // resolve them here and hand the runtime absolute paths.
     let overrides = usable_cli_overrides(app);
-    for (id, name, variable) in CLI_TOOLS {
-        if let Some(tool) = cli_tool_path(&overrides, id, name) {
-            command.env(variable, tool.path);
+    let home = home_directory(app);
+    for tool in &CLI_TOOLS {
+        if let Some(found) = cli_tool_path(&overrides, home.as_deref(), tool) {
+            command.env(tool.variable, found.path);
         }
     }
     let log = open_runtime_log(app)?;
@@ -1389,11 +1390,34 @@ fn system_capacity(app: tauri::AppHandle) -> Result<SystemCapacity, String> {
     })
 }
 
-/// The agent CLIs Bees can run: tool id, the command name on PATH, and the environment
-/// variable the Flue runtime reads the binary's path from.
-const CLI_TOOLS: [(&str, &str, &str); 2] = [
-    ("claude", "claude", "BEES_CLAUDE_CLI"),
-    ("codex", "codex", "BEES_CODEX_CLI"),
+/// An agent CLI Bees can run through.
+struct CliTool {
+    /// Key the app uses for this tool, and the command's name on PATH.
+    id: &'static str,
+    /// Environment variable the Flue runtime reads this CLI's path from.
+    variable: &'static str,
+    /// Where the CLI's own installer puts it. Checked before PATH, because a GUI app's
+    /// PATH misses the per-user bin dirs entirely and probing it costs a login shell.
+    /// A leading `~/` is the user's home directory.
+    default_path: &'static str,
+    /// What installs it, run through a login shell.
+    install: &'static str,
+}
+
+const CLI_TOOLS: [CliTool; 2] = [
+    CliTool {
+        id: "claude",
+        variable: "BEES_CLAUDE_CLI",
+        default_path: "~/.local/bin/claude",
+        install: "curl -fsSL https://claude.ai/install.sh | bash",
+    },
+    CliTool {
+        id: "codex",
+        variable: "BEES_CODEX_CLI",
+        // The ChatGPT desktop app bundles the CLI; the standalone one comes from npm.
+        default_path: "/Applications/ChatGPT.app/Contents/Resources/codex",
+        install: "npm install -g @openai/codex",
+    },
 ];
 
 /// A CLI the app will run: where it is, and whether the user picked it themselves.
@@ -1432,41 +1456,117 @@ fn drop_missing_binaries(overrides: BTreeMap<String, String>) -> BTreeMap<String
         .collect()
 }
 
-/// The binary a CLI-backed provider runs: the user's own pick first, else what is on PATH.
+/// `~/…` against the user's home directory; anything else is already absolute.
+fn expand_home(path: &str, home: Option<&Path>) -> Option<PathBuf> {
+    match path.strip_prefix("~/") {
+        Some(rest) => home.map(|home| home.join(rest)),
+        None => Some(PathBuf::from(path)),
+    }
+}
+
+/// The binary a CLI-backed provider runs: the user's own pick, then the location the CLI's
+/// installer uses, then whatever is on PATH.
 fn cli_tool_path(
     overrides: &BTreeMap<String, String>,
-    id: &str,
-    name: &str,
+    home: Option<&Path>,
+    tool: &CliTool,
 ) -> Option<CliToolPath> {
-    match overrides.get(id) {
-        Some(path) => Some(CliToolPath {
+    if let Some(path) = overrides.get(tool.id) {
+        return Some(CliToolPath {
             path: path.clone(),
             custom: true,
-        }),
-        None => resolve_cli(name).map(|path| CliToolPath {
-            path,
-            custom: false,
-        }),
+        });
     }
+    let installed = expand_home(tool.default_path, home).filter(|path| path.is_file());
+    let path = match installed {
+        Some(path) => path.display().to_string(),
+        None => resolve_cli(tool.id)?,
+    };
+    Some(CliToolPath {
+        path,
+        custom: false,
+    })
+}
+
+fn home_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().home_dir().ok()
 }
 
 /// Which agent CLIs this computer has, for the Preferences → Cloud connections list.
 #[tauri::command]
 fn detect_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
     let overrides = usable_cli_overrides(&app);
+    let home = home_directory(&app);
     CLI_TOOLS
-        .into_iter()
-        .filter_map(|(id, name, _)| {
-            cli_tool_path(&overrides, id, name).map(|tool| (id.to_string(), tool))
+        .iter()
+        .filter_map(|tool| {
+            cli_tool_path(&overrides, home.as_deref(), tool)
+                .map(|found| (tool.id.to_string(), found))
         })
         .collect()
+}
+
+/// Install a missing CLI with the installer its makers publish, and report where it landed.
+/// The install runs in a login shell so it uses the same node/brew/PATH setup a terminal has.
+#[tauri::command]
+async fn install_cli_tool(app: tauri::AppHandle, tool: String) -> Result<String, String> {
+    let spec = CLI_TOOLS
+        .iter()
+        .find(|candidate| candidate.id == tool)
+        .ok_or_else(|| format!("{tool} is not a command-line agent"))?;
+    if cfg!(target_os = "windows") {
+        return Err(format!(
+            "Bees cannot install {} for you on Windows. Install it yourself, then choose the binary here.",
+            spec.id
+        ));
+    }
+    let install = spec.install;
+    tauri::async_runtime::spawn_blocking(move || run_install(install))
+        .await
+        .map_err(|error| error.to_string())??;
+    let home = home_directory(&app);
+    cli_tool_path(&usable_cli_overrides(&app), home.as_deref(), spec)
+        .map(|found| found.path)
+        .ok_or_else(|| {
+            format!("{} installed, but Bees could not find the binary afterwards.", spec.id)
+        })
+}
+
+fn run_install(command: &str) -> Result<(), String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "macos") { "/bin/zsh".into() } else { "/bin/sh".into() }
+    });
+    let output = Command::new(shell)
+        // Same shell flags and stripped npm variables as resolve_cli: the installer needs the
+        // PATH a shell of the user's own would have, not the bare one a GUI app inherits.
+        .args(["-ilc", command])
+        .env_remove("npm_config_prefix")
+        .env_remove("NPM_CONFIG_PREFIX")
+        .output()
+        .map_err(|error| format!("The installer could not start: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // Installers print progress on both streams; the last line said is the actionable one.
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    Err(text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("The installer failed")
+        .trim()
+        .to_string())
 }
 
 /// Point a CLI-backed provider at a binary the user browsed to. An empty path drops the
 /// pick and goes back to PATH detection.
 #[tauri::command]
 fn set_cli_tool_path(app: tauri::AppHandle, tool: String, path: String) -> Result<(), String> {
-    if !CLI_TOOLS.iter().any(|(id, _, _)| *id == tool) {
+    if !CLI_TOOLS.iter().any(|candidate| candidate.id == tool) {
         return Err(format!("{tool} is not a command-line agent"));
     }
     // Read what is stored rather than what is usable, so another tool's pick is not dropped
@@ -2690,6 +2790,7 @@ pub fn run() {
             restart_flue_runtime,
             detect_cli_tools,
             set_cli_tool_path,
+            install_cli_tool,
             system_capacity,
             oauth_start,
             oauth_await,
@@ -2751,25 +2852,37 @@ mod tests {
     }
 
     #[test]
-    fn a_chosen_cli_wins_until_its_binary_disappears() {
-        let binary = std::env::temp_dir().join(format!(
-            "bees-cli-{}",
+    fn a_cli_resolves_by_pick_then_default_location_then_path() {
+        let home = std::env::temp_dir().join(format!(
+            "bees-cli-home-{}",
             loopback_token().expect("random name")
         ));
-        fs::write(&binary, b"#!/bin/sh\n").expect("binary");
-        let chosen = BTreeMap::from([
-            ("claude".to_string(), binary.display().to_string()),
-            ("codex".to_string(), "/nowhere/codex".to_string()),
-        ]);
+        fs::create_dir_all(home.join(".local").join("bin")).expect("home");
+        let installed = home.join(".local").join("bin").join("claude");
+        fs::write(&installed, b"#!/bin/sh\n").expect("installed binary");
+        let chosen = home.join("my-claude");
+        fs::write(&chosen, b"#!/bin/sh\n").expect("chosen binary");
+        let claude = &CLI_TOOLS[0];
+        let codex = &CLI_TOOLS[1];
 
-        let usable = drop_missing_binaries(chosen);
+        // The user's pick wins over the installer's location.
+        let picked = BTreeMap::from([("claude".to_string(), chosen.display().to_string())]);
+        let found = cli_tool_path(&picked, Some(&home), claude).expect("chosen binary");
+        assert_eq!(found.path, chosen.display().to_string());
+        assert!(found.custom);
 
-        let claude = cli_tool_path(&usable, "claude", "claude").expect("chosen binary");
-        assert_eq!(claude.path, binary.display().to_string());
-        assert!(claude.custom);
-        // The missing pick is ignored, so this falls through to PATH detection.
-        assert!(cli_tool_path(&usable, "codex", "codex").is_none_or(|tool| !tool.custom));
-        fs::remove_file(binary).expect("cleanup");
+        // A pick whose file is gone is dropped, leaving the default location to answer.
+        let stale = drop_missing_binaries(BTreeMap::from([(
+            "claude".to_string(),
+            "/nowhere/claude".to_string(),
+        )]));
+        let found = cli_tool_path(&stale, Some(&home), claude).expect("default location");
+        assert_eq!(found.path, installed.display().to_string());
+        assert!(!found.custom);
+
+        // Nothing at the default location: PATH detection is the last word.
+        assert!(cli_tool_path(&stale, Some(&home), codex).is_none_or(|tool| !tool.custom));
+        fs::remove_dir_all(home).expect("cleanup");
     }
 
     #[test]

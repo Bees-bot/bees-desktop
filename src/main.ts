@@ -159,7 +159,13 @@ import {
   parseKnowledgePolicy,
   type KnowledgePolicy
 } from "./knowledge.js";
-import { CLI_TOOLS, detectCliTools, setCliToolPath, type CliToolPath } from "./cli-tools.js";
+import {
+  CLI_TOOLS,
+  detectCliTools,
+  installCliTool,
+  setCliToolPath,
+  type CliToolPath
+} from "./cli-tools.js";
 import {
   completedGoalsReadyForReview,
   goalPlanStages,
@@ -3791,6 +3797,13 @@ async function cliToolsSection(): Promise<string> {
               )}">Use detected</button>`
             : ""
         }
+        ${
+          found
+            ? ""
+            : `<button class="btn btn-outline btn-xs" data-action="install-cli-tool" data-tool="${escapeHtml(
+                tool.id
+              )}">Install</button>`
+        }
       </div>
     </li>`;
   }).join("");
@@ -6825,6 +6838,19 @@ document.addEventListener("click", async (event) => {
       await removeMcpConnection(repository, workspace.teamId, connection.id);
       await refresh();
       showNotice(warning ?? "MCP connection removed", warning ? "error" : "success");
+      return;
+    }
+    if (action === "install-cli-tool") {
+      const tool = CLI_TOOLS.find(({ id }) => id === button.dataset.tool);
+      if (!tool) return;
+      // It downloads and runs the makers' own installer, so say whose before doing it.
+      const host = new URL(tool.installUrl).host;
+      if (!(await edit(`Install ${tool.label} from ${host}?`, [], "Install"))) return;
+      showNotice(`Installing ${tool.label}…`, "info");
+      const path = await installCliTool(tool.id);
+      await flueProjectPort.restart();
+      await refresh();
+      showNotice(`${tool.label} installed at ${path}`, "success");
       return;
     }
     if (action === "pick-cli-tool" || action === "clear-cli-tool") {

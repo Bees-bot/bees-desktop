@@ -53,3 +53,8 @@ export function detectCliTools(): Promise<Record<string, CliToolPath>> {
 export function setCliToolPath(id: string, path: string): Promise<void> {
   return invoke("set_cli_tool_path", { tool: id, path });
 }
+
+/** Run the CLI's own installer. Resolves to where the binary landed. */
+export function installCliTool(id: string): Promise<string> {
+  return invoke("install_cli_tool", { tool: id });
+}

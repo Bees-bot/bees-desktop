@@ -227,15 +227,40 @@ pub(crate) fn canonical_project_workspace(
     Ok(expected)
 }
 
-fn project_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let root = app
-        .path()
-        .home_dir()
-        .map_err(|error| error.to_string())?
-        .join("Bees")
-        .join("projects");
+/// Worktrees live in <workspace root>/projects: inside the root the person chose, but outside
+/// the synced team folder (see `separate_from_team`). Falls back to <home>/Bees when no root is
+/// set yet, which matches `default_workspace_root`.
+fn project_root(app: &tauri::AppHandle, database: &Database) -> Result<PathBuf, String> {
+    let base = match configured_workspace_root(database)? {
+        Some(value) => value,
+        None => app
+            .path()
+            .home_dir()
+            .map_err(|error| error.to_string())?
+            .join("Bees"),
+    };
+    let root = base.join("projects");
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     canonical_directory(&root.to_string_lossy())
+}
+
+fn configured_workspace_root(database: &Database) -> Result<Option<PathBuf>, String> {
+    let stored: Option<String> = database
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .query_row(
+            "SELECT value_json FROM settings WHERE key = 'global_local_path'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    Ok(stored
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<String>(value).ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from))
 }
 
 fn selected_project_kind(path: &Path) -> Result<SoftwareProjectKind, String> {
@@ -356,7 +381,7 @@ pub fn software_project_select_folder(
         name,
         &work_item_id[..8.min(work_item_id.len())]
     );
-    let worktree = project_root(&app)?.join(format!(
+    let worktree = project_root(&app, &database)?.join(format!(
         "{}-{}",
         name,
         &work_item_id[..8.min(work_item_id.len())]
@@ -640,6 +665,29 @@ mod tests {
         assert!(safe_relative("src/app.ts").is_ok());
         assert!(safe_relative("../secret").is_err());
         assert!(safe_relative("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn worktrees_follow_the_configured_workspace_root() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT);")
+            .unwrap();
+        let database = Database(Mutex::new(connection));
+        assert_eq!(configured_workspace_root(&database).unwrap(), None);
+        database
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO settings VALUES ('global_local_path', ?1)",
+                ["\"/Users/someone/Documents/bees\""],
+            )
+            .unwrap();
+        assert_eq!(
+            configured_workspace_root(&database).unwrap(),
+            Some(PathBuf::from("/Users/someone/Documents/bees"))
+        );
     }
 
     #[test]
