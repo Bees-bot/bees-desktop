@@ -51,7 +51,9 @@ import {
   logicalFileReference,
   needsAutonomousRun,
   parseBoardFilters,
-  parseLogicalFileReference
+  parseLogicalFileReference,
+  processRuns,
+  type ProcessRun
 } from "./domain.js";
 import {
   runtimeAgentName,
@@ -94,12 +96,15 @@ import { AppOpenScheduler, nextScheduleRun } from "./scheduler.js";
 import { HttpSyncTransport, MetadataSyncService } from "./sync.js";
 import { runReceipt } from "./run-receipt.js";
 import {
+  duration,
   inboxView,
   overviewView,
   runView,
   runsView,
   schedulesView,
   searchResultsView,
+  statusBadge,
+  when,
   workItemView
 } from "./launch-views.js";
 import {
@@ -212,11 +217,11 @@ type View =
   | "overview"
   | "inbox"
   | "board"
-  | "processes"
+  // One process, three pages: its board (above), its definition and agents, its past runs.
   | "process"
+  | "process-runs"
+  | "process-library"
   | "item"
-  | "agents"
-  | "agent"
   | "runs"
   | "run"
   | "schedules"
@@ -474,13 +479,13 @@ let knowledgeError = "";
 let activeExecutionId = "";
 let activeItemId = "";
 let itemTab: "overview" | "conversation" | "runs" = "overview";
-let activeAgentId = "";
-let agentTab: "builder" | "runs" = "builder";
-// The process whose agents are open on the single configuration screen, and the agent whose
-// panel is showing there. Every agent of the process is in the DOM, so switching panels is a
-// visibility toggle: unsaved edits survive it.
+// The process whose editor or run history is open, and the agent whose panel shows on the
+// editor. Every agent of the process is in the DOM, so switching panels is a visibility
+// toggle: unsaved edits survive it. Empty `configProcessId` on the editor means a new process.
 let configProcessId = "";
 let configAgentId = "";
+/** The work item whose pass through the process is open on the run history page. */
+let openRunItemId = "";
 const liveEvents = new Map<string, RuntimeEvent[]>();
 const outputPreviews = new Map<string, OutputPreview>();
 const localModelProgress = new Map<string, LocalModelProgress>();
@@ -496,12 +501,9 @@ let disabledAgentIds = new Set<string>();
 // `<itemId>:<stageId>` pairs autopilot already started this session — the loop brake.
 const autopilotDone = new Set<string>();
 let autopilotBusy = false;
-// Which teams are expanded in the left nav. Independent per team (not tied to selection).
-const expandedTeams = new Set<string>();
 // Left-nav dashboards per team id — every team, not only the open one. See loadDashboardsByTeam.
 let dashboardsByTeam = new Map<string, { board: Board; process: Process; count: number }[]>();
 let view: View = "overview";
-let processesPage: "team" | "library" = "team";
 /** The team-record search on the Runs view. Empty shows the recent runs it shows anyway. */
 let searchQuery = "";
 let searchHits: SearchHit[] = [];
@@ -668,6 +670,12 @@ function currentOrganization(): Organization | undefined {
 
 function currentTeam(): Team | undefined {
   return teams.find(({ id }) => id === workspace.teamId);
+}
+
+/** Work items the Schedules view covers — the open process's, or the team's when none is open. */
+function scheduleItems(): WorkItem[] {
+  if (!configProcessId) return teamItems;
+  return teamItems.filter(({ processId }) => processId === configProcessId);
 }
 
 function activeServerOrg(): ServerOrganization | undefined {
@@ -1220,6 +1228,63 @@ async function resumeCompletedGoals(): Promise<number> {
   return ready.length;
 }
 
+/**
+ * One process in the left menu — a single row. The name opens its board and always shows the open
+ * task count plus run state (the avatar goes green while running). The four actions ride an overlay
+ * on the right that appears on hover or keyboard focus, so a team of ten processes stays readable.
+ */
+function processNavItem(teamId: string, board: Board, process: Process, count: number): string {
+  const openBoard = view === "board" && activeBoard?.id === board.id;
+  const editing = view === "process" && configProcessId === process.id;
+  const history = view === "process-runs" && configProcessId === process.id;
+  const scheduled = view === "schedules" && configProcessId === process.id;
+  const running = runningProcesses.has(process.id);
+  const studio = processModule(process.name)?.mode === "studio";
+  const icon = (action: string, label: string, svg: string, extra = ""): string =>
+    `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${
+      process.id
+    }" data-team="${teamId}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${svg}</button>`;
+  const open = editing || history || scheduled; // a right-hand view of this process is on screen
+  return `<li class="group relative">
+    <button class="${activeClass(openBoard)} gap-2 pr-[6.5rem]" data-board="${board.id}" data-team="${teamId}">
+      <span class="grid size-5 shrink-0 place-items-center rounded text-[10px] font-bold ${
+        running ? "bg-success/20 text-success" : "bg-secondary/15 text-secondary"
+      }" title="${running ? "Running" : "Stopped"}">P</span>
+      <span class="truncate">${escapeHtml(process.name)}</span>
+      ${studio ? '<span class="badge badge-primary badge-xs ml-auto">Studio</span>' : ""}
+      ${
+        count && !studio
+          ? `<span class="badge badge-ghost badge-xs ml-auto" title="${count} open task${
+              count === 1 ? "" : "s"
+            }">${count}</span>`
+          : ""
+      }
+    </button>
+    <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+      open ? "opacity-100" : ""
+    }">
+      ${
+        studio
+          ? ""
+          : icon(
+              running ? "stop-process" : "start-process",
+              running ? "Running. Click to stop." : "Stopped. Click to run.",
+              running ? ACTION_ICONS.active : ACTION_ICONS.inactive,
+              running ? "text-success" : "text-warning"
+            )
+      }
+      ${icon("open-process-runs", `Past runs of ${process.name}`, ACTION_ICONS.history, history ? "btn-active" : "")}
+      ${icon(
+        "open-process-schedules",
+        `Schedules of ${process.name}`,
+        ACTION_ICONS.schedule,
+        scheduled ? "btn-active" : ""
+      )}
+      ${icon("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, editing ? "btn-active" : "")}
+    </div>
+  </li>`;
+}
+
 function renderNavigation(): void {
   // One icon per connection (org × account), so the same org shows twice if two accounts are in
   // it. Local orgs get one icon with no account. Hover shows the org name and account email.
@@ -1263,7 +1328,7 @@ function renderNavigation(): void {
     return;
   }
 
-  teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-2">
+  teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
       <li><button class="${activeClass(view === "overview")}" data-view="overview">Overview</button></li>
       <li><button class="${activeClass(view === "inbox")}" data-view="inbox">Inbox${
         executionOutputs.some(({ status }) => status === "pending")
@@ -1271,7 +1336,7 @@ function renderNavigation(): void {
           : ""
       }</button></li>
     </ul>
-    <div class="mb-2 flex items-center justify-between px-3">
+    <div class="mb-2 flex items-center justify-between px-2">
       <span class="text-[11px] font-bold uppercase tracking-widest text-base-content/45">Teams</span>
       <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
     </div>
@@ -1280,52 +1345,42 @@ function renderNavigation(): void {
         ? teams
             .map((team) => {
               const selected = team.id === workspace.teamId;
-              const expanded = expandedTeams.has(team.id);
-              return `<section class="mb-2">
+              const teamActions = `opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100`;
+              return `<section class="group mb-3">
                 <div class="flex items-center">
-                  <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-3 ${selected ? "font-bold" : ""}"
-                    data-action="toggle-team" data-id="${team.id}" aria-expanded="${expanded}">
-                    <svg viewBox="0 0 24 24" class="size-3 shrink-0 transition-transform ${
-                      expanded ? "rotate-90" : ""
-                    }" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 6l6 6-6 6"></path></svg>
+                  <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-2 ${selected ? "font-bold" : ""}"
+                    data-team-view="overview" data-team="${team.id}">
                     <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary">${escapeHtml(
                       team.name.slice(0, 1).toUpperCase()
                     )}</span>
                     <span class="truncate">${escapeHtml(team.name)}</span>
                   </button>
-                  <button class="btn btn-square btn-ghost btn-xs mr-1 ${
-                    selected && view === "settings" ? "btn-active" : ""
-                  }" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
-                    ${gearIcon()}
-                  </button>
+                  <div class="flex items-center pr-1 ${
+                    selected && view === "settings" ? "" : teamActions
+                  }">
+                    <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${
+                      team.id
+                    }" aria-label="Process library" title="Process library">${ACTION_ICONS.library}</button>
+                    <button class="btn btn-square btn-ghost btn-xs" data-action="new-process" data-team="${
+                      team.id
+                    }" aria-label="New process" title="New process">${ACTION_ICONS.add}</button>
+                    <button class="btn btn-square btn-ghost btn-xs ${
+                      selected && view === "settings" ? "btn-active" : ""
+                    }" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
+                      ${gearIcon()}
+                    </button>
+                  </div>
                 </div>
-                ${
-                  expanded
-                    ? `<ul class="menu menu-sm gap-0.5 px-3 pb-2 pt-0">
-                        ${(dashboardsByTeam.get(team.id) ?? [])
-                          .map(({ board, process, count }) => {
-                            const open = view === "board" && activeBoard?.id === board.id;
-                            return `<li><button class="${activeClass(open)}" data-board="${board.id}" data-team="${team.id}">
-                              Dashboard - ${escapeHtml(process.name)} <span class="badge badge-ghost badge-xs ml-auto">${count}</span>
-                            </button></li>`;
-                          })
-                          .join("")}
-                        <li class="mx-1 my-2 h-px bg-base-content/25 opacity-100"></li>
-                        <li><button class="${activeClass(selected && (view === "processes" || view === "process"))}" data-team-view="processes" data-team="${
-                          team.id
-                        }">Processes</button></li>
-                        <li><button class="${activeClass(selected && (view === "agents" || view === "agent"))}" data-team-view="agents" data-team="${
-                          team.id
-                        }">Agents</button></li>
-                        <li><button class="${activeClass(selected && (view === "runs" || view === "run"))}" data-team-view="runs" data-team="${
-                          team.id
-                        }">Runs</button></li>
-                        <li><button class="${activeClass(selected && view === "schedules")}" data-team-view="schedules" data-team="${
-                          team.id
-                        }">Schedules</button></li>
-                      </ul>`
-                    : ""
-                }
+                <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
+                  ${(dashboardsByTeam.get(team.id) ?? [])
+                    .map(({ board, process, count }) => processNavItem(team.id, board, process, count))
+                    .join("")}
+                  ${
+                    (dashboardsByTeam.get(team.id) ?? []).length
+                      ? ""
+                      : `<li><p class="px-2 py-1 text-xs text-base-content/45">No processes yet — use + above.</p></li>`
+                  }
+                </ul>
               </section>`;
             })
             .join("")
@@ -1361,7 +1416,6 @@ async function refresh(): Promise<void> {
   organizations = await repository.listOrganizations();
   teams = await repository.listTeams(workspace.organizationId);
   if (!teams.some(({ id }) => id === workspace.teamId)) workspace.teamId = teams[0]?.id ?? "";
-  if (workspace.teamId) expandedTeams.add(workspace.teamId); // active team opens by default
 
   // Runs first: it backfills missing dashboards, so the loads below see them.
   await loadDashboardsByTeam();
@@ -1575,19 +1629,21 @@ function render(): void {
     );
   }
   if (view === "board") renderBoard();
-  if (view === "processes") renderProcesses();
-  if (view === "process") renderProcessAgents();
+  if (view === "process") renderProcessEditor();
+  if (view === "process-runs") renderProcessRuns();
+  if (view === "process-library") renderProcessLibrary();
   if (view === "item") void renderWorkItemDetail();
-  if (view === "agents") void renderAgents();
-  if (view === "agent") void renderAgentDetail();
   if (view === "runs") {
     setHeader("Runs", currentTeam()?.name);
     swap(`${searchBox()}${searchQuery.trim() ? searchResultsView(searchHits) : runsView(teamItems, executions)}`);
   }
   if (view === "run") void renderRunDetail();
   if (view === "schedules") {
-    setHeader("Schedules", currentTeam()?.name);
-    swap(schedulesView(teamItems, schedules, executions));
+    const process = processes.find(({ id }) => id === configProcessId);
+    setHeader("Schedules", process?.name ?? currentTeam()?.name);
+    const items = scheduleItems();
+    const ids = new Set(items.map(({ id }) => id));
+    swap(schedulesView(items, schedules.filter(({ workItemId }) => ids.has(workItemId)), executions));
   }
   if (view === "settings") void renderTeamSettings();
   if (view === "org-settings") void renderOrgSettings();
@@ -1655,75 +1711,6 @@ async function renderRunDetail(): Promise<void> {
   );
 }
 
-async function renderAgentDetail(): Promise<void> {
-  const agent = agents.find(({ id }) => id === activeAgentId);
-  if (!agent) {
-    view = "agents";
-    await renderAgents();
-    return;
-  }
-  const eligibility = eligibilityForAgent(agent);
-  const enabledOnMachine = !disabledAgentIds.has(agent.id);
-  const runs = executions.filter(({ agentId }) => agentId === agent.id);
-  setHeader(agent.name, agent.purpose);
-  const tabs = (["builder", "runs"] as const)
-    .map(
-      (tab) => `<button class="tab ${agentTab === tab ? "tab-active" : ""}" data-agent-tab="${tab}">${
-        tab[0]!.toUpperCase() + tab.slice(1)
-      }</button>`
-    )
-    .join("");
-  const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
-  const skillRefs = capabilityRefsFor(agent.config, "skill");
-  const toolRefs = capabilityRefsFor(agent.config, "tool");
-  const capabilityBadges = [
-    ...registryCapabilities(registries)
-      .filter(({ ref, kind }) => (kind === "skill" ? skillRefs : toolRefs).includes(ref))
-      .map(({ name, kind }) => `${kind}: ${name}`),
-    ...(agent.config.mcpConnectionRefs ?? []).map(
-      (id) => `MCP: ${mcpConnections.find((connection) => connection.id === id)?.name ?? "missing"}`
-    ),
-    ...(agent.config.delegateRefs ?? []).map(
-      (id) => `helper: ${agents.find((helper) => helper.id === id)?.name ?? "missing"}`
-    )
-  ];
-  const content =
-    agentTab === "builder"
-      ? `<div class="grid gap-4 lg:grid-cols-2">
-          <section class="card border border-base-300 bg-base-100"><div class="card-body">
-            <h3 class="card-title">Configuration</h3>
-            <dl class="grid gap-3 text-sm"><div><dt class="text-base-content/45">Model</dt><dd>${escapeHtml(
-              modelRef(resolveModelChoice(agent.config, assistantModel))
-            )}</dd></div><div><dt class="text-base-content/45">Trigger status</dt><dd>${escapeHtml(
-              stageName(agent.triggerStageId) ?? "None"
-            )}</dd></div><div><dt class="text-base-content/45">This machine</dt><dd class="flex items-center gap-2">${agentStatusButton(
-              agent,
-              eligibility,
-              enabledOnMachine
-            )}<span class="text-base-content/55">${escapeHtml(
-              eligibility.reason
-            )}</span></dd></div><div><dt class="text-base-content/45">Instructions</dt><dd class="whitespace-pre-wrap">${escapeHtml(
-              agent.config.prompt
-            )}</dd></div></dl>
-            <div class="card-actions justify-end">
-              ${actionIconButton("edit-agent", `Edit ${agent.name}`, ACTION_ICONS.edit, agent.id, "btn-primary")}
-              ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
-            </div>
-          </div></section>
-          <section class="card border border-base-300 bg-base-100"><div class="card-body">
-            <h3 class="card-title">Local scope</h3><p class="break-all text-sm">${escapeHtml(
-              mapping?.localPath ?? "No team folder mapped"
-            )}</p>
-            <div class="flex flex-wrap gap-1">${capabilityBadges
-              .map((label) => `<span class="badge badge-ghost">${escapeHtml(label)}</span>`)
-              .join("") || '<span class="text-sm text-base-content/45">No optional capabilities selected.</span>'}</div>
-            <div class="card-actions justify-end"><button class="btn btn-ghost btn-sm" data-action="open-folder-settings">Team folder settings</button></div>
-          </div></section>
-        </div>`
-      : runsView(teamItems, runs);
-  if (view === "agent") swap(`<div class="tabs tabs-border mb-5">${tabs}</div>${content}`);
-}
-
 function workItemBadges(item: WorkItem): string {
   const execution = activeExecutionForItem(item.id, executions);
   const agent = execution
@@ -1754,7 +1741,7 @@ function renderBoard(): void {
         <div class="mb-3 text-4xl">▦</div>
         <h2 class="text-xl font-bold">Create your first process</h2>
         <p class="py-3 text-sm text-base-content/60">Each process gets its own dashboard, with its statuses as columns.</p>
-        <button class="btn btn-primary" data-team-view="processes" data-team="${workspace.teamId}">New process</button>
+        <button class="btn btn-primary" data-action="new-process" data-team="${workspace.teamId}">New process</button>
       </div></div>
     </div>`);
     return;
@@ -1870,56 +1857,6 @@ function renderBoard(): void {
     }`);
 }
 
-function renderProcesses(): void {
-  setHeader("Processes");
-  if (processesPage === "library") {
-    renderProcessLibrary();
-    return;
-  }
-  swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
-      <div><h2 class="font-bold">Multi-step processes</h2><p class="mt-1 text-sm text-base-content/55">Define the workflow each team follows.</p></div>
-      <div class="flex gap-1">
-        ${actionIconButton("browse-process-library", "Browse process library", ACTION_ICONS.library, undefined, "btn-outline", "tooltip-bottom")}
-        ${actionIconButton("new-process", "Create process", ACTION_ICONS.add, undefined, "btn-primary", "tooltip-bottom")}
-      </div>
-    </header>
-    ${
-      processes.length
-        ? `<div class="overflow-x-auto"><table class="table min-w-[48rem]">
-            <thead><tr><th>Process</th><th>Statuses</th><th class="text-right">Actions</th></tr></thead>
-            <tbody>${[...processes]
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
-            .map(
-              (process) => `<tr>
-                <td class="min-w-80">
-                  <button class="link link-hover text-left font-bold" data-action="open-process" data-id="${escapeHtml(
-                    process.id
-                  )}">${escapeHtml(process.name)}</button>
-                  <p class="mt-1 text-sm text-base-content/55">${escapeHtml(process.description || "No description")}</p>
-                  <p class="mt-1 text-xs text-base-content/45">${processAgents(process).length} agent${
-                    processAgents(process).length === 1 ? "" : "s"
-                  } · open to configure them all on one screen</p>
-                </td>
-                <td class="min-w-64"><div class="flex flex-wrap items-center gap-1.5">${process.stages
-                    .map(
-                      ({ name }, index) =>
-                        `${index ? '<span class="text-base-content/30">→</span>' : ""}<span class="badge badge-ghost badge-sm">${escapeHtml(name)}</span>`
-                    )
-                    .join("")}</div></td>
-                <td><div class="flex justify-end gap-1">
-                  ${processStatusButton(process.id)}
-                  ${actionIconButton("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, process.id)}
-                  ${actionIconButton("archive-process", `Archive ${process.name}`, ACTION_ICONS.archive, process.id, "btn-ghost text-error")}
-                </div></td>
-              </tr>`
-            )
-            .join("")}</tbody></table></div>`
-        : `<div class="p-12 text-center text-sm text-base-content/50">No processes yet.</div>`
-    }
-  </section>`);
-}
-
 /** Agents this process starts, in status order — the population of its configuration screen. */
 function processAgents(process: Process): Agent[] {
   const order = new Map(process.stages.map(({ id }, index) => [id, index]));
@@ -1933,85 +1870,130 @@ function processAgents(process: Process): Agent[] {
 }
 
 /**
- * One screen for every agent of one process: statuses down the left with their agents, the
- * selected agent's full configuration on the right, one Save for the lot. Each agent's controls
- * carry an `<id>:<field>` name, so every panel stays in the form — and in the DOM — while only
- * the selected one is visible. Switching agents therefore costs a click and loses nothing.
+ * The process page: its definition at the top, its statuses as lanes holding the agents that
+ * run on them, and the selected agent's whole configuration underneath. Every agent panel stays
+ * in the DOM — hidden, not unmounted — so moving between agents costs a click and loses nothing.
+ * With no `configProcessId` the same page creates a process, then reopens itself on it.
  */
-function renderProcessAgents(): void {
-  const process = processes.find(({ id }) => id === configProcessId);
+function renderProcessEditor(): void {
+  const process = processes.find(({ id }) => id === configProcessId) ?? null;
+  setHeader(process ? process.name : "New process", currentTeam()?.name);
+  const definition = `<form class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm" data-process-form>
+    <div class="grid gap-4 lg:grid-cols-3">
+      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Name</span>
+        <input class="input input-bordered" name="name" value="${escapeHtml(process?.name ?? "")}"
+          placeholder="Support triage" required></label>
+      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
+        <input class="input input-bordered" name="description" value="${escapeHtml(process?.description ?? "")}"></label>
+      <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
+        <input class="input input-bordered" name="stages" value="${escapeHtml(
+          process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done"
+        )}" required>
+        <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
+    </div>
+    <div class="mt-4 flex items-center justify-end gap-2">
+      ${
+        process
+          ? `${processStatusButton(process.id)}${actionIconButton(
+              "archive-process",
+              `Archive ${process.name}`,
+              ACTION_ICONS.archive,
+              process.id,
+              "btn-ghost text-error"
+            )}`
+          : ""
+      }
+      <button class="btn btn-primary" type="submit">${process ? "Save process" : "Create process"}</button>
+    </div>
+  </form>`;
   if (!process) {
-    view = "processes";
-    renderProcesses();
+    swap(`<div class="grid gap-4">${definition}
+      <p class="text-sm text-base-content/55">Saving creates the process, its board, and the agent lanes below.</p>
+    </div>`);
     return;
   }
-  setHeader(process.name, currentTeam()?.name);
   const own = processAgents(process);
-  if (!own.some(({ id }) => id === configAgentId)) configAgentId = own[0]?.id ?? "";
+  const unassigned = agents.filter(({ triggerStageId }) => !triggerStageId);
+  const selectable = [...own, ...unassigned];
+  if (!selectable.some(({ id }) => id === configAgentId)) configAgentId = selectable[0]?.id ?? "";
   const studio = processModule(process.name)?.mode === "studio";
-  const rowsFor = (stageId: string): string =>
-    own
-      .filter((agent) => agent.triggerStageId === stageId)
-      .map((agent) => {
-        const fields = agentEditorFields(agent);
-        const model = fields.find(({ name }) => name === "model");
-        const eligibility = eligibilityForAgent(agent);
-        const selected = agent.id === configAgentId;
-        return `<div class="flex flex-wrap items-center gap-2 border-t border-base-200 px-4 py-3 ${
-          selected ? "bg-primary/10" : ""
-        }" data-agent-row="${escapeHtml(agent.id)}">
-          <button class="link link-hover min-w-32 flex-1 text-left text-sm font-semibold" type="button"
-            data-action="select-process-agent" data-id="${escapeHtml(agent.id)}">${escapeHtml(
-              agent.name || "Untitled agent"
-            )}</button>
-          <select class="select select-bordered select-sm w-52" name="${escapeHtml(
-            agent.id
-          )}:model" data-agent-model="${escapeHtml(agent.id)}" aria-label="Model for ${escapeHtml(
-            agent.name
-          )}">${(model?.options ?? [])
-            .map(
-              (option) =>
-                `<option value="${escapeHtml(option.value)}" ${
-                  option.value === model?.value ? "selected" : ""
-                }>${escapeHtml(option.label)}</option>`
-            )
-            .join("")}</select>
-          <label class="label cursor-pointer gap-1.5 text-xs" title="Active on this machine">
-            <input class="checkbox checkbox-sm" type="checkbox" name="${escapeHtml(agent.id)}:enabled" ${
-              disabledAgentIds.has(agent.id) ? "" : "checked"
-            }><span>On</span>
-          </label>
-          ${
-            eligibility.active
-              ? ""
-              : `<span class="badge badge-error badge-sm" title="${escapeHtml(
-                  eligibility.reason
-                )}">Needs attention</span>`
-          }
+  const card = (agent: Agent): string => {
+    const model = agentEditorFields(agent).find(({ name }) => name === "model");
+    const eligibility = eligibilityForAgent(agent);
+    return `<div class="grid gap-2 rounded-box border p-3 ${
+      agent.id === configAgentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100"
+    }" data-agent-row="${escapeHtml(agent.id)}">
+      <div class="flex items-start justify-between gap-1">
+        <button class="link link-hover text-left text-sm font-semibold" type="button"
+          data-action="select-process-agent" data-id="${escapeHtml(agent.id)}">${escapeHtml(
+            agent.name || "Untitled agent"
+          )}</button>
+        <span class="flex">
+          ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
           ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
-        </div>`;
-      })
-      .join("");
-  const stageBlocks = process.stages
-    .map((stage) => {
-      const rows = rowsFor(stage.id);
-      return `<div>
-        <div class="flex items-center justify-between gap-2 bg-base-200/60 px-4 py-2">
-          <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">${escapeHtml(
-            stage.name
-          )}</span>
-          <button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${escapeHtml(
-            stage.id
-          )}">+ Add agent</button>
-        </div>
+        </span>
+      </div>
+      <select class="select select-bordered select-sm w-full" name="${escapeHtml(
+        agent.id
+      )}:model" data-agent-model="${escapeHtml(agent.id)}" aria-label="Model for ${escapeHtml(agent.name)}">${(
+        model?.options ?? []
+      )
+        .map(
+          (option) =>
+            `<option value="${escapeHtml(option.value)}" ${
+              option.value === model?.value ? "selected" : ""
+            }>${escapeHtml(option.label)}</option>`
+        )
+        .join("")}</select>
+      <div class="flex items-center justify-between gap-1">
+        <label class="label cursor-pointer gap-1.5 text-xs" title="Active on this machine">
+          <input class="checkbox checkbox-xs" type="checkbox" name="${escapeHtml(agent.id)}:enabled" ${
+            disabledAgentIds.has(agent.id) ? "" : "checked"
+          }><span>On</span>
+        </label>
         ${
-          rows ||
-          `<p class="border-t border-base-200 px-4 py-3 text-sm text-base-content/40">No agent runs on this status.</p>`
+          eligibility.active
+            ? ""
+            : `<span class="badge badge-error badge-xs" title="${escapeHtml(
+                eligibility.reason
+              )}">Needs attention</span>`
         }
-      </div>`;
-    })
-    .join("");
-  const panels = own
+      </div>
+    </div>`;
+  };
+  const lane = (title: string, cards: string, addStageId?: string, note = ""): string =>
+    `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
+      <div class="flex items-center justify-between gap-2">
+        <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${escapeHtml(
+          title
+        )}</span>
+        ${
+          addStageId === undefined
+            ? ""
+            : `<button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${escapeHtml(
+                addStageId
+              )}">+ Agent</button>`
+        }
+      </div>
+      ${cards || `<p class="px-1 py-2 text-xs text-base-content/45">${escapeHtml(note)}</p>`}
+    </div>`;
+  const lanes = [
+    ...process.stages.map((stage) =>
+      lane(
+        stage.name,
+        own
+          .filter((agent) => agent.triggerStageId === stage.id)
+          .map(card)
+          .join(""),
+        stage.id,
+        "No agent yet."
+      )
+    ),
+    ...(unassigned.length
+      ? [lane("No status", unassigned.map(card).join(""), undefined, "")]
+      : [])
+  ].join("");
+  const panels = selectable
     .map((agent) => {
       const fields = agentEditorFields(agent)
         .filter(({ name }) => name !== "model")
@@ -2020,7 +2002,7 @@ function renderProcessAgents(): void {
             ? {
                 ...field,
                 label: "Status",
-                hint: "Moves this agent to another status of this process.",
+                hint: "Which status of this process starts the agent.",
                 options: [
                   { label: "None", value: "" },
                   ...process.stages.map(({ id, name }) => ({ label: name, value: id }))
@@ -2040,48 +2022,35 @@ function renderProcessAgents(): void {
           </div>`;
         })
         .join("");
-      return `<section class="grid gap-5 p-5" data-agent-pane="${escapeHtml(agent.id)}" ${
+      return `<section class="grid gap-5 p-5 lg:grid-cols-3" data-agent-pane="${escapeHtml(agent.id)}" ${
         agent.id === configAgentId ? "" : "hidden"
       }>
-        <h3 class="font-bold">${escapeHtml(agent.name || "Untitled agent")}</h3>
+        <h3 class="font-bold lg:col-span-3">${escapeHtml(agent.name || "Untitled agent")}</h3>
         ${sections}
       </section>`;
     })
     .join("");
-  swap(`<form data-process-agents>
-    <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <button class="link link-primary mb-1 text-sm" type="button" data-view="processes">← Processes</button>
-        <h2 class="font-bold">Agents of ${escapeHtml(process.name)}</h2>
-        <p class="mt-1 text-sm text-base-content/55">${
-          studio
-            ? "This process picks its agent by role, so several agents may share a status."
-            : "One agent per status. Configure them all here, then save once."
-        }</p>
-      </div>
-      <div class="flex items-center gap-1">
-        ${processStateBadge(process.id)}
-        ${processStatusButton(process.id)}
-        ${actionIconButton("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, process.id)}
-      </div>
-    </header>
-    <div class="grid gap-4 lg:grid-cols-5">
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm lg:col-span-2">
-        <h3 class="border-b border-base-300 p-4 font-bold">Statuses</h3>
-        ${stageBlocks}
-      </section>
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm lg:col-span-3">
-        ${
+  swap(`<div class="grid gap-4">
+    ${definition}
+    <form data-process-agents>
+      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <header class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 p-4">
+          <div><h3 class="font-bold">Agents by status</h3>
+            <p class="mt-1 text-sm text-base-content/55">${
+              studio
+                ? "This process picks its agent by role, so several agents may share a status."
+                : "One agent per status. Pick one to configure it below, then save once."
+            }</p></div>
+          <button class="btn btn-primary btn-sm" type="submit" ${selectable.length ? "" : "disabled"}>Save agents</button>
+        </header>
+        <div class="flex gap-3 overflow-x-auto p-4">${lanes}</div>
+        <div class="border-t border-base-300">${
           panels ||
           '<p class="p-12 text-center text-sm text-base-content/50">Add an agent to a status to configure it.</p>'
-        }
+        }</div>
       </section>
-    </div>
-    <div class="mt-4 flex justify-end gap-2">
-      <button class="btn btn-ghost" type="button" data-action="reload-process-agents">Discard changes</button>
-      <button class="btn btn-primary" type="submit" ${own.length ? "" : "disabled"}>Save all</button>
-    </div>
-  </form>`);
+    </form>
+  </div>`);
   linkProcessModelThinking();
 }
 
@@ -2091,9 +2060,7 @@ function renderProcessAgents(): void {
  * keeps Save the only thing that saves.
  */
 function linkProcessModelThinking(): void {
-  for (const button of app.querySelectorAll<HTMLButtonElement>(
-    "form[data-process-agents] button:not([type])"
-  )) {
+  for (const button of app.querySelectorAll<HTMLButtonElement>("form button:not([type])")) {
     button.type = "button";
   }
   for (const select of app.querySelectorAll<HTMLSelectElement>("select[data-agent-model]")) {
@@ -2171,6 +2138,169 @@ async function commitProcessAgentEdits(): Promise<void> {
   if (form) await saveProcessAgents(form, false);
 }
 
+/**
+ * Creates or updates the process from the top of its page. A new one stays on the page — now in
+ * edit mode — because the next thing to do is give its statuses agents. The board comes with it:
+ * `loadDashboardsByTeam` gives every process without one a board on the next refresh.
+ */
+async function saveProcessDefinition(data: FormData): Promise<void> {
+  const input = {
+    name: String(data.get("name") ?? ""),
+    description: String(data.get("description") ?? ""),
+    stages: String(data.get("stages") ?? "").split(",")
+  };
+  if (configProcessId) {
+    await repository.updateProcessDefinition(configProcessId, input);
+    await refresh();
+    showNotice(`Saved ${input.name}`, "success");
+    return;
+  }
+  configProcessId = await repository.createProcess(workspace.teamId, input);
+  configAgentId = "";
+  await refresh();
+  activeProcess = processes.find(({ id }) => id === configProcessId) ?? activeProcess;
+  workspace.processId = activeProcess?.id ?? "";
+  showNotice(`Created ${input.name}`, "success");
+}
+
+function runStageId(execution: Execution): string | null {
+  return agents.find(({ id }) => id === execution.agentId)?.triggerStageId ?? null;
+}
+
+/** Rows of past runs on the left, the selected run's lanes, sequence, and logs on the right. */
+function renderProcessRuns(): void {
+  const process = processes.find(({ id }) => id === configProcessId);
+  if (!process) {
+    view = "board";
+    renderBoard();
+    return;
+  }
+  setHeader(`${process.name} — past runs`, currentTeam()?.name);
+  const runs = processRuns(
+    teamItems.filter(({ processId }) => processId === process.id),
+    executions
+  );
+  if (!runs.some(({ item }) => item.id === openRunItemId)) openRunItemId = runs[0]?.item.id ?? "";
+  const open = runs.find(({ item }) => item.id === openRunItemId) ?? null;
+  const list = runs
+    .map(({ item, steps, startedAt }) => {
+      const last = steps.at(-1)!;
+      return `<li><button class="${activeClass(item.id === openRunItemId)} block h-auto py-2 text-left"
+        data-action="open-process-run" data-id="${escapeHtml(item.id)}">
+        <span class="block truncate text-sm font-semibold">${escapeHtml(item.title)}</span>
+        <span class="mt-1 flex flex-wrap items-center gap-1 text-xs text-base-content/55">
+          ${when(startedAt)} · ${steps.length} step${steps.length === 1 ? "" : "s"} ${statusBadge(last.status)}
+        </span>
+      </button></li>`;
+    })
+    .join("");
+  swap(`<div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
+    <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+      <h3 class="border-b border-base-300 p-4 font-bold">Runs, newest first</h3>
+      ${
+        runs.length
+          ? `<ul class="menu menu-sm gap-1 p-2">${list}</ul>`
+          : '<p class="p-8 text-center text-sm text-base-content/50">This process has not run yet.</p>'
+      }
+    </section>
+    <section class="grid gap-4">${open ? processRunDetail(process, open) : ""}</section>
+  </div>`);
+}
+
+function processRunDetail(process: Process, run: ProcessRun): string {
+  const { item, steps } = run;
+  const stepCard = (execution: Execution): string => {
+    const agent = agents.find(({ id }) => id === execution.agentId);
+    const outputs = executionOutputs.filter(({ executionId }) => executionId === execution.id);
+    const logs = execution.logs.trim().slice(-4_000);
+    return `<details class="rounded-box border border-base-300 bg-base-100 p-3">
+      <summary class="cursor-pointer">
+        <span class="text-sm font-semibold">${escapeHtml(agent?.name ?? "Removed agent")}</span>
+        <span class="ml-2">${statusBadge(execution.status)}</span>
+        <span class="mt-1 block text-xs text-base-content/55">${when(
+          execution.startedAt ?? execution.createdAt
+        )} · ${duration(execution)}</span>
+      </summary>
+      <div class="mt-3 grid gap-3 text-xs">
+        ${
+          execution.error
+            ? `<div><div class="font-bold uppercase text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${escapeHtml(
+                execution.error
+              )}</pre></div>`
+            : ""
+        }
+        <div><div class="font-bold uppercase text-base-content/45">Logs</div>
+          <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">${
+            escapeHtml(logs) || "No logs recorded."
+          }</pre></div>
+        <div><div class="font-bold uppercase text-base-content/45">Files</div>
+          ${
+            outputs.length
+              ? `<ul class="mt-1 grid gap-1">${outputs
+                  .map(
+                    (output) =>
+                      `<li>${escapeHtml(output.logicalOutput)} → ${escapeHtml(
+                        output.logicalDestination
+                      )} ${statusBadge(output.status)}</li>`
+                  )
+                  .join("")}</ul>`
+              : '<p class="mt-1 text-base-content/45">No files proposed by this step.</p>'
+          }
+        </div>
+        <div><button class="btn btn-ghost btn-xs border border-base-300" data-action="open-run" data-id="${
+          execution.id
+        }">Open full conversation</button></div>
+      </div>
+    </details>`;
+  };
+  const placed = new Set<string>();
+  const lanes = process.stages
+    .map((stage) => {
+      const own = steps.filter((execution) => runStageId(execution) === stage.id);
+      for (const execution of own) placed.add(execution.id);
+      return `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
+        <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${escapeHtml(
+          stage.name
+        )}${item.stageId === stage.id ? " · now here" : ""}</span>
+        ${
+          own.map(stepCard).join("") ||
+          '<p class="px-1 py-2 text-xs text-base-content/45">Nothing ran here.</p>'
+        }
+      </div>`;
+    })
+    .join("");
+  const orphans = steps.filter(({ id }) => !placed.has(id));
+  const sequence = steps
+    .map((execution, index) => {
+      const stage = process.stages.find(({ id }) => id === runStageId(execution));
+      return `${
+        index ? '<span class="text-base-content/30">→</span>' : ""
+      }<span class="badge badge-ghost badge-sm whitespace-nowrap">${escapeHtml(
+        stage?.name ?? "No status"
+      )} · ${when(execution.startedAt ?? execution.createdAt).split(", ").at(-1) ?? ""}</span>`;
+    })
+    .join("");
+  return `<article class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+      <header class="border-b border-base-300 p-4">
+        <h3 class="font-bold">${escapeHtml(item.title)}</h3>
+        <p class="mt-1 text-sm text-base-content/55">Started ${when(run.startedAt)} · now on ${escapeHtml(
+          process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status"
+        )}</p>
+        <div class="mt-3 flex flex-wrap items-center gap-1.5">${
+          sequence || '<span class="text-sm text-base-content/45">No steps recorded.</span>'
+        }</div>
+      </header>
+      <div class="flex gap-3 overflow-x-auto p-4">${lanes}${
+        orphans.length
+          ? `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
+              <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">No status</span>
+              ${orphans.map(stepCard).join("")}
+            </div>`
+          : ""
+      }</div>
+    </article>`;
+}
+
 function libraryAgentEligibility(definition: ProcessLibraryEntry["agents"][number]) {
   return effectiveAgentEligibility(
     {
@@ -2188,10 +2318,11 @@ function libraryAgentEligibility(definition: ProcessLibraryEntry["agents"][numbe
 }
 
 function renderProcessLibrary(): void {
+  setHeader("Process library", currentTeam()?.name);
   swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
     <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
       <div>
-        <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Team processes</button>
+        <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Back to the board</button>
         <h2 class="font-bold">Process library</h2>
         <p class="mt-1 text-sm text-base-content/55">Curated processes bundled with Bees Desktop and available offline.</p>
       </div>
@@ -2344,7 +2475,7 @@ async function addLibraryProcess(templateId: string): Promise<void> {
         type: "note" as const,
         value: eligibility.active
           ? `✓ ${agent.name}: ${agent.provider}/${agent.model} is available.`
-          : `✕ ${agent.name}: ${eligibility.reason}. Add the process, then change this model under Agents.`
+          : `✕ ${agent.name}: ${eligibility.reason}. Add the process, then change this model on its page.`
       }))
     ],
     "Add to team"
@@ -2358,12 +2489,15 @@ async function addLibraryProcess(templateId: string): Promise<void> {
   }
   activeProcess = process;
   workspace.processId = process.id;
-  processesPage = "team";
+  // Land on the new process's page: its agents are the thing to check after adding it.
+  configProcessId = process.id;
+  configAgentId = "";
+  view = "process";
   await refresh();
   const unavailable = checks.filter(({ eligibility }) => !eligibility.active).length;
   showNotice(
     unavailable
-      ? `${template.name} added. Update ${unavailable} unavailable agent model${unavailable === 1 ? "" : "s"} under Agents.`
+      ? `${template.name} added. Update ${unavailable} unavailable agent model${unavailable === 1 ? "" : "s"} on its process page.`
       : `${template.name} added to this team`,
     unavailable ? "info" : "success"
   );
@@ -2408,6 +2542,8 @@ const ACTION_ICONS = {
   duplicate: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>',
   delete: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg>',
   archive: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16v13H4V7ZM3 4h18v3H3V4ZM9 11h6"></path></svg>',
+  history: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path></svg>',
+  schedule: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>',
   library: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16ZM20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z"></path></svg>'
 } as const;
 
@@ -2423,62 +2559,6 @@ function actionIconButton(
   return `<button class="btn btn-square btn-sm ${classes} tooltip ${tooltip}" data-action="${action}"${
     id ? ` data-id="${escapeHtml(id)}"` : ""
   } data-tip="${escapedLabel}" title="${escapedLabel}" aria-label="${escapedLabel}">${icon}</button>`;
-}
-
-function agentStatusButton(
-  agent: Agent,
-  eligibility: ReturnType<typeof eligibilityForAgent>,
-  enabledOnMachine: boolean
-): string {
-  if (!enabledOnMachine) {
-    return actionIconButton(
-      "toggle-agent-machine",
-      "Inactive on this machine. Click to make active.",
-      ACTION_ICONS.inactive,
-      agent.id,
-      "btn-ghost text-warning"
-    );
-  }
-  if (!eligibility.active) {
-    return actionIconButton(
-      "edit-agent",
-      `Broken: ${eligibility.reason}. Click to fix.`,
-      ACTION_ICONS.broken,
-      agent.id,
-      "btn-ghost text-error"
-    );
-  }
-  return actionIconButton(
-    "toggle-agent-machine",
-    "Active on this machine. Click to make inactive.",
-    ACTION_ICONS.active,
-    agent.id,
-    "btn-ghost text-success"
-  );
-}
-
-async function setAgentEnabledOnMachine(agent: Agent, enabled: boolean): Promise<void> {
-  if (enabled) disabledAgentIds.delete(agent.id);
-  else disabledAgentIds.add(agent.id);
-  await repository.setSetting(`disabled_agents:${workspace.teamId}`, [...disabledAgentIds]);
-  await refresh();
-  showNotice(`${agent.name} ${enabled ? "enabled" : "disabled"} on this machine`, "success");
-}
-
-/**
- * Applies an edit dialog to an agent. Two agents on one status would make an autopilot run
- * ambiguous, so status-dispatched processes keep the trigger unique. A studio process picks its
- * agent by `config.role` instead, so several of its agents legitimately share one status.
- */
-async function saveAgent(agent: Agent, data: FormData): Promise<void> {
-  const triggerStageId = String(data.get("trigger") ?? "") || null;
-  const triggerProcess = triggerContext(triggerStageId)?.process;
-  const clash =
-    triggerProcess &&
-    processModule(triggerProcess.name)?.mode !== "studio" &&
-    agents.find((other) => other.id !== agent.id && other.triggerStageId === triggerStageId);
-  if (clash) throw new Error(`${clash.name} already runs on ${stageName(triggerStageId)}`);
-  await applyAgentEdit(agent, data);
 }
 
 /**
@@ -2557,64 +2637,6 @@ function stageName(stageId: string | null): string | null {
 function agentRelation(agent: Agent): string {
   const trigger = triggerContext(agent.triggerStageId);
   return `${trigger?.process.name ?? "No process"} - ${trigger?.stageName ?? "No trigger"} - ${agent.name}`;
-}
-
-async function renderAgents(): Promise<void> {
-  setHeader("Agents", currentTeam()?.name);
-  const mapping = await repository.getResolvedTeamFolder(workspace.teamId);
-  if (view !== "agents") return;
-  swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
-      <div><h2 class="font-bold">Agent library</h2><p class="mt-1 text-sm text-base-content/55">One file per agent in ${escapeHtml(
-        mapping?.localPath ? `${mapping.localPath}/agents` : "the team folder"
-      )}.</p></div>
-      ${actionIconButton("new-agent", "New agent", ACTION_ICONS.add, undefined, "btn-primary", "tooltip-bottom")}
-    </header>
-    ${
-      agents.length
-        ? `<div class="overflow-x-auto"><table class="table min-w-[48rem]">
-            <thead><tr><th>Agent</th><th>Skills</th><th class="text-right">Actions</th></tr></thead>
-            <tbody>${[...agents]
-            .sort((a, b) => agentRelation(a).localeCompare(agentRelation(b), undefined, { sensitivity: "base" }))
-            .map((agent) => {
-              const eligibility = eligibilityForAgent(agent);
-              const enabledOnMachine = !disabledAgentIds.has(agent.id);
-              const skills = selectedAgentCapabilities(registries, agent.config).filter(
-                ({ kind }) => kind === "skill"
-              );
-              return `<tr>
-                <td class="min-w-96">
-                  <button class="link link-hover text-left font-bold" data-action="open-agent" data-id="${escapeHtml(
-                    agent.id
-                  )}">${escapeHtml(agentRelation(agent))}</button>
-                  <p class="mt-1 text-sm text-base-content/55">${escapeHtml(agent.purpose)} · ${escapeHtml(
-                      modelRef(resolveModelChoice(agent.config, assistantModel))
-                    )}</p>
-                </td>
-                <td class="min-w-48"><div class="flex flex-wrap gap-1">${
-                  skills.length
-                    ? skills
-                        .map(({ name }) => `<span class="badge badge-ghost badge-sm">${escapeHtml(name)}</span>`)
-                        .join("")
-                    : '<span class="text-sm text-base-content/40">—</span>'
-                }</div></td>
-                <td><div class="flex justify-end gap-1">
-                  ${agentStatusButton(agent, eligibility, enabledOnMachine)}
-                  ${actionIconButton("edit-agent", `Edit ${agent.name}`, ACTION_ICONS.edit, agent.id)}
-                  ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
-                  ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
-                </div></td>
-              </tr>`;
-            })
-            .join("")}</tbody>
-          </table></div>`
-        : `<div class="p-12 text-center text-sm text-base-content/50">${
-            mapping?.localPath
-              ? "Create an agent, then give it the process status that should start it."
-              : "Set a team folder first — agents are files inside it."
-          }</div>`
-    }
-  </section>`);
 }
 
 /** Why a local org can't do this, plus the way out. `upgrade` adds the button to create a connected org. */
@@ -5793,10 +5815,8 @@ async function switchOrganization(organizationId: string): Promise<void> {
 
 async function switchTeam(teamId: string, nextView: View = "board"): Promise<void> {
   workspace.teamId = teamId;
-  expandedTeams.add(teamId);
   activeBoard = null;
   activeProcess = null;
-  processesPage = "team";
   view = nextView;
   await refresh();
   await seedDefaultRegistry();
@@ -5910,7 +5930,6 @@ document.addEventListener("click", async (event) => {
   try {
     if (button.dataset.view) {
       view = button.dataset.view as View;
-      if (view === "processes") processesPage = "team";
       if (button.dataset.prefs) prefsTab = button.dataset.prefs as PrefsTab;
       render();
       return;
@@ -5933,7 +5952,6 @@ document.addEventListener("click", async (event) => {
     if (button.dataset.teamView) {
       const teamId = button.dataset.team!;
       const nextView = button.dataset.teamView as View;
-      if (nextView === "processes") processesPage = "team";
       if (teamId !== workspace.teamId) await switchTeam(teamId, nextView);
       else {
         view = nextView;
@@ -5943,11 +5961,6 @@ document.addEventListener("click", async (event) => {
     }
     if (button.dataset.itemTab) {
       itemTab = button.dataset.itemTab as typeof itemTab;
-      render();
-      return;
-    }
-    if (button.dataset.agentTab) {
-      agentTab = button.dataset.agentTab as typeof agentTab;
       render();
       return;
     }
@@ -6002,20 +6015,6 @@ document.addEventListener("click", async (event) => {
       render();
       return;
     }
-    if (action === "open-agent") {
-      activeAgentId = button.dataset.id!;
-      agentTab = "builder";
-      view = "agent";
-      render();
-      return;
-    }
-    if (action === "open-process") {
-      configProcessId = button.dataset.id!;
-      configAgentId = "";
-      view = "process";
-      render();
-      return;
-    }
     // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
     // same form and would be thrown away by one.
     if (action === "select-process-agent") {
@@ -6024,7 +6023,11 @@ document.addEventListener("click", async (event) => {
         pane.hidden = pane.dataset.agentPane !== configAgentId;
       }
       for (const row of app.querySelectorAll<HTMLElement>("[data-agent-row]")) {
-        row.classList.toggle("bg-primary/10", row.dataset.agentRow === configAgentId);
+        const chosen = row.dataset.agentRow === configAgentId;
+        row.classList.toggle("border-primary", chosen);
+        row.classList.toggle("bg-primary/5", chosen);
+        row.classList.toggle("border-base-300", !chosen);
+        row.classList.toggle("bg-base-100", !chosen);
       }
       return;
     }
@@ -6344,7 +6347,8 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "new-schedule") {
-      if (!teamItems.length) throw new Error("Create a work item before adding a schedule");
+      const schedulable = scheduleItems();
+      if (!schedulable.length) throw new Error("Create a work item before adding a schedule");
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const roles = goalWorkerRoles();
       const data = await edit("New schedule", [
@@ -6353,7 +6357,7 @@ document.addEventListener("click", async (event) => {
           name: "workItemId",
           label: "Work item",
           type: "select",
-          options: teamItems.map(({ id, title }) => ({ label: title, value: id }))
+          options: schedulable.map(({ id, title }) => ({ label: title, value: id }))
         },
         {
           name: "mode",
@@ -6778,12 +6782,6 @@ document.addEventListener("click", async (event) => {
       render();
       return;
     }
-    if (action === "toggle-team") {
-      const id = button.dataset.id!;
-      if (!expandedTeams.delete(id)) expandedTeams.add(id);
-      renderNavigation();
-      return;
-    }
     if (action === "new-organization") {
       view = "preferences";
       prefsTab = "orgs";
@@ -6851,16 +6849,24 @@ document.addEventListener("click", async (event) => {
         await refresh();
       }
     }
-    if (action === "start-process") await setProcessRunning(button.dataset.id!, true);
-    if (action === "stop-process") await setProcessRunning(button.dataset.id!, false);
+    if (action === "start-process" || action === "stop-process") {
+      // Running is toggled from the left menu and from the process page, and both refresh the
+      // view — the open agent edits are written first so the click cannot drop them.
+      if (view === "process") await commitProcessAgentEdits();
+      await setProcessRunning(button.dataset.id!, action === "start-process");
+      return;
+    }
     if (action === "browse-process-library") {
+      if (button.dataset.team && button.dataset.team !== workspace.teamId) {
+        await switchTeam(button.dataset.team);
+      }
       await refreshAssistantCatalog();
-      processesPage = "library";
+      view = "process-library";
       render();
       return;
     }
     if (action === "close-process-library") {
-      processesPage = "team";
+      view = "board";
       render();
       return;
     }
@@ -6868,69 +6874,56 @@ document.addEventListener("click", async (event) => {
       await addLibraryProcess(button.dataset.template ?? "");
       return;
     }
-    if (action === "new-process") {
-      const data = await edit("New process", [
-        { name: "name", label: "Name" },
-        { name: "description", label: "Description", type: "textarea" },
-        { name: "stages", label: "Ordered statuses", value: "To do, In progress, Done" }
-      ]);
-      if (data) {
-        const processId = await repository.createProcess(workspace.teamId, {
-          name: String(data.get("name") ?? ""),
-          description: String(data.get("description") ?? ""),
-          stages: String(data.get("stages") ?? "").split(",")
-        });
-        activeProcess = (await repository.listProcesses(workspace.teamId)).find(({ id }) => id === processId) ?? null;
-        processesPage = "team";
-        await refresh();
+    // New and Edit are the same page: one blank, one loaded. Both keep the agent lanes below.
+    if (action === "new-process" || action === "edit-process") {
+      if (button.dataset.team && button.dataset.team !== workspace.teamId) {
+        await switchTeam(button.dataset.team, "board");
       }
+      configProcessId = action === "edit-process" ? button.dataset.id! : "";
+      configAgentId = "";
+      view = "process";
+      render();
+      return;
     }
-    if (action === "edit-process") {
-      const process = processes.find(({ id }) => id === button.dataset.id)!;
-      const data = await edit("Edit process", [
-        { name: "name", label: "Name", value: process.name },
-        { name: "description", label: "Description", type: "textarea", value: process.description },
-        { name: "stages", label: "Ordered statuses", value: process.stages.map(({ name }) => name).join(", ") }
-      ]);
-      if (data) {
-        await repository.updateProcessDefinition(process.id, {
-          name: String(data.get("name") ?? ""),
-          description: String(data.get("description") ?? ""),
-          stages: String(data.get("stages") ?? "").split(",")
-        });
-        await refresh();
+    if (action === "open-process-runs") {
+      if (button.dataset.team && button.dataset.team !== workspace.teamId) {
+        await switchTeam(button.dataset.team, "board");
       }
+      configProcessId = button.dataset.id!;
+      openRunItemId = "";
+      view = "process-runs";
+      render();
+      return;
+    }
+    if (action === "open-process-schedules") {
+      if (button.dataset.team && button.dataset.team !== workspace.teamId) {
+        await switchTeam(button.dataset.team, "board");
+      }
+      configProcessId = button.dataset.id!;
+      view = "schedules";
+      render();
+      return;
+    }
+    if (action === "open-process-run") {
+      openRunItemId = button.dataset.id!;
+      render();
+      return;
     }
     if (action === "archive-process") {
       await repository.archiveProcess(button.dataset.id!);
+      if (configProcessId === button.dataset.id) {
+        configProcessId = "";
+        view = "board";
+      }
       await refresh();
     }
     if (action === "restore-process") {
       await repository.restoreProcess(button.dataset.id!);
       await refresh();
     }
-    if (action === "new-agent") {
-      const data = await edit("New agent", agentEditorFields());
-      if (data) {
-        await saveAgent(newAgent(), data);
-        await refresh();
-      }
-    }
-    if (action === "edit-agent") {
-      const agent = agents.find(({ id }) => id === button.dataset.id)!;
-      const data = await edit("Edit agent", agentEditorFields(agent));
-      if (data) {
-        await saveAgent(agent, data);
-        await refresh();
-      }
-    }
-    if (action === "toggle-agent-machine") {
-      const agent = agents.find(({ id }) => id === button.dataset.id);
-      if (agent) await setAgentEnabledOnMachine(agent, disabledAgentIds.has(agent.id));
-      return;
-    }
     if (action === "duplicate-agent") {
       const agent = agents.find(({ id }) => id === button.dataset.id)!;
+      if (view === "process") await commitProcessAgentEdits();
       // No trigger status on the copy: two agents on one status is the one thing that
       // would make a run ambiguous, and the point of a copy is to edit it first.
       const copy = newAgent({ ...agent, name: `${agent.name} copy`, triggerStageId: null });
@@ -6947,7 +6940,6 @@ document.addEventListener("click", async (event) => {
       if (disabledAgentIds.delete(agent.id)) {
         await repository.setSetting(`disabled_agents:${workspace.teamId}`, [...disabledAgentIds]);
       }
-      if (view === "agent" && activeAgentId === agent.id) view = "agents";
       await refresh();
       showNotice(`Deleted ${agent.name}`, "success");
       return;
@@ -7116,6 +7108,14 @@ document.addEventListener("click", async (event) => {
 });
 
 app.addEventListener("submit", (event) => {
+  const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
+  if (definitionForm) {
+    event.preventDefault();
+    void saveProcessDefinition(new FormData(definitionForm)).catch((error) =>
+      showNotice(errorText(error), "error")
+    );
+    return;
+  }
   const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
   if (agentsForm) {
     event.preventDefault();

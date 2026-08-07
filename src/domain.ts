@@ -401,6 +401,34 @@ export function activeExecutionForItem(
   );
 }
 
+/** One work item's pass through its process: every run on it, oldest step first. */
+export interface ProcessRun {
+  item: WorkItem;
+  steps: Execution[];
+  startedAt: string;
+}
+
+/**
+ * The history of a process, newest run first. A process has no run record of its own — a run is
+ * a work item plus the runs its agents did on it, so the item's steps are ordered by when they
+ * started, and the earliest of those dates the run.
+ */
+export function processRuns(items: WorkItem[], executions: Execution[]): ProcessRun[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const steps = new Map<string, Execution[]>();
+  for (const execution of executions) {
+    if (!byId.has(execution.workItemId)) continue;
+    steps.set(execution.workItemId, [...(steps.get(execution.workItemId) ?? []), execution]);
+  }
+  const startOf = (execution: Execution): string => execution.startedAt ?? execution.createdAt;
+  return [...steps]
+    .map(([itemId, runs]) => {
+      const ordered = [...runs].sort((a, b) => startOf(a).localeCompare(startOf(b)));
+      return { item: byId.get(itemId)!, steps: ordered, startedAt: startOf(ordered[0]!) };
+    })
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
 /**
  * Keys to record when an autonomous run starts: one for the status, one for the exact version
  * of the item. See `needsAutonomousRun` for which of the two blocks a repeat.

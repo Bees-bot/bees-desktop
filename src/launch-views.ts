@@ -69,19 +69,19 @@ function approvalCard(output: ExecutionOutput, busy: boolean): string {
   </article>`;
 }
 
-function when(value: string | null): string {
+export function when(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function duration(execution: Execution): string {
+export function duration(execution: Execution): string {
   if (!execution.startedAt || !execution.endedAt) return execution.status === "running" ? "Running" : "—";
   const seconds = Math.max(0, Math.round((Date.parse(execution.endedAt) - Date.parse(execution.startedAt)) / 1_000));
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function statusBadge(status: string): string {
+export function statusBadge(status: string): string {
   const tone =
     status === "completed" || status === "approved"
       ? "badge-success"
