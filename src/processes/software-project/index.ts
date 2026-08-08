@@ -1,4 +1,5 @@
 import type { Execution, WorkItem } from "../../domain.js";
+import type { StageTransition } from "../../process-diagram.js";
 
 export const SOFTWARE_PROJECT_PROCESS_ID = "software-project";
 export const SOFTWARE_PROJECT_PROCESS_NAME = "Code";
@@ -218,24 +219,53 @@ export type SoftwareProjectEvent =
   | "blocked"
   | "resume";
 
-/** Pure state router, adapted from Triagebot's small explicit FSM. */
+/**
+ * Pure state router, adapted from Triagebot's small explicit FSM. Held as a table rather than a
+ * chain of `if`s so the same declaration answers both questions asked of it: where an event leads,
+ * and what the process looks like drawn.
+ */
+export const SOFTWARE_PROJECT_TRANSITIONS: Readonly<
+  Record<SoftwareProjectStage, Readonly<Partial<Record<SoftwareProjectEvent, SoftwareProjectStage>>>>
+> = {
+  Requirements: { "requirements-approved": "Architecture" },
+  Architecture: { "architecture-approved": "Plan" },
+  Plan: { "plan-approved": "Implement" },
+  Implement: { "tests-passed": "Phase Review" },
+  "Phase Review": { "phase-approved": "Implement", "phase-changes-requested": "Implement" },
+  "Final Review": { "final-tests-passed": "Done" },
+  Done: {},
+  Blocked: { resume: "Implement" }
+};
+
 export function routeSoftwareProject(
   stage: SoftwareProjectStage,
   event: SoftwareProjectEvent,
   hasMorePhases = true
 ): SoftwareProjectStage {
+  // Blocking is reachable from anywhere, including Done, so it stays ahead of the table.
   if (event === "blocked") return "Blocked";
-  if (stage === "Blocked" && event === "resume") return "Implement";
-  if (stage === "Requirements" && event === "requirements-approved") return "Architecture";
-  if (stage === "Architecture" && event === "architecture-approved") return "Plan";
-  if (stage === "Plan" && event === "plan-approved") return "Implement";
-  if (stage === "Implement" && event === "tests-passed") return "Phase Review";
-  if (stage === "Phase Review" && event === "phase-changes-requested") return "Implement";
-  if (stage === "Phase Review" && event === "phase-approved") {
-    return hasMorePhases ? "Implement" : "Final Review";
+  // The one guarded edge: the last phase leaves the loop instead of re-entering Implement.
+  if (stage === "Phase Review" && event === "phase-approved" && !hasMorePhases) {
+    return "Final Review";
   }
-  if (stage === "Final Review" && event === "final-tests-passed") return "Done";
-  throw new Error(`The ${event} event is invalid while the project is in ${stage}`);
+  const next = SOFTWARE_PROJECT_TRANSITIONS[stage][event];
+  if (!next) throw new Error(`The ${event} event is invalid while the project is in ${stage}`);
+  return next;
+}
+
+/**
+ * Every edge of the router, including the two the table cannot hold. Busy by design: `blocked`
+ * really does leave every stage, and hiding those edges would draw a process that cannot fail.
+ */
+export function softwareProjectTransitions(): StageTransition[] {
+  const edges = Object.entries(SOFTWARE_PROJECT_TRANSITIONS).flatMap(([from, events]) =>
+    Object.entries(events).map(([on, to]) => ({ from, on, to }))
+  );
+  edges.push({ from: "Phase Review", on: "phase-approved [last phase]", to: "Final Review" });
+  for (const stage of SOFTWARE_PROJECT_STAGES) {
+    if (stage !== "Blocked") edges.push({ from: stage, on: "blocked", to: "Blocked" });
+  }
+  return edges;
 }
 
 const stringList = (value: unknown): string[] =>
