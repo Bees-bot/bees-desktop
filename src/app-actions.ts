@@ -77,7 +77,7 @@ import {
   parseModelRef,
   thinkingOptionsForModel
 } from "./local-models.js";
-import type { KnowledgeRuntimeInfo, MainActionHost, OrgTab, PrefsTab, TeamTab } from "./main.js";
+import type { KnowledgeRuntimeInfo, MainHost, OrgTab, PrefsTab, TeamTab } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
 import {
   parseTaskPlan,
@@ -102,7 +102,7 @@ import { FlueRuntime } from "./runtime.js";
 import { nextScheduleRun } from "./scheduler.js";
 import { type View } from "./views.js";
 
-export function createMainActions(host: MainActionHost) {
+export function createMainActions(host: MainHost) {
   /**
    * Saves every agent on the process screen. The status clash is checked across the whole screen
    * before anything is written: agent by agent, swapping two agents' statuses would be rejected
@@ -110,14 +110,14 @@ export function createMainActions(host: MainActionHost) {
    */
   async function saveProcessAgents(form: HTMLFormElement, notify = true): Promise<void> {
     const edits = [...form.querySelectorAll<HTMLElement>("[data-agent-pane]")]
-      .map((pane) => host.agents.find(({ id }) => id === pane.dataset.agentPane))
+      .map((pane) => host.workspaceController.agents.find(({ id }) => id === pane.dataset.agentPane))
       .filter((agent): agent is Agent => Boolean(agent))
-      .map((agent) => ({ agent, data: host.scopedFormData(form, agent.id) }));
+      .map((agent) => ({ agent, data: host.shell.scopedFormData(form, agent.id) }));
     if (!edits.length)
       return;
     const edited = new Set(edits.map(({ agent }) => agent.id));
     const assignment = (name: string, triggerStageId: string | null) => {
-      const context = host.triggerContext(triggerStageId);
+      const context = host.views.triggerContext(triggerStageId);
       return {
         name,
         triggerStageId,
@@ -125,29 +125,29 @@ export function createMainActions(host: MainActionHost) {
       };
     };
     const conflict = firstTriggerConflict([
-      ...host.agents.filter(({ id }) => !edited.has(id))
+      ...host.workspaceController.agents.filter(({ id }) => !edited.has(id))
         .map(({ name, triggerStageId }) => assignment(name, triggerStageId)),
       ...edits.map(({ agent, data }) => assignment(String(data.get("name") ?? "") || agent.name, String(data.get("trigger") ?? "") || null))
     ]);
     if (conflict) {
-      throw new Error(`${conflict.first} and ${conflict.second} would both run on ${host.stageName(conflict.triggerStageId) ?? "one status"}`);
+      throw new Error(`${conflict.first} and ${conflict.second} would both run on ${host.views.stageName(conflict.triggerStageId) ?? "one status"}`);
     }
     for (const { agent, data } of edits) {
       await applyAgentEdit(agent, data);
       if (data.get("enabled"))
-        host.disabledAgentIds.delete(agent.id);
+        host.runs.disabledAgentIds.delete(agent.id);
       else
-        host.disabledAgentIds.add(agent.id);
+        host.runs.disabledAgentIds.add(agent.id);
     }
-    await host.repository.setSetting(`disabled_agents:${host.workspace.teamId}`, [...host.disabledAgentIds]);
-    await host.refresh();
+    await host.repository.setSetting(`disabled_agents:${host.workspaceController.workspace.teamId}`, [...host.runs.disabledAgentIds]);
+    await host.workspaceController.refresh();
     if (notify)
-      host.showNotice(`Saved ${edits.length} agent${edits.length === 1 ? "" : "s"}`, "success");
+      host.shell.showNotice(`Saved ${edits.length} agent${edits.length === 1 ? "" : "s"}`, "success");
   }
 
   /** Writes the open edits before an action that re-renders the screen, so no typing is lost. */
   async function commitProcessAgentEdits(): Promise<void> {
-    const form = host.app.querySelector<HTMLFormElement>("form[data-process-agents]");
+    const form = host.shell.app.querySelector<HTMLFormElement>("form[data-process-agents]");
     if (form)
       await saveProcessAgents(form, false);
   }
@@ -163,22 +163,22 @@ export function createMainActions(host: MainActionHost) {
       description: String(data.get("description") ?? ""),
       stages: String(data.get("stages") ?? "").split(",")
     };
-    if (host.configProcessId) {
-      await host.repository.updateProcessDefinition(host.configProcessId, input);
-      await host.refresh();
-      host.showNotice(`Saved ${input.name}`, "success");
+    if (host.shell.configProcessId) {
+      await host.repository.updateProcessDefinition(host.shell.configProcessId, input);
+      await host.workspaceController.refresh();
+      host.shell.showNotice(`Saved ${input.name}`, "success");
       return;
     }
-    host.configProcessId = await host.repository.createProcess(host.workspace.teamId, input);
-    host.configAgentId = "";
-    await host.refresh();
-    host.activeProcess = host.processes.find(({ id }) => id === host.configProcessId) ?? host.activeProcess;
-    host.workspace.processId = host.activeProcess?.id ?? "";
-    host.showNotice(`Created ${input.name}`, "success");
+    host.shell.configProcessId = await host.repository.createProcess(host.workspaceController.workspace.teamId, input);
+    host.shell.configAgentId = "";
+    await host.workspaceController.refresh();
+    host.workspaceController.activeProcess = host.workspaceController.processes.find(({ id }) => id === host.shell.configProcessId) ?? host.workspaceController.activeProcess;
+    host.workspaceController.workspace.processId = host.workspaceController.activeProcess?.id ?? "";
+    host.shell.showNotice(`Created ${input.name}`, "success");
   }
 
   async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
-    const allProcesses = await host.repository.listProcesses(host.workspace.teamId, true);
+    const allProcesses = await host.repository.listProcesses(host.workspaceController.workspace.teamId, true);
     const tag = processModuleTag(template.id);
     // The tag finds an install the team has since renamed; the name still finds one from a build
     // that predates tags, which the backfill has not reached because it skips archived processes.
@@ -200,20 +200,20 @@ export function createMainActions(host: MainActionHost) {
       processId = process.id;
     }
     else {
-      processId = await host.repository.createProcess(host.workspace.teamId, {
+      processId = await host.repository.createProcess(host.workspaceController.workspace.teamId, {
         name: template.name,
         description: template.description,
         stages: [...template.stages],
         tags: [tag]
       });
     }
-    process = (await host.repository.listProcesses(host.workspace.teamId)).find((entry) => entry.id === processId);
+    process = (await host.repository.listProcesses(host.workspaceController.workspace.teamId)).find((entry) => entry.id === processId);
     if (!process)
       throw new Error(`Could not add ${template.name}`);
-    const teamRoot = await host.requireTeamRoot();
+    const teamRoot = await host.workspaceController.requireTeamRoot();
     await host.workspaces.ensureDirectory(teamRoot);
     const existingAgents = await host.agentFiles.list(teamRoot).catch(() => []);
-    const skills = registryCapabilities(host.registries).filter(({ kind }) => kind === "skill");
+    const skills = registryCapabilities(host.workspaceController.registries).filter(({ kind }) => kind === "skill");
     for (const definition of template.agents) {
       const stage = process.stages.find(({ name }) => name === definition.stage);
       if (!stage)
@@ -240,9 +240,9 @@ export function createMainActions(host: MainActionHost) {
         }
       }));
     }
-    const hasBoard = (await host.repository.listBoards(host.workspace.teamId, true)).some(({ processId }) => processId === process.id);
+    const hasBoard = (await host.repository.listBoards(host.workspaceController.workspace.teamId, true)).some(({ processId }) => processId === process.id);
     if (!hasBoard) {
-      await host.repository.createBoard(host.workspace.teamId, {
+      await host.repository.createBoard(host.workspaceController.workspace.teamId, {
         name: template.boardName,
         processId: process.id,
         stageIds: process.stages.map(({ id }) => id)
@@ -255,7 +255,7 @@ export function createMainActions(host: MainActionHost) {
     const template = processLibraryEntry(templateId);
     if (!template)
       throw new Error("That bundled process is unavailable");
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
     if (!mapping?.localPath || mapping.missing) {
       const data = await edit(`${template.name} system check`, [
         {
@@ -266,16 +266,16 @@ export function createMainActions(host: MainActionHost) {
         }
       ], "Close", "Open team folder settings");
       if (data?.get("__action") === "footer") {
-        host.teamTab = "folder";
-        host.view = "settings";
-        host.render();
+        host.shell.teamTab = "folder";
+        host.shell.view = "settings";
+        host.shell.render();
       }
       return;
     }
-    await host.refreshAssistantCatalog();
+    await host.assistant.refreshAssistantCatalog();
     const checks = template.agents.map((agent) => ({
       agent,
-      eligibility: host.libraryAgentEligibility(agent)
+      eligibility: host.views.libraryAgentEligibility(agent)
     }));
     const data = await edit(`${template.name} system check`, [
       {
@@ -304,17 +304,17 @@ export function createMainActions(host: MainActionHost) {
     const process = await installLibraryProcess(template);
     const module = processModuleById(template.id);
     if (module?.starter) {
-      await host.repository.setSetting(`${template.id}_workflow_seeded_${host.workspace.teamId}`, true);
+      await host.repository.setSetting(`${template.id}_workflow_seeded_${host.workspaceController.workspace.teamId}`, true);
     }
-    host.activeProcess = process;
-    host.workspace.processId = process.id;
+    host.workspaceController.activeProcess = process;
+    host.workspaceController.workspace.processId = process.id;
     // Land on the new process's page: its agents are the thing to check after adding it.
-    host.configProcessId = process.id;
-    host.configAgentId = "";
-    host.view = "process";
-    await host.refresh();
+    host.shell.configProcessId = process.id;
+    host.shell.configAgentId = "";
+    host.shell.view = "process";
+    await host.workspaceController.refresh();
     const unavailable = checks.filter(({ eligibility }) => !eligibility.active).length;
-    host.showNotice(unavailable
+    host.shell.showNotice(unavailable
       ? `${template.name} added. Update ${unavailable} unavailable agent model${unavailable === 1 ? "" : "s"} on its process page.`
       : `${template.name} added to this team`, unavailable ? "info" : "success");
   }
@@ -324,7 +324,7 @@ export function createMainActions(host: MainActionHost) {
    * whole app, so a failed read leaves the library empty rather than throwing at boot.
    */
   async function loadAgents(): Promise<Agent[]> {
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
     if (!mapping?.localPath)
       return [];
     return host.agentFiles.list(mapping.localPath).catch(() => []);
@@ -332,7 +332,7 @@ export function createMainActions(host: MainActionHost) {
 
   /** Agent edits are data only; the stable Flue runtime reads the frozen config at admission. */
   async function writeAgent(agent: Agent): Promise<void> {
-    await host.agentFiles.save(await host.requireTeamRoot(), agent);
+    await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent);
   }
 
   /**
@@ -341,7 +341,7 @@ export function createMainActions(host: MainActionHost) {
    */
   async function applyAgentEdit(agent: Agent, data: FormData): Promise<void> {
     const triggerStageId = String(data.get("trigger") ?? "") || null;
-    const selectedModelRef = String(data.get("model") ?? modelRef(host.assistantModel)).trim();
+    const selectedModelRef = String(data.get("model") ?? modelRef(host.assistant.assistantModel)).trim();
     const selectedModel = parseModelRef(selectedModelRef);
     if (!selectedModel)
       throw new Error("Choose a model");
@@ -372,7 +372,7 @@ export function createMainActions(host: MainActionHost) {
         skillRefs,
         toolRefs,
         mcpConnectionRefs,
-        mcpToolRefs: Object.fromEntries(host.mcpConnections.filter(({ id }) => mcpConnectionRefs.includes(id))
+        mcpToolRefs: Object.fromEntries(host.workspaceController.mcpConnections.filter(({ id }) => mcpConnectionRefs.includes(id))
           .map(({ id, allowedTools }) => {
             const previous = agent.config.mcpToolRefs?.[id];
             return [id, (previous ?? allowedTools).filter((name) => allowedTools.includes(name))];
@@ -388,30 +388,30 @@ export function createMainActions(host: MainActionHost) {
       }
     });
     if (provider && model && modelChanged)
-      await host.rememberModelChoice({ provider, model });
+      await host.assistant.rememberModelChoice({ provider, model });
   }
 
   async function configureLocalKnowledge(): Promise<void> {
-    host.showNotice("Starting the local knowledge worker…", "info");
+    host.shell.showNotice("Starting the local knowledge worker…", "info");
     const runtime = await invoke<KnowledgeRuntimeInfo>("ensure_knowledge_worker", {
-      organizationId: host.workspace.organizationId,
-      teamId: host.workspace.teamId
+      organizationId: host.workspaceController.workspace.organizationId,
+      teamId: host.workspaceController.workspace.teamId
     });
-    const stored = await listMcpConnections(host.repository, host.workspace.teamId);
-    const connection = managedKnowledgeConnection(host.workspace.teamId, runtime.url, stored.find(isKnowledgeConnection));
+    const stored = await listMcpConnections(host.repository, host.workspaceController.workspace.teamId);
+    const connection = managedKnowledgeConnection(host.workspaceController.workspace.teamId, runtime.url, stored.find(isKnowledgeConnection));
     await invoke("store_connection_secret", {
       secretRef: connection.secretRef,
       secret: runtime.token
     });
     await saveMcpConnection(host.repository, connection);
-    await host.probeKnowledgeConnection(connection);
-    await host.saveKnowledgePolicy({ mode: "local" });
-    host.knowledgeConnection = connection;
-    host.showNotice("Local knowledge is indexing available folders", "success");
+    await host.session.probeKnowledgeConnection(connection);
+    await host.session.saveKnowledgePolicy({ mode: "local" });
+    host.session.knowledgeConnection = connection;
+    host.shell.showNotice("Local knowledge is indexing available folders", "success");
   }
 
   async function configureRemoteKnowledge(): Promise<void> {
-    const current = await host.loadKnowledgePolicy();
+    const current = await host.session.loadKnowledgePolicy();
     const data = await edit("Organization knowledge worker", [
       {
         name: "url",
@@ -421,7 +421,7 @@ export function createMainActions(host: MainActionHost) {
       },
       {
         name: "token",
-        label: `Bearer token for ${host.currentTeam()?.name ?? "this team"}`,
+        label: `Bearer token for ${host.session.currentTeam()?.name ?? "this team"}`,
         type: "password"
       }
     ], "Connect");
@@ -433,36 +433,36 @@ export function createMainActions(host: MainActionHost) {
     const token = String(data.get("token") ?? "").trim();
     if (!token)
       throw new Error("A team-scoped bearer token is required");
-    const stored = await listMcpConnections(host.repository, host.workspace.teamId);
-    const connection = managedKnowledgeConnection(host.workspace.teamId, policy.url, stored.find(isKnowledgeConnection));
+    const stored = await listMcpConnections(host.repository, host.workspaceController.workspace.teamId);
+    const connection = managedKnowledgeConnection(host.workspaceController.workspace.teamId, policy.url, stored.find(isKnowledgeConnection));
     await invoke("store_connection_secret", { secretRef: connection.secretRef, secret: token });
     await saveMcpConnection(host.repository, connection);
-    host.knowledgeConnection = connection;
-    await host.probeKnowledgeConnection(connection);
+    host.session.knowledgeConnection = connection;
+    await host.session.probeKnowledgeConnection(connection);
     if (current?.mode !== "remote" || current.url !== policy.url) {
-      await host.saveKnowledgePolicy(policy);
+      await host.session.saveKnowledgePolicy(policy);
     }
-    host.knowledgeError = "";
-    host.showNotice("Remote knowledge connected for this team", "success");
+    host.session.knowledgeError = "";
+    host.shell.showNotice("Remote knowledge connected for this team", "success");
   }
 
   async function disableKnowledge(): Promise<void> {
-    await host.saveKnowledgePolicy(null);
-    for (const team of host.teams) {
+    await host.session.saveKnowledgePolicy(null);
+    for (const team of host.workspaceController.teams) {
       const connection = (await listMcpConnections(host.repository, team.id)).find(isKnowledgeConnection);
       if (!connection)
         continue;
       await removeMcpConnection(host.repository, team.id, connection.id);
       await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
     }
-    host.knowledgeConnection = null;
-    host.showNotice("Organization knowledge disabled", "success");
+    host.session.knowledgeConnection = null;
+    host.shell.showNotice("Organization knowledge disabled", "success");
   }
 
   async function refreshLocalModelRows(): Promise<void> {
-    await host.refreshAssistantCatalog();
-    host.render();
-    void host.autopilot();
+    await host.assistant.refreshAssistantCatalog();
+    host.shell.render();
+    void host.runs.autopilot();
   }
 
   // Downloads run for minutes, so they are never awaited by a click handler — the progress events
@@ -470,7 +470,7 @@ export function createMainActions(host: MainActionHost) {
   // call for the same model waits on the fetch already in flight (here, and again in Rust for the
   // calls this map never saw). Resolves to false when the download failed or was cancelled.
   function downloadLocalModel(modelId: string): Promise<boolean> {
-    const running = host.localModelDownloads.get(modelId);
+    const running = host.assistant.localModelDownloads.get(modelId);
     if (running)
       return running;
     const download = host.localModels.download(modelId)
@@ -478,24 +478,24 @@ export function createMainActions(host: MainActionHost) {
       .catch((error) => {
         const message = errorText(error);
         if (message !== "Model download cancelled")
-          host.showNotice(message, "error");
+          host.shell.showNotice(message, "error");
         return false;
       })
-      .finally(() => host.localModelDownloads.delete(modelId));
-    host.localModelDownloads.set(modelId, download);
+      .finally(() => host.assistant.localModelDownloads.delete(modelId));
+    host.assistant.localModelDownloads.set(modelId, download);
     return download;
   }
 
   // Boot can take up to a minute, so it is not awaited either — the row shows "Starting…" until the
   // runtime answers, and the user is free to leave Preferences meanwhile.
   function runLocalModel(modelId: string): void {
-    if (host.localModelStarting.has(modelId))
+    if (host.assistant.localModelStarting.has(modelId))
       return;
-    host.localModelStarting.add(modelId);
+    host.assistant.localModelStarting.add(modelId);
     void host.localModels.wantRun(modelId)
       .then(() => downloadLocalModel(modelId))
       .then(async (downloaded) => {
-        if (!downloaded || !host.localModelStarting.has(modelId))
+        if (!downloaded || !host.assistant.localModelStarting.has(modelId))
           return;
         if (await host.localModels.run(modelId))
           await host.flueProjectPort.restart();
@@ -503,26 +503,26 @@ export function createMainActions(host: MainActionHost) {
       .catch(async (error) => {
         if (host.localModels.wantedRunId === modelId)
           await host.localModels.wantRun(null);
-        host.showNotice(errorText(error), "error");
+        host.shell.showNotice(errorText(error), "error");
       })
       .finally(() => {
-        host.localModelStarting.delete(modelId);
-        host.localModelProgress.delete(modelId);
+        host.assistant.localModelStarting.delete(modelId);
+        host.assistant.localModelProgress.delete(modelId);
         void refreshLocalModelRows();
       });
   }
 
   /** Download toggled off on a finished model: drop the file, keep the row so it can be fetched again. */
   function removeLocalModelFile(modelId: string): void {
-    host.localModelStarting.delete(modelId);
+    host.assistant.localModelStarting.delete(modelId);
     void host.localModels.removeFile(modelId)
       .then(async (wasRunning) => {
         if (wasRunning)
           await host.flueProjectPort.restart();
-        host.localModelProgress.delete(modelId);
+        host.assistant.localModelProgress.delete(modelId);
         await refreshLocalModelRows();
       })
-      .catch((error) => host.showNotice(errorText(error), "error"));
+      .catch((error) => host.shell.showNotice(errorText(error), "error"));
   }
 
   /** Stops a running model, or cancels its download when that is what the toggle turned off. */
@@ -531,14 +531,14 @@ export function createMainActions(host: MainActionHost) {
       .then(async (wasRunning) => {
         if (wasRunning)
           await host.flueProjectPort.restart();
-        host.localModelProgress.delete(modelId);
+        host.assistant.localModelProgress.delete(modelId);
         await refreshLocalModelRows();
       })
-      .catch((error) => host.showNotice(errorText(error), "error"));
+      .catch((error) => host.shell.showNotice(errorText(error), "error"));
   }
 
   async function connectAiProvider(provider: AiProvider): Promise<void> {
-    host.showNotice(host.AI_PROVIDER_HINT[provider], "info");
+    host.shell.showNotice(host.session.AI_PROVIDER_HINT[provider], "info");
     const data = await edit(`Connect ${AI_PROVIDER_LABEL[provider]}`, [
       { name: "apiKey", label: "API key", type: "password", placeholder: "sk-..." }
     ]);
@@ -547,15 +547,15 @@ export function createMainActions(host: MainActionHost) {
     const { connection, secret } = connectApiKey(provider, String(data.get("apiKey") ?? ""));
     await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
     try {
-      await addAiConnection(host.repository, host.aiConnectionScope(), connection);
+      await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
     }
     catch (error) {
       await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
       throw error;
     }
-    await host.refreshAssistantCatalog();
-    await host.refresh();
-    host.showNotice(`Connected ${AI_PROVIDER_LABEL[provider]}`, "success");
+    await host.assistant.refreshAssistantCatalog();
+    await host.workspaceController.refresh();
+    host.shell.showNotice(`Connected ${AI_PROVIDER_LABEL[provider]}`, "success");
   }
 
   async function discoverMcpConnection(connection: McpConnection): Promise<McpConnection> {
@@ -609,7 +609,7 @@ export function createMainActions(host: MainActionHost) {
     if (!data)
       return;
     const connection = newMcpConnection({
-      teamId: host.workspace.teamId,
+      teamId: host.workspaceController.workspace.teamId,
       name: String(data.get("name") ?? ""),
       url: String(data.get("url") ?? ""),
       authType: "api-key",
@@ -628,7 +628,7 @@ export function createMainActions(host: MainActionHost) {
       throw error;
     }
     await discoverMcpConnection(connection);
-    await host.refresh();
+    await host.workspaceController.refresh();
   }
 
   async function addOAuthMcp(): Promise<void> {
@@ -646,7 +646,7 @@ export function createMainActions(host: MainActionHost) {
     if (!data)
       return;
     const connection = newMcpConnection({
-      teamId: host.workspace.teamId,
+      teamId: host.workspaceController.workspace.teamId,
       name: String(data.get("name") ?? ""),
       url: String(data.get("url") ?? ""),
       authType: "oauth",
@@ -673,7 +673,7 @@ export function createMainActions(host: MainActionHost) {
       throw error;
     }
     await discoverMcpConnection(connection);
-    await host.refresh();
+    await host.workspaceController.refresh();
   }
 
   function readFileAsDataUrl(file: File): Promise<string> {
@@ -687,15 +687,15 @@ export function createMainActions(host: MainActionHost) {
 
   /** A newly selected model starts on Automatic; Pi supplies its supported explicit levels. */
   function linkModelThinking(): void {
-    const model = host.dialogForm.querySelector<HTMLSelectElement>('select[name="model"]');
-    const thinking = host.dialogForm.querySelector<HTMLSelectElement>('select[name="thinkingLevel"]');
+    const model = host.shell.dialogForm.querySelector<HTMLSelectElement>('select[name="model"]');
+    const thinking = host.shell.dialogForm.querySelector<HTMLSelectElement>('select[name="thinkingLevel"]');
     if (!model || !thinking)
       return;
     model.addEventListener("change", () => {
       const choice = parseModelRef(model.value);
       const options = thinkingOptionsForModel(choice ?? {});
       thinking.innerHTML = options
-        .map(({ label, value }) => `<option value="${host.escapeHtml(value)}">${host.escapeHtml(label)}</option>`)
+        .map(({ label, value }) => `<option value="${host.shell.escapeHtml(value)}">${host.shell.escapeHtml(label)}</option>`)
         .join("");
       thinking.value = "";
     });
@@ -706,12 +706,12 @@ export function createMainActions(host: MainActionHost) {
    * `__action=footer` so the caller can tell it apart from the primary button.
    */
   function edit(titleText: string, fields: EditorField[], submitLabel = "Save", footerLabel = ""): Promise<FormData | null> {
-    host.dialogTitle.textContent = titleText;
-    const saveButton = host.dialog.querySelector<HTMLButtonElement>("#editor-save");
+    host.shell.dialogTitle.textContent = titleText;
+    const saveButton = host.shell.dialog.querySelector<HTMLButtonElement>("#editor-save");
     if (saveButton)
       saveButton.textContent = submitLabel;
-    host.dialogFooter.innerHTML = footerLabel
-      ? `<button class="link link-primary text-sm" type="submit" name="__action" value="footer">${host.escapeHtml(footerLabel)}</button>`
+    host.shell.dialogFooter.innerHTML = footerLabel
+      ? `<button class="link link-primary text-sm" type="submit" name="__action" value="footer">${host.shell.escapeHtml(footerLabel)}</button>`
       : "";
     const stepLabels = {
       basics: "1 · Basics",
@@ -719,34 +719,34 @@ export function createMainActions(host: MainActionHost) {
       capabilities: "3 · Capabilities"
     } as const;
     const steps = [...new Set(fields.flatMap(({ step }) => step ? [step] : []))];
-    host.dialogFields.innerHTML = steps.length > 1
+    host.shell.dialogFields.innerHTML = steps.length > 1
       ? `<nav class="join grid grid-cols-3" aria-label="Agent setup sections">${steps
         .map((step, index) => `<button class="btn join-item ${index ? "btn-ghost" : "btn-primary"}" type="button" data-editor-step-button="${step}">${stepLabels[step]}</button>`)
         .join("")}</nav>${steps
-          .map((step, index) => `<section class="grid gap-4" data-editor-step="${step}" ${index ? "hidden" : ""}>${fields.filter((field) => field.step === step).map(host.editorFieldHtml).join("")}</section>`)
+          .map((step, index) => `<section class="grid gap-4" data-editor-step="${step}" ${index ? "hidden" : ""}>${fields.filter((field) => field.step === step).map(host.views.editorFieldHtml).join("")}</section>`)
           .join("")}`
-      : fields.map(host.editorFieldHtml).join("");
+      : fields.map(host.views.editorFieldHtml).join("");
     const showStep = (step: string): void => {
-      for (const section of host.dialogFields.querySelectorAll<HTMLElement>("[data-editor-step]")) {
+      for (const section of host.shell.dialogFields.querySelectorAll<HTMLElement>("[data-editor-step]")) {
         section.hidden = section.dataset.editorStep !== step;
       }
-      for (const button of host.dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
+      for (const button of host.shell.dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
         const active = button.dataset.editorStepButton === step;
         button.classList.toggle("btn-primary", active);
         button.classList.toggle("btn-ghost", !active);
       }
     };
-    for (const button of host.dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
+    for (const button of host.shell.dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
       button.addEventListener("click", () => showStep(button.dataset.editorStepButton ?? ""));
     }
     linkModelThinking();
-    host.dialog.showModal();
-    (host.dialogFields.querySelector<HTMLElement>("[data-editor-step]:not([hidden])") ?? host.dialogForm)
+    host.shell.dialog.showModal();
+    (host.shell.dialogFields.querySelector<HTMLElement>("[data-editor-step]:not([hidden])") ?? host.shell.dialogForm)
       .querySelector<HTMLElement>('input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)')
       ?.focus();
     return new Promise((resolve) => {
       let settled = false;
-      const cancelButton = host.dialog.querySelector<HTMLButtonElement>("[data-dialog-cancel]");
+      const cancelButton = host.shell.dialog.querySelector<HTMLButtonElement>("[data-dialog-cancel]");
       const finish = (value: FormData | null) => {
         if (settled)
           return;
@@ -755,41 +755,41 @@ export function createMainActions(host: MainActionHost) {
       };
       const submit = async (event: SubmitEvent): Promise<void> => {
         event.preventDefault();
-        const formData = new FormData(host.dialogForm, event.submitter);
+        const formData = new FormData(host.shell.dialogForm, event.submitter);
         // File inputs come back as File objects; convert to data URLs so callers get a string.
         for (const field of fields) {
           if (field.type !== "file")
             continue;
-          const input = host.dialogForm.querySelector<HTMLInputElement>(`input[name="${field.name}"]`);
+          const input = host.shell.dialogForm.querySelector<HTMLInputElement>(`input[name="${field.name}"]`);
           const file = input?.files?.[0];
           formData.set(field.name, file ? await readFileAsDataUrl(file) : "");
         }
         finish(formData);
-        host.dialog.close();
+        host.shell.dialog.close();
       };
       const close = () => {
-        host.dialogForm.removeEventListener("submit", submit);
+        host.shell.dialogForm.removeEventListener("submit", submit);
         cancelButton?.removeEventListener("click", cancel);
         finish(null);
       };
-      const cancel = () => host.dialog.close();
-      host.dialogForm.addEventListener("submit", submit, { once: true });
-      host.dialog.addEventListener("close", close, { once: true });
+      const cancel = () => host.shell.dialog.close();
+      host.shell.dialogForm.addEventListener("submit", submit, { once: true });
+      host.shell.dialog.addEventListener("close", close, { once: true });
       cancelButton?.addEventListener("click", cancel, { once: true });
     });
   }
 
   /** A new work item is a page, not a dialog: the file picker below needs the room. */
   async function createItem(stageId?: string): Promise<void> {
-    if (!host.activeProcess || !host.activeBoard)
+    if (!host.workspaceController.activeProcess || !host.workspaceController.activeBoard)
       throw new Error("Open a board first");
-    const targetStage = stageId ?? host.activeBoard.stageIds[0];
+    const targetStage = stageId ?? host.workspaceController.activeBoard.stageIds[0];
     if (!targetStage)
       throw new Error("This board needs a status column");
-    host.newItemStageId = targetStage;
-    host.newItemSources = await workItemFileSources();
-    host.view = "item-new";
-    host.render();
+    host.shell.newItemStageId = targetStage;
+    host.shell.newItemSources = await workItemFileSources();
+    host.shell.view = "item-new";
+    host.shell.render();
   }
 
   /**
@@ -799,8 +799,8 @@ export function createMainActions(host: MainActionHost) {
    * rather than failing the whole page.
    */
   async function workItemFileSources(): Promise<FileSource[]> {
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
-    const locations = await host.repository.listAvailableFileLocations(host.workspace.teamId);
+    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const roots = [
       ...(mapping?.localPath ? [{ id: "", name: "Team folder", path: mapping.localPath }] : []),
       ...locations.flatMap(({ id, name, localPath, missing }) => localPath && !missing ? [{ id, name, path: localPath }] : [])
@@ -813,24 +813,24 @@ export function createMainActions(host: MainActionHost) {
   }
 
   async function submitNewItem(data: FormData): Promise<void> {
-    if (!host.activeProcess)
+    if (!host.workspaceController.activeProcess)
       throw new Error("Open a board first");
-    const studio = processModule(host.activeProcess.tags)?.mode === "studio";
-    const itemId = await host.repository.createWorkItem(host.activeProcess.id, {
-      stageId: host.newItemStageId,
+    const studio = processModule(host.workspaceController.activeProcess.tags)?.mode === "studio";
+    const itemId = await host.repository.createWorkItem(host.workspaceController.activeProcess.id, {
+      stageId: host.shell.newItemStageId,
       title: String(data.get("title") ?? ""),
       description: String(data.get("description") ?? ""),
       owner: String(data.get("owner") ?? ""),
       logicalFiles: data.getAll("files").map(String)
     });
-    host.view = "board";
-    await host.refresh();
+    host.shell.view = "board";
+    await host.workspaceController.refresh();
     // A studio item cannot start until a person points it at a Git folder, and the board says
     // nothing about that until it is opened — so open it, on the step that is waiting.
     if (studio) {
-      host.activeItemId = itemId;
-      host.view = "item";
-      host.render();
+      host.shell.activeItemId = itemId;
+      host.shell.view = "item";
+      host.shell.render();
     }
   }
 
@@ -855,7 +855,7 @@ export function createMainActions(host: MainActionHost) {
 
   /** A dashboard is bound to its process for life, so only the name and columns are editable. */
   async function editDashboard(board: Board): Promise<void> {
-    const process = host.processes.find(({ id }) => id === board.processId);
+    const process = host.workspaceController.processes.find(({ id }) => id === board.processId);
     if (!process)
       throw new Error("This dashboard's process is archived");
     const data = await edit("Dashboard settings", [
@@ -878,14 +878,14 @@ export function createMainActions(host: MainActionHost) {
     ]);
     if (!data)
       return;
-    await host.repository.updateBoard(board.id, host.workspace.teamId, {
+    await host.repository.updateBoard(board.id, host.workspaceController.workspace.teamId, {
       name: String(data.get("name") ?? ""),
       processId: process.id,
       stageIds: data.getAll("stages").map(String),
       filters: parseBoardFilters(String(data.get("filters") ?? ""))
     });
-    host.view = "board";
-    await host.refresh();
+    host.shell.view = "board";
+    await host.workspaceController.refresh();
   }
 
   document.addEventListener("click", async (event) => {
@@ -896,58 +896,58 @@ export function createMainActions(host: MainActionHost) {
       return;
     try {
       if (button.dataset.view) {
-        host.view = button.dataset.view as View;
+        host.shell.view = button.dataset.view as View;
         if (button.dataset.prefs)
-          host.prefsTab = button.dataset.prefs as PrefsTab;
-        host.render();
+          host.shell.prefsTab = button.dataset.prefs as PrefsTab;
+        host.shell.render();
         return;
       }
       if (button.dataset.prefsTab) {
-        host.prefsTab = button.dataset.prefsTab as PrefsTab;
-        host.render();
+        host.shell.prefsTab = button.dataset.prefsTab as PrefsTab;
+        host.shell.render();
         return;
       }
       if (button.dataset.orgTab) {
-        host.orgTab = button.dataset.orgTab as OrgTab;
-        host.render();
+        host.shell.orgTab = button.dataset.orgTab as OrgTab;
+        host.shell.render();
         return;
       }
       if (button.dataset.teamTab) {
-        host.teamTab = button.dataset.teamTab as TeamTab;
-        host.render();
+        host.shell.teamTab = button.dataset.teamTab as TeamTab;
+        host.shell.render();
         return;
       }
       if (button.dataset.teamView) {
         const teamId = button.dataset.team!;
         const nextView = button.dataset.teamView as View;
-        if (teamId !== host.workspace.teamId)
-          await host.switchTeam(teamId, nextView);
+        if (teamId !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(teamId, nextView);
         else {
-          host.view = nextView;
-          host.render();
+          host.shell.view = nextView;
+          host.shell.render();
         }
         return;
       }
       if (button.dataset.itemTab) {
-        host.itemTab = button.dataset.itemTab as typeof host.itemTab;
-        host.render();
+        host.shell.itemTab = button.dataset.itemTab as typeof host.shell.itemTab;
+        host.shell.render();
         return;
       }
       if (button.dataset.board) {
         // A dashboard in another team: switch to that team first so `boards`/`processes` hold it.
         const boardTeam = button.dataset.team;
-        if (boardTeam && boardTeam !== host.workspace.teamId)
-          await host.switchTeam(boardTeam);
-        host.activeBoard = host.boards.find(({ id }) => id === button.dataset.board) ?? null;
-        host.activeProcess = host.processes.find(({ id }) => id === host.activeBoard?.processId) ?? null;
-        host.workspace.processId = host.activeProcess?.id ?? "";
-        host.items = host.activeProcess ? await host.repository.listWorkItems(host.activeProcess.id) : [];
-        host.view = "board";
-        host.render();
+        if (boardTeam && boardTeam !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(boardTeam);
+        host.workspaceController.activeBoard = host.workspaceController.boards.find(({ id }) => id === button.dataset.board) ?? null;
+        host.workspaceController.activeProcess = host.workspaceController.processes.find(({ id }) => id === host.workspaceController.activeBoard?.processId) ?? null;
+        host.workspaceController.workspace.processId = host.workspaceController.activeProcess?.id ?? "";
+        host.workspaceController.items = host.workspaceController.activeProcess ? await host.repository.listWorkItems(host.workspaceController.activeProcess.id) : [];
+        host.shell.view = "board";
+        host.shell.render();
         return;
       }
       const action = button.dataset.action;
-      for (const studio of host.processStudios) {
+      for (const studio of host.workspaceController.processStudios) {
         if (await studio.handleAction(action ?? "", button))
           return;
       }
@@ -956,10 +956,10 @@ export function createMainActions(host: MainActionHost) {
           await configureLocalKnowledge();
         }
         catch (error) {
-          host.knowledgeError = errorText(error);
-          host.showNotice(host.knowledgeError, "error");
+          host.session.knowledgeError = errorText(error);
+          host.shell.showNotice(host.session.knowledgeError, "error");
         }
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "knowledge-remote") {
@@ -967,36 +967,36 @@ export function createMainActions(host: MainActionHost) {
           await configureRemoteKnowledge();
         }
         catch (error) {
-          host.knowledgeError = errorText(error);
-          host.showNotice(host.knowledgeError, "error");
+          host.session.knowledgeError = errorText(error);
+          host.shell.showNotice(host.session.knowledgeError, "error");
         }
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "knowledge-disable") {
         await disableKnowledge();
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "open-item") {
-        host.activeItemId = button.dataset.id!;
-        host.itemTab = "overview";
-        const latest = host.executions.find(({ workItemId }) => workItemId === host.activeItemId);
+        host.shell.activeItemId = button.dataset.id!;
+        host.shell.itemTab = "overview";
+        const latest = host.runs.executions.find(({ workItemId }) => workItemId === host.shell.activeItemId);
         if (latest)
-          await host.loadExecutionHistory(latest);
-        host.view = "item";
-        host.render();
+          await host.runs.loadExecutionHistory(latest);
+        host.shell.view = "item";
+        host.shell.render();
         return;
       }
       // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
       // same form and would be thrown away by one.
       if (action === "select-process-agent") {
-        host.configAgentId = button.dataset.id!;
-        for (const pane of host.app.querySelectorAll<HTMLElement>("[data-agent-pane]")) {
-          pane.hidden = pane.dataset.agentPane !== host.configAgentId;
+        host.shell.configAgentId = button.dataset.id!;
+        for (const pane of host.shell.app.querySelectorAll<HTMLElement>("[data-agent-pane]")) {
+          pane.hidden = pane.dataset.agentPane !== host.shell.configAgentId;
         }
-        for (const row of host.app.querySelectorAll<HTMLElement>("[data-agent-row]")) {
-          const chosen = row.dataset.agentRow === host.configAgentId;
+        for (const row of host.shell.app.querySelectorAll<HTMLElement>("[data-agent-row]")) {
+          const chosen = row.dataset.agentRow === host.shell.configAgentId;
           row.classList.toggle("border-primary", chosen);
           row.classList.toggle("bg-primary/5", chosen);
           row.classList.toggle("border-base-300", !chosen);
@@ -1005,31 +1005,31 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "reload-process-agents") {
-        host.render();
+        host.shell.render();
         return;
       }
       if (action === "add-process-agent") {
         await commitProcessAgentEdits();
         const created = newAgent({ name: "New agent", triggerStageId: button.dataset.stage! });
         await writeAgent(created);
-        host.configAgentId = created.id;
-        await host.refresh();
+        host.shell.configAgentId = created.id;
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "open-folder-settings") {
-        host.teamTab = "folder";
-        host.view = "settings";
-        host.render();
+        host.shell.teamTab = "folder";
+        host.shell.view = "settings";
+        host.shell.render();
         return;
       }
       if (action === "open-run") {
-        await host.openRun(button.dataset.id!);
+        await host.runs.openRun(button.dataset.id!);
         return;
       }
       if (action === "clear-search") {
-        host.searchQuery = "";
-        host.searchHits = [];
-        host.render();
+        host.shell.searchQuery = "";
+        host.shell.searchHits = [];
+        host.shell.render();
         return;
       }
       if (action === "archive-skill") {
@@ -1038,11 +1038,11 @@ export function createMainActions(host: MainActionHost) {
         if (!(await edit(`Retire "${name}"? Its folder moves to skills/.archive.`, [], "Retire"))) {
           return;
         }
-        const teamRoot = await host.requireTeamRoot();
+        const teamRoot = await host.workspaceController.requireTeamRoot();
         await host.agentFiles.archiveSkill(teamRoot, button.dataset.slug!);
-        await host.ensureTeamSkillsRegistry(teamRoot);
-        await host.refresh();
-        host.showNotice(`Retired "${name}" to skills/.archive`, "success");
+        await host.workspaceController.ensureTeamSkillsRegistry(teamRoot);
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Retired "${name}" to skills/.archive`, "success");
         return;
       }
       if (action === "curate-skills") {
@@ -1050,8 +1050,8 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "discard-curator-plan") {
-        host.curatorPlan = null;
-        host.render();
+        host.assistant.curatorPlan = null;
+        host.shell.render();
         return;
       }
       if (action === "apply-curator-plan") {
@@ -1059,10 +1059,10 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "dismiss-run") {
-        host.dismissedRunIds.add(button.dataset.id!);
-        await host.repository.setSetting(host.DISMISSED_RUNS_KEY, [...host.dismissedRunIds]);
-        host.render();
-        host.showNotice("Run dismissed from Inbox", "success");
+        host.runs.dismissedRunIds.add(button.dataset.id!);
+        await host.repository.setSetting(host.runs.DISMISSED_RUNS_KEY, [...host.runs.dismissedRunIds]);
+        host.shell.render();
+        host.shell.showNotice("Run dismissed from Inbox", "success");
         return;
       }
       if (action === "stop-run") {
@@ -1070,13 +1070,13 @@ export function createMainActions(host: MainActionHost) {
         if (!execution)
           return;
         await host.runCoordinator.stop(execution.id);
-        await host.releaseClaim(execution.workItemId);
-        await host.refresh();
-        host.showNotice("Run stopped", "success");
+        await host.runs.releaseClaim(execution.workItemId);
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Run stopped", "success");
         return;
       }
       if (action === "delete-run") {
-        await host.deleteRun(button.dataset.id!);
+        await host.runs.deleteRun(button.dataset.id!);
         return;
       }
       if (action === "restart-run") {
@@ -1084,43 +1084,43 @@ export function createMainActions(host: MainActionHost) {
         // A clean execution and conversation: the old snapshot's instructions and capabilities
         // may no longer be safe to reuse, so it is linked, never mutated or resumed.
         if (execution)
-          await host.runItem(execution.workItemId, false, undefined, execution.id);
+          await host.runs.runItem(execution.workItemId, false, undefined, execution.id);
         return;
       }
       if (action === "preview-output") {
-        const output = host.executionOutputs.find(({ id }) => id === button.dataset.id);
+        const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
         const execution = output ? await host.repository.getExecution(output.executionId) : null;
-        const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+        const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
         if (!output || !execution?.workspaceRef || !mapping)
           throw new Error("Output preview is unavailable");
-        host.outputPreviews.set(output.id, await host.workspaces.preview(execution.workspaceRef, output.logicalOutput, mapping.localPath, output.logicalDestination));
-        await host.renderRunDetail();
+        host.runs.outputPreviews.set(output.id, await host.workspaces.preview(execution.workspaceRef, output.logicalOutput, mapping.localPath, output.logicalDestination));
+        await host.views.renderRunDetail();
         return;
       }
       if (action === "view-markdown-output") {
-        const output = host.executionOutputs.find(({ id }) => id === button.dataset.id);
+        const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
         const execution = output ? await host.repository.getExecution(output.executionId) : null;
-        const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+        const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
         if (!output || !execution?.workspaceRef || !mapping || !/\.md$/i.test(output.logicalOutput)) {
           throw new Error("Markdown preview is unavailable");
         }
-        host.markdownTitle.textContent = output.logicalOutput;
-        host.markdownBody.innerHTML = renderMarkdown(await host.workspaces.readOutput(execution.workspaceRef, output.logicalOutput, mapping.localPath));
-        host.markdownDialog.showModal();
+        host.shell.markdownTitle.textContent = output.logicalOutput;
+        host.shell.markdownBody.innerHTML = renderMarkdown(await host.workspaces.readOutput(execution.workspaceRef, output.logicalOutput, mapping.localPath));
+        host.shell.markdownDialog.showModal();
         return;
       }
       if (action === "approve-output") {
-        const output = host.executionOutputs.find(({ id }) => id === button.dataset.id);
+        const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
         const execution = output ? await host.repository.getExecution(output.executionId) : null;
-        const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+        const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
         if (!output || !execution?.workspaceRef || !mapping)
           throw new Error("Output is unavailable");
-        if (host.goalsController.matchesOutput(output.logicalOutput)) {
-          const proposed = await host.goalsController.readTaskPlan(output, execution, mapping.localPath);
+        if (host.runs.goalsController.matchesOutput(output.logicalOutput)) {
+          const proposed = await host.runs.goalsController.readTaskPlan(output, execution, mapping.localPath);
           const item = await host.repository.getWorkItem(execution.workItemId);
           if (!item)
             throw new Error("The goal is unavailable");
-          const roles = host.goalWorkerRoles();
+          const roles = host.runs.goalWorkerRoles();
           const fields: EditorField[] = [
             {
               name: "selectedTasks",
@@ -1191,20 +1191,20 @@ export function createMainActions(host: MainActionHost) {
               }]
               : [])
           }));
-          for (const control of host.app.querySelectorAll<HTMLButtonElement>('[data-action="approve-output"], [data-action="reject-output"]')) {
+          for (const control of host.shell.app.querySelectorAll<HTMLButtonElement>('[data-action="approve-output"], [data-action="reject-output"]')) {
             if (control.dataset.id === output.id)
               control.disabled = true;
           }
           try {
-            const count = await host.goalsController.approveTaskPlan(output, execution, mapping.localPath, edited);
-            host.showNotice(count
+            const count = await host.runs.goalsController.approveTaskPlan(output, execution, mapping.localPath, edited);
+            host.shell.showNotice(count
               ? `${count} task${count === 1 ? "" : "s"} approved and queued`
               : "Plan approved; duplicate task keys were skipped", "success");
             return;
           }
           finally {
             // Reconcile controls with the database even if shared coordination fails afterward.
-            await host.refresh();
+            await host.workspaceController.refresh();
           }
         }
         const data = await edit("Approve file change", [
@@ -1213,22 +1213,22 @@ export function createMainActions(host: MainActionHost) {
         if (!data)
           return;
         const destination = String(data.get("destination") ?? "");
-        await host.enforceControl(host.controlInput("output.publish", { type: "execution_output", id: output.id, attributes: { destination: "team-folder" } }, { agentId: execution.agentId }), true);
+        await host.runs.enforceControl(host.runs.controlInput("output.publish", { type: "execution_output", id: output.id, attributes: { destination: "team-folder" } }, { agentId: execution.agentId }), true);
         await host.workspaces.publishApproved(execution.workspaceRef, output.logicalOutput, mapping.localPath, destination);
         await host.repository.decideExecutionOutput(output.id, "approved", destination);
-        await host.finishOutputReview(execution);
-        await host.refresh();
-        host.showNotice("File approved and copied to the team folder", "success");
+        await host.runs.finishOutputReview(execution);
+        await host.workspaceController.refresh();
+        host.shell.showNotice("File approved and copied to the team folder", "success");
         return;
       }
       if (action === "reject-output") {
-        const output = host.executionOutputs.find(({ id }) => id === button.dataset.id);
+        const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
         const execution = output ? await host.repository.getExecution(output.executionId) : null;
         if (!output || !execution)
           return;
         // The reason is the only instruction the retry gets, so ask for it here rather than
         // leaving the agent to guess what was wrong with the same task it just did.
-        const data = await edit(host.goalsController.matchesOutput(output.logicalOutput)
+        const data = await edit(host.runs.goalsController.matchesOutput(output.logicalOutput)
           ? "Reject task plan"
           : "Reject file change", [
           {
@@ -1251,23 +1251,23 @@ export function createMainActions(host: MainActionHost) {
         if (!data)
           return;
         const reason = String(data.get("reason") ?? "");
-        const item = host.teamItems.find(({ id }) => id === execution.workItemId);
+        const item = host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId);
         if (data.get("scope") === "future" && !reason.trim()) {
           throw new Error("Add a reason before saving feedback for future items");
         }
         await host.repository.decideExecutionOutput(output.id, "rejected", undefined, reason);
         const undo = data.get("scope") === "future" && item && !isProposal(execution)
-          ? await host.rememberRejection(item, reason)
+          ? await host.runs.rememberRejection(item, reason)
           : undefined;
-        await host.finishOutputReview(execution);
-        await host.refresh();
-        host.showNotice(undo
+        await host.runs.finishOutputReview(execution);
+        await host.workspaceController.refresh();
+        host.shell.showNotice(undo
           ? "Rejected — feedback saved for future items"
-          : host.goalsController.matchesOutput(output.logicalOutput)
+          : host.runs.goalsController.matchesOutput(output.logicalOutput)
             ? "Task plan rejected — the planner will try again"
             : "File change rejected — the agent will try again", "success", undo);
         if (!undo && item && !isProposal(execution)) {
-          void host.proposeSkillEdit(item).catch((error) => host.showNotice(errorText(error), "error"));
+          void host.runs.proposeSkillEdit(item).catch((error) => host.shell.showNotice(errorText(error), "error"));
         }
         return;
       }
@@ -1276,7 +1276,7 @@ export function createMainActions(host: MainActionHost) {
         const item = execution ? await host.repository.getWorkItem(execution.workItemId) : null;
         if (!execution || !item)
           throw new Error("Run receipt is unavailable");
-        const contents = runReceipt(execution, item, host.agents.find(({ id }) => id === execution.agentId) ?? null, await host.repository.listExecutionOutputs(execution.id));
+        const contents = runReceipt(execution, item, host.workspaceController.agents.find(({ id }) => id === execution.agentId) ?? null, await host.repository.listExecutionOutputs(execution.id));
         const url = URL.createObjectURL(new Blob([contents], { type: "text/markdown" }));
         const link = document.createElement("a");
         link.href = url;
@@ -1290,7 +1290,7 @@ export function createMainActions(host: MainActionHost) {
         if (!schedulable.length)
           throw new Error("Create a work item before adding a schedule");
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const roles = host.goalWorkerRoles();
+        const roles = host.runs.goalWorkerRoles();
         const data = await edit("New schedule", [
           { name: "name", label: "Name", value: "Scheduled work" },
           {
@@ -1332,9 +1332,9 @@ export function createMainActions(host: MainActionHost) {
         const recurrence = String(data.get("recurrence")) as Schedule["recurrence"];
         const mode = String(data.get("mode")) as Schedule["mode"];
         const workItemId = String(data.get("workItemId"));
-        const scheduledItem = host.teamItems.find(({ id }) => id === workItemId);
+        const scheduledItem = host.workspaceController.teamItems.find(({ id }) => id === workItemId);
         const scheduledProcess = scheduledItem
-          ? host.processes.find(({ id }) => id === scheduledItem.processId)
+          ? host.workspaceController.processes.find(({ id }) => id === scheduledItem.processId)
           : null;
         if (mode === "spawn_goal" && (!scheduledItem || !isGoalsProcess(scheduledProcess))) {
           throw new Error("New goal occurrences can only be created from a Goals work item");
@@ -1344,7 +1344,7 @@ export function createMainActions(host: MainActionHost) {
           throw new Error("Choose an available goal worker role");
         }
         await host.repository.createSchedule({
-          teamId: host.workspace.teamId,
+          teamId: host.workspaceController.workspace.teamId,
           workItemId,
           name: String(data.get("name")),
           recurrence,
@@ -1355,35 +1355,35 @@ export function createMainActions(host: MainActionHost) {
         });
         if (mode === "spawn_goal")
           await host.repository.setWorkItemStatus(workItemId, "blocked");
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "run-schedule") {
-        const schedule = host.schedules.find(({ id }) => id === button.dataset.id);
+        const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule)
-          await host.runScheduledOccurrence(schedule, false);
+          await host.runs.runScheduledOccurrence(schedule, false);
         return;
       }
       if (action === "toggle-schedule") {
-        const schedule = host.schedules.find(({ id }) => id === button.dataset.id);
+        const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule) {
           await host.repository.setScheduleEnabled(schedule.id, !schedule.enabled);
-          await host.refresh();
+          await host.workspaceController.refresh();
         }
         return;
       }
       if (action === "delete-schedule") {
         await host.repository.deleteSchedule(button.dataset.id!);
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "switch-org") {
-        await host.switchConnection(button.dataset.id!, button.dataset.account ?? "");
+        await host.session.switchConnection(button.dataset.id!, button.dataset.account ?? "");
         return;
       }
       if (action === "toggle-color-mode") {
-        await host.saveTheme(host.DARK_THEMES.has(host.themePreset) ? host.lightDefaultTheme : host.darkDefaultTheme);
-        host.render();
+        await host.shell.saveTheme(host.shell.DARK_THEMES.has(host.shell.themePreset) ? host.shell.lightDefaultTheme : host.shell.darkDefaultTheme);
+        host.shell.render();
         return;
       }
       if (action === "exit-app") {
@@ -1392,51 +1392,51 @@ export function createMainActions(host: MainActionHost) {
       }
       if (action === "sign-in" || action === "signin-email" || action === "signup-email" || action === "social-signin") {
         const result = action === "signup-email"
-          ? await host.signUpUser()
+          ? await host.session.signUpUser()
           : action === "social-signin"
-            ? await host.socialSignInUser(button.dataset.provider ?? "google")
-            : await host.signInUser();
+            ? await host.session.socialSignInUser(button.dataset.provider ?? "google")
+            : await host.session.signInUser();
         if (result) {
           // Pool every account. Connect it to the current org only if that connected org has none.
-          await host.rememberAccount(result.user, result.token);
-          if (host.orgIsConnected(host.workspace.organizationId) && !host.orgHasConnection(host.workspace.organizationId)) {
-            await host.connect(host.workspace.organizationId, result.user, result.token);
-            host.activeUserId = result.user.id;
+          await host.session.rememberAccount(result.user, result.token);
+          if (host.session.orgIsConnected(host.workspaceController.workspace.organizationId) && !host.session.orgHasConnection(host.workspaceController.workspace.organizationId)) {
+            await host.session.connect(host.workspaceController.workspace.organizationId, result.user, result.token);
+            host.session.activeUserId = result.user.id;
           }
           try {
-            await host.reconcileServerOrgs();
+            await host.session.reconcileServerOrgs();
           }
           catch (error) {
-            host.showNotice(errorText(error), "error");
+            host.shell.showNotice(errorText(error), "error");
           }
-          await host.refresh();
-          host.showNotice(`Signed in as ${result.user.email}`, "success");
+          await host.workspaceController.refresh();
+          host.shell.showNotice(`Signed in as ${result.user.email}`, "success");
         }
         return;
       }
       if (action === "accept-invite") {
         // Accept as the account the invite was sent to (any pooled account, not just the current org's).
-        const account = host.accounts.get(button.dataset.account!);
+        const account = host.session.accounts.get(button.dataset.account!);
         if (!account)
           return;
         const { membership } = await host.api.acceptMyInvitation(account.token, button.dataset.id!);
-        await host.connect(membership.organizationId, account.user, account.token);
-        await host.switchConnection(membership.organizationId, account.user.id);
-        host.showNotice("Joined organization", "success");
+        await host.session.connect(membership.organizationId, account.user, account.token);
+        await host.session.switchConnection(membership.organizationId, account.user.id);
+        host.shell.showNotice("Joined organization", "success");
         return;
       }
       if (action === "login-org") {
         // The row already names the account — connect it straight away, no "which account?" prompt.
-        const account = host.accounts.get(button.dataset.account!);
+        const account = host.session.accounts.get(button.dataset.account!);
         if (!account)
           return;
-        await host.connect(button.dataset.id!, account.user, account.token);
-        await host.switchConnection(button.dataset.id!, account.user.id);
-        host.showNotice(`Signed in as ${account.user.email}`, "success");
+        await host.session.connect(button.dataset.id!, account.user, account.token);
+        await host.session.switchConnection(button.dataset.id!, account.user.id);
+        host.shell.showNotice(`Signed in as ${account.user.email}`, "success");
         return;
       }
       if (action === "logout-org") {
-        await host.disconnect(button.dataset.id!, button.dataset.account!);
+        await host.session.disconnect(button.dataset.id!, button.dataset.account!);
         return;
       }
       if (action === "invite-org-member") {
@@ -1454,24 +1454,24 @@ export function createMainActions(host: MainActionHost) {
           }
         ]);
         if (data) {
-          const token = host.orgToken();
+          const token = host.session.orgToken();
           if (!token)
             throw new Error("Sign in to this organization first");
-          await host.api.createOrgInvitation(token, host.workspace.organizationId, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
-          host.showNotice("Invitation sent", "success");
+          await host.api.createOrgInvitation(token, host.workspaceController.workspace.organizationId, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
+          host.shell.showNotice("Invitation sent", "success");
         }
         return;
       }
       if (action === "create-local-org") {
-        await host.createLocalOrg();
+        await host.session.createLocalOrg();
         return;
       }
       if (action === "create-connected-org") {
-        await host.createConnectedOrg();
+        await host.session.createConnectedOrg();
         return;
       }
       if (action === "rename-org") {
-        const org = host.currentOrganization();
+        const org = host.session.currentOrganization();
         if (!org)
           return;
         const data = await edit("Rename organization", [
@@ -1480,13 +1480,13 @@ export function createMainActions(host: MainActionHost) {
         const name = String(data?.get("name") ?? "").trim();
         if (!name)
           return;
-        const renameToken = host.orgToken();
-        if (host.orgIsConnected() && renameToken)
+        const renameToken = host.session.orgToken();
+        if (host.session.orgIsConnected() && renameToken)
           await host.api.renameOrganization(renameToken, org.id, name);
         await host.repository.renameOrganization(org.id, name);
-        await host.reconcileServerOrgs().catch(() => { });
-        await host.refresh();
-        host.showNotice("Organization renamed", "success");
+        await host.session.reconcileServerOrgs().catch(() => { });
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Organization renamed", "success");
         return;
       }
       if (action === "connect-ai") {
@@ -1494,14 +1494,14 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "remove-ai-connection") {
-        const connection = (await listAiConnections(host.repository, host.aiConnectionScope())).find(({ id }) => id === button.dataset.id);
+        const connection = (await listAiConnections(host.repository, host.session.aiConnectionScope())).find(({ id }) => id === button.dataset.id);
         const warning = connection
           ? await invoke<string | null>("delete_connection_secret", { secretRef: connection.secretRef })
           : null;
-        await removeAiConnection(host.repository, host.aiConnectionScope(), button.dataset.id!);
-        await host.refreshAssistantCatalog();
-        await host.refresh();
-        host.showNotice(warning ?? "Connection removed", warning ? "error" : "success");
+        await removeAiConnection(host.repository, host.session.aiConnectionScope(), button.dataset.id!);
+        await host.assistant.refreshAssistantCatalog();
+        await host.workspaceController.refresh();
+        host.shell.showNotice(warning ?? "Connection removed", warning ? "error" : "success");
         return;
       }
       if (action === "add-mcp-api") {
@@ -1513,24 +1513,24 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "test-mcp") {
-        const connection = host.mcpConnections.find(({ id }) => id === button.dataset.id);
+        const connection = host.workspaceController.mcpConnections.find(({ id }) => id === button.dataset.id);
         if (!connection)
           return;
         await discoverMcpConnection(connection);
-        await host.refresh();
-        host.showNotice("MCP connection is healthy", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice("MCP connection is healthy", "success");
         return;
       }
       if (action === "remove-mcp") {
-        const connection = host.mcpConnections.find(({ id }) => id === button.dataset.id);
+        const connection = host.workspaceController.mcpConnections.find(({ id }) => id === button.dataset.id);
         if (!connection)
           return;
         const warning = await invoke<string | null>("delete_connection_secret", {
           secretRef: connection.secretRef
         });
-        await removeMcpConnection(host.repository, host.workspace.teamId, connection.id);
-        await host.refresh();
-        host.showNotice(warning ?? "MCP connection removed", warning ? "error" : "success");
+        await removeMcpConnection(host.repository, host.workspaceController.workspace.teamId, connection.id);
+        await host.workspaceController.refresh();
+        host.shell.showNotice(warning ?? "MCP connection removed", warning ? "error" : "success");
         return;
       }
       if (action === "install-cli-tool") {
@@ -1541,11 +1541,11 @@ export function createMainActions(host: MainActionHost) {
         const installerHost = new URL(tool.installUrl).host;
         if (!(await edit(`Install ${tool.label} from ${installerHost}?`, [], "Install")))
           return;
-        host.showNotice(`Installing ${tool.label}…`, "info");
+        host.shell.showNotice(`Installing ${tool.label}…`, "info");
         const path = await installCliTool(tool.id);
         await host.flueProjectPort.restart();
-        await host.refresh();
-        host.showNotice(`${tool.label} installed at ${path}`, "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`${tool.label} installed at ${path}`, "success");
         return;
       }
       if (action === "pick-cli-tool" || action === "clear-cli-tool") {
@@ -1556,8 +1556,8 @@ export function createMainActions(host: MainActionHost) {
         await setCliToolPath(button.dataset.tool ?? "", picked);
         // The path reaches the CLI providers as an environment variable set at launch.
         await host.flueProjectPort.restart();
-        await host.refresh();
-        host.showNotice(picked ? "Command-line agent updated" : "Back to the detected CLI", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(picked ? "Command-line agent updated" : "Back to the detected CLI", "success");
         return;
       }
       if (action === "browse-local-model") {
@@ -1573,7 +1573,7 @@ export function createMainActions(host: MainActionHost) {
       if (action === "add-local-model") {
         const field = document.querySelector<HTMLInputElement>("[data-local-model-source]");
         await host.localModels.add(field?.value ?? "");
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "delete-local-model") {
@@ -1586,10 +1586,10 @@ export function createMainActions(host: MainActionHost) {
         const wasRunning = await host.localModels.remove(model.id);
         if (wasRunning)
           await host.flueProjectPort.restart();
-        host.localModelProgress.delete(model.id);
-        await host.refreshAssistantCatalog();
-        await host.refresh();
-        host.showNotice(`Deleted ${model.name}.${kept}`, "success");
+        host.assistant.localModelProgress.delete(model.id);
+        await host.assistant.refreshAssistantCatalog();
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Deleted ${model.name}.${kept}`, "success");
         return;
       }
       if (action === "open-external") {
@@ -1600,109 +1600,109 @@ export function createMainActions(host: MainActionHost) {
         return;
       }
       if (action === "remove-logo") {
-        const org = host.currentOrganization();
+        const org = host.session.currentOrganization();
         if (!org)
           return;
-        const next = host.brandingFor(org.id);
-        delete host.orgBranding[org.id];
+        const next = host.session.brandingFor(org.id);
+        delete host.session.orgBranding[org.id];
         if (next.color)
-          host.orgBranding[org.id] = { color: next.color };
-        await host.saveBranding();
-        await host.refresh();
+          host.session.orgBranding[org.id] = { color: next.color };
+        await host.session.saveBranding();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "delete-org") {
-        const org = host.currentOrganization();
+        const org = host.session.currentOrganization();
         if (!org)
           return;
         const data = await edit(`Delete "${org.name}"?`, [{ name: "confirm", label: "Type the organization name to confirm", placeholder: org.name }], "Delete");
         if (!data)
           return;
         if (String(data.get("confirm") ?? "").trim() !== org.name) {
-          host.showNotice("Name did not match — not deleted", "error");
+          host.shell.showNotice("Name did not match — not deleted", "error");
           return;
         }
-        const deleteToken = host.orgToken();
-        if (host.orgIsConnected() && deleteToken)
+        const deleteToken = host.session.orgToken();
+        if (host.session.orgIsConnected() && deleteToken)
           await host.api.deleteOrganization(deleteToken, org.id);
-        for (const key of [...host.connections]) {
-          if (host.connParts(key).orgId === org.id)
-            host.connections.delete(key);
+        for (const key of [...host.session.connections]) {
+          if (host.session.connParts(key).orgId === org.id)
+            host.session.connections.delete(key);
         }
-        host.connectedOrgs.delete(org.id);
-        await host.persistConnections();
-        await host.repository.setSetting("connected_org_ids", JSON.stringify([...host.connectedOrgs]));
+        host.session.connectedOrgs.delete(org.id);
+        await host.session.persistConnections();
+        await host.repository.setSetting("connected_org_ids", JSON.stringify([...host.session.connectedOrgs]));
         await host.repository.deleteOrganization(org.id);
         const remaining = (await host.repository.listOrganizations()).filter(({ id }) => id !== org.id);
         if (remaining[0]) {
-          await host.switchOrganization(remaining[0].id);
+          await host.workspaceController.switchOrganization(remaining[0].id);
         }
         else {
-          host.workspace.organizationId = "";
-          host.activeUserId = "";
-          host.view = "preferences";
-          host.prefsTab = "orgs";
-          await host.refresh();
+          host.workspaceController.workspace.organizationId = "";
+          host.session.activeUserId = "";
+          host.shell.view = "preferences";
+          host.shell.prefsTab = "orgs";
+          await host.workspaceController.refresh();
         }
-        host.showNotice("Organization deleted", "success");
+        host.shell.showNotice("Organization deleted", "success");
         return;
       }
       if (action === "delete-team") {
-        const team = host.currentTeam();
+        const team = host.session.currentTeam();
         if (!team)
           return;
         const data = await edit(`Delete "${team.name}"?`, [{ name: "confirm", label: "Type the team name to confirm", placeholder: team.name }], "Delete");
         if (!data)
           return;
         if (String(data.get("confirm") ?? "").trim() !== team.name) {
-          host.showNotice("Name did not match — not deleted", "error");
+          host.shell.showNotice("Name did not match — not deleted", "error");
           return;
         }
         await host.repository.deleteTeam(team.id);
-        const remaining = (await host.repository.listTeams(host.workspace.organizationId)).filter(({ id }) => id !== team.id);
+        const remaining = (await host.repository.listTeams(host.workspaceController.workspace.organizationId)).filter(({ id }) => id !== team.id);
         if (remaining[0]) {
-          await host.switchTeam(remaining[0].id, "overview");
+          await host.workspaceController.switchTeam(remaining[0].id, "overview");
         }
         else {
-          host.workspace.teamId = "";
-          host.view = "preferences";
-          await host.refresh();
+          host.workspaceController.workspace.teamId = "";
+          host.shell.view = "preferences";
+          await host.workspaceController.refresh();
         }
-        host.showNotice("Team deleted", "success");
+        host.shell.showNotice("Team deleted", "success");
         return;
       }
       if (action === "sign-out") {
-        await host.disconnect(host.workspace.organizationId, host.activeUserId);
+        await host.session.disconnect(host.workspaceController.workspace.organizationId, host.session.activeUserId);
         return;
       }
       if (action === "sign-out-account") {
-        await host.signOutAccount(button.dataset.id!);
+        await host.session.signOutAccount(button.dataset.id!);
         return;
       }
       if (action === "start-team-trial") {
-        const token = host.orgToken();
+        const token = host.session.orgToken();
         if (!token)
           throw new Error("Sign in to this organization first");
-        await host.api.startTeamTrial(token, host.workspace.organizationId);
-        await host.reconcileServerOrgs();
-        host.view = "settings";
-        host.teamTab = "members";
-        await host.refresh();
-        host.showNotice("Trial running for 30 days", "success");
+        await host.api.startTeamTrial(token, host.workspaceController.workspace.organizationId);
+        await host.session.reconcileServerOrgs();
+        host.shell.view = "settings";
+        host.shell.teamTab = "members";
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Trial running for 30 days", "success");
         return;
       }
       if (action === "new-server-team") {
         const data = await edit("New team", [{ name: "name", label: "Team name" }]);
         if (data) {
           const name = String(data.get("name") ?? "");
-          const serverTeamId = await host.createServerTeam(name);
+          const serverTeamId = await host.session.createServerTeam(name);
           if (!serverTeamId)
             return;
           // Mirror it locally under the server id; this used to create the team on the server only,
           // leaving it invisible in the nav until some other code path happened to pull it.
-          await host.repository.createTeam(host.workspace.organizationId, name, serverTeamId);
-          await host.ensureOrgFolders();
-          await host.refresh();
+          await host.repository.createTeam(host.workspaceController.workspace.organizationId, name, serverTeamId);
+          await host.workspaceController.ensureOrgFolders();
+          await host.workspaceController.refresh();
         }
         return;
       }
@@ -1721,47 +1721,47 @@ export function createMainActions(host: MainActionHost) {
           }
         ]);
         if (data) {
-          const token = host.orgToken();
+          const token = host.session.orgToken();
           if (!token)
             throw new Error("Sign in to this organization first");
-          const { invitation } = await host.api.createTeamInvitation(token, host.workspace.organizationId, button.dataset.team!, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
-          host.showNotice(`Invite created. Share this token: ${invitation.token}`, "success");
+          const { invitation } = await host.api.createTeamInvitation(token, host.workspaceController.workspace.organizationId, button.dataset.team!, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
+          host.shell.showNotice(`Invite created. Share this token: ${invitation.token}`, "success");
         }
         return;
       }
       if (action === "remove-org-member") {
-        const token = host.orgToken();
+        const token = host.session.orgToken();
         if (!token)
           throw new Error("Sign in to this organization first");
         const confirmed = await edit(`Remove ${button.dataset.email} from the organization?`, [], "Remove");
         if (!confirmed)
           return;
-        await host.api.removeMember(token, host.workspace.organizationId, button.dataset.user!);
-        host.showNotice("Member removed", "success");
-        host.render();
+        await host.api.removeMember(token, host.workspaceController.workspace.organizationId, button.dataset.user!);
+        host.shell.showNotice("Member removed", "success");
+        host.shell.render();
         return;
       }
       if (action === "promote-team-member") {
-        const token = host.orgToken();
+        const token = host.session.orgToken();
         if (!token)
           throw new Error("Sign in to this organization first");
-        await host.api.setTeamMemberRole(token, host.workspace.organizationId, button.dataset.team!, button.dataset.user!, "admin");
-        host.render();
+        await host.api.setTeamMemberRole(token, host.workspaceController.workspace.organizationId, button.dataset.team!, button.dataset.user!, "admin");
+        host.shell.render();
         return;
       }
-      if (action === "set-theme-preset" && host.isThemePreset(button.dataset.themePreset)) {
-        await host.saveTheme(button.dataset.themePreset);
-        host.render();
+      if (action === "set-theme-preset" && host.shell.isThemePreset(button.dataset.themePreset)) {
+        await host.shell.saveTheme(button.dataset.themePreset);
+        host.shell.render();
         return;
       }
       if (action === "new-organization") {
-        host.view = "preferences";
-        host.prefsTab = "orgs";
-        host.render();
+        host.shell.view = "preferences";
+        host.shell.prefsTab = "orgs";
+        host.shell.render();
         return;
       }
       if (action === "new-team") {
-        if (!host.workspace.organizationId)
+        if (!host.workspaceController.workspace.organizationId)
           return; // no org to attach the team to
         const data = await edit("New team", [{ name: "name", label: "Team name" }]);
         if (data) {
@@ -1769,34 +1769,34 @@ export function createMainActions(host: MainActionHost) {
           // Connected orgs are billed per team, so the server owns the count — register there first,
           // then reuse the id it assigned so other desktops resolve the same team.
           let serverTeamId: string | undefined;
-          if (host.orgIsConnected()) {
-            serverTeamId = (await host.createServerTeam(name)) ?? undefined;
+          if (host.session.orgIsConnected()) {
+            serverTeamId = (await host.session.createServerTeam(name)) ?? undefined;
             if (!serverTeamId)
               return;
           }
-          const teamId = await host.repository.createTeam(host.workspace.organizationId, name, serverTeamId);
-          await host.ensureOrgFolders();
-          await host.switchTeam(teamId);
+          const teamId = await host.repository.createTeam(host.workspaceController.workspace.organizationId, name, serverTeamId);
+          await host.workspaceController.ensureOrgFolders();
+          await host.workspaceController.switchTeam(teamId);
         }
       }
       if (action === "edit-board") {
-        const board = host.boards.find(({ id }) => id === button.dataset.id);
+        const board = host.workspaceController.boards.find(({ id }) => id === button.dataset.id);
         if (board)
           await editDashboard(board);
       }
       if (action === "move-item") {
         await host.repository.moveWorkItem(button.dataset.id!, button.dataset.stage!);
-        await host.refresh();
+        await host.workspaceController.refresh();
       }
       if (action === "new-item-in-stage")
         await createItem(button.dataset.stage);
       if (action === "cancel-new-item") {
-        host.view = "board";
-        host.render();
+        host.shell.view = "board";
+        host.shell.render();
       }
       if (action === "edit-item") {
-        const item = host.items.find(({ id }) => id === button.dataset.id)!;
-        const locations = await host.repository.listAvailableFileLocations(host.workspace.teamId);
+        const item = host.workspaceController.items.find(({ id }) => id === button.dataset.id)!;
+        const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
         const data = await edit("Edit work item", [
           { name: "title", label: "Title", value: item.title },
           { name: "description", label: "Description", type: "textarea", value: item.description },
@@ -1814,8 +1814,8 @@ export function createMainActions(host: MainActionHost) {
           {
             name: "files",
             label: "File references",
-            value: host.displayFileReferences(item.logicalFiles, locations).join(", "),
-            hint: host.fileReferenceHint(locations)
+            value: host.views.displayFileReferences(item.logicalFiles, locations).join(", "),
+            hint: host.views.fileReferenceHint(locations)
           }
         ]);
         if (data) {
@@ -1826,29 +1826,29 @@ export function createMainActions(host: MainActionHost) {
             status: String(data.get("status") ?? "") as WorkItem["status"],
             logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
           });
-          await host.refresh();
+          await host.workspaceController.refresh();
         }
       }
       if (action === "start-process" || action === "stop-process") {
         // Running is toggled from the left menu and from the process page, and both refresh the
         // view — the open agent edits are written first so the click cannot drop them.
-        if (host.view === "process")
+        if (host.shell.view === "process")
           await commitProcessAgentEdits();
-        await host.setProcessRunning(button.dataset.id!, action === "start-process");
+        await host.runs.setProcessRunning(button.dataset.id!, action === "start-process");
         return;
       }
       if (action === "browse-process-library") {
-        if (button.dataset.team && button.dataset.team !== host.workspace.teamId) {
-          await host.switchTeam(button.dataset.team);
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
+          await host.workspaceController.switchTeam(button.dataset.team);
         }
-        await host.refreshAssistantCatalog();
-        host.view = "process-library";
-        host.render();
+        await host.assistant.refreshAssistantCatalog();
+        host.shell.view = "process-library";
+        host.shell.render();
         return;
       }
       if (action === "close-process-library") {
-        host.view = "board";
-        host.render();
+        host.shell.view = "board";
+        host.shell.render();
         return;
       }
       if (action === "add-library-process") {
@@ -1857,75 +1857,75 @@ export function createMainActions(host: MainActionHost) {
       }
       // New and Edit are the same page: one blank, one loaded. Both keep the agent lanes below.
       if (action === "new-process" || action === "edit-process") {
-        if (button.dataset.team && button.dataset.team !== host.workspace.teamId) {
-          await host.switchTeam(button.dataset.team, "board");
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
+          await host.workspaceController.switchTeam(button.dataset.team, "board");
         }
-        host.configProcessId = action === "edit-process" ? button.dataset.id! : "";
-        host.configAgentId = "";
-        host.view = "process";
-        host.render();
+        host.shell.configProcessId = action === "edit-process" ? button.dataset.id! : "";
+        host.shell.configAgentId = "";
+        host.shell.view = "process";
+        host.shell.render();
         return;
       }
       if (action === "open-process-runs") {
-        if (button.dataset.team && button.dataset.team !== host.workspace.teamId) {
-          await host.switchTeam(button.dataset.team, "board");
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
+          await host.workspaceController.switchTeam(button.dataset.team, "board");
         }
-        host.configProcessId = button.dataset.id!;
-        host.openRunItemId = "";
-        host.view = "process-runs";
-        host.render();
+        host.shell.configProcessId = button.dataset.id!;
+        host.shell.openRunItemId = "";
+        host.shell.view = "process-runs";
+        host.shell.render();
         return;
       }
       if (action === "open-process-schedules") {
-        if (button.dataset.team && button.dataset.team !== host.workspace.teamId) {
-          await host.switchTeam(button.dataset.team, "board");
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
+          await host.workspaceController.switchTeam(button.dataset.team, "board");
         }
-        host.configProcessId = button.dataset.id!;
-        host.view = "schedules";
-        host.render();
+        host.shell.configProcessId = button.dataset.id!;
+        host.shell.view = "schedules";
+        host.shell.render();
         return;
       }
       if (action === "open-process-run") {
-        host.openRunItemId = button.dataset.id!;
-        host.render();
+        host.shell.openRunItemId = button.dataset.id!;
+        host.shell.render();
         return;
       }
       if (action === "archive-process") {
         await host.repository.archiveProcess(button.dataset.id!);
-        if (host.configProcessId === button.dataset.id) {
-          host.configProcessId = "";
-          host.view = "board";
+        if (host.shell.configProcessId === button.dataset.id) {
+          host.shell.configProcessId = "";
+          host.shell.view = "board";
         }
-        await host.refresh();
+        await host.workspaceController.refresh();
       }
       if (action === "restore-process") {
         await host.repository.restoreProcess(button.dataset.id!);
-        await host.refresh();
+        await host.workspaceController.refresh();
       }
       if (action === "duplicate-agent") {
-        const agent = host.agents.find(({ id }) => id === button.dataset.id)!;
-        if (host.view === "process")
+        const agent = host.workspaceController.agents.find(({ id }) => id === button.dataset.id)!;
+        if (host.shell.view === "process")
           await commitProcessAgentEdits();
         // No trigger status on the copy: two agents on one status is the one thing that
         // would make a run ambiguous, and the point of a copy is to edit it first.
         const copy = newAgent({ ...agent, name: `${agent.name} copy`, triggerStageId: null });
         await writeAgent(copy);
-        await host.refresh();
-        host.showNotice(`Created ${copy.name}`, "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Created ${copy.name}`, "success");
         return;
       }
       if (action === "delete-agent") {
-        const agent = host.agents.find(({ id }) => id === button.dataset.id)!;
+        const agent = host.workspaceController.agents.find(({ id }) => id === button.dataset.id)!;
         if (!confirm(`Delete ${agent.name}? This removes its file from the team folder.`))
           return;
-        if (host.view === "process")
+        if (host.shell.view === "process")
           await commitProcessAgentEdits();
-        await host.agentFiles.remove(await host.requireTeamRoot(), agent.id);
-        if (host.disabledAgentIds.delete(agent.id)) {
-          await host.repository.setSetting(`disabled_agents:${host.workspace.teamId}`, [...host.disabledAgentIds]);
+        await host.agentFiles.remove(await host.workspaceController.requireTeamRoot(), agent.id);
+        if (host.runs.disabledAgentIds.delete(agent.id)) {
+          await host.repository.setSetting(`disabled_agents:${host.workspaceController.workspace.teamId}`, [...host.runs.disabledAgentIds]);
         }
-        await host.refresh();
-        host.showNotice(`Deleted ${agent.name}`, "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Deleted ${agent.name}`, "success");
         return;
       }
       if (action === "add-org-location" || action === "add-team-location") {
@@ -1946,20 +1946,20 @@ export function createMainActions(host: MainActionHost) {
         if (!data)
           return;
         await host.repository.createFileLocation({
-          organizationId: host.workspace.organizationId,
-          teamId: action === "add-team-location" ? host.workspace.teamId : null,
+          organizationId: host.workspaceController.workspace.organizationId,
+          teamId: action === "add-team-location" ? host.workspaceController.workspace.teamId : null,
           name: String(data.get("name") ?? ""),
           localPath: validated
         });
-        await host.refresh();
-        host.showNotice("Linked location added. File contents remain in the selected folder.", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Linked location added. File contents remain in the selected folder.", "success");
         return;
       }
       if (action === "map-file-location") {
         const selected = await open({ directory: true, multiple: false, recursive: true });
         if (typeof selected === "string") {
           await host.repository.setFileLocationMapping(button.dataset.id!, await host.workspaces.validateDirectory(selected));
-          await host.refresh();
+          await host.workspaceController.refresh();
         }
         return;
       }
@@ -1967,8 +1967,8 @@ export function createMainActions(host: MainActionHost) {
         if (!confirm(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`))
           return;
         await host.repository.deleteFileLocation(button.dataset.id!);
-        await host.refresh();
-        host.showNotice("Linked location removed. Files on disk were not changed.", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Linked location removed. Files on disk were not changed.", "success");
         return;
       }
       if (action === "pick-global-folder" || action === "pick-folder") {
@@ -1977,16 +1977,16 @@ export function createMainActions(host: MainActionHost) {
           const validated = await host.workspaces.validateDirectory(selected);
           if (action === "pick-global-folder") {
             await host.repository.setSetting("global_local_path", validated);
-            await host.ensureOrgFolders();
+            await host.workspaceController.ensureOrgFolders();
           }
           else {
-            await host.repository.setTeamFolder(host.workspace.teamId, validated);
+            await host.repository.setTeamFolder(host.workspaceController.workspace.teamId, validated);
           }
-          host.render();
+          host.shell.render();
         }
       }
       if (action === "new-skill") {
-        const teamRoot = await host.requireTeamRoot();
+        const teamRoot = await host.workspaceController.requireTeamRoot();
         const data = await edit("New skill", [
           { name: "name", label: "Name", placeholder: "Brand voice" },
           {
@@ -2004,9 +2004,9 @@ export function createMainActions(host: MainActionHost) {
         if (!data)
           return;
         const path = await host.agentFiles.saveSkill(teamRoot, String(data.get("name") ?? ""), String(data.get("description") ?? ""), String(data.get("body") ?? ""));
-        await host.ensureTeamSkillsRegistry(teamRoot);
-        await host.refresh();
-        host.showNotice(`Skill written to ${path}`, "success");
+        await host.workspaceController.ensureTeamSkillsRegistry(teamRoot);
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Skill written to ${path}`, "success");
         return;
       }
       if (action === "add-registry") {
@@ -2026,19 +2026,19 @@ export function createMainActions(host: MainActionHost) {
         const files = await host.registryFiles.copy(id, selected);
         await host.repository.saveRegistry({
           id,
-          teamId: host.workspace.teamId,
+          teamId: host.workspaceController.workspace.teamId,
           name: String(data.get("name") ?? ""),
           sourcePath: selected,
           files
         });
-        await host.refresh();
-        host.showNotice(`Copied ${files.length} file(s)`, "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(`Copied ${files.length} file(s)`, "success");
         return;
       }
       if (action === "connect-site") {
-        const mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+        const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
         if (!mapping?.localPath) {
-          host.showNotice("Set a team folder first — it keys this team's browser profile.", "error");
+          host.shell.showNotice("Set a team folder first — it keys this team's browser profile.", "error");
           return;
         }
         const { baseUrl, token } = await host.ensureFlueRuntime();
@@ -2048,46 +2048,46 @@ export function createMainActions(host: MainActionHost) {
           body: JSON.stringify({ profileKey: mapping.localPath, url: "about:blank" })
         });
         if (!response.ok) {
-          host.showNotice(`Could not open browser: ${await response.text()}`, "error");
+          host.shell.showNotice(`Could not open browser: ${await response.text()}`, "error");
           return;
         }
-        host.showNotice("Chrome opened. Log in, then close the window — the session is saved.", "success");
+        host.shell.showNotice("Chrome opened. Log in, then close the window — the session is saved.", "success");
         return;
       }
       if (action === "refresh-registry") {
-        const registry = host.registries.find(({ id }) => id === button.dataset.id);
+        const registry = host.workspaceController.registries.find(({ id }) => id === button.dataset.id);
         if (!registry)
           return;
         const files = registry.sourcePath.startsWith("bundled://")
           ? await host.registryFiles.copyBundled(registry.id)
           : await host.registryFiles.copy(registry.id, registry.sourcePath);
         await host.repository.saveRegistry({ ...registry, files });
-        await host.refresh();
-        host.showNotice("Skills and tools refreshed from disk", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Skills and tools refreshed from disk", "success");
         return;
       }
       if (action === "remove-registry") {
-        const registry = host.registries.find(({ id }) => id === button.dataset.id);
+        const registry = host.workspaceController.registries.find(({ id }) => id === button.dataset.id);
         if (!registry)
           return;
         await host.registryFiles.remove(registry.id);
         await host.repository.removeRegistry(registry.id);
-        await host.refresh();
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "use-default-folder") {
-        await host.repository.clearTeamFolder(host.workspace.teamId);
-        host.render();
+        await host.repository.clearTeamFolder(host.workspaceController.workspace.teamId);
+        host.shell.render();
       }
     }
     catch (error) {
-      host.reportFailure(error, button.dataset.id);
+      host.runs.reportFailure(error, button.dataset.id);
     }
   });
 
   // A folder's checkbox sits inside its <summary>, where a plain click would also open the folder.
   // Taking over both actions keeps ticking a folder from collapsing the tree under it.
-  host.app.addEventListener("click", (event) => {
+  host.shell.app.addEventListener("click", (event) => {
     const folder = (event.target as Element).closest<HTMLInputElement>("input[data-folder-check]");
     const row = folder?.closest("li");
     if (!folder || !row)
@@ -2100,32 +2100,32 @@ export function createMainActions(host: MainActionHost) {
     }
   });
 
-  host.app.addEventListener("submit", (event) => {
+  host.shell.app.addEventListener("submit", (event) => {
     const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
     if (newItemForm) {
       event.preventDefault();
-      void submitNewItem(new FormData(newItemForm)).catch(host.reportFailure);
+      void submitNewItem(new FormData(newItemForm)).catch(host.runs.reportFailure);
       return;
     }
     const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
     if (definitionForm) {
       event.preventDefault();
-      void saveProcessDefinition(new FormData(definitionForm)).catch(host.reportFailure);
+      void saveProcessDefinition(new FormData(definitionForm)).catch(host.runs.reportFailure);
       return;
     }
     const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
     if (agentsForm) {
       event.preventDefault();
-      void saveProcessAgents(agentsForm).catch(host.reportFailure);
+      void saveProcessAgents(agentsForm).catch(host.runs.reportFailure);
       return;
     }
     const processForm = (event.target as Element).closest<HTMLFormElement>("form");
     const studio = processForm
-      ? host.processStudios.find((candidate) => candidate.handlesSubmit(processForm))
+      ? host.workspaceController.processStudios.find((candidate) => candidate.handlesSubmit(processForm))
       : undefined;
     if (processForm && studio) {
       event.preventDefault();
-      void studio.handleSubmit(processForm).catch(host.reportFailure);
+      void studio.handleSubmit(processForm).catch(host.runs.reportFailure);
       return;
     }
     const assistant = (event.target as Element).closest<HTMLFormElement>("form[data-overview-assistant]");
@@ -2140,23 +2140,23 @@ export function createMainActions(host: MainActionHost) {
         submit.disabled = true;
         submit.textContent = "Going…";
       }
-      const projectId = String(data.get("project") ?? "") || host.workspace.organizationId;
+      const projectId = String(data.get("project") ?? "") || host.workspaceController.workspace.organizationId;
       const requestedTeamId = String(data.get("team") ?? "");
       const modelIndex = Number(data.get("model") ?? 0);
-      const choice = host.overviewAssistantModels()[modelIndex]?.choice ?? host.assistantModel;
+      const choice = host.assistant.overviewAssistantModels()[modelIndex]?.choice ?? host.assistant.assistantModel;
       void (async () => {
         const projectTeams = await host.repository.listTeams(projectId);
         const targetTeam = projectTeams.find(({ id }) => id === requestedTeamId) ??
-          (projectId === host.workspace.organizationId
-            ? projectTeams.find(({ id }) => id === host.workspace.teamId)
+          (projectId === host.workspaceController.workspace.organizationId
+            ? projectTeams.find(({ id }) => id === host.workspaceController.workspace.teamId)
             : undefined) ??
           projectTeams[0];
         if (!targetTeam)
           throw new Error("The selected project has no team for the assistant");
-        if (projectId !== host.workspace.organizationId)
-          await host.switchOrganization(projectId);
-        if (targetTeam.id !== host.workspace.teamId)
-          await host.switchTeam(targetTeam.id, "overview");
+        if (projectId !== host.workspaceController.workspace.organizationId)
+          await host.workspaceController.switchOrganization(projectId);
+        if (targetTeam.id !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(targetTeam.id, "overview");
         await pickAssistantModel(choice);
         await toggleAssistant(true);
         await sendAssistantMessage(message);
@@ -2165,20 +2165,20 @@ export function createMainActions(host: MainActionHost) {
           submit.disabled = false;
           submit.textContent = "Go";
         }
-        host.showNotice(errorText(error), "error");
+        host.shell.showNotice(errorText(error), "error");
       });
       return;
     }
     const search = (event.target as Element).closest<HTMLFormElement>("form[data-run-search]");
     if (search) {
       event.preventDefault();
-      host.searchQuery = String(new FormData(search).get("query") ?? "");
+      host.shell.searchQuery = String(new FormData(search).get("query") ?? "");
       void (async () => {
-        host.searchHits = host.searchQuery.trim()
-          ? await host.repository.search(host.workspace.teamId, host.searchQuery)
+        host.shell.searchHits = host.shell.searchQuery.trim()
+          ? await host.repository.search(host.workspaceController.workspace.teamId, host.shell.searchQuery)
           : [];
-        host.render();
-      })().catch((error) => host.showNotice(errorText(error), "error"));
+        host.shell.render();
+      })().catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const form = (event.target as Element).closest<HTMLFormElement>("form[data-run-followup]");
@@ -2193,19 +2193,19 @@ export function createMainActions(host: MainActionHost) {
     if (submit)
       submit.disabled = true;
     void (async () => {
-      const execution = host.executions.find(({ id }) => id === executionId) ??
+      const execution = host.runs.executions.find(({ id }) => id === executionId) ??
         (await host.repository.getExecution(executionId));
       if (!execution)
         throw new Error("Run not found");
-      await host.runItem(execution.workItemId, false, { execution, message });
+      await host.runs.runItem(execution.workItemId, false, { execution, message });
     })().catch((error) => {
       if (submit)
         submit.disabled = false;
-      host.showNotice(errorText(error), "error");
+      host.shell.showNotice(errorText(error), "error");
     });
   });
 
-  host.app.addEventListener("keydown", (event) => {
+  host.shell.app.addEventListener("keydown", (event) => {
     const input = (event.target as Element).closest<HTMLTextAreaElement>("form[data-run-followup] textarea, form[data-overview-assistant] textarea");
     if (!input || event.key !== "Enter" || event.shiftKey)
       return;
@@ -2216,47 +2216,47 @@ export function createMainActions(host: MainActionHost) {
   // Inline org branding controls save on change (no popup).
   document.addEventListener("change", (event) => {
     const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
-    if (themeDefault && host.isThemePreset(themeDefault.value)) {
+    if (themeDefault && host.shell.isThemePreset(themeDefault.value)) {
       const mode = themeDefault.dataset.themeDefault;
       if (mode === "light" || mode === "dark") {
-        void host.saveDefaultTheme(mode, themeDefault.value).catch((error) => host.showNotice(errorText(error), "error"));
+        void host.shell.saveDefaultTheme(mode, themeDefault.value).catch((error) => host.shell.showNotice(errorText(error), "error"));
       }
       return;
     }
     const project = (event.target as Element).closest<HTMLSelectElement>("[data-overview-project]");
     if (project) {
-      const projectId = project.value || host.workspace.organizationId;
+      const projectId = project.value || host.workspaceController.workspace.organizationId;
       const team = project.form?.querySelector<HTMLSelectElement>("[data-overview-team]");
       if (!team)
         return;
       team.disabled = true;
       void host.repository.listTeams(projectId)
         .then((projectTeams) => {
-          if (!team.isConnected || (project.value || host.workspace.organizationId) !== projectId)
+          if (!team.isConnected || (project.value || host.workspaceController.workspace.organizationId) !== projectId)
             return;
-          const currentTeamId = projectId === host.workspace.organizationId ? host.workspace.teamId : "";
+          const currentTeamId = projectId === host.workspaceController.workspace.organizationId ? host.workspaceController.workspace.teamId : "";
           const current = projectTeams.find(({ id }) => id === currentTeamId);
           const fallback = projectTeams[0];
           team.innerHTML = [
-            `<option value="">${host.escapeHtml(current
+            `<option value="">${host.shell.escapeHtml(current
               ? `Current team: ${current.name}`
               : fallback
                 ? `Team (optional; defaults to ${fallback.name})`
                 : "No teams available")}</option>`,
             ...projectTeams
               .filter(({ id }) => id !== currentTeamId)
-              .map(({ id, name }) => `<option value="${host.escapeHtml(id)}">${host.escapeHtml(name)}</option>`)
+              .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}">${host.shell.escapeHtml(name)}</option>`)
           ].join("");
           team.disabled = projectTeams.length === 0;
         })
-        .catch((error) => host.showNotice(errorText(error), "error"));
+        .catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const assistantModelSelect = (event.target as Element).closest<HTMLSelectElement>("[data-overview-model]");
     if (assistantModelSelect) {
-      const choice = host.overviewAssistantModels()[Number(assistantModelSelect.value)]?.choice;
+      const choice = host.assistant.overviewAssistantModels()[Number(assistantModelSelect.value)]?.choice;
       if (choice) {
-        void pickAssistantModel(choice).catch((error) => host.showNotice(errorText(error), "error"));
+        void pickAssistantModel(choice).catch((error) => host.shell.showNotice(errorText(error), "error"));
       }
       return;
     }
@@ -2268,7 +2268,7 @@ export function createMainActions(host: MainActionHost) {
       // Empty clears the pin and hands sizing back to Bees. Anything else has to be a window a
       // turn can actually happen in — a typo here becomes a server that will not boot.
       if (entered && (!Number.isSafeInteger(tokens) || tokens < 4096)) {
-        host.showNotice("Context window must be a whole number of at least 4096 tokens", "error");
+        host.shell.showNotice("Context window must be a whole number of at least 4096 tokens", "error");
         void refreshLocalModelRows();
         return;
       }
@@ -2277,13 +2277,13 @@ export function createMainActions(host: MainActionHost) {
           await host.localModels.setContextSize(modelId, entered ? tokens : null);
           // The window is allocated when llama-server boots, so a running model keeps the one
           // it started with until it is restarted.
-          host.showNotice((await host.localModels.list()).some(({ id, runtime }) => id === modelId && runtime.running)
+          host.shell.showNotice((await host.localModels.list()).some(({ id, runtime }) => id === modelId && runtime.running)
             ? "Saved. Restart this model to apply the new context window."
             : "Saved.", "success");
           await refreshLocalModelRows();
         }
         catch (error) {
-          host.showNotice(errorText(error), "error");
+          host.shell.showNotice(errorText(error), "error");
         }
       })();
       return;
@@ -2291,7 +2291,7 @@ export function createMainActions(host: MainActionHost) {
     const toggle = (event.target as Element).closest<HTMLInputElement>("[data-model-toggle]");
     if (toggle) {
       const modelId = toggle.dataset.model!;
-      host.localModelProgress.delete(modelId);
+      host.assistant.localModelProgress.delete(modelId);
       if (toggle.dataset.modelToggle === "download") {
         // Off on a downloaded model deletes the file; off mid-download only cancels it, so the
         // partial file stays and a later Download resumes from where it stopped.
@@ -2303,21 +2303,21 @@ export function createMainActions(host: MainActionHost) {
           stopLocalModel(modelId);
       }
       else if (toggle.checked) {
-        void host.rememberModelChoice({
+        void host.assistant.rememberModelChoice({
           provider: LOCAL_PROVIDER,
           model: modelId,
           localModelId: modelId
-        }).catch((error) => host.showNotice(errorText(error), "error"));
+        }).catch((error) => host.shell.showNotice(errorText(error), "error"));
         runLocalModel(modelId);
       }
       else {
         // Drops a start still waiting on its download without cancelling that download — the
         // Download toggle owns it. Otherwise this stops the model that is serving.
-        host.localModelStarting.delete(modelId);
+        host.assistant.localModelStarting.delete(modelId);
         if (host.localModels.wantedRunId === modelId) {
           void host.localModels.wantRun(null).then(refreshLocalModelRows);
         }
-        if (!host.localModelDownloads.has(modelId))
+        if (!host.assistant.localModelDownloads.has(modelId))
           stopLocalModel(modelId);
       }
       void refreshLocalModelRows();
@@ -2326,65 +2326,65 @@ export function createMainActions(host: MainActionHost) {
     const input = (event.target as Element).closest<HTMLInputElement>("[data-branding]");
     if (!input)
       return;
-    const org = host.currentOrganization();
+    const org = host.session.currentOrganization();
     if (!org)
       return;
     void (async () => {
       try {
         if (input.dataset.branding === "color") {
-          await host.setBrandingValue(org.id, { color: input.value });
+          await host.session.setBrandingValue(org.id, { color: input.value });
         }
         else if (input.dataset.branding === "logo") {
           const file = input.files?.[0];
           if (!file)
             return;
-          await host.setBrandingValue(org.id, { logo: await readFileAsDataUrl(file) });
+          await host.session.setBrandingValue(org.id, { logo: await readFileAsDataUrl(file) });
         }
-        await host.refresh();
+        await host.workspaceController.refresh();
       }
       catch (error) {
-        host.showNotice(errorText(error), "error");
+        host.shell.showNotice(errorText(error), "error");
       }
     })();
   });
 
-  host.newItem.addEventListener("click", () => void createItem().catch((error) => host.showNotice(errorText(error), "error")));
+  host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
 
   async function sendAssistantMessage(message: string): Promise<void> {
-    host.assistantLogEntries.push({ role: "you", text: message });
-    host.assistantBusy = true;
-    host.renderAssistant();
+    host.assistant.assistantLogEntries.push({ role: "you", text: message });
+    host.assistant.assistantBusy = true;
+    host.views.renderAssistant();
     try {
-      if (host.assistantModel.provider === LOCAL_PROVIDER) {
-        await host.localModels.requireRunning(host.assistantModel.model);
+      if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
+        await host.localModels.requireRunning(host.assistant.assistantModel.model);
       }
       const { baseUrl, token } = await host.ensureFlueRuntime();
       const result = await new FlueRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
-        conversationId: assistantInstanceId(host.workspace.teamId, host.assistantModel),
+        conversationId: assistantInstanceId(host.workspaceController.workspace.teamId, host.assistant.assistantModel),
         agentName: ASSISTANT_AGENT,
-        prompt: turnPrompt(message, host.assistantContext())
+        prompt: turnPrompt(message, host.assistant.assistantContext())
       });
       const answer = String((result.output as {
         text?: unknown;
       } | null)?.text ?? "");
       const turn = parseTurn(answer);
-      const resolved = resolveActions(turn.actions, host.processes, host.teamItems);
-      host.assistantLogEntries.push({
+      const resolved = resolveActions(turn.actions, host.workspaceController.processes, host.workspaceController.teamItems);
+      host.assistant.assistantLogEntries.push({
         role: "assistant",
         text: turn.reply || (resolved.length ? "Here is what I would change." : "(no answer)"),
         ...(resolved.length ? { actions: resolved } : {})
       });
     }
     catch (error) {
-      host.assistantLogEntries.push({
+      host.assistant.assistantLogEntries.push({
         role: "assistant",
         text: errorText(error)
       });
     }
     finally {
-      host.assistantBusy = false;
-      host.renderAssistant();
+      host.assistant.assistantBusy = false;
+      host.views.renderAssistant();
     }
   }
 
@@ -2393,44 +2393,44 @@ export function createMainActions(host: MainActionHost) {
    * uses, in its own conversation, and produces a preview — never a write.
    */
   async function curateSkills(): Promise<void> {
-    if (host.curatorBusy)
+    if (host.assistant.curatorBusy)
       return;
-    host.curatorBusy = true;
-    host.curatorPlan = null;
-    host.render();
+    host.assistant.curatorBusy = true;
+    host.assistant.curatorPlan = null;
+    host.shell.render();
     try {
-      if (host.assistantModel.provider === LOCAL_PROVIDER) {
-        await host.localModels.requireRunning(host.assistantModel.model);
+      if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
+        await host.localModels.requireRunning(host.assistant.assistantModel.model);
       }
       const { baseUrl, token } = await host.ensureFlueRuntime();
       const result = await new FlueRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
-        conversationId: instanceModelId(CURATOR_AGENT, host.workspace.teamId, host.assistantModel),
+        conversationId: instanceModelId(CURATOR_AGENT, host.workspaceController.workspace.teamId, host.assistant.assistantModel),
         agentName: CURATOR_AGENT,
-        prompt: curatorPrompt(host.skillReviews)
+        prompt: curatorPrompt(host.assistant.skillReviews)
       });
       const plan = parseCuratorPlan(String((result.output as {
         text?: unknown;
       } | null)?.text ?? ""));
-      const actions = resolveCuratorPlan(plan.actions, registryCapabilities(host.registries));
-      host.curatorPlan = actions.length
+      const actions = resolveCuratorPlan(plan.actions, registryCapabilities(host.workspaceController.registries));
+      host.assistant.curatorPlan = actions.length
         ? { summary: plan.summary, actions }
         : { summary: plan.summary || "Nothing worth changing.", actions: [] };
     }
     catch (error) {
-      host.showNotice(errorText(error), "error");
+      host.shell.showNotice(errorText(error), "error");
     }
     finally {
-      host.curatorBusy = false;
-      host.render();
+      host.assistant.curatorBusy = false;
+      host.shell.render();
     }
   }
 
   async function applyCuratorProposal(): Promise<void> {
-    if (!host.curatorPlan)
+    if (!host.assistant.curatorPlan)
       return;
-    const teamRoot = await host.requireTeamRoot();
-    const { applied, errors } = await applyCuratorPlan(host.curatorPlan.actions, {
+    const teamRoot = await host.workspaceController.requireTeamRoot();
+    const { applied, errors } = await applyCuratorPlan(host.assistant.curatorPlan.actions, {
       saveSkill: async (name, description, body) => {
         await host.agentFiles.saveSkill(teamRoot, name, description, body);
       },
@@ -2438,25 +2438,25 @@ export function createMainActions(host: MainActionHost) {
         await host.agentFiles.archiveSkill(teamRoot, slug);
       }
     });
-    host.curatorPlan = null;
-    await host.ensureTeamSkillsRegistry(teamRoot);
-    await host.refresh();
+    host.assistant.curatorPlan = null;
+    await host.workspaceController.ensureTeamSkillsRegistry(teamRoot);
+    await host.workspaceController.refresh();
     if (errors.length)
-      host.showNotice(errors.join("; "), "error");
+      host.shell.showNotice(errors.join("; "), "error");
     else
-      host.showNotice(`Applied ${applied} change(s)`, "success");
+      host.shell.showNotice(`Applied ${applied} change(s)`, "success");
   }
 
   async function runApprovedBeesOperation(goal: string): Promise<{
     message: string;
     steps: string[];
   }> {
-    if (host.assistantModel.provider === LOCAL_PROVIDER) {
-      await host.localModels.requireRunning(host.assistantModel.model);
+    if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
+      await host.localModels.requireRunning(host.assistant.assistantModel.model);
     }
     const { baseUrl, token } = await host.ensureFlueRuntime();
     const runtime = new FlueRuntime(baseUrl, undefined, token);
-    const instanceId = assistantInstanceId(host.workspace.teamId, host.assistantModel);
+    const instanceId = assistantInstanceId(host.workspaceController.workspace.teamId, host.assistant.assistantModel);
     const steps: string[] = [];
     let lastResult = "The user approved this operation.";
     for (let index = 0; index < 24; index += 1) {
@@ -2496,16 +2496,16 @@ export function createMainActions(host: MainActionHost) {
   }
 
   async function applyAssistantActions(index: number): Promise<void> {
-    const entry = host.assistantLogEntries[index];
+    const entry = host.assistant.assistantLogEntries[index];
     if (!entry?.actions || entry.applied)
       return;
-    host.assistantBusy = true;
-    host.renderAssistant();
+    host.assistant.assistantBusy = true;
+    host.views.renderAssistant();
     const operationNotes: string[] = [];
     try {
       const { applied, errors } = await applyActions(entry.actions, {
         repository: host.repository,
-        teamId: host.workspace.teamId,
+        teamId: host.workspaceController.workspace.teamId,
         operateBees: async (goal) => {
           const result = await runApprovedBeesOperation(goal);
           operationNotes.push(`${result.message}${result.steps.length ? `\n${result.steps.join("\n")}` : ""}`);
@@ -2515,7 +2515,7 @@ export function createMainActions(host: MainActionHost) {
         }
       });
       entry.applied = true;
-      host.assistantLogEntries.push({
+      host.assistant.assistantLogEntries.push({
         role: "assistant",
         text: [
           ...operationNotes,
@@ -2524,20 +2524,20 @@ export function createMainActions(host: MainActionHost) {
             : `Applied ${applied} change${applied === 1 ? "" : "s"}.`
         ].join("\n")
       });
-      await host.refresh();
+      await host.workspaceController.refresh();
     }
     finally {
-      host.assistantBusy = false;
-      host.renderAssistant();
-      host.assistantInput.focus();
+      host.assistant.assistantBusy = false;
+      host.views.renderAssistant();
+      host.shell.assistantInput.focus();
     }
   }
 
   async function pickAssistantModel(choice: ModelChoice): Promise<void> {
-    host.assistantPickerOpen = false;
-    await host.rememberModelChoice(choice);
-    host.renderAssistant();
-    host.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
+    host.assistant.assistantPickerOpen = false;
+    await host.assistant.rememberModelChoice(choice);
+    host.views.renderAssistant();
+    host.shell.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
   }
 
   async function addAssistantModel(): Promise<void> {
@@ -2561,59 +2561,59 @@ export function createMainActions(host: MainActionHost) {
     };
     if (!choice.provider || !choice.model)
       throw new Error("Pick a provider and enter a model id");
-    host.assistantExtraModels = [
-      ...host.assistantExtraModels.filter((entry) => !sameChoice(entry, choice)),
+    host.assistant.assistantExtraModels = [
+      ...host.assistant.assistantExtraModels.filter((entry) => !sameChoice(entry, choice)),
       choice
     ];
-    await host.repository.setSetting(ASSISTANT_EXTRA_MODELS_KEY, host.assistantExtraModels);
-    await host.refreshAssistantCatalog();
+    await host.repository.setSetting(ASSISTANT_EXTRA_MODELS_KEY, host.assistant.assistantExtraModels);
+    await host.assistant.refreshAssistantCatalog();
     await pickAssistantModel(choice);
   }
 
   async function toggleAssistant(open: boolean): Promise<void> {
-    host.assistantOpen = open;
-    host.assistantPickerOpen = false;
-    host.renderAssistant();
+    host.assistant.assistantOpen = open;
+    host.assistant.assistantPickerOpen = false;
+    host.views.renderAssistant();
     if (open) {
-      await host.refreshAssistantCatalog();
-      host.renderAssistant();
-      host.assistantInput.focus();
+      await host.assistant.refreshAssistantCatalog();
+      host.views.renderAssistant();
+      host.shell.assistantInput.focus();
     }
     else {
-      host.assistantToggle.focus();
+      host.shell.assistantToggle.focus();
     }
   }
 
-  host.assistantToggle.addEventListener("click", () => {
-    void toggleAssistant(!host.assistantOpen).catch((error) => host.showNotice(errorText(error), "error"));
+  host.shell.assistantToggle.addEventListener("click", () => {
+    void toggleAssistant(!host.assistant.assistantOpen).catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 
-  host.assistantPanel.addEventListener("click", (event) => {
+  host.shell.assistantPanel.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("button[data-assistant]");
     if (!button)
       return;
     const index = Number(button.dataset.index ?? "-1");
     const run = async (): Promise<void> => {
       if (button.dataset.assistant === "picker") {
-        host.assistantPickerOpen = !host.assistantPickerOpen;
-        host.renderAssistant();
-        host.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
+        host.assistant.assistantPickerOpen = !host.assistant.assistantPickerOpen;
+        host.views.renderAssistant();
+        host.shell.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
       }
       if (button.dataset.assistant === "pick") {
-        const option = host.assistantCatalog[index];
+        const option = host.assistant.assistantCatalog[index];
         if (option)
           await pickAssistantModel(option.choice);
       }
       if (button.dataset.assistant === "add-model") {
-        host.assistantPickerOpen = false;
-        host.renderAssistant();
+        host.assistant.assistantPickerOpen = false;
+        host.views.renderAssistant();
         await addAssistantModel();
-        host.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
+        host.shell.assistantModelSlot.querySelector<HTMLButtonElement>("button")?.focus();
       }
       if (button.dataset.assistant === "apply")
         await applyAssistantActions(index);
     };
-    void run().catch((error) => host.showNotice(errorText(error), "error"));
+    void run().catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 
   document.querySelector<HTMLButtonElement>("#assistant-close")!.addEventListener("click", () => {
@@ -2621,49 +2621,49 @@ export function createMainActions(host: MainActionHost) {
   });
 
   document.querySelector<HTMLButtonElement>("#assistant-clear")!.addEventListener("click", () => {
-    host.assistantLogEntries = [];
-    host.renderAssistant();
+    host.assistant.assistantLogEntries = [];
+    host.views.renderAssistant();
   });
 
-  host.appDrawerOpen.addEventListener("click", () => {
-    host.appDrawer.checked = true;
-    host.appDrawerOpen.setAttribute("aria-expanded", "true");
-    host.appNavigation.querySelector<HTMLButtonElement>("button")?.focus();
+  host.shell.appDrawerOpen.addEventListener("click", () => {
+    host.shell.appDrawer.checked = true;
+    host.shell.appDrawerOpen.setAttribute("aria-expanded", "true");
+    host.shell.appNavigation.querySelector<HTMLButtonElement>("button")?.focus();
   });
 
-  host.appDrawer.addEventListener("change", () => {
-    host.appDrawerOpen.setAttribute("aria-expanded", String(host.appDrawer.checked));
+  host.shell.appDrawer.addEventListener("change", () => {
+    host.shell.appDrawerOpen.setAttribute("aria-expanded", String(host.shell.appDrawer.checked));
   });
 
-  host.assistantForm.addEventListener("submit", (event) => {
+  host.shell.assistantForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const message = host.assistantInput.value.trim();
-    if (!message || host.assistantBusy)
+    const message = host.shell.assistantInput.value.trim();
+    if (!message || host.assistant.assistantBusy)
       return;
-    host.assistantInput.value = "";
+    host.shell.assistantInput.value = "";
     void sendAssistantMessage(message);
   });
 
   // Enter sends, Shift+Enter breaks the line — a chat box, not a form field.
-  host.assistantInput.addEventListener("keydown", (event) => {
+  host.shell.assistantInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      host.assistantForm.requestSubmit();
+      host.shell.assistantForm.requestSubmit();
     }
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || host.dialog.open)
+    if (event.key !== "Escape" || host.shell.dialog.open)
       return;
-    if (host.assistantOpen) {
+    if (host.assistant.assistantOpen) {
       event.preventDefault();
       void toggleAssistant(false);
     }
-    else if (host.appDrawer.checked) {
+    else if (host.shell.appDrawer.checked) {
       event.preventDefault();
-      host.appDrawer.checked = false;
-      host.appDrawerOpen.setAttribute("aria-expanded", "false");
-      host.appDrawerOpen.focus();
+      host.shell.appDrawer.checked = false;
+      host.shell.appDrawerOpen.setAttribute("aria-expanded", "false");
+      host.shell.appDrawerOpen.focus();
     }
   });
 

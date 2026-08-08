@@ -66,7 +66,7 @@ import {
   thinkingOptionsForModel,
   type LocalModelView
 } from "./local-models.js";
-import type { MainViewHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
+import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
 import {
   PROCESS_LIBRARY,
   processModule,
@@ -112,7 +112,7 @@ export interface FileSource {
   files: string[];
 }
 
-export function createMainViews(host: MainViewHost) {
+export function createMainViews(host: MainHost) {
   /** A settings page: left sub-menu + right content. `attr` is the data-* used to switch tabs. */
   function pageWithMenu(attr: string, items: {
     id: string;
@@ -121,7 +121,7 @@ export function createMainViews(host: MainViewHost) {
     return `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
       <aside class="h-max rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
         <ul class="menu menu-sm gap-0.5">${items
-        .map(({ id, label }) => `<li><button class="${host.activeClass(id === active)}" data-${attr}="${id}">${host.escapeHtml(label)}</button></li>`)
+        .map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === active)}" data-${attr}="${id}">${host.shell.escapeHtml(label)}</button></li>`)
         .join("")}</ul>
       </aside>
       <section class="min-w-0">${content}</section>
@@ -140,7 +140,7 @@ export function createMainViews(host: MainViewHost) {
     const content = await (tabs.find(({ id }) => id === active) ?? tabs[0]).content();
     if (!stillHere())
       return;
-    host.swap(pageWithMenu(attr, tabs, active, content));
+    host.shell.swap(pageWithMenu(attr, tabs, active, content));
   }
 
   function gearIcon(cls = "size-5"): string {
@@ -149,16 +149,16 @@ export function createMainViews(host: MainViewHost) {
 
   /** "Active org: <name> — <who>" line under the org row. Text opens preferences; gear opens org settings. */
   function renderActiveOrg(): void {
-    const org = host.currentOrganization();
+    const org = host.session.currentOrganization();
     if (!org) {
-      host.orgStatus.innerHTML = "";
+      host.shell.orgStatus.innerHTML = "";
       return;
     }
-    const who = host.orgIsConnected(org.id) ? (host.currentUser()?.email ?? "connected") : "local";
-    host.orgStatus.innerHTML = `<div class="flex items-center gap-1 rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 shadow-sm">
+    const who = host.session.orgIsConnected(org.id) ? (host.session.currentUser()?.email ?? "connected") : "local";
+    host.shell.orgStatus.innerHTML = `<div class="flex items-center gap-1 rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 shadow-sm">
         <button class="min-w-0 flex-1 text-left" data-view="preferences">
           <span class="block text-[10px] font-bold uppercase tracking-widest text-base-content/45">Active org</span>
-          <span class="block truncate text-xs font-semibold">${host.escapeHtml(org.name)} — ${host.escapeHtml(who)}</span>
+          <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(org.name)} — ${host.shell.escapeHtml(who)}</span>
         </button>
         <button class="btn btn-square btn-ghost btn-xs" data-view="org-settings" aria-label="Organization settings" title="Organization settings">
           ${gearIcon()}
@@ -172,18 +172,18 @@ export function createMainViews(host: MainViewHost) {
    * on the right that appears on hover or keyboard focus, so a team of ten processes stays readable.
    */
   function processNavItem(teamId: string, board: Board, process: Process, count: number): string {
-    const openBoard = host.view === "board" && host.activeBoard?.id === board.id;
-    const editing = host.view === "process" && host.configProcessId === process.id;
-    const history = host.view === "process-runs" && host.configProcessId === process.id;
-    const scheduled = host.view === "schedules" && host.configProcessId === process.id;
-    const running = host.runningProcesses.has(process.id);
+    const openBoard = host.shell.view === "board" && host.workspaceController.activeBoard?.id === board.id;
+    const editing = host.shell.view === "process" && host.shell.configProcessId === process.id;
+    const history = host.shell.view === "process-runs" && host.shell.configProcessId === process.id;
+    const scheduled = host.shell.view === "schedules" && host.shell.configProcessId === process.id;
+    const running = host.runs.runningProcesses.has(process.id);
     const studio = processModule(process.tags)?.mode === "studio";
-    const icon = (action: string, label: string, svg: string, extra = ""): string => `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${process.id}" data-team="${teamId}" title="${host.escapeHtml(label)}" aria-label="${host.escapeHtml(label)}">${svg}</button>`;
+    const icon = (action: string, label: string, svg: string, extra = ""): string => `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${process.id}" data-team="${teamId}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${svg}</button>`;
     const open = editing || history || scheduled; // a right-hand view of this process is on screen
     return `<li class="group relative">
-      <button class="${host.activeClass(openBoard)} gap-2 pr-[6.5rem]" data-board="${board.id}" data-team="${teamId}">
+      <button class="${host.shell.activeClass(openBoard)} gap-2 pr-[6.5rem]" data-board="${board.id}" data-team="${teamId}">
         <span class="grid size-5 shrink-0 place-items-center rounded text-[10px] font-bold ${running ? "bg-success/20 text-success" : "bg-secondary/15 text-secondary"}" title="${running ? "Running" : "Stopped"}">P</span>
-        <span class="truncate">${host.escapeHtml(process.name)}</span>
+        <span class="truncate">${host.shell.escapeHtml(process.name)}</span>
         ${count
         ? `<span class="badge badge-ghost badge-xs ml-auto" title="${count} open task${count === 1 ? "" : "s"}">${count}</span>`
         : ""}
@@ -207,18 +207,18 @@ export function createMainViews(host: MainViewHost) {
     // A popup rather than an accordion: this block is pinned to the bottom, so expanding in place
     // would push the three items around. dropdown-top keeps the panel inside the sidebar, which
     // .drawer-side clips.
-    host.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
-        <li><button class="${host.activeClass(host.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
+    host.shell.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
+        <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
         <li class="dropdown dropdown-top w-full">
           <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
             Help
             <svg viewBox="0 0 24 24" class="size-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </button>
           <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mb-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-            ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.escapeHtml(url)}">${host.escapeHtml(label)}</button></li>`).join("")}
+            ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.shell.escapeHtml(url)}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
           </ul>
         </li>
-        <li><button data-action="open-external" data-url="${host.escapeHtml(COMMUNITY_URL)}">Join Community</button></li>
+        <li><button data-action="open-external" data-url="${host.shell.escapeHtml(COMMUNITY_URL)}">Join Community</button></li>
       </ul>`;
   }
 
@@ -233,43 +233,43 @@ export function createMainViews(host: MainViewHost) {
       email: string;
     };
     const icons: Icon[] = [];
-    for (const key of host.connections) {
-      const { orgId, userId } = host.connParts(key);
-      const org = host.organizations.find(({ id }) => id === orgId);
+    for (const key of host.session.connections) {
+      const { orgId, userId } = host.session.connParts(key);
+      const org = host.workspaceController.organizations.find(({ id }) => id === orgId);
       if (!org)
         continue;
-      icons.push({ orgId, userId, name: org.name, email: host.accounts.get(userId)?.user.email ?? "" });
+      icons.push({ orgId, userId, name: org.name, email: host.session.accounts.get(userId)?.user.email ?? "" });
     }
-    for (const org of host.organizations) {
-      if (!host.orgIsConnected(org.id))
+    for (const org of host.workspaceController.organizations) {
+      if (!host.session.orgIsConnected(org.id))
         icons.push({ orgId: org.id, userId: "", name: org.name, email: "local" });
     }
     icons.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
-    host.orgRow.innerHTML =
+    host.shell.orgRow.innerHTML =
       icons
         .map(({ orgId, userId, name, email }) => {
-          const active = orgId === host.workspace.organizationId && userId === host.activeUserId;
-          const branding = host.brandingFor(orgId);
+          const active = orgId === host.workspaceController.workspace.organizationId && userId === host.session.activeUserId;
+          const branding = host.session.brandingFor(orgId);
           const ring = active ? "ring-2 ring-primary ring-offset-1 ring-offset-base-100" : "";
           const inner = branding.logo
-            ? `<img src="${host.escapeHtml(branding.logo)}" alt="" class="size-full object-cover">`
-            : `<span class="grid size-full place-items-center text-[11px] font-black text-white" style="background:${host.escapeHtml(branding.color || host.defaultOrgColor(name))}">${host.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+            ? `<img src="${host.shell.escapeHtml(branding.logo)}" alt="" class="size-full object-cover">`
+            : `<span class="grid size-full place-items-center text-[11px] font-black text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
           const label = `${name} — ${email}`;
-          return `<button class="btn btn-xs btn-square overflow-hidden p-0 ${ring}" data-action="switch-org" data-id="${orgId}" data-account="${host.escapeHtml(userId)}" title="${host.escapeHtml(label)}" aria-label="${host.escapeHtml(label)}">${inner}</button>`;
+          return `<button class="btn btn-xs btn-square overflow-hidden p-0 ${ring}" data-action="switch-org" data-id="${orgId}" data-account="${host.shell.escapeHtml(userId)}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${inner}</button>`;
         })
         .join("") +
       `<button class="btn btn-xs btn-square btn-ghost tooltip tooltip-bottom border border-dashed border-base-300" data-action="new-organization" data-tip="Add organization" aria-label="Add organization">+</button>`;
     renderActiveOrg();
     // No active org (e.g. all deleted): teams need an org to belong to, so show nothing here.
-    if (!host.workspace.organizationId) {
-      host.teamNav.innerHTML = "";
+    if (!host.workspaceController.workspace.organizationId) {
+      host.shell.teamNav.innerHTML = "";
       renderPrefsButton();
       return;
     }
-    const inboxCount = [...host.supervise().values()].filter(needsAttention).length;
-    host.teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
-        <li><button class="${host.activeClass(host.view === "overview")}" data-view="overview">Overview</button></li>
-        <li><button class="${host.activeClass(host.view === "inbox")}" data-view="inbox">Inbox${inboxCount
+    const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
+    host.shell.teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
+        <li><button class="${host.shell.activeClass(host.shell.view === "overview")}" data-view="overview">Overview</button></li>
+        <li><button class="${host.shell.activeClass(host.shell.view === "inbox")}" data-view="inbox">Inbox${inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
       </ul>
@@ -277,30 +277,30 @@ export function createMainViews(host: MainViewHost) {
         <span class="text-[11px] font-bold uppercase tracking-widest text-base-content/45">Teams</span>
         <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
       </div>
-      ${host.teams.length
-        ? host.teams.map((team) => {
-          const selected = team.id === host.workspace.teamId;
+      ${host.workspaceController.teams.length
+        ? host.workspaceController.teams.map((team) => {
+          const selected = team.id === host.workspaceController.workspace.teamId;
           const teamActions = `opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100`;
           return `<section class="group mb-3">
                   <div class="flex items-center">
                     <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-2 ${selected ? "font-bold" : ""}"
                       data-team-view="overview" data-team="${team.id}">
-                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary">${host.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
-                      <span class="truncate">${host.escapeHtml(team.name)}</span>
+                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
+                      <span class="truncate">${host.shell.escapeHtml(team.name)}</span>
                     </button>
-                    <div class="flex items-center pr-1 ${selected && host.view === "settings" ? "" : teamActions}">
+                    <div class="flex items-center pr-1 ${selected && host.shell.view === "settings" ? "" : teamActions}">
                       <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${team.id}" aria-label="Process library" title="Process library">${ACTION_ICONS.library}</button>
                       <button class="btn btn-square btn-ghost btn-xs" data-action="new-process" data-team="${team.id}" aria-label="New process" title="New process">${ACTION_ICONS.add}</button>
-                      <button class="btn btn-square btn-ghost btn-xs ${selected && host.view === "settings" ? "btn-active" : ""}" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
+                      <button class="btn btn-square btn-ghost btn-xs ${selected && host.shell.view === "settings" ? "btn-active" : ""}" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
                         ${gearIcon()}
                       </button>
                     </div>
                   </div>
                   <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
-                    ${(host.dashboardsByTeam.get(team.id) ?? [])
+                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
               .map(({ board, process, count }) => processNavItem(team.id, board, process, count))
               .join("")}
-                    ${(host.dashboardsByTeam.get(team.id) ?? []).length
+                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).length
               ? ""
               : `<li><p class="px-2 py-1 text-xs text-base-content/45">No processes yet — use + above.</p></li>`}
                   </ul>
@@ -322,12 +322,12 @@ export function createMainViews(host: MainViewHost) {
     const prefs = document.querySelector<HTMLButtonElement>("#preferences-button");
     if (!prefs)
       return;
-    prefs.classList.toggle("btn-active", host.view === "preferences");
+    prefs.classList.toggle("btn-active", host.shell.view === "preferences");
     prefs.querySelector(".invite-badge")?.remove();
-    if (!host.pendingInvitations.length)
+    if (!host.session.pendingInvitations.length)
       return;
-    prefs.title = `Preferences — ${host.pendingInvitations.length} pending invitation${host.pendingInvitations.length === 1 ? "" : "s"}`;
-    prefs.insertAdjacentHTML("beforeend", `<span class="invite-badge badge badge-warning badge-xs absolute -right-1 -top-1">${host.pendingInvitations.length}</span>`);
+    prefs.title = `Preferences — ${host.session.pendingInvitations.length} pending invitation${host.session.pendingInvitations.length === 1 ? "" : "s"}`;
+    prefs.insertAdjacentHTML("beforeend", `<span class="invite-badge badge badge-warning badge-xs absolute -right-1 -top-1">${host.session.pendingInvitations.length}</span>`);
   }
 
   /**
@@ -337,37 +337,37 @@ export function createMainViews(host: MainViewHost) {
   function searchBox(): string {
     return `<form class="mb-4 flex gap-2" data-run-search>
       <input class="input input-bordered flex-1" name="query" type="search" autocomplete="off"
-        placeholder="Search work items and settled runs" value="${host.escapeHtml(host.searchQuery)}" />
+        placeholder="Search work items and settled runs" value="${host.shell.escapeHtml(host.shell.searchQuery)}" />
       <button class="btn btn-primary" type="submit">Search</button>
-      ${host.searchQuery.trim() ? `<button class="btn btn-ghost border border-base-300" type="button" data-action="clear-search">Clear</button>` : ""}
+      ${host.shell.searchQuery.trim() ? `<button class="btn btn-ghost border border-base-300" type="button" data-action="clear-search">Clear</button>` : ""}
     </form>`;
   }
 
   async function renderWorkItemDetail(): Promise<void> {
-    const item = host.teamItems.find(({ id }) => id === host.activeItemId);
+    const item = host.workspaceController.teamItems.find(({ id }) => id === host.shell.activeItemId);
     if (!item) {
-      host.view = "board";
+      host.shell.view = "board";
       renderBoard();
       return;
     }
-    host.setHeader(item.title, host.currentTeam()?.name);
-    const runs = host.executions.filter(({ workItemId }) => workItemId === item.id);
-    const process = host.processes.find(({ id }) => id === item.processId);
-    const studio = process ? host.processStudios.find((candidate) => candidate.matches(process)) : null;
+    host.shell.setHeader(item.title, host.session.currentTeam()?.name);
+    const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
+    const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
+    const studio = process ? host.workspaceController.processStudios.find((candidate) => candidate.matches(process)) : null;
     // The same sentence the inbox shows, above whatever this item's view is — a person working on
     // the item should not have to visit the inbox to learn it is stuck.
-    const banner = escalationBanner(host.supervise().get(item.id) ?? null);
+    const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null);
     if (process && studio) {
       const content = await studio.render(item, process, runs);
-      if (host.view !== "item" || host.activeItemId !== item.id)
+      if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
         return;
-      host.swap(`${banner}${content}`);
+      host.shell.swap(`${banner}${content}`);
       return;
     }
-    const locations = await host.repository.listAvailableFileLocations(host.workspace.teamId);
-    if (host.view !== "item" || host.activeItemId !== item.id)
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
       return;
-    host.swap(banner + workItemView({ ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) }, runs, runs.map(conversationFor).filter(Boolean) as BeesConversationSnapshotV1[], host.itemTab));
+    host.shell.swap(banner + workItemView({ ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) }, runs, runs.map(conversationFor).filter(Boolean) as BeesConversationSnapshotV1[], host.shell.itemTab));
   }
 
   /**
@@ -375,37 +375,37 @@ export function createMainViews(host: MainViewHost) {
    * receipt, which is why reopening one never needs the sidecar.
    */
   function conversationFor(execution: Execution): BeesConversationSnapshotV1 | null {
-    const live = host.liveEvents.get(execution.id);
+    const live = host.runs.liveEvents.get(execution.id);
     return live?.length ? conversationToSnapshotV1(live) : execution.conversationSnapshot;
   }
 
   async function renderRunDetail(): Promise<void> {
-    const execution = host.executions.find(({ id }) => id === host.activeExecutionId) ??
-      (host.activeExecutionId ? await host.repository.getExecution(host.activeExecutionId) : null);
+    const execution = host.runs.executions.find(({ id }) => id === host.shell.activeExecutionId) ??
+      (host.shell.activeExecutionId ? await host.repository.getExecution(host.shell.activeExecutionId) : null);
     if (!execution) {
-      host.view = "runs";
-      host.render();
+      host.shell.view = "runs";
+      host.shell.render();
       return;
     }
-    host.setHeader("Run", host.teamItems.find(({ id }) => id === execution.workItemId)?.title);
-    host.swap(runView({
+    host.shell.setHeader("Run", host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId)?.title);
+    host.shell.swap(runView({
       execution,
-      item: host.teamItems.find(({ id }) => id === execution.workItemId) ?? null,
-      outputs: host.executionOutputs.filter(({ executionId }) => executionId === execution.id),
+      item: host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId) ?? null,
+      outputs: host.runs.executionOutputs.filter(({ executionId }) => executionId === execution.id),
       snapshot: conversationFor(execution),
-      previews: host.outputPreviews,
+      previews: host.runs.outputPreviews,
       remoteConnections: (execution.config.mcpConnectionRefs ?? []).map((id) => {
-        const connection = host.mcpConnections.find((candidate) => candidate.id === id);
+        const connection = host.workspaceController.mcpConnections.find((candidate) => candidate.id === id);
         return connection ? `${connection.name}${connection.lastError ? " (offline)" : ""}` : "Unavailable connection";
       })
     }));
   }
 
   function workItemBadges(item: WorkItem): string {
-    const execution = activeExecutionForItem(item.id, host.executions);
+    const execution = activeExecutionForItem(item.id, host.runs.executions);
     const agent = execution
-      ? host.agents.find(({ id }) => id === execution.agentId)
-      : host.agentForItem(item);
+      ? host.workspaceController.agents.find(({ id }) => id === execution.agentId)
+      : host.runs.agentForItem(item);
     const run = execution?.status === "running"
       ? "Running"
       : execution?.status === "queued"
@@ -416,42 +416,42 @@ export function createMainViews(host: MainViewHost) {
       : execution?.status === "queued"
         ? "badge-warning"
         : "badge-ghost";
-    return `<span class="badge badge-ghost badge-sm">Owner: ${host.escapeHtml(item.owner || "Unassigned")}</span>
-      <span class="badge badge-ghost badge-sm">Agent: ${host.escapeHtml(agent?.name || (execution ? "Unknown agent" : "Unassigned"))}</span>
+    return `<span class="badge badge-ghost badge-sm">Owner: ${host.shell.escapeHtml(item.owner || "Unassigned")}</span>
+      <span class="badge badge-ghost badge-sm">Agent: ${host.shell.escapeHtml(agent?.name || (execution ? "Unknown agent" : "Unassigned"))}</span>
       <span class="badge ${runTone} badge-sm">Run: ${run}</span>`;
   }
 
   function renderBoard(): void {
-    host.setHeader(host.activeBoard?.name ?? "Work", host.activeProcess ? `${host.currentTeam()?.name} / ${host.activeProcess.name}` : undefined);
-    if (!host.activeBoard || !host.activeProcess) {
-      host.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
+    host.shell.setHeader(host.workspaceController.activeBoard?.name ?? "Work", host.workspaceController.activeProcess ? `${host.session.currentTeam()?.name} / ${host.workspaceController.activeProcess.name}` : undefined);
+    if (!host.workspaceController.activeBoard || !host.workspaceController.activeProcess) {
+      host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
         <div class="hero-content text-center"><div class="max-w-md">
           <div class="mb-3 text-4xl">▦</div>
           <h2 class="text-xl font-bold">Create your first process</h2>
           <p class="py-3 text-sm text-base-content/60">Each process gets its own dashboard, with its statuses as columns.</p>
-          <button class="btn btn-primary" data-action="new-process" data-team="${host.workspace.teamId}">New process</button>
+          <button class="btn btn-primary" data-action="new-process" data-team="${host.workspaceController.workspace.teamId}">New process</button>
         </div></div>
       </div>`);
       return;
     }
-    const stages = host.activeProcess.stages.filter(({ id }) => host.activeBoard?.stageIds.includes(id));
-    const projectStudio = processModule(host.activeProcess.tags)?.mode === "studio";
-    const running = projectStudio || host.runningProcesses.has(host.activeProcess.id);
-    const filters = host.activeBoard.filters;
-    const waiting = host.supervise();
-    const visible = host.items.filter((item) => !isFiltered(item, filters));
-    const filtered = host.items.filter((item) => isFiltered(item, filters))
+    const stages = host.workspaceController.activeProcess.stages.filter(({ id }) => host.workspaceController.activeBoard?.stageIds.includes(id));
+    const projectStudio = processModule(host.workspaceController.activeProcess.tags)?.mode === "studio";
+    const running = projectStudio || host.runs.runningProcesses.has(host.workspaceController.activeProcess.id);
+    const filters = host.workspaceController.activeBoard.filters;
+    const waiting = host.runs.supervise();
+    const visible = host.workspaceController.items.filter((item) => !isFiltered(item, filters));
+    const filtered = host.workspaceController.items.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    host.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+    host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
           <span class="eyebrow-pill"><span class="status status-primary"></span> Workflow board</span>
-          ${processStateBadge(host.activeProcess.id)}
+          ${processStateBadge(host.workspaceController.activeProcess.id)}
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
-          <span>${host.openWork(visible).length} item${host.openWork(visible).length === 1 ? "" : "s"}</span>
+          <span>${host.workspaceController.openWork(visible).length} item${host.workspaceController.openWork(visible).length === 1 ? "" : "s"}</span>
         </div>
         <div class="flex flex-wrap gap-2">
-          ${processRunButtons(host.activeProcess.id, "btn-sm")}
-          <button class="btn btn-ghost btn-sm border border-base-300" data-action="edit-board" data-id="${host.activeBoard.id}">Dashboard settings</button>
+          ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
+          <button class="btn btn-ghost btn-sm border border-base-300" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button>
         </div>
       </div>
       ${running
@@ -464,7 +464,7 @@ export function createMainViews(host: MainViewHost) {
             <header class="flex items-center justify-between px-1 pb-3 pt-1">
               <div class="flex items-center gap-2">
                 <span class="status ${stageIndex === stages.length - 1 ? "status-success" : "status-primary"}"></span>
-                <h2 class="text-sm font-black tracking-[-.01em]">${host.escapeHtml(stage.name)}</h2>
+                <h2 class="text-sm font-black tracking-[-.01em]">${host.shell.escapeHtml(stage.name)}</h2>
               </div>
               <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
             </header>
@@ -472,15 +472,15 @@ export function createMainViews(host: MainViewHost) {
               .map((item) => `<article class="kanban-card card border border-base-300">
                   <div class="card-body gap-3 p-4">
                     <div>
-                      <p class="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-primary">${host.escapeHtml(stage.name)}</p>
-                      <h3 class="card-title text-sm font-black tracking-[-.015em]">${host.escapeHtml(item.title)}</h3>
-                      <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-base-content/60">${host.escapeHtml(item.description || "No description")}</p>
+                      <p class="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-primary">${host.shell.escapeHtml(stage.name)}</p>
+                      <h3 class="card-title text-sm font-black tracking-[-.015em]">${host.shell.escapeHtml(item.title)}</h3>
+                      <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-base-content/60">${host.shell.escapeHtml(item.description || "No description")}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                       ${workItemBadges(item)}
                       ${item.parentId ? '<span class="badge badge-outline badge-sm">Subtask</span>' : ""}
-                      ${host.teamItems.some(({ parentId }) => parentId === item.id)
-                  ? `<span class="badge badge-outline badge-sm">${host.teamItems.filter(({ parentId }) => parentId === item.id).length} tasks</span>`
+                      ${host.workspaceController.teamItems.some(({ parentId }) => parentId === item.id)
+                  ? `<span class="badge badge-outline badge-sm">${host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id).length} tasks</span>`
                   : ""}
                       ${item.status === "blocked" ? '<span class="badge badge-error badge-sm">Blocked</span>' : ""}
                       ${
@@ -488,12 +488,12 @@ export function createMainViews(host: MainViewHost) {
                 // of the four states this item is in. The badge carries the heading only —
                 // a badge does not wrap, and a runtime error is long.
                 needsAttention(waiting.get(item.id) ?? null)
-                  ? `<span class="badge badge-sm ${waiting.get(item.id)!.kind === "stalled" ? "badge-error" : "badge-warning"}">${host.escapeHtml(waiting.get(item.id)!.label)}</span>`
+                  ? `<span class="badge badge-sm ${waiting.get(item.id)!.kind === "stalled" ? "badge-error" : "badge-warning"}">${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`
                   : ""}
                       ${item.logicalFiles.length ? `<span class="badge badge-outline badge-sm">${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
                     </div>
                     ${needsAttention(waiting.get(item.id) ?? null)
-                  ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-base-content/60"}">${host.escapeHtml(waiting.get(item.id)!.detail)}</p>`
+                  ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-base-content/60"}">${host.shell.escapeHtml(waiting.get(item.id)!.detail)}</p>`
                   : ""}
                     <div class="card-actions items-center justify-end">
                       <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
@@ -519,9 +519,9 @@ export function createMainViews(host: MainViewHost) {
               <ul class="divide-y divide-base-300 border-t border-base-300">${filtered
           .map((item) => `<li class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <span class="min-w-0">
-                      <span class="font-semibold">${host.escapeHtml(item.title)}</span>
-                      <span class="ml-2 badge badge-ghost badge-sm">${host.escapeHtml(item.status)}</span>
-                      <span class="ml-2 text-xs text-base-content/55">${host.escapeHtml(new Date(item.updatedAt).toLocaleString())}</span>
+                      <span class="font-semibold">${host.shell.escapeHtml(item.title)}</span>
+                      <span class="ml-2 badge badge-ghost badge-sm">${host.shell.escapeHtml(item.status)}</span>
+                      <span class="ml-2 text-xs text-base-content/55">${host.shell.escapeHtml(new Date(item.updatedAt).toLocaleString())}</span>
                     </span>
                     <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
                   </li>`)
@@ -533,7 +533,7 @@ export function createMainViews(host: MainViewHost) {
   /** Agents this process starts, in status order — the population of its configuration screen. */
   function processAgents(process: Process): Agent[] {
     const order = new Map(process.stages.map(({ id }, index) => [id, index]));
-    return host.agents.filter(({ triggerStageId }) => triggerStageId && order.has(triggerStageId))
+    return host.workspaceController.agents.filter(({ triggerStageId }) => triggerStageId && order.has(triggerStageId))
       .sort((a, b) => (order.get(a.triggerStageId!) ?? 0) - (order.get(b.triggerStageId!) ?? 0) ||
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
@@ -545,15 +545,15 @@ export function createMainViews(host: MainViewHost) {
    * With no `configProcessId` the same page creates a process, then reopens itself on it.
    */
   function renderProcessEditor(): void {
-    const process = host.processes.find(({ id }) => id === host.configProcessId) ?? null;
-    host.setHeader(process ? process.name : "New process", host.currentTeam()?.name);
+    const process = host.workspaceController.processes.find(({ id }) => id === host.shell.configProcessId) ?? null;
+    host.shell.setHeader(process ? process.name : "New process", host.session.currentTeam()?.name);
     const definition = `<form class="min-w-0 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm" data-process-form>
       <div class="flex flex-wrap items-end gap-3">
         <label class="form-control grid min-w-0 flex-1 basis-56 gap-1.5"><span class="label-text text-sm font-semibold">Name</span>
-          <input class="input input-bordered w-full" name="name" value="${host.escapeHtml(process?.name ?? "")}"
+          <input class="input input-bordered w-full" name="name" value="${host.shell.escapeHtml(process?.name ?? "")}"
             placeholder="Support triage" required></label>
         <label class="form-control grid min-w-0 flex-[2] basis-72 gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
-          <input class="input input-bordered w-full" name="description" value="${host.escapeHtml(process?.description ?? "")}"></label>
+          <input class="input input-bordered w-full" name="description" value="${host.shell.escapeHtml(process?.description ?? "")}"></label>
         <div class="ml-auto flex shrink-0 items-center gap-2">
           ${process
         ? `${processStatusButton(process.id)}${actionIconButton("archive-process", `Archive ${process.name}`, ACTION_ICONS.archive, process.id, "btn-ghost text-error")}`
@@ -562,54 +562,54 @@ export function createMainViews(host: MainViewHost) {
         </div>
       </div>
       <label class="form-control mt-4 grid min-w-0 gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
-        <input class="input input-bordered w-full" name="stages" value="${host.escapeHtml(process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done")}" required>
+        <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done")}" required>
         <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
     </form>`;
     if (!process) {
-      host.swap(`<div class="grid gap-4">${definition}
+      host.shell.swap(`<div class="grid gap-4">${definition}
         <p class="text-sm text-base-content/55">Saving creates the process, its board, and the agent lanes below.</p>
       </div>`);
       return;
     }
     const own = processAgents(process);
-    const unassigned = host.agents.filter(({ triggerStageId }) => !triggerStageId);
+    const unassigned = host.workspaceController.agents.filter(({ triggerStageId }) => !triggerStageId);
     const selectable = [...own, ...unassigned];
-    if (!selectable.some(({ id }) => id === host.configAgentId))
-      host.configAgentId = selectable[0]?.id ?? "";
+    if (!selectable.some(({ id }) => id === host.shell.configAgentId))
+      host.shell.configAgentId = selectable[0]?.id ?? "";
     const studio = processModule(process.tags)?.mode === "studio";
     const card = (agent: Agent): string => {
       const model = agent.config.provider && agent.config.model
         ? `${agent.config.provider} · ${agent.config.model}`
         : "No model";
-      const eligibility = host.eligibilityForAgent(agent);
-      return `<div class="grid gap-2 rounded-box border p-3 ${agent.id === host.configAgentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100"}" data-agent-row="${host.escapeHtml(agent.id)}">
+      const eligibility = host.workspaceController.eligibilityForAgent(agent);
+      return `<div class="grid gap-2 rounded-box border p-3 ${agent.id === host.shell.configAgentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100"}" data-agent-row="${host.shell.escapeHtml(agent.id)}">
         <div class="flex items-start justify-between gap-1">
           <button class="link link-hover text-left text-sm font-semibold" type="button"
-            data-action="select-process-agent" data-id="${host.escapeHtml(agent.id)}">${host.escapeHtml(agent.name || "Untitled agent")}</button>
+            data-action="select-process-agent" data-id="${host.shell.escapeHtml(agent.id)}">${host.shell.escapeHtml(agent.name || "Untitled agent")}</button>
           <span class="flex">
             ${actionIconButton("duplicate-agent", `Duplicate ${agent.name}`, ACTION_ICONS.duplicate, agent.id)}
             ${actionIconButton("delete-agent", `Delete ${agent.name}`, ACTION_ICONS.delete, agent.id, "btn-ghost text-error")}
           </span>
         </div>
-        <p class="truncate text-xs text-base-content/55" title="${host.escapeHtml(model)}">${host.escapeHtml(model)}</p>
+        <p class="truncate text-xs text-base-content/55" title="${host.shell.escapeHtml(model)}">${host.shell.escapeHtml(model)}</p>
         <div class="flex items-center justify-between gap-1">
           <label class="label cursor-pointer gap-1.5 text-xs" title="Active on this machine">
-            <input class="checkbox checkbox-xs" type="checkbox" name="${host.escapeHtml(agent.id)}:enabled" ${host.disabledAgentIds.has(agent.id) ? "" : "checked"}><span>On</span>
+            <input class="checkbox checkbox-xs" type="checkbox" name="${host.shell.escapeHtml(agent.id)}:enabled" ${host.runs.disabledAgentIds.has(agent.id) ? "" : "checked"}><span>On</span>
           </label>
           ${eligibility.active
           ? ""
-          : `<span class="badge badge-error badge-xs" title="${host.escapeHtml(eligibility.reason)}">Needs attention</span>`}
+          : `<span class="badge badge-error badge-xs" title="${host.shell.escapeHtml(eligibility.reason)}">Needs attention</span>`}
         </div>
       </div>`;
     };
     const lane = (title: string, cards: string, addStageId?: string, note = ""): string => `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
         <div class="flex items-center justify-between gap-2">
-          <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.escapeHtml(title)}</span>
+          <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.shell.escapeHtml(title)}</span>
           ${addStageId === undefined
         ? ""
-        : `<button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${host.escapeHtml(addStageId)}">+ Agent</button>`}
+        : `<button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${host.shell.escapeHtml(addStageId)}">+ Agent</button>`}
         </div>
-        ${cards || `<p class="px-1 py-2 text-xs text-base-content/45">${host.escapeHtml(note)}</p>`}
+        ${cards || `<p class="px-1 py-2 text-xs text-base-content/45">${host.shell.escapeHtml(note)}</p>`}
       </div>`;
     const lanes = [
       ...process.stages.map((stage) => lane(stage.name, own
@@ -648,13 +648,13 @@ export function createMainViews(host: MainViewHost) {
             </details>`;
           })
           .join("");
-        return `<section class="grid min-w-0 gap-3 p-5" data-agent-pane="${host.escapeHtml(agent.id)}" ${agent.id === host.configAgentId ? "" : "hidden"}>
-          <h3 class="font-bold">${host.escapeHtml(agent.name || "Untitled agent")}</h3>
+        return `<section class="grid min-w-0 gap-3 p-5" data-agent-pane="${host.shell.escapeHtml(agent.id)}" ${agent.id === host.shell.configAgentId ? "" : "hidden"}>
+          <h3 class="font-bold">${host.shell.escapeHtml(agent.name || "Untitled agent")}</h3>
           ${sections}
         </section>`;
       })
       .join("");
-    host.swap(`<div class="grid min-w-0 gap-4">
+    host.shell.swap(`<div class="grid min-w-0 gap-4">
       ${definition}
       <form class="min-w-0" data-process-agents>
         <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
@@ -680,17 +680,17 @@ export function createMainViews(host: MainViewHost) {
    * only thing that saves.
    */
   function linkProcessModelThinking(): void {
-    for (const button of host.app.querySelectorAll<HTMLButtonElement>("form button:not([type])")) {
+    for (const button of host.shell.app.querySelectorAll<HTMLButtonElement>("form button:not([type])")) {
       button.type = "button";
     }
-    for (const select of host.app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
+    for (const select of host.shell.app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
       const agentId = select.name.slice(0, -":model".length);
       select.addEventListener("change", () => {
-        const thinking = host.app.querySelector<HTMLSelectElement>(`select[name="${agentId}:thinkingLevel"]`);
+        const thinking = host.shell.app.querySelector<HTMLSelectElement>(`select[name="${agentId}:thinkingLevel"]`);
         if (!thinking)
           return;
         thinking.innerHTML = thinkingOptionsForModel(parseModelRef(select.value) ?? {})
-          .map(({ label, value }) => `<option value="${host.escapeHtml(value)}">${host.escapeHtml(label)}</option>`)
+          .map(({ label, value }) => `<option value="${host.shell.escapeHtml(value)}">${host.shell.escapeHtml(label)}</option>`)
           .join("");
         thinking.value = "";
       });
@@ -703,38 +703,38 @@ export function createMainViews(host: MainViewHost) {
       return "";
     return `<div class="alert ${state!.kind === "stalled" ? "alert-error" : "alert-warning"} mb-4">
       <div class="min-w-0">
-        <div class="font-semibold">${host.escapeHtml(state!.label)}</div>
-        <div class="break-words text-sm">${host.escapeHtml(state!.detail)}</div>
+        <div class="font-semibold">${host.shell.escapeHtml(state!.label)}</div>
+        <div class="break-words text-sm">${host.shell.escapeHtml(state!.detail)}</div>
       </div>
     </div>`;
   }
 
   /** Rows of past runs on the left, the selected run's lanes, sequence, and logs on the right. */
   function renderProcessRuns(): void {
-    const process = host.processes.find(({ id }) => id === host.configProcessId);
+    const process = host.workspaceController.processes.find(({ id }) => id === host.shell.configProcessId);
     if (!process) {
-      host.view = "board";
+      host.shell.view = "board";
       renderBoard();
       return;
     }
-    host.setHeader(`${process.name} — past runs`, host.currentTeam()?.name);
-    const runs = processRuns(host.teamItems.filter(({ processId }) => processId === process.id), host.executions);
-    if (!runs.some(({ item }) => item.id === host.openRunItemId))
-      host.openRunItemId = runs[0]?.item.id ?? "";
-    const open = runs.find(({ item }) => item.id === host.openRunItemId) ?? null;
+    host.shell.setHeader(`${process.name} — past runs`, host.session.currentTeam()?.name);
+    const runs = processRuns(host.workspaceController.teamItems.filter(({ processId }) => processId === process.id), host.runs.executions);
+    if (!runs.some(({ item }) => item.id === host.shell.openRunItemId))
+      host.shell.openRunItemId = runs[0]?.item.id ?? "";
+    const open = runs.find(({ item }) => item.id === host.shell.openRunItemId) ?? null;
     const list = runs
       .map(({ item, steps, startedAt }) => {
         const last = steps.at(-1);
-        return `<li><button class="${host.activeClass(item.id === host.openRunItemId)} block h-auto py-2 text-left"
-          data-action="open-process-run" data-id="${host.escapeHtml(item.id)}">
-          <span class="block truncate text-sm font-semibold">${host.escapeHtml(item.title)}</span>
+        return `<li><button class="${host.shell.activeClass(item.id === host.shell.openRunItemId)} block h-auto py-2 text-left"
+          data-action="open-process-run" data-id="${host.shell.escapeHtml(item.id)}">
+          <span class="block truncate text-sm font-semibold">${host.shell.escapeHtml(item.title)}</span>
           <span class="mt-1 flex flex-wrap items-center gap-1 text-xs text-base-content/55">
             ${when(startedAt)} · ${steps.length} step${steps.length === 1 ? "" : "s"} ${last ? statusBadge(last.status) : '<span class="badge badge-ghost badge-sm">Not started</span>'}
           </span>
         </button></li>`;
       })
       .join("");
-    host.swap(`<div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
+    host.shell.swap(`<div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <h3 class="border-b border-base-300 p-4 font-bold">Runs, newest first</h3>
         ${runs.length
@@ -748,25 +748,25 @@ export function createMainViews(host: MainViewHost) {
   function processRunDetail(process: Process, run: ProcessRun): string {
     const { item, steps } = run;
     const stepCard = (execution: Execution): string => {
-      const agent = host.agents.find(({ id }) => id === execution.agentId);
-      const outputs = host.executionOutputs.filter(({ executionId }) => executionId === execution.id);
+      const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
+      const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === execution.id);
       const logs = execution.logs.trim().slice(-4000);
       return `<details class="rounded-box border border-base-300 bg-base-100 p-3">
         <summary class="cursor-pointer">
-          <span class="text-sm font-semibold">${host.escapeHtml(agent?.name ?? "Removed agent")}</span>
+          <span class="text-sm font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
           <span class="ml-2">${statusBadge(execution.status)}</span>
           <span class="mt-1 block text-xs text-base-content/55">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
         </summary>
         <div class="mt-3 grid gap-3 text-xs">
           ${execution.error
-          ? `<div><div class="font-bold uppercase text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.escapeHtml(execution.error)}</pre></div>`
+          ? `<div><div class="font-bold uppercase text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(execution.error)}</pre></div>`
           : ""}
           <div><div class="font-bold uppercase text-base-content/45">Logs</div>
-            <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">${host.escapeHtml(logs) || "No logs recorded."}</pre></div>
+            <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(logs) || "No logs recorded."}</pre></div>
           <div><div class="font-bold uppercase text-base-content/45">Files</div>
             ${outputs.length
           ? `<ul class="mt-1 grid gap-1">${outputs
-            .map((output) => `<li>${host.escapeHtml(output.logicalOutput)} → ${host.escapeHtml(output.logicalDestination)} ${statusBadge(output.status)}</li>`)
+            .map((output) => `<li>${host.shell.escapeHtml(output.logicalOutput)} → ${host.shell.escapeHtml(output.logicalDestination)} ${statusBadge(output.status)}</li>`)
             .join("")}</ul>`
           : '<p class="mt-1 text-base-content/45">No files proposed by this step.</p>'}
           </div>
@@ -777,11 +777,11 @@ export function createMainViews(host: MainViewHost) {
     const placed = new Set<string>();
     const lanes = process.stages
       .map((stage) => {
-        const own = steps.filter((execution) => host.runStageId(execution) === stage.id);
+        const own = steps.filter((execution) => host.runs.runStageId(execution) === stage.id);
         for (const execution of own)
           placed.add(execution.id);
         return `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
-          <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.escapeHtml(stage.name)}${item.stageId === stage.id ? " · now here" : ""}</span>
+          <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.shell.escapeHtml(stage.name)}${item.stageId === stage.id ? " · now here" : ""}</span>
           ${own.map(stepCard).join("") ||
           '<p class="px-1 py-2 text-xs text-base-content/45">Nothing ran here.</p>'}
         </div>`;
@@ -790,14 +790,14 @@ export function createMainViews(host: MainViewHost) {
     const orphans = steps.filter(({ id }) => !placed.has(id));
     const sequence = steps
       .map((execution, index) => {
-        const stage = process.stages.find(({ id }) => id === host.runStageId(execution));
-        return `${index ? '<span class="text-base-content/30">→</span>' : ""}<span class="badge badge-ghost badge-sm whitespace-nowrap">${host.escapeHtml(stage?.name ?? "No status")} · ${when(execution.startedAt ?? execution.createdAt).split(", ").at(-1) ?? ""}</span>`;
+        const stage = process.stages.find(({ id }) => id === host.runs.runStageId(execution));
+        return `${index ? '<span class="text-base-content/30">→</span>' : ""}<span class="badge badge-ghost badge-sm whitespace-nowrap">${host.shell.escapeHtml(stage?.name ?? "No status")} · ${when(execution.startedAt ?? execution.createdAt).split(", ").at(-1) ?? ""}</span>`;
       })
       .join("");
     return `<article class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="border-b border-base-300 p-4">
-          <h3 class="font-bold">${host.escapeHtml(item.title)}</h3>
-          <p class="mt-1 text-sm text-base-content/55">${steps.length ? "Started" : "Created"} ${when(run.startedAt)} · now on ${host.escapeHtml(process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status")}</p>
+          <h3 class="font-bold">${host.shell.escapeHtml(item.title)}</h3>
+          <p class="mt-1 text-sm text-base-content/55">${steps.length ? "Started" : "Created"} ${when(run.startedAt)} · now on ${host.shell.escapeHtml(process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status")}</p>
           <div class="mt-3 flex flex-wrap items-center gap-1.5">${sequence || '<span class="text-sm text-base-content/45">No steps recorded.</span>'}</div>
         </header>
         <div class="flex gap-3 overflow-x-auto p-4">${lanes}${orphans.length
@@ -817,12 +817,12 @@ export function createMainViews(host: MainViewHost) {
         provider: definition.provider,
         model: definition.model
       }
-    }, host.assistantModel, true, host.machineModelAvailability);
+    }, host.assistant.assistantModel, true, host.assistant.machineModelAvailability);
   }
 
   function renderProcessLibrary(): void {
-    host.setHeader("Process library", host.currentTeam()?.name);
-    host.swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+    host.shell.setHeader("Process library", host.session.currentTeam()?.name);
+    host.shell.swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
           <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Back to the board</button>
@@ -832,26 +832,26 @@ export function createMainViews(host: MainViewHost) {
         <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
       </header>
       <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
-      const installed = host.processes.some(({ name }) => name.toLowerCase() === entry.name.toLowerCase());
+      const installed = host.workspaceController.processes.some(({ name }) => name.toLowerCase() === entry.name.toLowerCase());
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
       const models = [...new Set(entry.agents.map(({ provider, model }) => `${provider}/${model}`))];
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
-              <div><h3 class="card-title text-base">${host.escapeHtml(entry.name)}</h3>
-                <p class="mt-1 text-sm text-base-content/60">${host.escapeHtml(entry.description)}</p></div>
+              <div><h3 class="card-title text-base">${host.shell.escapeHtml(entry.name)}</h3>
+                <p class="mt-1 text-sm text-base-content/60">${host.shell.escapeHtml(entry.description)}</p></div>
               <span class="badge badge-outline badge-sm">Bundled</span>
             </div>
             <div class="flex flex-wrap gap-1.5">
               <span class="badge badge-ghost badge-sm">${entry.stages.length} statuses</span>
               <span class="badge badge-ghost badge-sm">${entry.agents.length} agents</span>
-              ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.escapeHtml(model)}</span>`).join("")}
+              ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
             ${unavailable
           ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. You can change them after adding.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
-              <button class="btn btn-primary btn-sm" data-action="add-library-process" data-template="${host.escapeHtml(entry.id)}" ${installed ? "disabled" : ""}>${installed ? "Added to team" : "Add to team"}</button>
+              <button class="btn btn-primary btn-sm" data-action="add-library-process" data-template="${host.shell.escapeHtml(entry.id)}" ${installed ? "disabled" : ""}>${installed ? "Added to team" : "Add to team"}</button>
             </div>
           </div>
         </article>`;
@@ -874,8 +874,8 @@ export function createMainViews(host: MainViewHost) {
   } as const;
 
   function actionIconButton(action: string, label: string, icon: string, id?: string, classes = "btn-ghost", tooltip = "tooltip-left"): string {
-    const escapedLabel = host.escapeHtml(label);
-    return `<button class="btn btn-square btn-sm ${classes} tooltip ${tooltip}" data-action="${action}"${id ? ` data-id="${host.escapeHtml(id)}"` : ""} data-tip="${escapedLabel}" title="${escapedLabel}" aria-label="${escapedLabel}">${icon}</button>`;
+    const escapedLabel = host.shell.escapeHtml(label);
+    return `<button class="btn btn-square btn-sm ${classes} tooltip ${tooltip}" data-action="${action}"${id ? ` data-id="${host.shell.escapeHtml(id)}"` : ""} data-tip="${escapedLabel}" title="${escapedLabel}" aria-label="${escapedLabel}">${icon}</button>`;
   }
 
   /** Process and status for an id across the team. Null when it no longer exists. */
@@ -885,7 +885,7 @@ export function createMainViews(host: MainViewHost) {
   } | null {
     if (!stageId)
       return null;
-    for (const process of host.processes) {
+    for (const process of host.workspaceController.processes) {
       const stage = process.stages.find(({ id }) => id === stageId);
       if (stage)
         return { process, stageName: stage.name };
@@ -904,7 +904,7 @@ export function createMainViews(host: MainViewHost) {
 
   /** Why a local org can't do this, plus the way out. `upgrade` adds the button to create a connected org. */
   function localOrgNotice(message: string, upgrade = false): string {
-    return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center text-sm text-base-content/55">${host.escapeHtml(message)}${upgradeButton(upgrade, "mt-4")}</div>`;
+    return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center text-sm text-base-content/55">${host.shell.escapeHtml(message)}${upgradeButton(upgrade, "mt-4")}</div>`;
   }
 
   /** Button that starts the connected-org purchase flow. Empty unless `show`. */
@@ -920,27 +920,27 @@ export function createMainViews(host: MainViewHost) {
 
   // ---- Team settings (tabbed: Members / Folder / Integrations) ----
   async function teamMembersContent(): Promise<string> {
-    const token = host.orgToken();
+    const token = host.session.orgToken();
     if (!token)
-      return localOrgNotice(host.orgIsConnected() ? "Sign in to manage team members." : LOCAL_ORG_UPGRADE_HINT, !host.orgIsConnected());
-    if (!host.activeOrgTeamEnabled())
+      return localOrgNotice(host.session.orgIsConnected() ? "Sign in to manage team members." : LOCAL_ORG_UPGRADE_HINT, !host.session.orgIsConnected());
+    if (!host.session.activeOrgTeamEnabled())
       return localOrgNotice("Team features are off for this organization.");
-    const orgId = host.workspace.organizationId;
+    const orgId = host.workspaceController.workspace.organizationId;
     const [{ teams: serverTeams }, { plan }] = await Promise.all([
       host.api.listTeams(token, orgId),
       host.api.plan(token)
     ]);
-    const trialEndsAt = host.activeServerOrg()?.trialEndsAt;
+    const trialEndsAt = host.session.activeServerOrg()?.trialEndsAt;
     const trialEnds = trialEndsAt ? new Date(trialEndsAt) : null;
     const memberLists = await Promise.all(serverTeams.map((team) => host.api.listTeamMembers(token, orgId, team.id).then(({ members }) => members)));
     const isAdmin = (members: {
       userId: string;
       role: string;
-    }[]): boolean => members.some((member) => member.userId === host.currentUser()?.id && member.role === "admin");
+    }[]): boolean => members.some((member) => member.userId === host.session.currentUser()?.id && member.role === "admin");
     const planSummary = plan.freeDuringBeta
       ? `<div class="mt-2 flex flex-wrap items-center gap-2 text-sm text-base-content/55">
           <span class="badge badge-primary badge-sm">Free during beta</span>
-          <span>${host.escapeHtml(CONNECTED_ORG_BETA_COPY)}</span>
+          <span>${host.shell.escapeHtml(CONNECTED_ORG_BETA_COPY)}</span>
         </div>`
       : `<p class="mt-1 text-sm text-base-content/55">${serverTeams.length} of ${plan.freeTeams} free teams used — $${(plan.priceCents / 100).toFixed(2)}/${plan.interval} per team after that.${trialEnds && trialEnds > new Date()
         ? ` Trial runs to ${trialEnds.toLocaleDateString()}.`
@@ -964,7 +964,7 @@ export function createMainViews(host: MainViewHost) {
             const admin = isAdmin(members);
             return `<article class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
                   <div class="flex items-center justify-between gap-3">
-                    <h3 class="font-bold">${host.escapeHtml(team.name)}</h3>
+                    <h3 class="font-bold">${host.shell.escapeHtml(team.name)}</h3>
                     ${admin
                 ? `<button class="btn btn-primary btn-xs" data-action="invite-team-member" data-team="${team.id}">Invite</button>`
                 : `<span class="badge badge-ghost badge-sm">Member</span>`}
@@ -972,11 +972,11 @@ export function createMainViews(host: MainViewHost) {
                   <ul class="mt-3 divide-y divide-base-200">
                     ${members
                 .map((member) => `<li class="flex items-center justify-between gap-2 py-2 text-sm">
-                          <span class="truncate">${host.escapeHtml(member.userId === host.currentUser()?.id ? `${host.currentUser()?.email} (you)` : member.userId)}</span>
+                          <span class="truncate">${host.shell.escapeHtml(member.userId === host.session.currentUser()?.id ? `${host.session.currentUser()?.email} (you)` : member.userId)}</span>
                           <span class="flex items-center gap-2">
                             <span class="badge badge-sm ${member.role === "admin" ? "badge-primary" : "badge-ghost"}">${member.role}</span>
                             ${admin && member.role === "member"
-                    ? `<button class="btn btn-ghost btn-xs" data-action="promote-team-member" data-team="${team.id}" data-user="${host.escapeHtml(member.userId)}">Make admin</button>`
+                    ? `<button class="btn btn-ghost btn-xs" data-action="promote-team-member" data-team="${team.id}" data-user="${host.shell.escapeHtml(member.userId)}">Make admin</button>`
                     : ""}
                           </span>
                         </li>`)
@@ -1008,36 +1008,36 @@ export function createMainViews(host: MainViewHost) {
     return locations
       .map((location) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-4">
         <div class="min-w-0">
-          <div class="flex items-center gap-2"><span class="font-semibold">${host.escapeHtml(location.name)}</span>
+          <div class="flex items-center gap-2"><span class="font-semibold">${host.shell.escapeHtml(location.name)}</span>
             <span class="badge badge-ghost badge-sm">${location.teamId ? "Team" : "Organization"}</span></div>
-          <code class="mt-1 block break-all text-xs text-base-content/60">${host.escapeHtml(location.localPath || "Not mapped on this machine")}</code>
+          <code class="mt-1 block break-all text-xs text-base-content/60">${host.shell.escapeHtml(location.localPath || "Not mapped on this machine")}</code>
           ${location.missing ? '<p class="mt-1 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
         </div>
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-xs" data-action="map-file-location" data-id="${location.id}">${location.localPath ? "Re-map" : "Map folder"}</button>
-          ${removable(location) ? `<button class="btn btn-ghost btn-xs text-error" data-action="remove-file-location" data-id="${location.id}" data-name="${host.escapeHtml(location.name)}">Remove</button>` : ""}
+          ${removable(location) ? `<button class="btn btn-ghost btn-xs text-error" data-action="remove-file-location" data-id="${location.id}" data-name="${host.shell.escapeHtml(location.name)}">Remove</button>` : ""}
         </div>
       </div>`)
       .join("");
   }
 
   async function teamFolderContent(): Promise<string> {
-    let mapping = await host.repository.getResolvedTeamFolder(host.workspace.teamId);
+    let mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
     if (mapping) {
       try {
         await host.workspaces.validateDirectory(mapping.localPath);
         if (mapping.override && mapping.missing)
-          await host.repository.markTeamFolderMissing(host.workspace.teamId, false);
+          await host.repository.markTeamFolderMissing(host.workspaceController.workspace.teamId, false);
         mapping = { ...mapping, missing: false };
       }
       catch {
         if (mapping.override && !mapping.missing)
-          await host.repository.markTeamFolderMissing(host.workspace.teamId, true);
+          await host.repository.markTeamFolderMissing(host.workspaceController.workspace.teamId, true);
         mapping = { ...mapping, missing: true };
       }
     }
     const globalPath = await host.repository.getSetting("global_local_path", "");
-    const locations = await checkedFileLocations(await host.repository.listAvailableFileLocations(host.workspace.teamId));
+    const locations = await checkedFileLocations(await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId));
     return `<section class="card border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body">
           <div class="flex items-start justify-between gap-3">
@@ -1046,7 +1046,7 @@ export function createMainViews(host: MainViewHost) {
             <span class="badge ${mapping?.override ? "badge-primary" : "badge-ghost"}">${mapping?.override ? "Override" : "Inherited"}</span>
           </div>
           <div class="mt-3 rounded-box bg-base-200 p-4">
-            <code class="break-all text-sm">${host.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
+            <code class="break-all text-sm">${host.shell.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
             ${mapping?.missing ? '<p class="mt-2 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
           </div>
           <div class="card-actions mt-3 justify-end">
@@ -1061,7 +1061,7 @@ export function createMainViews(host: MainViewHost) {
             <p class="mt-1 text-sm text-base-content/55">Organization locations are inherited. Team locations can point anywhere on this machine, including different Google Drive folders.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-team-location">Add team location</button>
         </div>
-        <div class="grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspace.teamId)}</div>
+        <div class="grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
         <p class="text-xs text-base-content/50">Only the location name, scope, ID, and relative file reference sync. Absolute folder paths stay on this machine.</p>
       </div></section>`;
   }
@@ -1072,17 +1072,17 @@ export function createMainViews(host: MainViewHost) {
    * every other proposal in Bees it lands as a preview the user applies.
    */
   function skillCurationContent(): string {
-    const unused = host.skillReviews.filter(({ state }) => state === "unused");
-    const proposal = host.curatorPlan ? `<div class="mt-3 rounded-box border border-warning/40 bg-warning/5 p-3">
-          ${host.curatorPlan.summary ? `<p class="text-sm">${host.escapeHtml(host.curatorPlan.summary)}</p>` : ""}
-          <div class="mt-2 grid gap-2">${host.curatorPlan.actions
+    const unused = host.assistant.skillReviews.filter(({ state }) => state === "unused");
+    const proposal = host.assistant.curatorPlan ? `<div class="mt-3 rounded-box border border-warning/40 bg-warning/5 p-3">
+          ${host.assistant.curatorPlan.summary ? `<p class="text-sm">${host.shell.escapeHtml(host.assistant.curatorPlan.summary)}</p>` : ""}
+          <div class="mt-2 grid gap-2">${host.assistant.curatorPlan.actions
         .map((entry) => `<div class="rounded bg-base-100 p-2 text-sm">
-                <div class="${entry.error ? "text-error" : "font-semibold"}">${host.escapeHtml(entry.summary)}</div>
-                ${entry.error ? `<div class="text-xs text-error">${host.escapeHtml(entry.error)}</div>` : ""}
+                <div class="${entry.error ? "text-error" : "font-semibold"}">${host.shell.escapeHtml(entry.summary)}</div>
+                ${entry.error ? `<div class="text-xs text-error">${host.shell.escapeHtml(entry.error)}</div>` : ""}
               </div>`)
         .join("")}</div>
           <div class="mt-3 flex gap-2">
-            <button class="btn btn-success btn-sm" data-action="apply-curator-plan" ${host.curatorPlan.actions.some(({ error }) => !error) ? "" : "disabled"}>Apply</button>
+            <button class="btn btn-success btn-sm" data-action="apply-curator-plan" ${host.assistant.curatorPlan.actions.some(({ error }) => !error) ? "" : "disabled"}>Apply</button>
             <button class="btn btn-ghost btn-sm" data-action="discard-curator-plan">Discard</button>
           </div>
         </div>`
@@ -1090,14 +1090,14 @@ export function createMainViews(host: MainViewHost) {
     return `<div class="py-4">
       <div class="flex items-center justify-between gap-4">
         <div><h3 class="text-sm font-bold">Skill curation</h3><p class="text-xs text-base-content/55">Bees scores no run, so a skill is judged only by whether anything reaches for it. Retiring one moves its folder to <code>skills/.archive</code>; nothing is deleted and nothing is written until you apply it.</p></div>
-        <button class="btn btn-ghost btn-sm border border-base-300" data-action="curate-skills" ${host.curatorBusy ? "disabled" : ""}>${host.curatorBusy ? "Reading…" : "Tidy skills"}</button>
+        <button class="btn btn-ghost btn-sm border border-base-300" data-action="curate-skills" ${host.assistant.curatorBusy ? "disabled" : ""}>${host.assistant.curatorBusy ? "Reading…" : "Tidy skills"}</button>
       </div>
-      <div class="mt-3 grid gap-2">${host.skillReviews.length
-        ? host.skillReviews.map((review) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
-                <div><div class="font-semibold">${host.escapeHtml(review.capability.name)}</div>
+      <div class="mt-3 grid gap-2">${host.assistant.skillReviews.length
+        ? host.assistant.skillReviews.map((review) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
+                <div><div class="font-semibold">${host.shell.escapeHtml(review.capability.name)}</div>
                   <div class="text-xs text-base-content/50">${review.useCount ? `used ${review.useCount} time(s)` : "never used"} · ${review.selected ? "selected by an agent" : "selected by no agent"}</div></div>
                 ${review.state === "unused"
-            ? `<button class="btn btn-ghost btn-xs text-error" data-action="archive-skill" data-slug="${host.escapeHtml(skillSlugOf(review.capability))}" data-name="${host.escapeHtml(review.capability.name)}">Retire</button>`
+            ? `<button class="btn btn-ghost btn-xs text-error" data-action="archive-skill" data-slug="${host.shell.escapeHtml(skillSlugOf(review.capability))}" data-name="${host.shell.escapeHtml(review.capability.name)}">Retire</button>`
             : `<span class="badge badge-ghost badge-sm">in use</span>`}
               </div>`)
           .join("")
@@ -1120,9 +1120,9 @@ export function createMainViews(host: MainViewHost) {
                   <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Add folder</button>
                 </div>
               </div>
-              <div class="mt-3 grid gap-2">${host.registries.length
-        ? host.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
-                          <div><div class="font-semibold">${host.escapeHtml(registry.name)}</div>
+              <div class="mt-3 grid gap-2">${host.workspaceController.registries.length
+        ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
+                          <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
                             <div class="text-xs text-base-content/50">${registry.files.length} copied file(s) · ${registryCapabilities([
           registry
         ]).length} capability item(s)</div></div>
@@ -1150,15 +1150,15 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function teamArchivedContent(): Promise<string> {
-    const archived = (await host.repository.listProcesses(host.workspace.teamId, true)).filter(({ archivedAt }) => archivedAt);
+    const archived = (await host.repository.listProcesses(host.workspaceController.workspace.teamId, true)).filter(({ archivedAt }) => archivedAt);
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body">
         <h2 class="card-title text-base">Archived processes</h2>
         <p class="mt-1 text-sm text-base-content/55">Restoring brings back the process, its statuses, and its dashboards.</p>
         <div class="mt-3 grid gap-2">${archived.length
         ? archived
           .map((process) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
-                    <div><div class="font-semibold">${host.escapeHtml(process.name)}</div>
-                      <div class="text-xs text-base-content/50">Archived ${host.escapeHtml(new Date(process.archivedAt!).toLocaleDateString())} · ${process.stages.length} status(es)</div></div>
+                    <div><div class="font-semibold">${host.shell.escapeHtml(process.name)}</div>
+                      <div class="text-xs text-base-content/50">Archived ${host.shell.escapeHtml(new Date(process.archivedAt!).toLocaleDateString())} · ${process.stages.length} status(es)</div></div>
                     <button class="btn btn-primary btn-xs" data-action="restore-process" data-id="${process.id}">Restore</button>
                   </div>`)
           .join("")
@@ -1175,7 +1175,7 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function renderTeamSettings(): Promise<void> {
-    host.setHeader("Team settings", host.currentTeam()?.name);
+    host.shell.setHeader("Team settings", host.session.currentTeam()?.name);
     await renderTabs<TeamTab>("team-tab", [
       { id: "members", label: "Members", content: teamMembersContent },
       { id: "folder", label: "Folder", content: teamFolderContent },
@@ -1183,22 +1183,22 @@ export function createMainViews(host: MainViewHost) {
       { id: "browser", label: "Browser", content: teamBrowserContent },
       { id: "archived", label: "Archived processes", content: teamArchivedContent },
       { id: "danger", label: "Danger zone", content: teamDangerContent }
-    ], host.teamTab, () => host.view === "settings");
+    ], host.shell.teamTab, () => host.shell.view === "settings");
   }
 
   // ---- Organization settings (tabbed: General / Members / Invites / Folder) ----
   function orgGeneralContent(): string {
-    const connected = host.orgIsConnected();
-    const user = host.currentUser();
-    const signedIn = host.orgSignedIn() && !!user;
-    const social = Object.entries(host.providerLabel)
+    const connected = host.session.orgIsConnected();
+    const user = host.session.currentUser();
+    const signedIn = host.session.orgSignedIn() && !!user;
+    const social = Object.entries(host.session.providerLabel)
       .map(([provider, label]) => `<button class="btn btn-outline btn-sm" data-action="social-signin" data-provider="${provider}">Continue with ${label}</button>`)
       .join("");
     const authBlock = !connected
       ? ""
       : signedIn
         ? `<div class="flex flex-wrap items-center justify-between gap-3">
-             <span class="text-sm">Signed in as <strong>${host.escapeHtml(user!.email)}</strong></span>
+             <span class="text-sm">Signed in as <strong>${host.shell.escapeHtml(user!.email)}</strong></span>
              <button class="btn btn-ghost btn-sm text-error" data-action="sign-out">Sign out</button>
            </div>`
         : `<div class="flex flex-wrap items-center gap-2">
@@ -1217,30 +1217,30 @@ export function createMainViews(host: MainViewHost) {
           </div>
         </div>
         <p class="text-sm text-base-content/60">${connected
-        ? `Server-backed. Users and agents on different machines can coordinate on the same work items here. ${host.escapeHtml(CONNECTED_ORG_BETA_COPY)}`
+        ? `Server-backed. Users and agents on different machines can coordinate on the same work items here. ${host.shell.escapeHtml(CONNECTED_ORG_BETA_COPY)}`
         : "Bees Desktop is free. Work stays on this machine unless you use a connected organization."}</p>
         ${authBlock}${upgradeButton(!connected)}
       </div></section>
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">Organization name</h2>
         <div class="flex items-center gap-2">
-          <code class="flex-1 break-all rounded-box bg-base-200 p-3 text-sm">${host.escapeHtml(host.currentOrganization()?.name ?? "")}</code>
+          <code class="flex-1 break-all rounded-box bg-base-200 p-3 text-sm">${host.shell.escapeHtml(host.session.currentOrganization()?.name ?? "")}</code>
           <button class="btn btn-outline btn-sm" data-action="rename-org">Rename</button>
         </div>
       </div></section>
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex items-center gap-3">
-          ${host.orgLogoPreview(host.workspace.organizationId, host.currentOrganization()?.name ?? "")}
+          ${host.session.orgLogoPreview(host.workspaceController.workspace.organizationId, host.session.currentOrganization()?.name ?? "")}
           <div class="flex-1"><h2 class="card-title text-base">Branding</h2>
             <p class="text-sm text-base-content/55">Logo and color shown in the organization switcher.</p></div>
-          ${host.brandingFor(host.workspace.organizationId).logo
+          ${host.session.brandingFor(host.workspaceController.workspace.organizationId).logo
         ? `<button class="btn btn-ghost btn-sm" data-action="remove-logo">Remove logo</button>`
         : ""}
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Color</span>
             <input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color"
-              data-branding="color" value="${host.escapeHtml(host.brandingFor(host.workspace.organizationId).color || "#4f46e5")}"></label>
+              data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}"></label>
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Logo</span>
             <input class="file-input file-input-bordered w-full" type="file" accept="image/*" data-branding="logo"></label>
         </div>
@@ -1254,14 +1254,14 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function orgMembersContent(): Promise<string> {
-    const token = host.orgToken();
-    if (!host.orgIsConnected())
+    const token = host.session.orgToken();
+    if (!host.session.orgIsConnected())
       return localOrgNotice(LOCAL_ORG_UPGRADE_HINT, true);
     if (!token)
       return localOrgNotice("Sign in to manage organization members.");
     let memberships;
     try {
-      ({ memberships } = await host.api.listMemberships(token, host.workspace.organizationId));
+      ({ memberships } = await host.api.listMemberships(token, host.workspaceController.workspace.organizationId));
     }
     catch {
       return `<div class="p-8 text-center text-sm text-base-content/50">Only organization admins can view members.</div>`;
@@ -1270,12 +1270,12 @@ export function createMainViews(host: MainViewHost) {
         <header class="border-b border-base-300 p-5"><h2 class="font-bold">Members</h2></header>
         <ul class="divide-y divide-base-200 p-2">${memberships
         .map((member) => `<li class="flex items-center gap-2 px-3 py-2 text-sm">
-              <span class="flex-1 truncate">${host.escapeHtml(member.userId === host.currentUser()?.id
-          ? `${member.email ?? host.currentUser()?.email} (you)`
+              <span class="flex-1 truncate">${host.shell.escapeHtml(member.userId === host.session.currentUser()?.id
+          ? `${member.email ?? host.session.currentUser()?.email} (you)`
           : member.email ?? member.userId)}</span>
-              <span class="badge badge-sm ${member.role === "member" ? "badge-ghost" : "badge-primary"}">${host.escapeHtml(member.role)}</span>
-              <span class="w-20 text-right">${member.role !== "owner" && member.userId !== host.currentUser()?.id
-            ? `<button class="btn btn-ghost btn-xs text-error" data-action="remove-org-member" data-user="${host.escapeHtml(member.userId)}" data-email="${host.escapeHtml(member.email ?? member.userId)}">Remove</button>`
+              <span class="badge badge-sm ${member.role === "member" ? "badge-ghost" : "badge-primary"}">${host.shell.escapeHtml(member.role)}</span>
+              <span class="w-20 text-right">${member.role !== "owner" && member.userId !== host.session.currentUser()?.id
+            ? `<button class="btn btn-ghost btn-xs text-error" data-action="remove-org-member" data-user="${host.shell.escapeHtml(member.userId)}" data-email="${host.shell.escapeHtml(member.email ?? member.userId)}">Remove</button>`
             : ""}</span>
             </li>`)
         .join("")}</ul>
@@ -1283,17 +1283,17 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function orgInvitesContent(): Promise<string> {
-    const connected = host.orgIsConnected();
+    const connected = host.session.orgIsConnected();
     if (!connected)
       return localOrgNotice(LOCAL_ORG_UPGRADE_HINT, true);
     let pending: {
       email: string;
       role: string;
     }[] = [];
-    const token = host.orgToken();
+    const token = host.session.orgToken();
     try {
       if (token)
-        pending = (await host.api.listOrgInvitations(token, host.workspace.organizationId)).invitations; // 403 for non-admins
+        pending = (await host.api.listOrgInvitations(token, host.workspaceController.workspace.organizationId)).invitations; // 403 for non-admins
     }
     catch {
       // not an admin, or none — leave the list empty
@@ -1306,8 +1306,8 @@ export function createMainViews(host: MainViewHost) {
         <ul class="divide-y divide-base-200 p-2">${pending.length
         ? pending
           .map((invitation) => `<li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                <span class="truncate">${host.escapeHtml(invitation.email)}</span>
-                <span class="badge badge-ghost badge-sm">${host.escapeHtml(invitation.role)}</span>
+                <span class="truncate">${host.shell.escapeHtml(invitation.email)}</span>
+                <span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(invitation.role)}</span>
               </li>`)
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-base-content/50">No pending invitations.</li>`}</ul>
@@ -1320,18 +1320,18 @@ export function createMainViews(host: MainViewHost) {
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">Root Folder</h2>
         <p class="text-sm text-base-content/60">Every organization gets a folder at <code>&lt;root-folder&gt;/&lt;org-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.escapeHtml(globalPath || "No path selected")}</code></div>
+        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
         <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
       </div></section>`;
   }
 
   async function orgWorkspaceContent(): Promise<string> {
-    const orgPath = await host.repository.getOrgFolder(host.workspace.organizationId);
-    const locations = (await checkedFileLocations(await host.repository.listOrganizationFileLocations(host.workspace.organizationId))).filter(({ teamId }) => !teamId);
+    const orgPath = await host.repository.getOrgFolder(host.workspaceController.workspace.organizationId);
+    const locations = (await checkedFileLocations(await host.repository.listOrganizationFileLocations(host.workspaceController.workspace.organizationId))).filter(({ teamId }) => !teamId);
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">Primary organization folder</h2>
         <p class="text-sm text-base-content/60">This organization's folder. Team folders resolve to <code>&lt;org folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.escapeHtml(orgPath || "Set a folder first")}</code></div>
+        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
         <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
       </div></section>
       <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
@@ -1348,13 +1348,13 @@ export function createMainViews(host: MainViewHost) {
   async function orgKnowledgeContent(): Promise<string> {
     let policy: KnowledgePolicy | null = null;
     try {
-      policy = await host.loadKnowledgePolicy();
+      policy = await host.session.loadKnowledgePolicy();
     }
     catch (error) {
-      host.knowledgeError = errorText(error);
+      host.session.knowledgeError = errorText(error);
     }
-    const availableSources = host.workspace.teamId
-      ? await host.repository.listAvailableFileLocations(host.workspace.teamId)
+    const availableSources = host.workspaceController.workspace.teamId
+      ? await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId)
       : [];
     const sources = policy?.mode === "remote"
       ? availableSources
@@ -1362,7 +1362,7 @@ export function createMainViews(host: MainViewHost) {
     const sourceRows = sources.length
       ? sources
         .map((source) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <span>${host.escapeHtml(source.name)}</span>
+              <span>${host.shell.escapeHtml(source.name)}</span>
               <span class="badge badge-sm ${source.teamId ? "badge-ghost" : "badge-primary"}">${source.teamId ? "This team" : "Organization"}</span>
             </li>`)
         .join("")
@@ -1374,12 +1374,12 @@ export function createMainViews(host: MainViewHost) {
       ? "Choose local indexing on each machine or one organization-controlled remote worker."
       : policy.mode === "local"
         ? `This machine indexes ${sources.length} available source${sources.length === 1 ? "" : "s"}. Each source has its own local index.`
-        : `All bees use one organization-controlled endpoint: <code class="break-all">${host.escapeHtml(policy.url)}</code>`;
+        : `All bees use one organization-controlled endpoint: <code class="break-all">${host.shell.escapeHtml(policy.url)}</code>`;
     return `<div class="space-y-5">
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3"><h2 class="card-title text-base">Knowledge mode</h2>${active}</div>
         <p class="text-sm text-base-content/60">${detail}</p>
-        ${host.knowledgeError ? `<p class="text-sm text-error">${host.escapeHtml(host.knowledgeError)}</p>` : ""}
+        ${host.session.knowledgeError ? `<p class="text-sm text-error">${host.shell.escapeHtml(host.session.knowledgeError)}</p>` : ""}
         <div class="card-actions justify-end gap-2">
           <button class="btn btn-outline btn-sm" data-action="knowledge-local">Use local</button>
           <button class="btn btn-primary btn-sm" data-action="knowledge-remote">${policy?.mode === "remote" ? "Set this team's token" : "Use remote"}</button>
@@ -1388,7 +1388,7 @@ export function createMainViews(host: MainViewHost) {
         <p class="text-xs text-base-content/50">Indexes rebuild in full once a day. A failed rebuild keeps the previous index. Bees Cloud stores only the mode and remote URL, never files, chunks, embeddings, paths, or credentials.</p>
       </div></section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.escapeHtml(host.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-base-content/55">Organization sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
+        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.shell.escapeHtml(host.session.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-base-content/55">Organization sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
         <ul class="divide-y divide-base-200 p-2">${sourceRows}</ul>
       </section>
     </div>`;
@@ -1421,14 +1421,14 @@ export function createMainViews(host: MainViewHost) {
   }
 
   function localModelRow(model: LocalModelView): string {
-    const event = host.localModelProgress.get(model.id);
+    const event = host.assistant.localModelProgress.get(model.id);
     const state = model.runtime.running ? "running" : (event?.state ?? model.runtime.state);
     const downloadedBytes = event?.downloadedBytes ?? model.runtime.downloadedBytes;
     const totalBytes = event?.totalBytes ?? model.runtime.totalBytes;
-    const id = host.escapeHtml(model.id);
+    const id = host.shell.escapeHtml(model.id);
     // The wanted flag is persisted, so a Run toggled on during a long download stays on across a
     // page reload or an app restart.
-    const starting = (host.localModelStarting.has(model.id) || host.localModels.wantedRunId === model.id) &&
+    const starting = (host.assistant.localModelStarting.has(model.id) || host.localModels.wantedRunId === model.id) &&
       state !== "running";
     const status = starting && state !== "downloading"
       ? "Starting…"
@@ -1439,21 +1439,21 @@ export function createMainViews(host: MainViewHost) {
     // for dropping the row too. A model picked off this computer has nothing to download at all.
     const action = localModelToggle(id, "download", downloaded || state === "downloading" || starting, !!model.localPath, downloaded) + localModelToggle(id, "run", state === "running" || starting, false);
     const source = model.localPath
-      ? `<span class="truncate">${host.escapeHtml(model.localPath)}</span>`
-      : `<button class="link" data-action="open-external" data-url="${host.escapeHtml(model.sourceUrl ?? model.url ?? "")}">${host.escapeHtml(model.sourceUrl ? "Hugging Face" : "Download link")}</button>`;
+      ? `<span class="truncate">${host.shell.escapeHtml(model.localPath)}</span>`
+      : `<button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(model.sourceUrl ?? model.url ?? "")}">${host.shell.escapeHtml(model.sourceUrl ? "Hugging Face" : "Download link")}</button>`;
     const license = model.licenseUrl
-      ? ` · <button class="link" data-action="open-external" data-url="${host.escapeHtml(model.licenseUrl)}">${host.escapeHtml(model.licenseName ?? "License")}</button>`
+      ? ` · <button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(model.licenseUrl)}">${host.shell.escapeHtml(model.licenseName ?? "License")}</button>`
       : "";
     return `<tr>
       <td class="max-w-xs">
-        <div class="truncate font-semibold">${host.escapeHtml(model.name)}</div>
+        <div class="truncate font-semibold">${host.shell.escapeHtml(model.name)}</div>
         <div class="flex gap-1 truncate text-xs text-base-content/55">${source}${license}</div>
       </td>
       <td class="min-w-40">
-        <div data-local-model-status="${id}">${host.escapeHtml(status)}</div>
+        <div data-local-model-status="${id}">${host.shell.escapeHtml(status)}</div>
         <progress class="progress progress-primary mt-1 w-full" data-local-model-progress="${id}"
           value="${downloadedBytes}" max="${totalBytes || 1}"></progress>
-        <div class="text-xs text-base-content/55">${totalBytes ? host.escapeHtml(host.formatBytes(totalBytes)) : ""}</div>
+        <div class="text-xs text-base-content/55">${totalBytes ? host.shell.escapeHtml(host.shell.formatBytes(totalBytes)) : ""}</div>
       </td>
       <td class="text-right whitespace-nowrap">
         <div class="flex items-center justify-end gap-3">${action}
@@ -1504,20 +1504,20 @@ export function createMainViews(host: MainViewHost) {
       const found = installed[tool.id];
       return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
         <div class="min-w-0">
-          <span class="block truncate font-semibold">${host.escapeHtml(tool.label)}</span>
+          <span class="block truncate font-semibold">${host.shell.escapeHtml(tool.label)}</span>
           <span class="text-xs text-base-content/50">${found
-          ? `agent model <code>${host.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.escapeHtml(found.path)}</span>`
-          : `Not installed — <button class="link" data-action="open-external" data-url="${host.escapeHtml(tool.installUrl)}">install it</button>, or point Bees at it below`}</span>
+          ? `agent model <code>${host.shell.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.shell.escapeHtml(found.path)}</span>`
+          : `Not installed — <button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(tool.installUrl)}">install it</button>, or point Bees at it below`}</span>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <span class="badge badge-sm ${found ? "badge-success" : "badge-ghost"}">${found ? (found.custom ? "Chosen" : "Found") : "Missing"}</span>
-          <button class="btn btn-ghost btn-xs" data-action="pick-cli-tool" data-tool="${host.escapeHtml(tool.id)}">Choose…</button>
+          <button class="btn btn-ghost btn-xs" data-action="pick-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Choose…</button>
           ${found?.custom
-          ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${host.escapeHtml(tool.id)}">Use detected</button>`
+          ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Use detected</button>`
           : ""}
           ${found
           ? ""
-          : `<button class="btn btn-outline btn-xs" data-action="install-cli-tool" data-tool="${host.escapeHtml(tool.id)}">Install</button>`}
+          : `<button class="btn btn-outline btn-xs" data-action="install-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Install</button>`}
         </div>
       </li>`;
     }).join("");
@@ -1531,21 +1531,21 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function prefsRemoteModelsContent(): Promise<string> {
-    const connections = await listAiConnections(host.repository, host.aiConnectionScope());
+    const connections = await listAiConnections(host.repository, host.session.aiConnectionScope());
     const providerButtons = (Object.keys(AI_PROVIDER_LABEL) as AiProvider[])
       .map((provider) => `<button class="btn btn-outline btn-sm" data-action="connect-ai" data-provider="${provider}">
-          ${host.escapeHtml(AI_PROVIDER_LABEL[provider])}</button>`)
+          ${host.shell.escapeHtml(AI_PROVIDER_LABEL[provider])}</button>`)
       .join("");
     const list = connections.length
       ? connections
         .map((connection) => `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
               <div class="min-w-0">
-                <span class="block truncate font-semibold">${host.escapeHtml(connection.label)}</span>
-                <span class="text-xs text-base-content/50">Added ${host.escapeHtml(new Date(connection.createdAt).toLocaleDateString())}${host.AI_PROVIDER_MODEL_PREFIX[connection.provider]
-            ? ` · agent model <code>${host.escapeHtml(host.AI_PROVIDER_MODEL_PREFIX[connection.provider])}&lt;model&gt;</code>`
+                <span class="block truncate font-semibold">${host.shell.escapeHtml(connection.label)}</span>
+                <span class="text-xs text-base-content/50">Added ${host.shell.escapeHtml(new Date(connection.createdAt).toLocaleDateString())}${host.session.AI_PROVIDER_MODEL_PREFIX[connection.provider]
+            ? ` · agent model <code>${host.shell.escapeHtml(host.session.AI_PROVIDER_MODEL_PREFIX[connection.provider])}&lt;model&gt;</code>`
             : " · not usable by runs yet"}</span>
               </div>
-              <button class="btn btn-ghost btn-xs text-error" data-action="remove-ai-connection" data-id="${host.escapeHtml(connection.id)}">Remove</button>
+              <button class="btn btn-ghost btn-xs text-error" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(connection.id)}">Remove</button>
             </li>`)
         .join("")
       : `<li class="px-3 py-6 text-center text-sm text-base-content/50">No AI connections yet.</li>`;
@@ -1564,12 +1564,12 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function prefsMcpServersContent(): Promise<string> {
-    const connections = (await listMcpConnections(host.repository, host.workspace.teamId)).filter((connection) => !isKnowledgeConnection(connection));
+    const connections = (await listMcpConnections(host.repository, host.workspaceController.workspace.teamId)).filter((connection) => !isKnowledgeConnection(connection));
     const list = connections.length
       ? connections.map((connection) => `<li class="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
-          <div class="min-w-0"><span class="block truncate font-semibold">${host.escapeHtml(connection.name)}</span>
-            <span class="text-xs text-base-content/50">${host.escapeHtml(connection.url)} · ${connection.allowedTools.length}/${connection.tools.length} tools allowed · ${connection.optional ? "optional offline" : "required"}</span>
-            ${connection.lastError ? `<div class="mt-1 text-xs text-error">${host.escapeHtml(connection.lastError)}</div>` : ""}
+          <div class="min-w-0"><span class="block truncate font-semibold">${host.shell.escapeHtml(connection.name)}</span>
+            <span class="text-xs text-base-content/50">${host.shell.escapeHtml(connection.url)} · ${connection.allowedTools.length}/${connection.tools.length} tools allowed · ${connection.optional ? "optional offline" : "required"}</span>
+            ${connection.lastError ? `<div class="mt-1 text-xs text-error">${host.shell.escapeHtml(connection.lastError)}</div>` : ""}
           </div>
           <div class="flex gap-1"><button class="btn btn-ghost btn-xs" data-action="test-mcp" data-id="${connection.id}">Test / allowlist</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-mcp" data-id="${connection.id}">Remove</button></div>
         </li>`).join("")
@@ -1585,23 +1585,23 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function renderOrgSettings(): Promise<void> {
-    host.setHeader("Organization settings", host.currentOrganization()?.name);
+    host.shell.setHeader("Organization settings", host.session.currentOrganization()?.name);
     await renderTabs<OrgTab>("org-tab", [
       { id: "general", label: "General", content: orgGeneralContent },
       { id: "members", label: "Members", content: orgMembersContent },
       { id: "invites", label: "Invites", content: orgInvitesContent },
       { id: "folder", label: "Folder", content: orgWorkspaceContent },
       { id: "knowledge", label: "Knowledge", content: orgKnowledgeContent }
-    ], host.orgTab, () => host.view === "org-settings");
+    ], host.shell.orgTab, () => host.shell.view === "org-settings");
   }
 
   // ---- Preferences (tabbed: Mode / Theme / Sign-ins / Org invites / Create org) ----
   function prefsThemeContent(): string {
-    const themeOptions = (selected: ThemePreset) => host.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
+    const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
       .join("");
-    const themeCards = host.themePresets.map((preset) => `<button class="theme-card ${preset.id === host.themePreset ? "selected" : ""}"
+    const themeCards = host.shell.themePresets.map((preset) => `<button class="theme-card ${preset.id === host.shell.themePreset ? "selected" : ""}"
           data-action="set-theme-preset" data-theme-preset="${preset.id}"
-          data-theme="${preset.id}" aria-pressed="${preset.id === host.themePreset}">
+          data-theme="${preset.id}" aria-pressed="${preset.id === host.shell.themePreset}">
           <div class="theme-swatches">
             <span style="background:var(--color-primary)"></span>
             <span style="background:var(--color-secondary)"></span>
@@ -1616,11 +1616,11 @@ export function createMainViews(host: MainViewHost) {
         <div class="grid gap-3 sm:grid-cols-2">
           <label class="form-control gap-1">
             <span class="text-sm font-medium">Default Dark Theme</span>
-            <select class="select w-full" data-theme-default="dark">${themeOptions(host.darkDefaultTheme)}</select>
+            <select class="select w-full" data-theme-default="dark">${themeOptions(host.shell.darkDefaultTheme)}</select>
           </label>
           <label class="form-control gap-1">
             <span class="text-sm font-medium">Default Light Theme</span>
-            <select class="select w-full" data-theme-default="light">${themeOptions(host.lightDefaultTheme)}</select>
+            <select class="select w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
           </label>
         </div>
         <h3 class="mt-2 font-semibold">All themes</h3>
@@ -1630,8 +1630,8 @@ export function createMainViews(host: MainViewHost) {
 
   async function prefsSigninsContent(): Promise<string> {
     const description = `<p class="text-sm text-base-content/60">You can sign in with multiple user IDs. Each user ID can belong to multiple organizations, and you can work across all of them at the same time.</p>`;
-    const sso = Object.entries(host.providerLabel)
-      .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.escapeHtml(label)} SSO</button>`)
+    const sso = Object.entries(host.session.providerLabel)
+      .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
       .join("");
     const addBlock = `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
         <h2 class="card-title text-base">Add a sign-in</h2>
@@ -1641,20 +1641,20 @@ export function createMainViews(host: MainViewHost) {
           <button class="btn btn-outline btn-sm justify-start" data-action="signup-email">Create a new account using your email</button>
         </div>
       </div></section>`;
-    if (host.accounts.size === 0)
+    if (host.session.accounts.size === 0)
       return `<div class="space-y-5">${description}${addBlock}</div>`;
-    const label = (provider: string): string => provider === "credential" ? "Email" : (host.providerLabel[provider] ?? provider);
+    const label = (provider: string): string => provider === "credential" ? "Email" : (host.session.providerLabel[provider] ?? provider);
     // One row per signed-in account. Every account is always active — no single active one.
-    const rows = await Promise.all([...host.accounts.values()].map(async ({ user, token }) => {
+    const rows = await Promise.all([...host.session.accounts.values()].map(async ({ user, token }) => {
       const providers = await host.api.listAccounts(token).catch(() => []);
       const how = providers.length ? providers.map((a) => label(a.provider)).join(", ") : "—";
       return `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
           <span class="flex min-w-0 items-center gap-2">
             <span class="status status-success"></span>
-            <span class="truncate font-medium">${host.escapeHtml(user.email)}</span>
-            <span class="text-base-content/55">· ${host.escapeHtml(how)}</span>
+            <span class="truncate font-medium">${host.shell.escapeHtml(user.email)}</span>
+            <span class="text-base-content/55">· ${host.shell.escapeHtml(how)}</span>
           </span>
-          <button class="btn btn-ghost btn-sm text-error" data-action="sign-out-account" data-id="${host.escapeHtml(user.id)}">Sign out</button>
+          <button class="btn btn-ghost btn-sm text-error" data-action="sign-out-account" data-id="${host.shell.escapeHtml(user.id)}">Sign out</button>
         </li>`;
     }));
     const signedInBlock = `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
@@ -1671,7 +1671,7 @@ export function createMainViews(host: MainViewHost) {
    */
   async function prefsOrgsContent(): Promise<string> {
     // Two calls per pooled account, only while this tab is open. Fine for a handful of accounts.
-    const perAccount = await Promise.all([...host.accounts.values()].map(async (account) => {
+    const perAccount = await Promise.all([...host.session.accounts.values()].map(async (account) => {
       // A failure here used to render as an empty list, which reads as "you have no organizations"
       // — the one thing it must not say. Keep the reason and show it on the row instead.
       const failed = (error: unknown): string => error instanceof ApiError && error.status === 401
@@ -1693,19 +1693,19 @@ export function createMainViews(host: MainViewHost) {
       button: string;
     };
     const rows: Row[] = [];
-    const acct = (id: string) => host.escapeHtml(id);
+    const acct = (id: string) => host.shell.escapeHtml(id);
     for (const { account, orgs: orgResult, invites } of perAccount) {
       const email = account.user.email;
       if (!orgResult.ok) {
         rows.push({
           name: "Organizations unavailable",
           account: email,
-          button: `<span class="badge badge-error badge-sm">${host.escapeHtml(orgResult.reason)}</span>`
+          button: `<span class="badge badge-error badge-sm">${host.shell.escapeHtml(orgResult.reason)}</span>`
         });
       }
       const orgs = orgResult.ok ? orgResult.value : [];
       for (const org of orgs) {
-        const signedIn = host.connections.has(host.connKey(org.id, account.user.id)); // this exact pair connected
+        const signedIn = host.session.connections.has(host.session.connKey(org.id, account.user.id)); // this exact pair connected
         rows.push({
           name: org.name,
           account: email,
@@ -1723,8 +1723,8 @@ export function createMainViews(host: MainViewHost) {
       }
     }
     // Local orgs have no account, but still belong in "all orgs".
-    for (const org of host.organizations) {
-      if (host.orgIsConnected(org.id))
+    for (const org of host.workspaceController.organizations) {
+      if (host.session.orgIsConnected(org.id))
         continue;
       rows.push({ name: org.name, account: "Local", button: `<span class="badge badge-ghost badge-sm">Local</span>` });
     }
@@ -1735,8 +1735,8 @@ export function createMainViews(host: MainViewHost) {
         <ul class="divide-y divide-base-200 p-2">${rows.length
         ? rows
           .map((row) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <div class="min-w-0"><strong class="block truncate">${host.escapeHtml(row.name)}</strong>
-                  <span class="block text-xs text-base-content/55">${host.escapeHtml(row.account)}</span></div>
+                <div class="min-w-0"><strong class="block truncate">${host.shell.escapeHtml(row.name)}</strong>
+                  <span class="block text-xs text-base-content/55">${host.shell.escapeHtml(row.account)}</span></div>
                 ${row.button}
               </li>`)
           .join("")
@@ -1757,7 +1757,7 @@ export function createMainViews(host: MainViewHost) {
   }
 
   async function renderPreferences(): Promise<void> {
-    host.setHeader("Preferences", host.currentUser()?.email ?? "Local");
+    host.shell.setHeader("Preferences", host.session.currentUser()?.email ?? "Local");
     await renderTabs<PrefsTab>("prefs-tab", [
       { id: "local-models", label: "Local models", content: prefsLocalModelsContent },
       { id: "remote-models", label: "Remote models", content: prefsRemoteModelsContent },
@@ -1766,16 +1766,16 @@ export function createMainViews(host: MainViewHost) {
       { id: "orgs", label: "Orgs", content: prefsOrgsContent },
       { id: "folder", label: "Root Folder", content: prefsFolderContent },
       { id: "theme", label: "Theme", content: prefsThemeContent }
-    ], host.prefsTab, () => host.view === "preferences");
+    ], host.shell.prefsTab, () => host.shell.view === "preferences");
   }
 
   function agentEditorFields(agent?: Agent): EditorField[] {
     const config = agent?.config;
     const selected = config?.provider?.trim() && config.model?.trim()
       ? { provider: config.provider, model: config.model }
-      : host.assistantModel;
+      : host.assistant.assistantModel;
     const selectedRef = modelRef(selected);
-    const catalog = host.overviewAssistantModels();
+    const catalog = host.assistant.overviewAssistantModels();
     const modelOptions = catalog.map(({ group, label, choice }) => ({
       label: `${group} · ${label}`,
       value: modelRef(choice)
@@ -1785,7 +1785,7 @@ export function createMainViews(host: MainViewHost) {
     if (!modelOptions.some(({ value }) => value === selectedRef)) {
       modelOptions.unshift({ label: `Configured · ${selectedRef}`, value: selectedRef });
     }
-    const capabilities = registryCapabilities(host.registries);
+    const capabilities = registryCapabilities(host.workspaceController.registries);
     const customTools = capabilities.filter(({ kind }) => kind === "tool");
     const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
     const selectedGrants = config?.grants ?? [];
@@ -1806,7 +1806,7 @@ export function createMainViews(host: MainViewHost) {
         value: agent?.triggerStageId ?? "",
         options: [
           { label: "None", value: "" },
-          ...host.processes.flatMap((process) => process.stages.map((stage) => ({
+          ...host.workspaceController.processes.flatMap((process) => process.stages.map((stage) => ({
             label: `${process.name} / ${stage.name}`,
             value: stage.id
           })))
@@ -1845,7 +1845,7 @@ export function createMainViews(host: MainViewHost) {
         options: capabilities.filter(({ kind }) => kind === "skill").map(({ ref, name, path, registryId }) => ({
           label: name,
           value: ref,
-          description: `${host.registries.find(({ id }) => id === registryId)?.name ?? "Skill folder"} · ${path}`
+          description: `${host.workspaceController.registries.find(({ id }) => id === registryId)?.name ?? "Skill folder"} · ${path}`
         })),
         checked: config?.skillRefs ?? [],
         hint: "Reusable instructions copied into the run. Add more under Team settings → Integrations.",
@@ -1864,7 +1864,7 @@ export function createMainViews(host: MainViewHost) {
           ...customTools.map(({ ref, name, path, registryId }) => ({
             label: name,
             value: ref,
-            description: `Trusted local code · ${host.registries.find(({ id }) => id === registryId)?.name ?? "Tool folder"} · ${path}`
+            description: `Trusted local code · ${host.workspaceController.registries.find(({ id }) => id === registryId)?.name ?? "Tool folder"} · ${path}`
           }))
         ],
         checked: selectedTools,
@@ -1887,7 +1887,7 @@ export function createMainViews(host: MainViewHost) {
         name: "mcps",
         label: "MCP connections",
         type: "checkboxes",
-        options: host.mcpConnections.map((connection) => {
+        options: host.workspaceController.mcpConnections.map((connection) => {
           const tools = connection.tools
             .filter(({ name }) => connection.allowedTools.includes(name))
             .slice(0, 4)
@@ -1907,10 +1907,10 @@ export function createMainViews(host: MainViewHost) {
         name: "delegates",
         label: "Helpers",
         type: "checkboxes",
-        options: host.agents.filter((candidate) => candidate.id !== agent?.id &&
+        options: host.workspaceController.agents.filter((candidate) => candidate.id !== agent?.id &&
           !(candidate.config.delegateRefs?.length) &&
           !(candidate.config.mcpConnectionRefs?.length) &&
-          !selectedAgentCapabilities(host.registries, candidate.config).some(({ kind }) => kind === "tool"))
+          !selectedAgentCapabilities(host.workspaceController.registries, candidate.config).some(({ kind }) => kind === "tool"))
           .map(({ id, name, purpose }) => ({ label: name, value: id, description: purpose })),
         checked: config?.delegateRefs ?? [],
         hint: "Helpers can use skills only; they cannot run tools or contact remote services.",
@@ -1931,10 +1931,10 @@ export function createMainViews(host: MainViewHost) {
       return `<p class="p-2 text-sm text-base-content/45">None available yet.</p>`;
     return options
       .map((option) => `<label class="cursor-pointer">
-          <input class="peer sr-only" type="checkbox" name="${host.escapeHtml(name)}" value="${host.escapeHtml(option.value)}" ${checked.includes(option.value) ? "checked" : ""}>
+          <input class="peer sr-only" type="checkbox" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}" ${checked.includes(option.value) ? "checked" : ""}>
           <span class="block rounded-box border border-base-300 p-3 transition hover:bg-base-200 peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:[&_.selection-check]:opacity-100">
-            <span class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">${host.escapeHtml(option.label)}</span><span class="selection-check text-primary opacity-0" aria-hidden="true">✓</span></span>
-            ${option.description ? `<span class="mt-1 block break-words text-xs leading-relaxed text-base-content/55">${host.escapeHtml(option.description)}</span>` : ""}
+            <span class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">${host.shell.escapeHtml(option.label)}</span><span class="selection-check text-primary opacity-0" aria-hidden="true">✓</span></span>
+            ${option.description ? `<span class="mt-1 block break-words text-xs leading-relaxed text-base-content/55">${host.shell.escapeHtml(option.description)}</span>` : ""}
           </span>
         </label>`)
       .join("");
@@ -1942,39 +1942,39 @@ export function createMainViews(host: MainViewHost) {
 
   function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint }: EditorField): string {
     if (type === "note")
-      return `<p class="text-sm text-base-content/75">${host.escapeHtml(value)}</p>`;
-    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.escapeHtml(name)}" value="${host.escapeHtml(value)}" placeholder="${host.escapeHtml(placeholder)}">`;
+      return `<p class="text-sm text-base-content/75">${host.shell.escapeHtml(value)}</p>`;
+    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}">`;
     if (type === "textarea") {
-      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.escapeHtml(name)}" placeholder="${host.escapeHtml(placeholder)}">${host.escapeHtml(value)}</textarea>`;
+      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}">${host.shell.escapeHtml(value)}</textarea>`;
     }
     if (type === "select") {
-      control = `<select class="select select-bordered w-full" name="${host.escapeHtml(name)}">${options
-        .map((option) => `<option value="${host.escapeHtml(option.value)}" ${option.value === value ? "selected" : ""}>${host.escapeHtml(option.label)}</option>`)
+      control = `<select class="select select-bordered w-full" name="${host.shell.escapeHtml(name)}">${options
+        .map((option) => `<option value="${host.shell.escapeHtml(option.value)}" ${option.value === value ? "selected" : ""}>${host.shell.escapeHtml(option.label)}</option>`)
         .join("")}</select>`;
     }
     if (type === "toggle") {
-      control = `<div class="join grid w-full" style="grid-template-columns: repeat(${Math.max(1, options.length)}, minmax(0, 1fr))" role="radiogroup" aria-label="${host.escapeHtml(label)}">${options
-        .map((option) => `<input class="btn join-item min-w-0" type="radio" name="${host.escapeHtml(name)}" value="${host.escapeHtml(option.value)}" aria-label="${host.escapeHtml(option.label)}" ${option.value === value ? "checked" : ""}>`)
+      control = `<div class="join grid w-full" style="grid-template-columns: repeat(${Math.max(1, options.length)}, minmax(0, 1fr))" role="radiogroup" aria-label="${host.shell.escapeHtml(label)}">${options
+        .map((option) => `<input class="btn join-item min-w-0" type="radio" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}" aria-label="${host.shell.escapeHtml(option.label)}" ${option.value === value ? "checked" : ""}>`)
         .join("")}</div>`;
     }
     if (type === "checkboxes") {
-      control = `<div data-editor-field="${host.escapeHtml(name)}" class="grid gap-2">${checkboxOptions(name, options, checked)}</div>`;
+      control = `<div data-editor-field="${host.shell.escapeHtml(name)}" class="grid gap-2">${checkboxOptions(name, options, checked)}</div>`;
     }
     if (type === "color") {
-      control = `<input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color" name="${host.escapeHtml(name)}" value="${host.escapeHtml(value || "#4f46e5")}">`;
+      control = `<input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value || "#4f46e5")}">`;
     }
     if (type === "file") {
-      control = `<input class="file-input file-input-bordered w-full" type="file" accept="image/*" name="${host.escapeHtml(name)}">`;
+      control = `<input class="file-input file-input-bordered w-full" type="file" accept="image/*" name="${host.shell.escapeHtml(name)}">`;
     }
-    return `<label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">${host.escapeHtml(label)}</span>${control}${hint === undefined
+    return `<label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">${host.shell.escapeHtml(label)}</span>${control}${hint === undefined
       ? ""
-      : `<span data-hint="${host.escapeHtml(name)}" class="text-xs text-base-content/55">${host.escapeHtml(hint)}</span>`}</label>`;
+      : `<span data-hint="${host.shell.escapeHtml(name)}" class="text-xs text-base-content/55">${host.shell.escapeHtml(hint)}</span>`}</label>`;
   }
 
   function renderNewItem(): void {
-    host.setHeader("New work item", host.activeBoard?.name ?? host.currentTeam()?.name);
-    const stage = host.activeProcess?.stages.find(({ id }) => id === host.newItemStageId);
-    host.swap(`<form class="grid max-w-3xl gap-4" data-new-item>
+    host.shell.setHeader("New work item", host.workspaceController.activeBoard?.name ?? host.session.currentTeam()?.name);
+    const stage = host.workspaceController.activeProcess?.stages.find(({ id }) => id === host.shell.newItemStageId);
+    host.shell.swap(`<form class="grid max-w-3xl gap-4" data-new-item>
         <label class="form-control">
           <span class="label-text mb-1">Title</span>
           <input class="input input-bordered" name="title" autofocus>
@@ -1989,12 +1989,12 @@ export function createMainViews(host: MainViewHost) {
         </label>
         <div class="form-control">
           <span class="label-text mb-1">Files</span>
-          ${filePickerHtml(host.newItemSources)}
+          ${filePickerHtml(host.shell.newItemSources)}
         </div>
         <div class="flex items-center gap-2">
           <button class="btn btn-primary" type="submit">Create item</button>
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
-          ${stage ? `<span class="text-sm text-base-content/50">Lands in ${host.escapeHtml(stage.name)}</span>` : ""}
+          ${stage ? `<span class="text-sm text-base-content/50">Lands in ${host.shell.escapeHtml(stage.name)}</span>` : ""}
         </div>
       </form>`);
   }
@@ -2005,7 +2005,7 @@ export function createMainViews(host: MainViewHost) {
     }
     return `<div class="max-h-96 overflow-y-auto rounded-box border border-base-300 p-2">${sources
       .map(({ id, name, files }) => `<details>
-          <summary class="cursor-pointer py-1 text-sm font-semibold">${host.escapeHtml(name)}${files.length ? "" : " — empty or unreadable"}</summary>
+          <summary class="cursor-pointer py-1 text-sm font-semibold">${host.shell.escapeHtml(name)}${files.length ? "" : " — empty or unreadable"}</summary>
           <ul class="border-l border-base-300 pl-4">${fileTreeHtml(fileTree(files), id, "")}</ul>
         </details>`)
       .join("")}</div>`;
@@ -2020,7 +2020,7 @@ export function createMainViews(host: MainViewHost) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([name, child]) => `<li><details>
           <summary class="cursor-pointer py-1 text-sm">
-            <input class="checkbox checkbox-xs mr-2 align-middle" type="checkbox" data-folder-check>${host.escapeHtml(name)}/
+            <input class="checkbox checkbox-xs mr-2 align-middle" type="checkbox" data-folder-check>${host.shell.escapeHtml(name)}/
           </summary>
           <ul class="border-l border-base-300 pl-4">${fileTreeHtml(child, locationId, `${prefix}${name}/`)}</ul>
         </details></li>`);
@@ -2028,7 +2028,7 @@ export function createMainViews(host: MainViewHost) {
       const path = `${prefix}${name}`;
       const value = locationId ? logicalFileReference(locationId, path) : path;
       return `<li><label class="flex cursor-pointer items-center gap-2 py-1 text-sm">
-          <input class="checkbox checkbox-xs" type="checkbox" name="files" value="${host.escapeHtml(value)}">${host.escapeHtml(name)}
+          <input class="checkbox checkbox-xs" type="checkbox" name="files" value="${host.shell.escapeHtml(value)}">${host.shell.escapeHtml(name)}
         </label></li>`;
     });
     return [...folders, ...files].join("");
@@ -2054,42 +2054,42 @@ export function createMainViews(host: MainViewHost) {
   }
 
   function processStateBadge(processId: string): string {
-    const process = host.processes.find(({ id }) => id === processId);
+    const process = host.workspaceController.processes.find(({ id }) => id === processId);
     if (process && processModule(process.tags)?.mode === "studio") {
       return '<span class="badge badge-primary badge-sm">Studio</span>';
     }
-    return host.runningProcesses.has(processId)
+    return host.runs.runningProcesses.has(processId)
       ? '<span class="badge badge-success badge-sm">Running</span>'
       : '<span class="badge badge-ghost badge-sm">Stopped</span>';
   }
 
   function processStatusButton(processId: string): string {
-    const process = host.processes.find(({ id }) => id === processId);
+    const process = host.workspaceController.processes.find(({ id }) => id === processId);
     // ponytail: studio processes have no process-level run, so the footer shows nothing here.
     // The board header carries the explanation, where people look for Run.
     if (process && processModule(process.tags)?.mode === "studio")
       return "";
-    const running = host.runningProcesses.has(processId);
+    const running = host.runs.runningProcesses.has(processId);
     return actionIconButton(running ? "stop-process" : "start-process", running ? "Running. Click to stop." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, processId, running ? "btn-ghost text-success" : "btn-ghost text-warning");
   }
 
   function processRunButtons(processId: string, size: string): string {
-    const process = host.processes.find(({ id }) => id === processId);
+    const process = host.workspaceController.processes.find(({ id }) => id === processId);
     if (process && processModule(process.tags)?.mode === "studio") {
       return `<button class="btn btn-ghost ${size}" disabled>Run from Project Studio</button>`;
     }
-    const running = host.runningProcesses.has(processId);
+    const running = host.runs.runningProcesses.has(processId);
     return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${running ? " disabled" : ""}>Run</button><button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}"${running ? "" : " disabled"}>Stop</button>`;
   }
 
   function assistantActionsHtml(actions: ResolvedAction[], index: number, applied: boolean): string {
     const cards = actions
       .map((entry) => {
-        const titles = entry.items.slice(0, 5).map(({ title }) => host.escapeHtml(title));
+        const titles = entry.items.slice(0, 5).map(({ title }) => host.shell.escapeHtml(title));
         const more = entry.items.length > titles.length ? `, +${entry.items.length - titles.length} more` : "";
         return `<li class="border-t border-base-300 px-3 py-2 first:border-t-0">
-          <p class="text-sm ${entry.error ? "text-base-content/50 line-through" : ""}">${host.escapeHtml(entry.summary)}</p>
-          ${entry.error ? `<p class="mt-1 text-xs text-error">${host.escapeHtml(entry.error)}</p>` : ""}
+          <p class="text-sm ${entry.error ? "text-base-content/50 line-through" : ""}">${host.shell.escapeHtml(entry.summary)}</p>
+          ${entry.error ? `<p class="mt-1 text-xs text-error">${host.shell.escapeHtml(entry.error)}</p>` : ""}
           ${titles.length ? `<p class="mt-1 text-xs text-base-content/55">${titles.join(", ")}${more}</p>` : ""}
         </li>`;
       })
@@ -2106,26 +2106,26 @@ export function createMainViews(host: MainViewHost) {
   }
 
   function assistantModelHtml(): string {
-    const current = host.escapeHtml(modelLabel(host.assistantModel, host.assistantCatalog));
-    if (!host.assistantPickerOpen) {
+    const current = host.shell.escapeHtml(modelLabel(host.assistant.assistantModel, host.assistant.assistantCatalog));
+    if (!host.assistant.assistantPickerOpen) {
       return `<button type="button" class="btn btn-ghost btn-xs max-w-full justify-start font-normal" data-assistant="picker">
         <span class="truncate text-base-content/60">Model: ${current}</span>
       </button>`;
     }
-    const groups = [...new Set(host.assistantCatalog.map(({ group }) => group))];
+    const groups = [...new Set(host.assistant.assistantCatalog.map(({ group }) => group))];
     const rows = groups
       .map((group) => {
-        const entries = host.assistantCatalog.map((option, index) => ({ option, index }))
+        const entries = host.assistant.assistantCatalog.map((option, index) => ({ option, index }))
           .filter(({ option }) => option.group === group)
           .map(({ option, index }) => `<li>
               <button type="button" class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-200" data-assistant="pick" data-index="${index}">
-                <span class="w-3">${sameChoice(option.choice, host.assistantModel) ? "●" : ""}</span>
-                <span class="flex-1 truncate">${host.escapeHtml(option.label)}</span>
-                ${option.note ? `<span class="text-[10px] text-base-content/45">${host.escapeHtml(option.note)}</span>` : ""}
+                <span class="w-3">${sameChoice(option.choice, host.assistant.assistantModel) ? "●" : ""}</span>
+                <span class="flex-1 truncate">${host.shell.escapeHtml(option.label)}</span>
+                ${option.note ? `<span class="text-[10px] text-base-content/45">${host.shell.escapeHtml(option.note)}</span>` : ""}
               </button>
             </li>`)
           .join("");
-        return `<li class="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-base-content/40">${host.escapeHtml(group)}</li>${entries}`;
+        return `<li class="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-base-content/40">${host.shell.escapeHtml(group)}</li>${entries}`;
       })
       .join("");
     return `<div class="rounded-box border border-base-300 bg-base-100 shadow-lg">
@@ -2137,23 +2137,23 @@ export function createMainViews(host: MainViewHost) {
   }
 
   function renderAssistant(): void {
-    host.assistantPanel.classList.toggle("translate-x-full", !host.assistantOpen);
-    host.assistantPanel.setAttribute("aria-hidden", host.assistantOpen ? "false" : "true");
-    host.assistantPanel.inert = !host.assistantOpen;
-    host.assistantSend.disabled = host.assistantBusy;
-    host.assistantSend.textContent = host.assistantBusy ? "Working…" : "Send";
-    host.assistantModelSlot.innerHTML = assistantModelHtml();
-    host.assistantLog.innerHTML = host.assistantLogEntries.length
-      ? host.assistantLogEntries.map((entry, index) => {
+    host.shell.assistantPanel.classList.toggle("translate-x-full", !host.assistant.assistantOpen);
+    host.shell.assistantPanel.setAttribute("aria-hidden", host.assistant.assistantOpen ? "false" : "true");
+    host.shell.assistantPanel.inert = !host.assistant.assistantOpen;
+    host.shell.assistantSend.disabled = host.assistant.assistantBusy;
+    host.shell.assistantSend.textContent = host.assistant.assistantBusy ? "Working…" : "Send";
+    host.shell.assistantModelSlot.innerHTML = assistantModelHtml();
+    host.shell.assistantLog.innerHTML = host.assistant.assistantLogEntries.length
+      ? host.assistant.assistantLogEntries.map((entry, index) => {
         const mine = entry.role === "you";
         return `<div class="${mine ? "text-right" : ""}">
-              <div class="inline-block max-w-full rounded-box px-3 py-2 text-left text-sm ${mine ? "bg-primary/10" : "bg-base-200"}"><span class="whitespace-pre-wrap">${host.escapeHtml(entry.text)}</span></div>
+              <div class="inline-block max-w-full rounded-box px-3 py-2 text-left text-sm ${mine ? "bg-primary/10" : "bg-base-200"}"><span class="whitespace-pre-wrap">${host.shell.escapeHtml(entry.text)}</span></div>
               ${entry.actions?.length ? assistantActionsHtml(entry.actions, index, entry.applied === true) : ""}
             </div>`;
       })
         .join("")
       : `<p class="px-1 text-sm text-base-content/50">Ask for a process, an agent, or a bulk change. Nothing is written until you approve it.</p>`;
-    host.assistantLog.scrollTop = host.assistantLog.scrollHeight;
+    host.shell.assistantLog.scrollTop = host.shell.assistantLog.scrollHeight;
   }
 
   return {
