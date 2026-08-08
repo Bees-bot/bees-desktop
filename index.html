@@ -60,7 +60,12 @@
             <div id="org-status" class="mt-2"></div>
           </div>
 
-          <nav id="team-nav" class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4" aria-label="Teams"></nav>
+          <!-- overflow-x-hidden on purpose: overflow-y:auto alone promotes the x axis to auto, so a
+               long team or process name puts a horizontal scrollbar across the bottom of the list. -->
+          <nav id="team-nav" class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-4" aria-label="Teams"></nav>
+
+          <!-- Pinned under the scrolling team list: help is only useful when it is where you left it. -->
+          <nav id="sidebar-help" class="shrink-0 border-t border-base-300 px-1.5 py-2" aria-label="Help"></nav>
 
         </div>
       </aside>

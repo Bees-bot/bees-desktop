@@ -222,27 +222,13 @@ import {
   type OutputPreview
 } from "./workspaces.js";
 import { renderMarkdown } from "./markdown.js";
+import { COMMUNITY_URL, GETTING_STARTED, HELP_PAGES } from "./help.js";
+import { LAST_VIEW_KEY, RESTORABLE_VIEWS, startupView, type View } from "./views.js";
 import {
   SoftwareProjectController,
   type ProcessAgentTurn
 } from "./processes/software-project/controller.js";
 
-type View =
-  | "overview"
-  | "inbox"
-  | "board"
-  // One process, three pages: its board (above), its definition and agents, its past runs.
-  | "process"
-  | "process-runs"
-  | "process-library"
-  | "item"
-  | "item-new"
-  | "runs"
-  | "run"
-  | "schedules"
-  | "settings"
-  | "org-settings"
-  | "preferences";
 type PrefsTab =
   | "theme"
   | "local-models"
@@ -523,6 +509,8 @@ let autopilotBusy = false;
 // Left-nav dashboards per team id — every team, not only the open one. See loadDashboardsByTeam.
 let dashboardsByTeam = new Map<string, { board: Board; process: Process; count: number }[]>();
 let view: View = "overview";
+/** Last value written to LAST_VIEW_KEY, so the common render() does not re-write the same row. */
+let savedView = "";
 // The New work item page: the status column it lands in, and the folders its file picker browses.
 let newItemStageId = "";
 let newItemSources: FileSource[] = [];
@@ -594,6 +582,7 @@ const assistantModelSlot = document.querySelector<HTMLElement>("#assistant-model
 const orgRow = document.querySelector<HTMLElement>("#org-row")!;
 const orgStatus = document.querySelector<HTMLElement>("#org-status")!;
 const teamNav = document.querySelector<HTMLElement>("#team-nav")!;
+const sidebarHelp = document.querySelector<HTMLElement>("#sidebar-help")!;
 const dialog = document.querySelector<HTMLDialogElement>("#editor")!;
 const dialogTitle = document.querySelector<HTMLElement>("#editor-title")!;
 const dialogFields = document.querySelector<HTMLElement>("#editor-fields")!;
@@ -1310,7 +1299,40 @@ function processNavItem(teamId: string, board: Board, process: Process, count: n
   </li>`;
 }
 
+/**
+ * The three items pinned under the team list. Getting Started renders in-app so a fresh install
+ * has it without a browser; the rest of the pages, and the community, open externally.
+ */
+function renderSidebarHelp(): void {
+  // A popup rather than an accordion: this block is pinned to the bottom, so expanding in place
+  // would push the three items around. dropdown-top keeps the panel inside the sidebar, which
+  // .drawer-side clips.
+  sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
+      <li><button class="${activeClass(
+        view === "getting-started"
+      )}" data-view="getting-started">Getting Started</button></li>
+      <li class="dropdown dropdown-top w-full">
+        <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
+          Help
+          <svg viewBox="0 0 24 24" class="size-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+        </button>
+        <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mb-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          ${HELP_PAGES.map(
+            ({ label, url }) =>
+              `<li><button data-action="open-external" data-url="${escapeHtml(
+                url
+              )}">${escapeHtml(label)}</button></li>`
+          ).join("")}
+        </ul>
+      </li>
+      <li><button data-action="open-external" data-url="${escapeHtml(
+        COMMUNITY_URL
+      )}">Join Community</button></li>
+    </ul>`;
+}
+
 function renderNavigation(): void {
+  renderSidebarHelp();
   // One icon per connection (org × account), so the same org shows twice if two accounts are in
   // it. Local orgs get one icon with no account. Hover shows the org name and account email.
   type Icon = { orgId: string; userId: string; name: string; email: string };
@@ -1683,7 +1705,19 @@ async function ensureTeamSkillsRegistry(teamRoot: string): Promise<void> {
   });
 }
 
+/**
+ * Remember where the user is so the next launch opens there. Recorded on render rather than at
+ * every `view =` assignment, because render is the one thing all of them go through. Views that
+ * cannot be restored are skipped, so opening a work item does not lose the board behind it.
+ */
+function rememberView(): void {
+  if (view === savedView || !RESTORABLE_VIEWS.has(view)) return;
+  savedView = view;
+  void repository.setSetting(LAST_VIEW_KEY, view).catch(() => undefined);
+}
+
 function render(): void {
+  rememberView();
   renderNavigation();
   if (view === "overview") {
     setHeader("Overview", currentOrganization()?.name);
@@ -1735,6 +1769,14 @@ function render(): void {
   if (view === "settings") void renderTeamSettings();
   if (view === "org-settings") void renderOrgSettings();
   if (view === "preferences") void renderPreferences();
+  if (view === "getting-started") {
+    setHeader("Getting Started", "Set up Bees on this computer");
+    swap(
+      `<article class="markdown-viewer mx-auto max-w-3xl rounded-box border border-base-300 bg-base-100 px-6 py-5">${renderMarkdown(
+        GETTING_STARTED
+      )}</article>`
+    );
+  }
 }
 
 async function renderWorkItemDetail(): Promise<void> {
@@ -7016,6 +7058,9 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "open-external") {
+      // daisyUI dropdowns stay open while focus is inside them, so a help link would leave the
+      // popup hanging over the sidebar after the browser takes over.
+      button.blur();
       await openUrl(button.dataset.url!);
       return;
     }
@@ -8391,6 +8436,7 @@ async function start(): Promise<void> {
     // middle of a session. Not awaited, so a slow endpoint cannot hold up startup.
     void checkForUpdate().catch((error) => showNotice(errorText(error), "error"));
     workspace = await repository.bootstrap();
+    view = startupView(await repository.getSetting(LAST_VIEW_KEY, ""));
     await listen<SettledRun>("run-settled", ({ payload }) => {
       void applySettledExecution(payload.executionId, true).catch((error) =>
         showNotice(errorText(error), "error")
