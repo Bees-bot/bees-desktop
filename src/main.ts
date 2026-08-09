@@ -202,7 +202,6 @@ export interface AppShell {
   escapeHtml: (value: unknown) => string;
   formatBytes: (bytes: number) => string;
   isThemePreset: (value: unknown) => value is ThemePreset;
-  itemTab: 'overview' | 'conversation' | 'runs';
   lightDefaultTheme: ThemePreset;
   loadTheme: () => Promise<void>;
   markdownBody: HTMLElement;

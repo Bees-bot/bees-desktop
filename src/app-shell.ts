@@ -51,8 +51,6 @@ export function createAppShell(host: MainHost) {
 
   let activeItemId = "";
 
-  let itemTab: "overview" | "conversation" | "runs" = "overview";
-
   // The process whose editor or run history is open, and the agent whose panel shows on the
   // editor. Every agent of the process is in the DOM, so switching panels is a visibility
   // toggle: unsaved edits survive it. Empty `configProcessId` on the editor means a new process.
@@ -333,8 +331,6 @@ export function createAppShell(host: MainHost) {
     set activeExecutionId(value: typeof activeExecutionId) { activeExecutionId = value; },
     get activeItemId() { return activeItemId; },
     set activeItemId(value: typeof activeItemId) { activeItemId = value; },
-    get itemTab() { return itemTab; },
-    set itemTab(value: typeof itemTab) { itemTab = value; },
     get configProcessId() { return configProcessId; },
     set configProcessId(value: typeof configProcessId) { configProcessId = value; },
     get configAgentId() { return configAgentId; },

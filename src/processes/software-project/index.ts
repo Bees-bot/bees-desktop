@@ -1,4 +1,5 @@
 import type { Execution, WorkItem } from "../../domain.js";
+import { stageProgressStrip } from "../../launch-views.js";
 
 export const SOFTWARE_PROJECT_PROCESS_ID = "software-project";
 export const SOFTWARE_PROJECT_PROCESS_NAME = "Code";
@@ -508,9 +509,7 @@ export function softwareProjectView(input: {
   const busy = runs.some(({ status }) => status === "queued" || status === "running");
   const errorWait = item.waits.find(({ kind, resolvedAt }) => kind === "error" && !resolvedAt);
   const current = state.phases[state.currentPhaseIndex];
-  const progress = states
-    .map(({ id, name }) => `<span class="badge ${id === stageId ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
-    .join("");
+  const progress = stageProgressStrip(states, stageId);
   const projectFolder = mapping
     ? `<div class="alert alert-success mb-4"><div><div class="font-semibold">${state.projectKind === "new" ? "New project" : "Continued work"}</div><div class="break-all font-mono text-xs">${html(mapping.repositoryPath)}</div><div class="mt-1 text-xs opacity-70">Base branch: ${html(mapping.baseBranch)}. Bees works locally and never fetches, pulls, pushes, or opens pull requests.</div></div></div>`
     : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-6"><h2 class="font-bold">Choose the local project folder</h2><p class="mt-2 text-sm text-base-content/60">An empty folder starts a new Git project. A folder with code must already be a clean Git repository on the branch you want Bees to use.</p><button class="btn btn-primary mt-4" type="button" data-action="project-select-folder" ${busy ? "disabled" : ""}>Choose project folder</button></div>`;
@@ -544,5 +543,5 @@ export function softwareProjectView(input: {
   } else {
     body = '<div class="alert alert-error">The Code process is on an unknown status.</div>';
   }
-  return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'}</div></div></div>${body}${runHistory(runs)}`;
+  return `${progress}<div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'}</div></div></div>${body}${runHistory(runs)}`;
 }

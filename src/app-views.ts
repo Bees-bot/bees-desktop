@@ -33,6 +33,7 @@ import type {
   Agent,
   Board,
   Execution,
+  ExecutionOutput,
   FileLocation,
   Process,
   WorkItem
@@ -368,10 +369,13 @@ export function createMainViews(host: MainHost) {
         ${item.isTerminal || item.archivedAt ? "" : `<button class="btn btn-ghost btn-xs" data-action="add-wait" data-id="${item.id}">Add wait</button>`}
       </div>
       ${activeWaits.length
-        ? `<ul class="mt-3 grid gap-2">${activeWaits.map((wait) => `<li class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200/60 px-3 py-2 text-xs">
-            <span><strong>${host.shell.escapeHtml(wait.kind.replaceAll("_", " "))}</strong> · ${host.shell.escapeHtml(wait.reason)}${wait.target ? ` · ${host.shell.escapeHtml(wait.target)}` : ""}${wait.wakeAt ? ` · until ${host.shell.escapeHtml(new Date(wait.wakeAt).toLocaleString())}` : ""}</span>
-            <button class="btn btn-ghost btn-xs" data-action="resolve-wait" data-id="${wait.id}">Resolve</button>
-          </li>`).join("")}</ul>`
+        ? `<ul class="mt-3 grid gap-2">${activeWaits.map((wait) => {
+            const resolve = waitResolveAction(wait.kind);
+            return `<li class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200/60 px-3 py-2 text-xs">
+              <span><strong>${host.shell.escapeHtml(wait.kind.replaceAll("_", " "))}</strong> · ${host.shell.escapeHtml(wait.reason)}${wait.target ? ` · ${host.shell.escapeHtml(wait.target)}` : ""}${wait.wakeAt ? ` · until ${host.shell.escapeHtml(new Date(wait.wakeAt).toLocaleString())}` : ""}</span>
+              <button class="btn btn-ghost btn-xs" data-action="resolve-wait" data-id="${wait.id}" title="${host.shell.escapeHtml(resolve.title)}">${resolve.label}</button>
+            </li>`;
+          }).join("")}</ul>`
         : '<p class="mt-3 text-xs text-base-content/45">No active waits.</p>'}
     </section>`;
     const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null) + waitPanel;
@@ -385,7 +389,20 @@ export function createMainViews(host: MainHost) {
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
       return;
-    host.shell.swap(banner + workItemView({ ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) }, runs, runs.map(conversationFor).filter(Boolean) as BeesConversationSnapshotV1[], host.shell.itemTab));
+    const outputsByExecution = new Map<string, ExecutionOutput[]>();
+    const snapshotsByExecution = new Map<string, BeesConversationSnapshotV1 | null>();
+    for (const run of runs) {
+      outputsByExecution.set(run.id, host.runs.executionOutputs.filter(({ executionId }) => executionId === run.id));
+      snapshotsByExecution.set(run.id, conversationFor(run));
+    }
+    host.shell.swap(banner + workItemView({
+      item: { ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) },
+      stages: process?.stages ?? null,
+      runs,
+      outputsByExecution,
+      snapshotsByExecution,
+      previews: host.runs.outputPreviews
+    }));
   }
 
   /**
@@ -406,7 +423,8 @@ export function createMainViews(host: MainHost) {
       return;
     }
     host.shell.setHeader("Run", host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId)?.title);
-    host.shell.swap(runView({
+    const banner = escalationBanner(host.runs.supervise().get(execution.workItemId) ?? null);
+    host.shell.swap(banner + runView({
       execution,
       item: host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId) ?? null,
       outputs: host.runs.executionOutputs.filter(({ executionId }) => executionId === execution.id),
@@ -719,6 +737,24 @@ export function createMainViews(host: MainHost) {
         thinking.value = "";
       });
     }
+  }
+
+  /**
+   * "Resolve" alone tells nobody what pressing it does. An error wait is a stray failure record —
+   * clearing it changes nothing else. A human wait is a real handoff — clearing it tells Bees to
+   * continue. The label and tooltip say which one this is.
+   */
+  function waitResolveAction(kind: string): { label: string; title: string } {
+    if (kind === "error") {
+      return {
+        label: "Dismiss",
+        title: "Clears this failure notice. It does not retry or undo anything — redo whatever failed if it still needs doing."
+      };
+    }
+    if (kind === "human") {
+      return { label: "Mark done", title: "Tells Bees you've handled this so the item can continue." };
+    }
+    return { label: "Resolve", title: "Marks this wait as done so the item can continue." };
   }
 
   /** One line of "why is this not moving", or nothing when it is. */

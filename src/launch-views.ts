@@ -596,51 +596,66 @@ export function schedulesView(items: WorkItem[], schedules: Schedule[], executio
     }`;
 }
 
-export function workItemView(
-  item: WorkItem,
-  runs: Execution[],
-  snapshots: BeesConversationSnapshotV1[],
-  tab: "overview" | "conversation" | "runs"
-): string {
-  const tabs = ["overview", "conversation", "runs"] as const;
-  return `<div class="tabs tabs-border mb-5">${tabs
-    .map(
-      (value) => `<button class="tab ${tab === value ? "tab-active" : ""}" data-item-tab="${value}">${
-        value[0]!.toUpperCase() + value.slice(1)
-      }</button>`
-    )
-    .join("")}</div>
-    ${
-      tab === "overview"
-        ? `<div class="rounded-box border border-base-300 bg-base-100 p-5"><p>${escapeHtml(
-            item.description || "No description."
-          )}</p><dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-base-content/45">Status</dt><dd>${escapeHtml(
-            workItemCondition(item, runs)
-          )}</dd></div><div><dt class="text-base-content/45">Files</dt><dd>${escapeHtml(
-            item.logicalFiles.join(", ") || "None"
-          )}</dd></div><div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(
-            item.checkpointAt
-          )}</dd></div></dl></div>`
-        : tab === "conversation"
-          ? `<div class="grid gap-3">${
-              snapshots.some(({ messages }) => messages.length)
-                ? snapshots
-                    .flatMap(({ messages }) => messages)
-                    .map(
-                      (message) => `<div class="chat ${message.role === "user" ? "chat-end" : "chat-start"}">
-                        <div class="chat-header mb-1 text-xs text-base-content/50">${
-                          message.role === "user" ? "You" : "Agent"
-                        }</div>
-                        <div class="chat-bubble max-w-[88%] ${
-                          message.role === "user"
-                            ? "chat-bubble-primary"
-                            : "border border-base-300 bg-base-100 text-base-content"
-                        }">${messageParts(message)}</div>
-                      </div>`
-                    )
-                    .join("")
-                : empty("No conversation yet", "Run this item to start one.")
-            }</div>`
-          : runsView([item], runs)
-    }`;
+/**
+ * The stage a process is in, at a glance — the same badge strip everywhere a process shows
+ * progress, so a person learns it once. Reused by the generic item page and by process-specific
+ * renderers (e.g. the software-project studio) instead of each inventing its own.
+ */
+export function stageProgressStrip(stages: readonly { id: string; name: string }[], currentStageId: string): string {
+  return `<div class="mb-4 flex flex-wrap gap-2">${stages
+    .map(({ id, name }) => `<span class="badge ${id === currentStageId ? "badge-primary" : "badge-ghost"}">${escapeHtml(name)}</span>`)
+    .join("")}</div>`;
+}
+
+/**
+ * One item, one page. Every run is a `<details>` row — the one holding a pending approval opens
+ * itself, so a person lands on the thing they owe an answer to instead of an inert "Overview"
+ * tab and having to go find it.
+ */
+export function workItemView(input: {
+  item: WorkItem;
+  stages: readonly { id: string; name: string }[] | null;
+  runs: Execution[];
+  outputsByExecution: Map<string, ExecutionOutput[]>;
+  snapshotsByExecution: Map<string, BeesConversationSnapshotV1 | null>;
+  previews: Map<string, OutputPreview>;
+}): string {
+  const { item, stages, runs, outputsByExecution, snapshotsByExecution, previews } = input;
+  const ordered = [...runs].sort((a, b) =>
+    (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt)
+  );
+  return `${stages ? stageProgressStrip(stages, item.stageId) : ""}
+    <div class="rounded-box border border-base-300 bg-base-100 p-5 mb-5"><p>${escapeHtml(
+      item.description || "No description."
+    )}</p><dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-base-content/45">Status</dt><dd>${escapeHtml(
+      workItemCondition(item, runs)
+    )}</dd></div><div><dt class="text-base-content/45">Files</dt><dd>${escapeHtml(
+      item.logicalFiles.join(", ") || "None"
+    )}</dd></div><div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(
+      item.checkpointAt
+    )}</dd></div></dl></div>
+    <div class="grid gap-3">${
+      ordered.length
+        ? ordered
+            .map((run) => {
+              const outputs = outputsByExecution.get(run.id) ?? [];
+              const pending = outputs.some(({ status }) => status === "pending");
+              return `<details class="rounded-box border border-base-300 bg-base-100" ${pending ? "open" : ""}>
+                <summary class="flex cursor-pointer flex-wrap items-center gap-2 p-4 font-semibold">
+                  ${statusBadge(run.status)}
+                  <span class="text-sm font-normal text-base-content/55">${when(run.startedAt ?? run.createdAt)}</span>
+                  ${pending ? `<span class="badge badge-warning badge-sm">Needs you</span>` : ""}
+                </summary>
+                <div class="border-t border-base-300 p-4">${runView({
+                  execution: run,
+                  item,
+                  outputs,
+                  snapshot: snapshotsByExecution.get(run.id) ?? null,
+                  previews
+                })}</div>
+              </details>`;
+            })
+            .join("")
+        : empty("No runs yet", "This item has not run.")
+    }</div>`;
 }

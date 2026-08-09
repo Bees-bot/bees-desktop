@@ -83,7 +83,11 @@ Write only outputs/${TASK_PLAN_OUTPUT} as:
 {"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}
 Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
 and input paths listed in the run context. The human selects and may edit tasks before creation.
-Later waves are planned after these tasks finish; do not plan work that depends on this wave.`;
+Later waves are planned after these tasks finish; do not plan work that depends on this wave.
+
+When you tell the human what you did, describe the plan itself in plain language — what it covers
+and roughly how many tasks — and say that it is ready for their review. Never mention output file
+names or paths; the human reviews and approves the plan in the app, not by opening a file.`;
 
 export const GOAL_WORKER_PROMPT = `Complete this task using the available tools and input files.
 
@@ -91,7 +95,11 @@ Write proposed deliverables under outputs/ so a human can approve consequential 
 If a human decision is required, write a short approval-request.md that states the decision,
 options, and your recommendation. You may instead write ${TASK_PLAN_OUTPUT} using the exact task
 schema from the run context when completion requires independently executable child tasks.
-Choose Review when the task is ready to be checked.`;
+Choose Review when the task is ready to be checked.
+
+When you tell the human what you did, describe the deliverable in plain language and say it is
+ready for their review. Never mention output file names or paths; the human reviews and approves
+it in the app, not by opening a file.`;
 
 export const GOAL_REVIEWER_PROMPT = `Check whether the completed wave and approved files satisfy the task and its parent goal.
 

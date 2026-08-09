@@ -927,11 +927,6 @@ export function createMainActions(host: MainHost) {
         }
         return;
       }
-      if (button.dataset.itemTab) {
-        host.shell.itemTab = button.dataset.itemTab as typeof host.shell.itemTab;
-        host.shell.render();
-        return;
-      }
       if (button.dataset.board) {
         // A dashboard in another team: switch to that team first so `boards`/`processes` hold it.
         const boardTeam = button.dataset.team;
@@ -983,7 +978,6 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "open-item") {
         host.shell.activeItemId = button.dataset.id!;
-        host.shell.itemTab = "overview";
         const latest = host.runs.executions.find(({ workItemId }) => workItemId === host.shell.activeItemId);
         if (latest)
           await host.runs.loadExecutionHistory(latest);
@@ -2171,7 +2165,10 @@ export function createMainActions(host: MainHost) {
       }
     }
     catch (error) {
-      host.runs.reportFailure(error, button.dataset.id);
+      // The user is looking at the button they just clicked, so a toast is enough — this is not
+      // the silent, unattended failure `reportFailure`'s persistent record exists to catch, and
+      // most throws here are precondition guards ("select a task first"), not real failures.
+      host.shell.showNotice(errorText(error), "error");
     }
   });
 
@@ -2194,19 +2191,19 @@ export function createMainActions(host: MainHost) {
     const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
     if (newItemForm) {
       event.preventDefault();
-      void submitNewItem(new FormData(newItemForm)).catch(host.runs.reportFailure);
+      void submitNewItem(new FormData(newItemForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
     if (definitionForm) {
       event.preventDefault();
-      void saveProcessDefinition(new FormData(definitionForm)).catch(host.runs.reportFailure);
+      void saveProcessDefinition(new FormData(definitionForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
     if (agentsForm) {
       event.preventDefault();
-      void saveProcessAgents(agentsForm).catch(host.runs.reportFailure);
+      void saveProcessAgents(agentsForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const processForm = (event.target as Element).closest<HTMLFormElement>("form");
@@ -2215,7 +2212,7 @@ export function createMainActions(host: MainHost) {
       : undefined;
     if (processForm && renderer) {
       event.preventDefault();
-      void renderer.handleSubmit(processForm).catch(host.runs.reportFailure);
+      void renderer.handleSubmit(processForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const assistant = (event.target as Element).closest<HTMLFormElement>("form[data-overview-assistant]");
