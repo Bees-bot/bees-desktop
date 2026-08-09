@@ -61,8 +61,7 @@ import {
   runView,
   statusBadge,
   taskPlanOutput,
-  when,
-  workItemView
+  when
 } from "./launch-views.js";
 import { renderMarkdown } from "./markdown.js";
 import {
@@ -350,46 +349,30 @@ export function createMainViews(host: MainHost) {
     </form>`;
   }
 
+  /**
+   * The `item` view exists only for processes with their own renderer (e.g. the software-project
+   * studio). Every other item opens as an expanded card on its board.
+   */
   async function renderWorkItemDetail(): Promise<void> {
     const item = host.workspaceController.teamItems.find(({ id }) => id === host.shell.activeItemId);
-    if (!item) {
+    const process = item ? host.workspaceController.processes.find(({ id }) => id === item.processId) : null;
+    const renderer = process
+      ? host.workspaceController.processRenderers.find(
+          (candidate) => candidate.id === processEngine.renderer(process)
+        )
+      : null;
+    if (!item || !process || !renderer) {
       host.shell.view = "board";
       void renderBoard();
       return;
     }
     host.shell.setHeader(item.title, host.session.currentTeam()?.name);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
-    const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
-    const renderer = process
-      ? host.workspaceController.processRenderers.find(
-          (candidate) => candidate.id === processEngine.renderer(process)
-        )
-      : null;
     const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null);
-    if (process && renderer) {
-      const content = await renderer.render(item, process, runs);
-      if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
-        return;
-      host.shell.swap(`${banner}${content}`);
-      return;
-    }
-    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    const content = await renderer.render(item, process, runs);
     if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
       return;
-    const outputsByExecution = new Map<string, ExecutionOutput[]>();
-    const snapshotsByExecution = new Map<string, BeesConversationSnapshotV1 | null>();
-    for (const run of runs) {
-      outputsByExecution.set(run.id, host.runs.executionOutputs.filter(({ executionId }) => executionId === run.id));
-      snapshotsByExecution.set(run.id, conversationFor(run));
-    }
-    host.shell.swap(banner + workItemView({
-      item: { ...item, logicalFiles: displayFileReferences(item.logicalFiles, locations) },
-      stages: process?.stages ?? null,
-      runs,
-      outputsByExecution,
-      snapshotsByExecution,
-      previews: host.runs.outputPreviews
-    }));
+    host.shell.swap(`${banner}${content}`);
   }
 
   /**
@@ -736,7 +719,8 @@ export function createMainViews(host: MainHost) {
     const filtered = host.workspaceController.items.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const expandedItemId = host.shell.boardItemId;
-    const expandedItem = visible.find(({ id }) => id === expandedItemId) ?? null;
+    // Looked up in all items, not just visible cards: the Inbox opens filtered/stuck items too.
+    const expandedItem = host.workspaceController.items.find(({ id }) => id === expandedItemId) ?? null;
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
     if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
       return;

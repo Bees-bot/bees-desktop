@@ -913,6 +913,24 @@ export function createMainActions(host: MainHost) {
     await approvePlanSelection(output, execution, mapping.localPath, proposed, new FormData(form), indices, finalize);
   }
 
+  /**
+   * Expands one card's panel under the board: fresh run history loaded, file/edit state reset,
+   * and the tab landing on Approval when something is waiting for a decision.
+   */
+  async function expandBoardItem(id: string): Promise<void> {
+    host.shell.boardItemId = id;
+    host.shell.boardFileRef = "";
+    host.shell.boardFileEditing = false;
+    host.shell.boardItemEditing = false;
+    const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
+    if (latest)
+      await host.runs.loadExecutionHistory(latest);
+    const itemRunIds = new Set(host.runs.executions.filter(({ workItemId }) => workItemId === id).map(({ id: runId }) => runId));
+    host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
+      ? "approval"
+      : "details";
+  }
+
   /** Saves the inline Details form of the expanded kanban card — same writes as the edit dialog. */
   async function saveBoardItem(form: HTMLFormElement): Promise<void> {
     const item = host.workspaceController.teamItems.find(({ id }) => id === form.dataset.id);
@@ -1100,8 +1118,26 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "open-item") {
-        host.shell.activeItemId = button.dataset.id!;
-        const latest = host.runs.executions.find(({ workItemId }) => workItemId === host.shell.activeItemId);
+        const id = button.dataset.id!;
+        const item = host.workspaceController.teamItems.find((candidate) => candidate.id === id);
+        const process = item ? host.workspaceController.processes.find(({ id: processId }) => processId === item.processId) : null;
+        const renderer = process
+          ? host.workspaceController.processRenderers.find((candidate) => candidate.id === processEngine.renderer(process))
+          : null;
+        // Interactive processes keep their studio page; everything else opens on its board
+        // with the card expanded in place.
+        if (item && process && !renderer) {
+          host.workspaceController.activeBoard = host.workspaceController.boards.find(({ processId }) => processId === process.id) ?? null;
+          host.workspaceController.activeProcess = process;
+          host.workspaceController.workspace.processId = process.id;
+          host.workspaceController.items = host.workspaceController.teamItems.filter(({ processId }) => processId === process.id);
+          await expandBoardItem(id);
+          host.shell.view = "board";
+          host.shell.render();
+          return;
+        }
+        host.shell.activeItemId = id;
+        const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
         if (latest)
           await host.runs.loadExecutionHistory(latest);
         host.shell.view = "item";
@@ -1112,20 +1148,14 @@ export function createMainActions(host: MainHost) {
       // already-open card closes it again.
       if (action === "toggle-board-item") {
         const id = button.dataset.id!;
-        const collapsing = host.shell.boardItemId === id;
-        host.shell.boardItemId = collapsing ? "" : id;
-        host.shell.boardFileRef = "";
-        host.shell.boardFileEditing = false;
-        host.shell.boardItemEditing = false;
-        if (!collapsing) {
-          const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
-          if (latest)
-            await host.runs.loadExecutionHistory(latest);
-          // Land on what needs a decision when something does, on the plain facts otherwise.
-          const itemRunIds = new Set(host.runs.executions.filter(({ workItemId }) => workItemId === id).map(({ id: runId }) => runId));
-          host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
-            ? "approval"
-            : "details";
+        if (host.shell.boardItemId === id) {
+          host.shell.boardItemId = "";
+          host.shell.boardFileRef = "";
+          host.shell.boardFileEditing = false;
+          host.shell.boardItemEditing = false;
+        }
+        else {
+          await expandBoardItem(id);
         }
         host.shell.render();
         return;
