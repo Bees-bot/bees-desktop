@@ -306,8 +306,10 @@ export function createRunController(host: MainHost) {
           }
           await controlTick();
         }
-        if (applied > 0 || (await signature()) !== before)
+        if (applied > 0 || (await signature()) !== before) {
           await host.workspaceController.refresh();
+          if (applied > 0) await host.workspaceController.seedInstalledWorkflows();
+        }
       }
       catch {
         // Offline, or a request the server refused: keep the last-known state and try again later.

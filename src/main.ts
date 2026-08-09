@@ -303,7 +303,7 @@ export interface WorkspaceController {
   registries: Registry[];
   requireTeamRoot: () => Promise<string>;
   seedDefaultRegistry: () => Promise<void>;
-  seedStarterWorkflow: () => Promise<void>;
+  seedInstalledWorkflows: () => Promise<void>;
   switchOrganization: (organizationId: string) => Promise<void>;
   switchTeam: (teamId: string, nextView?: View) => Promise<void>;
   teamItems: WorkItem[];

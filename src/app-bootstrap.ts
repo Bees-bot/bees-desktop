@@ -134,7 +134,7 @@ export function createAppBootstrap(host: MainHost) {
       }
       await host.workspaceController.refresh();
       await host.workspaceController.seedDefaultRegistry();
-      await host.workspaceController.seedStarterWorkflow();
+      await host.workspaceController.seedInstalledWorkflows();
       // Re-copied at launch and after each write, not on every refresh: the snapshot only changes
       // when someone edits the team folder. ponytail: add a watcher if hand-edits need to show sooner.
       const teamFolder = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);

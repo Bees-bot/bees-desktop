@@ -67,10 +67,11 @@ export class MetadataSyncService {
   ) {}
 
   async synchronize(organizationId: string, teamId: string): Promise<number> {
+    const scope = `coordination:${organizationId}`;
+    const currentCursor = (await this.repository.syncCursor(scope)) ?? "0";
     const projection = await this.repository.coordinationProjection(teamId);
     projection.forEach((record) => assertMetadataOnly(record.payload));
-    const pushed = await this.transport.push(organizationId, projection);
-    const currentCursor = (await this.repository.syncCursor()) ?? pushed.cursor;
+    await this.transport.push(organizationId, projection);
     const pulled = await this.transport.pull(organizationId, currentCursor);
     const ordered = [...pulled.records].sort(
       (a, b) =>
@@ -81,7 +82,7 @@ export class MetadataSyncService {
       assertMetadataOnly(record.payload);
       await this.repository.applyCoordinationRecord(record);
     }
-    await this.repository.completeSyncEntries([], pulled.cursor);
+    await this.repository.completeSyncEntries([], pulled.cursor, scope);
     return ordered.length;
   }
 }

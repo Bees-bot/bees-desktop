@@ -27,8 +27,8 @@ import {
 } from "./knowledge.js";
 import type { MainHost } from "./main.js";
 import {
+  PROCESS_MODULES,
   processEngine,
-  starterProcessModule,
   type ProcessRenderer
 } from "./processes/registry.js";
 import {
@@ -239,49 +239,71 @@ export function createWorkspaceController(host: MainHost) {
     await refresh();
   }
 
-  /** Seeds the starter module once; later user-owned agent edits and deletions are respected. */
-  async function seedStarterWorkflow(): Promise<void> {
+  /** Hydrates each installed bundled process once; later local edits and deletions are respected. */
+  async function seedInstalledWorkflows(): Promise<void> {
     if (!workspace.teamId)
       return;
-    const module = starterProcessModule();
-    const key = `${module.definition.id}_workflow_seeded_${workspace.teamId}`;
-    if (await host.repository.getSetting(key, false))
-      return;
-    const template = module.definition;
-    const process = processes.find(({ definition }) => definition.moduleId === template.id);
     const mapping = await host.repository.getResolvedTeamFolder(workspace.teamId);
-    if (!process || !mapping?.localPath)
+    if (!mapping?.localPath)
       return;
     await host.workspaces.ensureDirectory(mapping.localPath);
     const skills = registryCapabilities(registries).filter(({ kind }) => kind === "skill");
-    for (const definition of template.agents) {
-      const stage = processEngine.boundState(process, definition.state);
-      if (!stage || agents.some(({ triggerStageId }) => triggerStageId === stage.id))
+    let changed = false;
+    let runningChanged = false;
+    for (const process of processes) {
+      const module = PROCESS_MODULES.find(
+        ({ definition }) => definition.id === process.definition.moduleId
+      );
+      if (!module)
         continue;
-      const saved = await host.agentFiles.save(mapping.localPath, newAgent({
-        name: definition.name,
-        purpose: definition.purpose,
-        triggerStageId: stage.id,
-        config: {
-          role: definition.role,
-          prompt: definition.prompt,
-          provider: definition.provider,
-          model: definition.model,
-          toolRefs: [],
-          grants: [],
-          skillRefs: skills
-            .filter(({ name }) => definition.skills?.includes(name))
-            .map(({ ref }) => ref)
+      const key = `${module.definition.id}_workflow_seeded_${process.id}`;
+      if (await host.repository.getSetting(key, false))
+        continue;
+      let complete = true;
+      for (const definition of module.definition.agents) {
+        const stage = processEngine.boundState(process, definition.state);
+        if (!stage) {
+          complete = false;
+          continue;
         }
-      }));
-      agents.push(saved);
+        if (agents.some(
+          ({ config, triggerStageId }) =>
+            config.role === definition.role && triggerStageId === stage.id
+        )) continue;
+        const saved = await host.agentFiles.save(mapping.localPath, newAgent({
+          name: definition.name,
+          purpose: definition.purpose,
+          triggerStageId: stage.id,
+          config: {
+            role: definition.role,
+            prompt: definition.prompt,
+            provider: definition.provider,
+            model: definition.model,
+            toolRefs: [],
+            grants: [],
+            skillRefs: skills
+              .filter(({ name }) => definition.skills?.includes(name))
+              .map(({ ref }) => ref)
+          }
+        }));
+        agents.push(saved);
+        changed = true;
+      }
+      if (!complete) continue;
+      if (module.autoStart && !host.runs.runningProcesses.has(process.id)) {
+        host.runs.runningProcesses.add(process.id);
+        runningChanged = true;
+      }
+      await host.repository.setSetting(key, true);
     }
-    if (module.autoStart) {
-      host.runs.runningProcesses.add(process.id);
+    if (runningChanged) {
       await host.repository.setSetting(host.runs.RUNNING_PROCESSES_KEY, [...host.runs.runningProcesses]);
     }
-    await host.repository.setSetting(key, true);
-    await refresh();
+    if (changed || runningChanged) {
+      host.views.renderNavigation();
+      host.shell.render();
+      void host.runs.autopilot();
+    }
   }
 
   /**
@@ -330,7 +352,7 @@ export function createWorkspaceController(host: MainHost) {
     host.shell.view = nextView;
     await refresh();
     await seedDefaultRegistry();
-    await seedStarterWorkflow();
+    await seedInstalledWorkflows();
   }
 
   /** Default the workspace root to <home>/Bees on first launch, then create org/team folders on disk. */
@@ -384,7 +406,7 @@ export function createWorkspaceController(host: MainHost) {
     openWork,
     refresh,
     seedDefaultRegistry,
-    seedStarterWorkflow,
+    seedInstalledWorkflows,
     ensureTeamSkillsRegistry,
     requireTeamRoot,
     eligibilityForAgent,

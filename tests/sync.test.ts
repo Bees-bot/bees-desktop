@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertMetadataOnly, logicalFileReference } from "../src/domain.js";
 import { LocalRepository } from "../src/repository.js";
+import { softwareProjectProcess } from "../src/processes/software-project/definition.js";
 import {
   MetadataSyncService,
   type SyncRecord,
@@ -9,21 +10,38 @@ import {
 import { NodeDatabase } from "./node-database.js";
 
 class MemorySyncTransport implements SyncTransport {
-  private readonly records = new Map<string, SyncRecord>();
+  private readonly records = new Map<
+    string,
+    SyncRecord & { organizationId: string; sequence: number }
+  >();
   private cursor = 0;
 
-  async push(_organizationId: string, records: SyncRecord[]): Promise<{ cursor: string }> {
+  async push(organizationId: string, records: SyncRecord[]): Promise<{ cursor: string }> {
     for (const record of records) {
-      const key = `${record.recordType}:${record.recordId}`;
+      const key = `${organizationId}:${record.recordType}:${record.recordId}`;
       const current = this.records.get(key);
-      if (!current || record.version >= current.version) this.records.set(key, record);
+      if (!current || record.version > current.version) {
+        this.cursor += 1;
+        this.records.set(key, { ...record, organizationId, sequence: this.cursor });
+      }
     }
-    this.cursor += 1;
-    return { cursor: String(this.cursor) };
+    const latest = [...this.records.values()]
+      .filter((record) => record.organizationId === organizationId)
+      .reduce((maximum, record) => Math.max(maximum, record.sequence), 0);
+    return { cursor: String(latest) };
   }
 
-  async pull(): Promise<{ cursor: string; records: SyncRecord[] }> {
-    return { cursor: String(this.cursor), records: [...this.records.values()] };
+  async pull(organizationId: string, cursor: string | null): Promise<{ cursor: string; records: SyncRecord[] }> {
+    const records = [...this.records.values()]
+      .filter(
+        (record) =>
+          record.organizationId === organizationId && record.sequence > Number(cursor ?? 0)
+      )
+      .sort((left, right) => left.sequence - right.sequence);
+    return {
+      cursor: String(records.at(-1)?.sequence ?? cursor ?? "0"),
+      records: records.map(({ organizationId: _organizationId, sequence: _sequence, ...record }) => record)
+    };
   }
 }
 
@@ -55,13 +73,16 @@ describe("metadata synchronization", () => {
 
     await firstSync.synchronize(local.organizationId, local.teamId);
     await secondSync.synchronize(local.organizationId, local.teamId);
+    const firstProcess = (await first.listProcesses(local.teamId))[0]!;
     const process = (await second.listProcesses(local.teamId))[0]!;
     expect(process.name).toBe("Goals");
+    expect(process.id).toBe(firstProcess.id);
+    expect(process.stages.map(({ id }) => id)).toEqual(firstProcess.stages.map(({ id }) => id));
+    expect(process.definition.stateIds).toEqual(firstProcess.definition.stateIds);
     expect(await second.listAvailableFileLocations(local.teamId)).toEqual([
       expect.objectContaining({ id: locationId, name: "Shared drive", localPath: null })
     ]);
 
-    const firstProcess = (await first.listProcesses(local.teamId))[0]!;
     const parentId = await first.createWorkItem(firstProcess.id, {
       stageId: firstProcess.stages[0]!.id,
       title: "Shared brief",
@@ -83,6 +104,67 @@ describe("metadata synchronization", () => {
         }),
         expect.objectContaining({ title: "Shared subtask", parentId })
       ])
+    );
+  });
+
+  it("assigns the same bundled process and stage IDs on concurrent machines", async () => {
+    const first = new LocalRepository(new NodeDatabase());
+    const local = await first.bootstrap();
+    const secondDatabase = new NodeDatabase();
+    await secondDatabase.transaction([
+      {
+        sql: "INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        params: [local.organizationId, "Shared", "2026-01-01", "2026-01-01"]
+      },
+      {
+        sql: "INSERT INTO teams (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        params: [local.teamId, local.organizationId, "Engineering", "2026-01-01", "2026-01-01"]
+      }
+    ]);
+    const second = new LocalRepository(secondDatabase);
+
+    const firstId = await first.createProcess(local.teamId, {
+      name: "Code",
+      template: softwareProjectProcess.definition
+    });
+    const secondId = await second.createProcess(local.teamId, {
+      name: "Code",
+      template: softwareProjectProcess.definition
+    });
+    const firstCode = (await first.listProcesses(local.teamId)).find(({ id }) => id === firstId)!;
+    const secondCode = (await second.listProcesses(local.teamId)).find(({ id }) => id === secondId)!;
+
+    expect(secondId).toBe(firstId);
+    expect(secondCode.stages.map(({ id }) => id)).toEqual(firstCode.stages.map(({ id }) => id));
+    expect(secondCode.definition).toEqual(firstCode.definition);
+  });
+
+  it("keeps first-pull cursors independent between connected organizations", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const first = await repository.bootstrap();
+    const secondOrganizationId = await repository.createOrganization("Second connected org");
+    const secondTeamId = await repository.createTeam(secondOrganizationId, "Operations");
+    const transport = new MemorySyncTransport();
+    const sync = new MetadataSyncService(repository, transport);
+    const locationId = crypto.randomUUID();
+    await transport.push(secondOrganizationId, [{
+      recordType: "file_location",
+      recordId: locationId,
+      version: 1,
+      deleted: false,
+      payload: {
+        organizationId: secondOrganizationId,
+        teamId: null,
+        name: "Second org drive",
+        updatedAt: "2026-08-08T12:00:00.000Z"
+      }
+    }]);
+
+    await sync.synchronize(first.organizationId, first.teamId);
+    await sync.synchronize(secondOrganizationId, secondTeamId);
+
+    expect(await repository.listAvailableFileLocations(secondTeamId)).toContainEqual(
+      expect.objectContaining({ id: locationId, name: "Second org drive" })
     );
   });
 

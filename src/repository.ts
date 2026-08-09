@@ -91,6 +91,17 @@ function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+/** Stable UUIDv8 for one bundled process slot across every machine in a team. */
+async function deterministicUuid(value: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+  ).slice(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function synchronizedProcessDefinition(value: unknown): PersistedProcessDefinition {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Process definition must be an object");
@@ -748,14 +759,18 @@ export class LocalRepository {
     if (stageInputs.length === 0) {
       throw new Error("A process needs at least one stage");
     }
-    const id = createId();
+    const id = input.template
+      ? await deterministicUuid(`bees:process:${teamId}:${input.template.id}`)
+      : createId();
     const timestamp = now();
-    const stages = stageInputs.map((stage, position) => ({
-      id: createId(),
+    const stages = await Promise.all(stageInputs.map(async (stage, position) => ({
+      id: stage.key
+        ? await deterministicUuid(`bees:stage:${id}:${stage.key}`)
+        : createId(),
       name: requiredText(stage.name, "Stage name", 80),
       position,
       ...(stage.key ? { key: stage.key } : {})
-    }));
+    })));
     const definition = persistProcessDefinition(
       input.template,
       Object.fromEntries(stages.flatMap((stage) => stage.key ? [[stage.key, stage.id]] : []))
@@ -2047,16 +2062,16 @@ export class LocalRepository {
     }));
   }
 
-  async completeSyncEntries(ids: string[], cursor: string): Promise<void> {
+  async completeSyncEntries(ids: string[], cursor: string, scope = "coordination"): Promise<void> {
     const timestamp = now();
     await this.database.transaction([
       ...ids.map((id) => ({ sql: "DELETE FROM sync_queue WHERE id = ?", params: [id] })),
       {
         sql: `INSERT INTO sync_state (scope, cursor, last_synced_at, last_error)
-              VALUES ('coordination', ?, ?, NULL)
+              VALUES (?, ?, ?, NULL)
               ON CONFLICT(scope) DO UPDATE SET
                 cursor = excluded.cursor, last_synced_at = excluded.last_synced_at, last_error = NULL`,
-        params: [cursor, timestamp]
+        params: [scope, cursor, timestamp]
       }
     ]);
   }
@@ -2088,9 +2103,10 @@ export class LocalRepository {
     ]);
   }
 
-  async syncCursor(): Promise<string | null> {
+  async syncCursor(scope = "coordination"): Promise<string | null> {
     const rows = await this.database.query<Row>(
-      "SELECT cursor FROM sync_state WHERE scope = 'coordination'"
+      "SELECT cursor FROM sync_state WHERE scope = ?",
+      [scope]
     );
     return nullableString(rows[0]?.cursor);
   }
