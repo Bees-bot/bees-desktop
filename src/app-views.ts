@@ -45,6 +45,7 @@ import {
   logicalFileReference,
   parseLogicalFileReference,
   processRuns,
+  workItemCondition,
   type FileTreeNode,
   type ProcessRun
 } from "./domain.js";
@@ -360,7 +361,20 @@ export function createMainViews(host: MainHost) {
       : null;
     // The same sentence the inbox shows, above whatever this item's view is — a person working on
     // the item should not have to visit the inbox to learn it is stuck.
-    const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null);
+    const activeWaits = item.waits.filter(({ resolvedAt }) => !resolvedAt);
+    const waitPanel = `<section class="mb-4 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
+      <div class="flex items-center justify-between gap-3">
+        <div><h2 class="text-sm font-bold">Waits</h2><p class="text-xs text-base-content/55">Pause work for a person, event, dependency, error, or time.</p></div>
+        ${item.isTerminal || item.archivedAt ? "" : `<button class="btn btn-ghost btn-xs" data-action="add-wait" data-id="${item.id}">Add wait</button>`}
+      </div>
+      ${activeWaits.length
+        ? `<ul class="mt-3 grid gap-2">${activeWaits.map((wait) => `<li class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200/60 px-3 py-2 text-xs">
+            <span><strong>${host.shell.escapeHtml(wait.kind.replaceAll("_", " "))}</strong> · ${host.shell.escapeHtml(wait.reason)}${wait.target ? ` · ${host.shell.escapeHtml(wait.target)}` : ""}${wait.wakeAt ? ` · until ${host.shell.escapeHtml(new Date(wait.wakeAt).toLocaleString())}` : ""}</span>
+            <button class="btn btn-ghost btn-xs" data-action="resolve-wait" data-id="${wait.id}">Resolve</button>
+          </li>`).join("")}</ul>`
+        : '<p class="mt-3 text-xs text-base-content/45">No active waits.</p>'}
+    </section>`;
+    const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null) + waitPanel;
     if (process && renderer) {
       const content = await renderer.render(item, process, runs);
       if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
@@ -462,12 +476,12 @@ export function createMainViews(host: MainHost) {
         ? ""
         : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
       <div class="kanban">${stages
-        .map((stage, stageIndex) => {
+        .map((stage) => {
           const cards = visible.filter(({ stageId }) => stageId === stage.id);
           return `<section class="kanban-column p-3">
             <header class="flex items-center justify-between px-1 pb-3 pt-1">
               <div class="flex items-center gap-2">
-                <span class="status ${stageIndex === stages.length - 1 ? "status-success" : "status-primary"}"></span>
+                <span class="status ${stage.isTerminal ? "status-success" : "status-primary"}"></span>
                 <h2 class="text-sm font-black tracking-[-.01em]">${host.shell.escapeHtml(stage.name)}</h2>
               </div>
               <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
@@ -486,7 +500,7 @@ export function createMainViews(host: MainHost) {
                       ${host.workspaceController.teamItems.some(({ parentId }) => parentId === item.id)
                   ? `<span class="badge badge-outline badge-sm">${host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id).length} tasks</span>`
                   : ""}
-                      ${item.status === "blocked" ? '<span class="badge badge-error badge-sm">Blocked</span>' : ""}
+                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge badge-warning badge-sm">Waiting</span>' : ""}
                       ${
                 // Silence is the normal look of stuck work, so the card always says which
                 // of the four states this item is in. The badge carries the heading only —
@@ -527,7 +541,7 @@ export function createMainViews(host: MainHost) {
           .map((item) => `<li class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <span class="min-w-0">
                       <span class="font-semibold">${host.shell.escapeHtml(item.title)}</span>
-                      <span class="ml-2 badge badge-ghost badge-sm">${host.shell.escapeHtml(item.status)}</span>
+                      <span class="ml-2 badge badge-ghost badge-sm">${host.shell.escapeHtml(workItemCondition(item))}</span>
                       <span class="ml-2 text-xs text-base-content/55">${host.shell.escapeHtml(new Date(item.updatedAt).toLocaleString())}</span>
                     </span>
                     <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
@@ -569,7 +583,8 @@ export function createMainViews(host: MainHost) {
         </div>
       </div>
       <label class="form-control mt-4 grid min-w-0 gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
-        <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done")}" required>
+        <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name, isTerminal }) => `${name}${isTerminal ? " *" : ""}`).join(", ") : "To do, In progress, Done *")}" required>
+        <p class="mt-1 text-xs text-base-content/50">Add * after every terminal status.</p>
         <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
     </form>`;
     if (!process) {

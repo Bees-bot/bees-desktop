@@ -82,11 +82,6 @@ function stringValue(value: DatabaseValue | undefined): string {
   return String(value ?? "");
 }
 
-const ITEM_ERROR_PREFIX = "item_error:";
-
-function itemErrorKey(itemId: string): string {
-  return `${ITEM_ERROR_PREFIX}${itemId}`;
-}
 
 function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
@@ -722,7 +717,8 @@ export class LocalRepository {
     );
     const stages = await this.database.query<Row>(
       `SELECT s.id, s.process_id AS processId, s.name, s.position,
-              s.completion_rules AS completionRules, s.archived_at AS archivedAt
+              s.completion_rules AS completionRules, s.is_terminal AS isTerminal,
+              s.archived_at AS archivedAt
        FROM stages s
        JOIN processes p ON p.id = s.process_id
        WHERE p.team_id = ?
@@ -768,15 +764,15 @@ export class LocalRepository {
     input: {
       name: string;
       description?: string;
-      stages?: string[];
+      stages?: Array<{ name: string; isTerminal: boolean }>;
       tags?: readonly string[];
       template?: ProcessLibraryEntry;
     }
   ): Promise<string> {
     const name = requiredText(input.name, "Process name", 120);
-    const stageInputs: Array<{ key?: string; name: string }> = input.template
-      ? input.template.states.map(({ key, name }) => ({ key, name }))
-      : (input.stages ?? []).map((stage) => ({ name: stage }));
+    const stageInputs: Array<{ key?: string; name: string; isTerminal: boolean }> = input.template
+      ? input.template.states.map(({ key, name, terminal = false }) => ({ key, name, isTerminal: terminal }))
+      : (input.stages ?? []).map((stage) => ({ ...stage }));
     if (stageInputs.length === 0) {
       throw new Error("A process needs at least one stage");
     }
@@ -789,6 +785,7 @@ export class LocalRepository {
         ? await deterministicUuid(`bees:stage:${id}:${stage.key}`)
         : createId(),
       name: requiredText(stage.name, "Stage name", 80),
+      isTerminal: stage.isTerminal,
       position,
       ...(stage.key ? { key: stage.key } : {})
     })));
@@ -806,8 +803,8 @@ export class LocalRepository {
         params: [id, JSON.stringify(definition)]
       },
       ...stages.map((stage) => ({
-        sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
-        params: [stage.id, id, stage.name, stage.position]
+        sql: "INSERT INTO stages (id, process_id, name, position, is_terminal) VALUES (?, ?, ?, ?, ?)",
+        params: [stage.id, id, stage.name, stage.position, Number(stage.isTerminal)]
       })),
       ...(input.tags ?? []).map((tag) => ({
         sql: "INSERT INTO tags (entity, entity_id, tag) VALUES ('process', ?, ?)",
@@ -826,10 +823,13 @@ export class LocalRepository {
 
   async updateProcessDefinition(
     id: string,
-    input: { name: string; description?: string; stages: string[] }
+    input: { name: string; description?: string; stages: Array<{ name: string; isTerminal: boolean }> }
   ): Promise<void> {
-    const stageNames = input.stages.map((stage) => requiredText(stage, "Stage name", 80));
-    if (stageNames.length === 0) throw new Error("A process needs at least one stage");
+    const stages = input.stages.map((stage) => ({
+      name: requiredText(stage.name, "Stage name", 80),
+      isTerminal: stage.isTerminal
+    }));
+    if (stages.length === 0) throw new Error("A process needs at least one stage");
     const current = (
       await this.database.query<Row>(
         `SELECT id, position FROM stages
@@ -837,7 +837,7 @@ export class LocalRepository {
         [id]
       )
     ).map((row) => ({ id: stringValue(row.id), position: Number(row.position) }));
-    const removed = current.slice(stageNames.length);
+    const removed = current.slice(stages.length);
     if (removed.length) {
       const placeholders = removed.map(() => "?").join(", ");
       const used = await this.database.query<Row>(
@@ -874,16 +874,16 @@ export class LocalRepository {
         sql: "UPDATE stages SET position = position + 10000 WHERE process_id = ?",
         params: [id]
       },
-      ...stageNames.map((name, position) => {
+      ...stages.map(({ name, isTerminal }, position) => {
         const existing = current[position];
         return existing
           ? {
-              sql: "UPDATE stages SET name = ?, position = ? WHERE id = ?",
-              params: [name, position, existing.id]
+              sql: "UPDATE stages SET name = ?, position = ?, is_terminal = ? WHERE id = ?",
+              params: [name, position, Number(isTerminal), existing.id]
             }
           : {
-              sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
-              params: [createId(), id, name, position]
+              sql: "INSERT INTO stages (id, process_id, name, position, is_terminal) VALUES (?, ?, ?, ?, ?)",
+              params: [createId(), id, name, position, Number(isTerminal)]
             };
       }),
       ...removed.map(({ id: stageId }) => ({
@@ -964,14 +964,16 @@ export class LocalRepository {
   async listWorkItems(processId: string): Promise<WorkItem[]> {
     return (
       await this.database.query<Row>(
-        `SELECT id, process_id AS processId, stage_id AS stageId, parent_id AS parentId,
-                title, description, owner, goal_json AS goalJson,
-                status, logical_files_json AS logicalFilesJson, sync_version AS syncVersion,
-                checkpoint_stage_id AS checkpointStageId, checkpoint_at AS checkpointAt,
-                deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt
-         FROM work_items
-         WHERE process_id = ? AND deleted_at IS NULL
-         ORDER BY created_at`,
+        `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.parent_id AS parentId,
+                w.title, w.description, w.owner, w.goal_json AS goalJson,
+                s.is_terminal AS stageTerminal, ${workItemWaitsJson},
+                w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
+                w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
+                w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
+                w.created_at AS createdAt, w.updated_at AS updatedAt
+         FROM work_items w JOIN stages s ON s.id = w.stage_id
+         WHERE w.process_id = ? AND w.deleted_at IS NULL
+         ORDER BY w.created_at`,
         [processId]
       )
     ).map(workItemRow);
@@ -981,12 +983,14 @@ export class LocalRepository {
     const rows = await this.database.query<Row>(
       `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
               w.parent_id AS parentId, w.title, w.description, w.owner,
-              w.goal_json AS goalJson, w.status,
+              w.goal_json AS goalJson, s.is_terminal AS stageTerminal, ${workItemWaitsJson},
               w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
               w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
-              w.deleted_at AS deletedAt, w.created_at AS createdAt, w.updated_at AS updatedAt
+              w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
+              w.created_at AS createdAt, w.updated_at AS updatedAt
        FROM work_items w
        JOIN processes p ON p.id = w.process_id
+       JOIN stages s ON s.id = w.stage_id
        WHERE p.team_id = ? AND w.deleted_at IS NULL
        ORDER BY w.updated_at DESC`,
       [teamId]
@@ -996,12 +1000,15 @@ export class LocalRepository {
 
   async getWorkItem(id: string): Promise<WorkItem | null> {
     const rows = await this.database.query<Row>(
-      `SELECT id, process_id AS processId, stage_id AS stageId,
-              parent_id AS parentId, title, description, owner, goal_json AS goalJson, status,
-              logical_files_json AS logicalFilesJson, sync_version AS syncVersion,
-              checkpoint_stage_id AS checkpointStageId, checkpoint_at AS checkpointAt,
-              deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt
-       FROM work_items WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
+              w.parent_id AS parentId, w.title, w.description, w.owner, w.goal_json AS goalJson,
+              s.is_terminal AS stageTerminal, ${workItemWaitsJson},
+              w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
+              w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
+              w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
+              w.created_at AS createdAt, w.updated_at AS updatedAt
+       FROM work_items w JOIN stages s ON s.id = w.stage_id
+       WHERE w.id = ? AND w.deleted_at IS NULL`,
       [id]
     );
     return rows[0] ? workItemRow(rows[0]) : null;
@@ -1068,12 +1075,203 @@ export class LocalRepository {
     );
   }
 
-  async setWorkItemStatus(id: string, status: WorkItemStatus): Promise<void> {
-    await this.database.execute(
-      `UPDATE work_items SET status = ?, sync_version = sync_version + 1, updated_at = ?
-       WHERE id = ? AND deleted_at IS NULL`,
-      [status, now(), id]
+  async createWorkItemWait(
+    workItemId: string,
+    input: {
+      kind: WorkItemWaitKind;
+      reason: string;
+      target?: string;
+      dependencyWorkItemId?: string;
+      executionId?: string;
+      correlationKey?: string;
+      wakeAt?: string;
+    }
+  ): Promise<string> {
+    if (input.correlationKey?.trim()) {
+      const existing = await this.database.query<Row>(
+        "SELECT id FROM work_item_waits WHERE work_item_id = ? AND correlation_key = ?",
+        [workItemId, input.correlationKey.trim()]
+      );
+      if (existing[0]) return stringValue(existing[0].id);
+    }
+    const id = createId();
+    const timestamp = now();
+    let resolvedAt: string | null = null;
+    let resolution: string | null = null;
+    if (input.kind === "dependency") {
+      const dependencyId = requiredText(input.dependencyWorkItemId, "Dependency", 36);
+      if (dependencyId === workItemId) throw new Error("A work item cannot wait on itself");
+      const rows = await this.database.query<Row>(
+        `WITH RECURSIVE dependencies(id) AS (
+           SELECT dependency_work_item_id FROM work_item_waits
+           WHERE work_item_id = ? AND kind = 'dependency' AND resolved_at IS NULL
+           UNION
+           SELECT q.dependency_work_item_id FROM work_item_waits q
+           JOIN dependencies d ON q.work_item_id = d.id
+           WHERE q.kind = 'dependency' AND q.resolved_at IS NULL
+         )
+         SELECT s.is_terminal AS isTerminal,
+                EXISTS(SELECT 1 FROM dependencies WHERE id = ?) AS createsCycle
+         FROM work_items w JOIN stages s ON s.id = w.stage_id
+         JOIN processes p ON p.id = w.process_id
+         WHERE w.id = ? AND p.team_id = (
+           SELECT p2.team_id FROM work_items w2 JOIN processes p2 ON p2.id = w2.process_id
+           WHERE w2.id = ?
+         )`,
+        [dependencyId, workItemId, dependencyId, workItemId]
+      );
+      if (!rows[0]) throw new Error("Dependencies must be work items in the same team");
+      if (Boolean(rows[0].createsCycle)) throw new Error("This dependency would create a cycle");
+      if (Boolean(rows[0].isTerminal)) {
+        resolvedAt = timestamp;
+        resolution = "Dependency already reached a terminal status";
+      }
+    }
+    if (input.kind === "external_event") {
+      const correlationKey = requiredText(input.correlationKey, "Event correlation key", 200);
+      const received = await this.database.query<Row>(
+        `SELECT e.resolution FROM external_event_receipts e
+         JOIN processes p ON p.team_id = e.team_id
+         JOIN work_items w ON w.process_id = p.id
+         WHERE w.id = ? AND e.correlation_key = ? LIMIT 1`,
+        [workItemId, correlationKey]
+      );
+      if (received[0]) {
+        resolvedAt = timestamp;
+        resolution = stringValue(received[0].resolution) || "Received";
+      }
+    }
+    if (input.kind === "execution") {
+      const executionId = requiredText(input.executionId, "Execution", 36);
+      const rows = await this.database.query<Row>(
+        `SELECT e.status FROM executions e
+         JOIN work_items w ON w.id = e.work_item_id
+         WHERE e.id = ? AND w.id = ?`,
+        [executionId, workItemId]
+      );
+      if (!rows[0]) throw new Error("An execution wait must target a run of this work item");
+      if (["completed", "failed", "cancelled", "interrupted"].includes(stringValue(rows[0].status))) {
+        resolvedAt = timestamp;
+        resolution = `Execution ${stringValue(rows[0].status)}`;
+      }
+    }
+    await this.database.transaction([
+      {
+        sql: `INSERT INTO work_item_waits
+              (id, work_item_id, kind, reason, target, dependency_work_item_id, execution_id,
+               correlation_key, wake_at, resolved_at, resolution, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          id,
+          workItemId,
+          input.kind,
+          requiredText(input.reason, "Wait reason", 2_000),
+          input.target?.trim() || null,
+          input.dependencyWorkItemId ?? null,
+          input.executionId ?? null,
+          input.correlationKey?.trim() || null,
+          input.wakeAt ? new Date(input.wakeAt).toISOString() : null,
+          resolvedAt,
+          resolution,
+          timestamp,
+          timestamp
+        ]
+      },
+      {
+        sql: `UPDATE work_items SET sync_version = sync_version + 1, updated_at = ?
+              WHERE id = ? AND deleted_at IS NULL`,
+        params: [timestamp, workItemId]
+      }
+    ]);
+    return id;
+  }
+
+  async resolveWorkItemWait(id: string, resolution = "Resolved"): Promise<void> {
+    const timestamp = now();
+    await this.database.transaction([
+      {
+        sql: `UPDATE work_items SET sync_version = sync_version + 1, updated_at = ?
+              WHERE id = (SELECT work_item_id FROM work_item_waits WHERE id = ? AND resolved_at IS NULL)`,
+        params: [timestamp, id]
+      },
+      {
+        sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = ?, updated_at = ?
+              WHERE id = ? AND resolved_at IS NULL`,
+        params: [timestamp, resolution.trim() || "Resolved", timestamp, id]
+      }
+    ]);
+  }
+
+  async resolveWorkItemWaits(
+    workItemId: string,
+    kind?: WorkItemWaitKind,
+    resolution = "Resolved"
+  ): Promise<number> {
+    const rows = await this.database.query<Row>(
+      `SELECT id FROM work_item_waits
+       WHERE work_item_id = ? AND resolved_at IS NULL AND (? IS NULL OR kind = ?)`,
+      [workItemId, kind ?? null, kind ?? null]
     );
+    if (!rows.length) return 0;
+    const timestamp = now();
+    await this.database.transaction([
+      ...rows.map((row) => ({
+        sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = ?, updated_at = ?
+              WHERE id = ? AND resolved_at IS NULL`,
+        params: [timestamp, resolution.trim() || "Resolved", timestamp, stringValue(row.id)]
+      })),
+      {
+        sql: "UPDATE work_items SET sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+        params: [timestamp, workItemId]
+      }
+    ]);
+    return rows.length;
+  }
+
+  async receiveExternalEvent(teamId: string, correlationKey: string, resolution = "Received"): Promise<number> {
+    const key = requiredText(correlationKey, "Event correlation key", 200);
+    const timestamp = now();
+    const rows = await this.database.query<Row>(
+      `SELECT q.id, q.work_item_id AS workItemId
+       FROM work_item_waits q
+       JOIN work_items w ON w.id = q.work_item_id
+       JOIN processes p ON p.id = w.process_id
+       WHERE p.team_id = ? AND q.kind = 'external_event' AND q.correlation_key = ?
+         AND q.resolved_at IS NULL`,
+      [teamId, key]
+    );
+    await this.database.transaction([
+      {
+        sql: `INSERT INTO external_event_receipts (team_id, correlation_key, resolution, received_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(team_id, correlation_key) DO NOTHING`,
+        params: [teamId, key, resolution.trim(), timestamp]
+      },
+      ...rows.flatMap((row) => [
+        {
+          sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = ?, updated_at = ?
+                WHERE id = ? AND resolved_at IS NULL`,
+          params: [timestamp, resolution.trim() || "Received", timestamp, stringValue(row.id)]
+        },
+        {
+          sql: `UPDATE work_items SET sync_version = sync_version + 1, updated_at = ? WHERE id = ?`,
+          params: [timestamp, stringValue(row.workItemId)]
+        }
+      ])
+    ]);
+    return rows.length;
+  }
+
+  async resolveDueWaits(teamId: string, at = now()): Promise<number> {
+    const rows = await this.database.query<Row>(
+      `SELECT q.id FROM work_item_waits q
+       JOIN work_items w ON w.id = q.work_item_id
+       JOIN processes p ON p.id = w.process_id
+       WHERE p.team_id = ? AND q.resolved_at IS NULL AND q.wake_at IS NOT NULL AND q.wake_at <= ?`,
+      [teamId, at]
+    );
+    for (const row of rows) await this.resolveWorkItemWait(stringValue(row.id), "Wake time reached");
+    return rows.length;
   }
 
   async updateWorkItem(
@@ -1082,20 +1280,20 @@ export class LocalRepository {
       title: string;
       description?: string;
       owner?: string;
-      status: WorkItemStatus;
+      archived: boolean;
       logicalFiles?: string[];
     }
   ): Promise<void> {
     await this.database.execute(
       `UPDATE work_items
-       SET title = ?, description = ?, owner = ?, status = ?, logical_files_json = ?,
+       SET title = ?, description = ?, owner = ?, archived_at = ?, logical_files_json = ?,
            sync_version = sync_version + 1, updated_at = ?
        WHERE id = ? AND deleted_at IS NULL`,
       [
         requiredText(input.title, "Work item title", 180),
         input.description?.trim() ?? "",
         input.owner?.trim() || null,
-        input.status,
+        input.archived ? now() : null,
         JSON.stringify(logicalFileReferences(input.logicalFiles ?? [])),
         now(),
         id
@@ -1105,7 +1303,7 @@ export class LocalRepository {
 
   async moveWorkItem(id: string, stageId: string): Promise<void> {
     const target = await this.database.query<Row>(
-      `SELECT s.id
+      `SELECT s.id, s.is_terminal AS isTerminal
        FROM stages s
        JOIN work_items w ON w.process_id = s.process_id
        WHERE w.id = ? AND s.id = ? AND s.archived_at IS NULL`,
@@ -1114,10 +1312,42 @@ export class LocalRepository {
     if (!target[0]) {
       throw new Error("Work items can only move to a stage in the same process");
     }
-    await this.database.execute(
-      "UPDATE work_items SET stage_id = ?, sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
-      [stageId, now(), id]
-    );
+    const timestamp = now();
+    const completedWaits = Boolean(target[0].isTerminal)
+      ? await this.database.query<Row>(
+          "SELECT id FROM work_item_waits WHERE work_item_id = ? AND resolved_at IS NULL",
+          [id]
+        )
+      : [];
+    const dependents = Boolean(target[0].isTerminal)
+      ? await this.database.query<Row>(
+          `SELECT id, work_item_id AS workItemId FROM work_item_waits
+           WHERE dependency_work_item_id = ? AND kind = 'dependency' AND resolved_at IS NULL`,
+          [id]
+        )
+      : [];
+    await this.database.transaction([
+      {
+        sql: "UPDATE work_items SET stage_id = ?, sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+        params: [stageId, timestamp, id]
+      },
+      ...completedWaits.map((row) => ({
+        sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = 'Work item reached a terminal status', updated_at = ?
+              WHERE id = ? AND resolved_at IS NULL`,
+        params: [timestamp, timestamp, stringValue(row.id)]
+      })),
+      ...dependents.flatMap((row) => [
+        {
+          sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = 'Dependency completed', updated_at = ?
+                WHERE id = ? AND resolved_at IS NULL`,
+          params: [timestamp, timestamp, stringValue(row.id)]
+        },
+        {
+          sql: "UPDATE work_items SET sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+          params: [timestamp, stringValue(row.workItemId)]
+        }
+      ])
+    ]);
   }
 
   async setTeamFolder(teamId: string, localPath: string): Promise<void> {
@@ -1490,12 +1720,12 @@ export class LocalRepository {
       instanceUid?: string;
     } = {}
   ): Promise<void> {
-    const startedAt = status === "running" ? now() : null;
-    const endedAt = ["completed", "failed", "cancelled", "interrupted"].includes(status)
-      ? now()
-      : null;
-    await this.database.execute(
-      `UPDATE executions
+    const timestamp = now();
+    const startedAt = status === "running" ? timestamp : null;
+    const settled = ["completed", "failed", "cancelled", "interrupted"].includes(status);
+    const endedAt = settled ? timestamp : null;
+    const update = {
+      sql: `UPDATE executions
        SET status = ?, logs = COALESCE(?, logs), result_json = COALESCE(?, result_json),
            usage_json = COALESCE(?, usage_json), model_json = COALESCE(?, model_json),
            error_text = COALESCE(?, error_text),
@@ -1504,7 +1734,7 @@ export class LocalRepository {
            instance_uid = COALESCE(?, instance_uid),
            started_at = COALESCE(started_at, ?), ended_at = COALESCE(?, ended_at)
        WHERE id = ?`,
-      [
+      params: [
         status,
         input.logs ?? null,
         input.result ? JSON.stringify(input.result) : null,
@@ -1518,7 +1748,29 @@ export class LocalRepository {
         endedAt,
         id
       ]
+    };
+    if (!settled) {
+      await this.database.execute(update.sql, update.params);
+      return;
+    }
+    const waits = await this.database.query<Row>(
+      `SELECT id, work_item_id AS workItemId FROM work_item_waits
+       WHERE kind = 'execution' AND execution_id = ? AND resolved_at IS NULL`,
+      [id]
     );
+    const workItemIds = [...new Set(waits.map((row) => stringValue(row.workItemId)))];
+    await this.database.transaction([
+      update,
+      ...waits.map((row) => ({
+        sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = ?, updated_at = ?
+              WHERE id = ? AND resolved_at IS NULL`,
+        params: [timestamp, `Execution ${status}`, timestamp, stringValue(row.id)]
+      })),
+      ...workItemIds.map((workItemId) => ({
+        sql: "UPDATE work_items SET sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+        params: [timestamp, workItemId]
+      }))
+    ]);
   }
 
   async getExecution(id: string): Promise<Execution | null> {
@@ -1752,7 +2004,7 @@ export class LocalRepository {
       {
         sql: `UPDATE work_items
               SET checkpoint_stage_id = stage_id, checkpoint_at = ?, stage_id = ?,
-                  status = 'open', sync_version = sync_version + 1, updated_at = ?
+                  sync_version = sync_version + 1, updated_at = ?
               WHERE id = ? AND deleted_at IS NULL`,
         params: [timestamp, ids.length ? waitingStageId : reviewStageId, timestamp, parentId]
       },
@@ -1818,7 +2070,7 @@ export class LocalRepository {
     const current = rows[0];
     if (!current) throw new Error("Work item not found");
     const stages = await this.database.query<Row>(
-      `SELECT id, position FROM stages
+      `SELECT id, position, is_terminal AS isTerminal FROM stages
        WHERE process_id = ? AND archived_at IS NULL
        ORDER BY position`,
       [stringValue(current.processId)]
@@ -1828,8 +2080,21 @@ export class LocalRepository {
       ? stages.find((stage) => stringValue(stage.id) === requested)
       : stages.find((stage) => Number(stage.position) > Number(current.position));
     if (requested && !next) throw new Error("Target status not found");
-    const last = stages.at(-1);
-    const finished = !next || (last !== undefined && stringValue(next.id) === stringValue(last.id));
+    const destinationId = next ? stringValue(next.id) : stringValue(current.stageId);
+    const destination = stages.find(({ id }) => stringValue(id) === destinationId);
+    const completedWaits = destination && Boolean(destination.isTerminal)
+      ? await this.database.query<Row>(
+          "SELECT id FROM work_item_waits WHERE work_item_id = ? AND resolved_at IS NULL",
+          [workItemId]
+        )
+      : [];
+    const dependents = destination && Boolean(destination.isTerminal)
+      ? await this.database.query<Row>(
+          `SELECT id, work_item_id AS workItemId FROM work_item_waits
+           WHERE dependency_work_item_id = ? AND kind = 'dependency' AND resolved_at IS NULL`,
+          [workItemId]
+        )
+      : [];
     const timestamp = now();
     const files = logicalFileReferences([
       ...parseJson<string[]>(current.logicalFilesJson, []),
@@ -1844,31 +2109,42 @@ export class LocalRepository {
     const update = {
       sql: `UPDATE work_items
        SET checkpoint_stage_id = stage_id, checkpoint_at = ?,
-           stage_id = COALESCE(?, stage_id), status = ?,
+           stage_id = COALESCE(?, stage_id),
            logical_files_json = ?, sync_version = sync_version + 1, updated_at = ?
        WHERE id = ?${guard}`,
       params: [
         timestamp,
         next ? stringValue(next.id) : null,
-        finished ? "done" : "open",
         JSON.stringify(files),
         timestamp,
         workItemId,
         ...(projectionExecutionId ? [projectionExecutionId] : [])
       ]
     };
-    if (!projectionExecutionId) {
-      await this.database.execute(update.sql, update.params);
-      return;
-    }
     await this.database.transaction([
       update,
-      {
+      ...(projectionExecutionId ? [{
         sql: `UPDATE executions
               SET result_json = json_set(result_json, '$.projectionState', 'local_applied')
               WHERE id = ? AND json_extract(result_json, '$.projectionState') = 'pending'`,
         params: [projectionExecutionId]
-      }
+      }] : []),
+      ...completedWaits.map((row) => ({
+        sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = 'Work item reached a terminal status', updated_at = ?
+              WHERE id = ? AND resolved_at IS NULL`,
+        params: [timestamp, timestamp, stringValue(row.id)]
+      })),
+      ...dependents.flatMap((row) => [
+        {
+          sql: `UPDATE work_item_waits SET resolved_at = ?, resolution = 'Dependency completed', updated_at = ?
+                WHERE id = ? AND resolved_at IS NULL`,
+          params: [timestamp, timestamp, stringValue(row.id)]
+        },
+        {
+          sql: "UPDATE work_items SET sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+          params: [timestamp, stringValue(row.workItemId)]
+        }
+      ])
     ]);
   }
 
@@ -1901,6 +2177,7 @@ export class LocalRepository {
     }
     const id = createId();
     const timestamp = now();
+    const nextRunAt = new Date(input.nextRunAt).toISOString();
     await this.database.execute(
       `INSERT INTO schedules
        (id, team_id, work_item_id, name, recurrence, mode, role, timezone,
@@ -1915,31 +2192,79 @@ export class LocalRepository {
         input.mode,
         input.role ? requiredText(input.role, "Schedule agent role", 120) : null,
         requiredText(input.timezone, "Timezone", 120),
-        new Date(input.nextRunAt).toISOString(),
+        nextRunAt,
         timestamp,
         timestamp
       ]
     );
+    await this.createWorkItemWait(input.workItemId, {
+      kind: "schedule",
+      reason: `Scheduled for ${nextRunAt}`,
+      wakeAt: nextRunAt,
+      correlationKey: `schedule:${id}:${nextRunAt}`
+    });
     return id;
   }
 
   async setScheduleEnabled(id: string, enabled: boolean): Promise<void> {
+    const rows = await this.database.query<Row>(
+      "SELECT work_item_id AS workItemId, next_run_at AS nextRunAt FROM schedules WHERE id = ?",
+      [id]
+    );
+    if (!rows[0]) return;
     await this.database.execute(
       "UPDATE schedules SET enabled = ?, updated_at = ? WHERE id = ?",
       [enabled, now(), id]
     );
+    if (enabled) {
+      await this.createWorkItemWait(stringValue(rows[0].workItemId), {
+        kind: "schedule",
+        reason: `Scheduled for ${stringValue(rows[0].nextRunAt)}`,
+        wakeAt: stringValue(rows[0].nextRunAt),
+        correlationKey: `schedule:${id}:${stringValue(rows[0].nextRunAt)}`
+      });
+    }
+    else {
+      const waits = await this.database.query<Row>(
+        `SELECT id FROM work_item_waits
+         WHERE work_item_id = ? AND kind = 'schedule' AND resolved_at IS NULL
+           AND correlation_key LIKE ?`,
+        [stringValue(rows[0].workItemId), `schedule:${id}:%`]
+      );
+      for (const wait of waits) await this.resolveWorkItemWait(stringValue(wait.id), "Schedule disabled");
+    }
   }
 
   async updateScheduleAfterTick(id: string, nextRunAt: string, ran: boolean): Promise<void> {
+    const rows = await this.database.query<Row>(
+      "SELECT work_item_id AS workItemId, enabled FROM schedules WHERE id = ?",
+      [id]
+    );
+    if (!rows[0]) return;
     await this.database.execute(
       `UPDATE schedules
        SET next_run_at = ?, last_run_at = CASE WHEN ? THEN ? ELSE last_run_at END, updated_at = ?
        WHERE id = ?`,
       [nextRunAt, ran, now(), now(), id]
     );
+    if (Boolean(rows[0].enabled)) {
+      await this.createWorkItemWait(stringValue(rows[0].workItemId), {
+        kind: "schedule",
+        reason: `Scheduled for ${nextRunAt}`,
+        wakeAt: nextRunAt,
+        correlationKey: `schedule:${id}:${nextRunAt}`
+      });
+    }
   }
 
   async deleteSchedule(id: string): Promise<void> {
+    const rows = await this.database.query<Row>(
+      `SELECT q.id FROM work_item_waits q JOIN schedules s ON s.work_item_id = q.work_item_id
+       WHERE s.id = ? AND q.kind = 'schedule' AND q.resolved_at IS NULL
+         AND q.correlation_key LIKE ?`,
+      [id, `schedule:${id}:%`]
+    );
+    for (const wait of rows) await this.resolveWorkItemWait(stringValue(wait.id), "Schedule deleted");
     await this.database.execute("DELETE FROM schedules WHERE id = ?", [id]);
   }
 
@@ -1994,34 +2319,6 @@ export class LocalRepository {
       `INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
       [requiredText(key, "Setting key", 120), JSON.stringify(value), now()]
-    );
-  }
-
-  /**
-   * The app's error boundary writes here, for any work item in any process. One row per item:
-   * the newest failure is the one a person needs, and the record clears itself as soon as the
-   * item moves again (see `supervise` in main.ts), so nothing has to remember to delete it.
-   */
-  async recordItemError(itemId: string, message: string): Promise<void> {
-    await this.setSetting(itemErrorKey(itemId), { message, at: now() });
-  }
-
-  async clearItemError(itemId: string): Promise<void> {
-    await this.database.execute("DELETE FROM settings WHERE key = ?", [itemErrorKey(itemId)]);
-  }
-
-  async listItemErrors(): Promise<Map<string, { message: string; at: string }>> {
-    const rows = await this.database.query<Row>(
-      "SELECT key, value_json AS valueJson FROM settings WHERE key LIKE ?",
-      [`${ITEM_ERROR_PREFIX}%`]
-    );
-    return new Map(
-      rows.flatMap((row) => {
-        const value = parseJson<{ message?: string; at?: string }>(row.valueJson, {});
-        return value.message && value.at
-          ? [[stringValue(row.key).slice(ITEM_ERROR_PREFIX.length), { message: value.message, at: value.at }] as const]
-          : [];
-      })
     );
   }
 
@@ -2134,14 +2431,14 @@ export class LocalRepository {
 
   async coordinationProjection(teamId: string): Promise<
     {
-      recordType: "file_location" | "process" | "stage" | "work_item";
+      recordType: "file_location" | "process" | "stage" | "work_item" | "work_item_wait";
       recordId: string;
       version: number;
       deleted: boolean;
       payload: Record<string, unknown>;
     }[]
   > {
-    const [processes, stages, workItems, fileLocations] = await Promise.all([
+    const [processes, stages, workItems, waits, fileLocations] = await Promise.all([
       this.database.query<Row>(
         `SELECT p.id, p.name, p.description, p.archived_at AS archivedAt,
                 p.updated_at AS updatedAt, d.definition_json AS definitionJson
@@ -2152,18 +2449,32 @@ export class LocalRepository {
       ),
       this.database.query<Row>(
         `SELECT s.id, s.process_id AS processId, s.name, s.position,
-                s.completion_rules AS completionRules, s.archived_at AS archivedAt
+                s.completion_rules AS completionRules, s.is_terminal AS isTerminal,
+                s.archived_at AS archivedAt, p.updated_at AS processUpdatedAt
          FROM stages s JOIN processes p ON p.id = s.process_id WHERE p.team_id = ?`,
         [teamId]
       ),
       this.database.query<Row>(
         `SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.title,
-                w.parent_id AS parentId, w.description, w.owner, w.goal_json AS goalJson, w.status,
+                w.parent_id AS parentId, w.description, w.owner, w.goal_json AS goalJson,
                 w.logical_files_json AS logicalFilesJson,
                 w.sync_version AS syncVersion, w.checkpoint_stage_id AS checkpointStageId,
-                w.checkpoint_at AS checkpointAt, w.deleted_at AS deletedAt,
+                w.checkpoint_at AS checkpointAt, w.archived_at AS archivedAt,
+                w.deleted_at AS deletedAt,
                 w.created_at AS createdAt, w.updated_at AS updatedAt
          FROM work_items w JOIN processes p ON p.id = w.process_id WHERE p.team_id = ?`,
+        [teamId]
+      ),
+      this.database.query<Row>(
+        `SELECT q.id, q.work_item_id AS workItemId, q.kind, q.reason, q.target,
+                q.dependency_work_item_id AS dependencyWorkItemId,
+                q.execution_id AS executionId, q.correlation_key AS correlationKey,
+                q.wake_at AS wakeAt, q.resolved_at AS resolvedAt, q.resolution,
+                q.created_at AS createdAt, q.updated_at AS updatedAt
+         FROM work_item_waits q
+         JOIN work_items w ON w.id = q.work_item_id
+         JOIN processes p ON p.id = w.process_id
+         WHERE p.team_id = ?`,
         [teamId]
       ),
       this.database.query<Row>(
@@ -2204,13 +2515,14 @@ export class LocalRepository {
       ...stages.map((row) => ({
         recordType: "stage" as const,
         recordId: stringValue(row.id),
-        version: Number(row.position) + 1,
+        version: Date.parse(stringValue(row.processUpdatedAt)),
         deleted: Boolean(row.archivedAt),
         payload: {
           processId: stringValue(row.processId),
           name: stringValue(row.name),
           position: Number(row.position),
-          completionRules: stringValue(row.completionRules)
+          completionRules: stringValue(row.completionRules),
+          isTerminal: Boolean(row.isTerminal)
         }
       })),
       ...workItems.map((row) => ({
@@ -2226,10 +2538,30 @@ export class LocalRepository {
           description: stringValue(row.description),
           owner: nullableString(row.owner),
           goal: parseJson<GoalWorkMetadata | null>(row.goalJson, null),
-          status: stringValue(row.status),
           logicalFiles: parseJson<string[]>(row.logicalFilesJson, []),
           checkpointStageId: nullableString(row.checkpointStageId),
           checkpointAt: nullableString(row.checkpointAt),
+          archivedAt: nullableString(row.archivedAt),
+          createdAt: stringValue(row.createdAt),
+          updatedAt: stringValue(row.updatedAt)
+        }
+      })),
+      ...waits.map((row) => ({
+        recordType: "work_item_wait" as const,
+        recordId: stringValue(row.id),
+        version: Date.parse(stringValue(row.updatedAt)),
+        deleted: false,
+        payload: {
+          workItemId: stringValue(row.workItemId),
+          kind: stringValue(row.kind),
+          reason: stringValue(row.reason),
+          target: nullableString(row.target),
+          dependencyWorkItemId: nullableString(row.dependencyWorkItemId),
+          executionId: nullableString(row.executionId),
+          correlationKey: nullableString(row.correlationKey),
+          wakeAt: nullableString(row.wakeAt),
+          resolvedAt: nullableString(row.resolvedAt),
+          resolution: nullableString(row.resolution),
           createdAt: stringValue(row.createdAt),
           updatedAt: stringValue(row.updatedAt)
         }
@@ -2326,11 +2658,11 @@ export class LocalRepository {
     if (record.recordType === "stage") {
       await this.database.execute(
         `INSERT INTO stages
-         (id, process_id, name, position, completion_rules, archived_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+         (id, process_id, name, position, completion_rules, is_terminal, archived_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, position = excluded.position,
-           completion_rules = excluded.completion_rules,
+           completion_rules = excluded.completion_rules, is_terminal = excluded.is_terminal,
            archived_at = excluded.archived_at`,
         [
           recordId,
@@ -2338,6 +2670,7 @@ export class LocalRepository {
           requiredText(payload.name, "Stage name"),
           Number(payload.position),
           typeof payload.completionRules === "string" ? payload.completionRules : "",
+          Number(payload.isTerminal === true),
           record.deleted ? now() : null
         ]
       );
@@ -2348,18 +2681,18 @@ export class LocalRepository {
       const updatedAt = requiredText(payload.updatedAt, "Work item update time");
       await this.database.execute(
         `INSERT INTO work_items
-         (id, process_id, stage_id, parent_id, title, description, owner, goal_json, status,
-          logical_files_json, sync_version, checkpoint_stage_id, checkpoint_at, deleted_at,
+         (id, process_id, stage_id, parent_id, title, description, owner, goal_json,
+          logical_files_json, sync_version, checkpoint_stage_id, checkpoint_at, archived_at, deleted_at,
           created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            stage_id = excluded.stage_id, title = excluded.title, description = excluded.description,
            parent_id = excluded.parent_id, owner = excluded.owner, goal_json = excluded.goal_json,
-           status = excluded.status,
            logical_files_json = excluded.logical_files_json, sync_version = excluded.sync_version,
            checkpoint_stage_id = excluded.checkpoint_stage_id,
            checkpoint_at = excluded.checkpoint_at,
-           deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
+           archived_at = excluded.archived_at, deleted_at = excluded.deleted_at,
+           updated_at = excluded.updated_at
          WHERE excluded.sync_version > work_items.sync_version`,
         [
           recordId,
@@ -2370,13 +2703,45 @@ export class LocalRepository {
           typeof payload.description === "string" ? payload.description : "",
           typeof payload.owner === "string" ? payload.owner : null,
           JSON.stringify(payload.goal ?? null),
-          requiredText(payload.status, "Work item status"),
           JSON.stringify(logicalFileReferences(payload.logicalFiles ?? [])),
           record.version,
           typeof payload.checkpointStageId === "string" ? payload.checkpointStageId : null,
           typeof payload.checkpointAt === "string" ? payload.checkpointAt : null,
+          typeof payload.archivedAt === "string" ? payload.archivedAt : null,
           record.deleted ? updatedAt : null,
           createdAt,
+          updatedAt
+        ]
+      );
+      return;
+    }
+    if (record.recordType === "work_item_wait") {
+      const updatedAt = requiredText(payload.updatedAt, "Wait update time");
+      await this.database.execute(
+        `INSERT INTO work_item_waits
+         (id, work_item_id, kind, reason, target, dependency_work_item_id, execution_id,
+          correlation_key, wake_at, resolved_at, resolution, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           kind = excluded.kind, reason = excluded.reason, target = excluded.target,
+           dependency_work_item_id = excluded.dependency_work_item_id,
+           execution_id = excluded.execution_id, correlation_key = excluded.correlation_key,
+           wake_at = excluded.wake_at, resolved_at = excluded.resolved_at,
+           resolution = excluded.resolution, updated_at = excluded.updated_at
+         WHERE excluded.updated_at > work_item_waits.updated_at`,
+        [
+          recordId,
+          requiredText(payload.workItemId, "Work item identifier"),
+          requiredText(payload.kind, "Wait kind"),
+          requiredText(payload.reason, "Wait reason", 2_000),
+          typeof payload.target === "string" ? payload.target : null,
+          typeof payload.dependencyWorkItemId === "string" ? payload.dependencyWorkItemId : null,
+          typeof payload.executionId === "string" ? payload.executionId : null,
+          typeof payload.correlationKey === "string" ? payload.correlationKey : null,
+          typeof payload.wakeAt === "string" ? payload.wakeAt : null,
+          typeof payload.resolvedAt === "string" ? payload.resolvedAt : null,
+          typeof payload.resolution === "string" ? payload.resolution : null,
+          requiredText(payload.createdAt, "Wait creation time"),
           updatedAt
         ]
       );

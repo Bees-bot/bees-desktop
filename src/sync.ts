@@ -75,8 +75,8 @@ export class MetadataSyncService {
     const pulled = await this.transport.pull(organizationId, currentCursor);
     const ordered = [...pulled.records].sort(
       (a, b) =>
-        ["file_location", "process", "stage", "work_item"].indexOf(a.recordType) -
-        ["file_location", "process", "stage", "work_item"].indexOf(b.recordType)
+        ["file_location", "process", "stage", "work_item", "work_item_wait"].indexOf(a.recordType) -
+        ["file_location", "process", "stage", "work_item", "work_item_wait"].indexOf(b.recordType)
     );
     for (const record of ordered) {
       assertMetadataOnly(record.payload);

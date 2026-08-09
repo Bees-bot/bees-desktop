@@ -45,7 +45,7 @@ describe("software project module contract", () => {
       state.id === SOFTWARE_STATE_IDS.requirements ? { ...state, name: "Intake" } : state
     );
     const view = softwareProjectView({
-      item: { title: "Change the app" } as WorkItem,
+      item: { title: "Change the app", waits: [] } as unknown as WorkItem,
       stageId: SOFTWARE_STATE_IDS.requirements,
       stateIds: SOFTWARE_STATE_IDS,
       states,
@@ -62,7 +62,7 @@ describe("software project module contract", () => {
 
   it("requires one local project folder before requirements", () => {
     const view = softwareProjectView({
-      item: { title: "Change the app" } as WorkItem,
+      item: { title: "Change the app", waits: [] } as unknown as WorkItem,
       stageId: SOFTWARE_STATE_IDS.requirements,
       stateIds: SOFTWARE_STATE_IDS,
       states: SOFTWARE_STATES,

@@ -183,7 +183,7 @@ export function runPrompt({
       ? `Tasks:\n${children
           .map(
             (child) =>
-              `- [${child.status === "done" ? "done" : child.status}] ${child.title}${
+              `- [${child.isTerminal ? "done" : child.waits.some(({ resolvedAt }) => !resolvedAt) ? "waiting" : "active"}] ${child.title}${
                 child.logicalFiles.length ? ` — files: ${child.logicalFiles.join(", ")}` : ""
               }`
           )

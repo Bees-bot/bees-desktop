@@ -18,7 +18,7 @@ export type WorkStateKind = "running" | "scheduled" | "waiting" | "stalled";
 export type WorkStateReason =
   | "run-in-flight"
   | "approval-pending"
-  | "blocked"
+  | "wait-active"
   | "step-failed"
   | "run-failed"
   | "human-step"
@@ -54,8 +54,6 @@ export interface WorkFacts {
   processRunning: boolean;
   /** When a schedule will next fire for this item. */
   scheduledFor?: string;
-  /** The last thing that threw on this item, recorded by the app's error boundary. */
-  lastError?: { message: string; at: string };
   /** ISO now. */
   now: string;
   /** How long an open item may sit untouched, with nothing running, before it is stalled. */
@@ -94,15 +92,24 @@ const RULES: ReadonlyArray<(facts: WorkFacts) => WorkState | null> = [
         )
       : null,
 
-  ({ item }) =>
-    item.status === "blocked"
-      ? state("waiting", "blocked", "Blocked — needs a person", "The workflow gave up and stopped here")
-      : null,
+  ({ item }) => {
+    const wait = item.waits.find(({ resolvedAt, kind }) => !resolvedAt && kind === "error");
+    return wait
+      ? state("stalled", "step-failed", "A step failed", readableError(wait.reason))
+      : null;
+  },
 
-  ({ lastError }) =>
-    lastError
-      ? state("stalled", "step-failed", "A step failed", readableError(lastError.message))
-      : null,
+  ({ item }) => {
+    const wait = item.waits.find(({ resolvedAt }) => !resolvedAt);
+    return wait
+      ? state(
+          "waiting",
+          "wait-active",
+          wait.kind === "human" ? "Waiting on you" : "Waiting",
+          wait.reason
+        )
+      : null;
+  },
 
   ({ runs }) => {
     const last = latest(runs);
@@ -161,7 +168,7 @@ const RULES: ReadonlyArray<(facts: WorkFacts) => WorkState | null> = [
 
 /** The one classifier. Settled work has no state; everything else lands on exactly one rule. */
 export function workState(facts: WorkFacts): WorkState | null {
-  if (facts.item.status === "done" || facts.item.status === "archived") return null;
+  if (facts.item.isTerminal || facts.item.archivedAt) return null;
   for (const rule of RULES) {
     const answer = rule(facts);
     if (answer) return answer;

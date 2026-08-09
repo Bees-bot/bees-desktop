@@ -12,7 +12,9 @@ const item = (over: Partial<WorkItem> = {}): WorkItem =>
     processId: "process",
     stageId: "stage",
     title: "Ship the thing",
-    status: "open",
+    isTerminal: false,
+    waits: [],
+    archivedAt: null,
     updatedAt: NOW,
     ...over
   }) as WorkItem;
@@ -55,7 +57,7 @@ describe("supervision", () => {
     // filling with items that were created ten seconds ago.
     expect(workState(facts())).toMatchObject({ kind: "scheduled", reason: "autopilot-pending" });
 
-    expect(workState(facts({ item: item({ status: "done" }) }))).toBeNull();
+    expect(workState(facts({ item: item({ isTerminal: true }) }))).toBeNull();
   });
 
   // The invariant: no cause has to be known, or listed here, for a person to be told.
@@ -83,7 +85,7 @@ describe("supervision", () => {
     });
     // An error the boundary caught before any run receipt existed.
     expect(
-      workState(facts({ lastError: { message: "Set a local team folder", at: NOW } }))
+      workState(facts({ item: item({ waits: [{ kind: "error", reason: "Set a local team folder", resolvedAt: null }] as WorkItem["waits"] }) }))
     ).toMatchObject({ kind: "stalled", reason: "step-failed" });
     expect(workState(facts({ processRunning: false }))).toMatchObject({
       kind: "stalled",
@@ -93,9 +95,9 @@ describe("supervision", () => {
       kind: "waiting",
       reason: "no-agent"
     });
-    expect(workState(facts({ item: item({ status: "blocked" }) }))).toMatchObject({
+    expect(workState(facts({ item: item({ waits: [{ kind: "manual", reason: "Blocked", resolvedAt: null }] as WorkItem["waits"] }) }))).toMatchObject({
       kind: "waiting",
-      reason: "blocked"
+      reason: "wait-active"
     });
     expect(
       workState(facts({ runs: [run({ status: "failed", error: "Runtime unavailable" })] }))
@@ -109,7 +111,7 @@ describe("supervision", () => {
         facts({
           runs: [run({ id: "old", status: "failed" }), run({ id: "new", status: "running" })],
           agentBlocked: "Codex is not installed",
-          lastError: { message: "boom", at: NOW }
+          item: item({ waits: [{ kind: "error", reason: "boom", resolvedAt: null }] as WorkItem["waits"] })
         })
       )
     ).toMatchObject({ kind: "running" });

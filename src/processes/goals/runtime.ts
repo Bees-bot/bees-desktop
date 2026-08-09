@@ -41,9 +41,9 @@ export function completedTaskPlanParentsReadyForReview(
   return items.flatMap((parent) => {
     const process = processes.find(({ id }) => id === parent.processId);
     const states = process ? taskPlanStages(process) : null;
-    if (!states || parent.stageId !== states.waiting.id || parent.status !== "open") return [];
+    if (!states || parent.stageId !== states.waiting.id || parent.archivedAt || parent.waits.some(({ resolvedAt }) => !resolvedAt)) return [];
     const children = items.filter(({ parentId }) => parentId === parent.id);
-    return children.length > 0 && children.every(({ status }) => status === "done")
+    return children.length > 0 && children.every(({ isTerminal }) => isTerminal)
       ? [{ parent, review: states.review, logicalFiles: children.flatMap(({ logicalFiles }) => logicalFiles) }]
       : [];
   });

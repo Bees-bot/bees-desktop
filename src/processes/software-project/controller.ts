@@ -1,4 +1,4 @@
-import type { Execution, Process, WorkItem, WorkItemStatus } from "../../domain.js";
+import type { Execution, Process, WorkItem, WorkItemWaitKind } from "../../domain.js";
 import { FOLLOW_UP_LIMIT } from "../../domain.js";
 import { processEngine } from "../registry.js";
 import type { ProcessRenderer } from "../types.js";
@@ -44,7 +44,11 @@ export interface SoftwareProjectHost {
   /** Turns passed together run concurrently, so only pass turns that cannot observe each other. */
   runAgentTurns(item: WorkItem, turns: ProcessAgentTurn[]): Promise<Execution[]>;
   moveWorkItem(itemId: string, stageId: string): Promise<void>;
-  setWorkItemStatus(item: WorkItem, status: WorkItemStatus): Promise<void>;
+  createWorkItemWait(
+    itemId: string,
+    input: { kind: WorkItemWaitKind; reason: string; executionId?: string; correlationKey?: string }
+  ): Promise<string>;
+  resolveWorkItemWaits(itemId: string, kind?: WorkItemWaitKind, resolution?: string): Promise<number>;
   getWorkItem(itemId: string): Promise<WorkItem | null>;
   requireTeamRoot(): Promise<string>;
   chooseProjectFolder(): Promise<string | null>;
@@ -280,19 +284,16 @@ export class SoftwareProjectController implements ProcessRenderer {
       if (!state.finalReport?.passed) throw new Error("Final verification must pass before merging");
       await this.git.merge(item.id);
       await this.move(item, process, "done");
-      const latest = (await this.host.getWorkItem(item.id)) ?? item;
-      await this.host.setWorkItemStatus(latest, "done");
       await this.host.refresh();
       this.host.notify("Project branch merged locally; nothing was pushed", "success");
       return true;
     }
     if (action === "project-resume") {
-      const { item, process } = this.current();
+      const { item } = this.current();
       const state = await this.state(item.id);
       state.attempts = 0;
       await this.save(item.id, state);
-      await this.move(item, process, "implement");
-      await this.host.setWorkItemStatus(item, "open");
+      await this.host.resolveWorkItemWaits(item.id, "error", "Project work resumed");
       await this.host.refresh();
       return true;
     }
@@ -726,6 +727,7 @@ Return exactly one JSON object, with no Markdown fence:
     const state = await this.state(item.id);
     const phase = state.phases[state.currentPhaseIndex];
     if (!phase || !state.planApprovedAt) throw new Error("Approve a valid implementation plan first");
+    if (state.attempts >= 3) state.attempts = 0;
     if (!state.phaseStartSha) {
       const before = await this.git.snapshot(item.id);
       if (before.dirty) throw new Error("The project worktree must be clean before a phase starts");
@@ -779,10 +781,10 @@ Return exactly one JSON object, with no Markdown fence:
       }
       feedback = state.feedback;
     }
-    const blocked = processEngine.boundState(process, "blocked");
-    if (!blocked) throw new Error("The Code process is missing Blocked");
-    await this.host.moveWorkItem(item.id, blocked.id);
-    await this.host.setWorkItemStatus(item, "blocked");
+    await this.host.createWorkItemWait(item.id, {
+      kind: "error",
+      reason: state.testReport?.summary || "The coding and testing loop reached its retry limit"
+    });
     await this.host.refresh();
   }
 

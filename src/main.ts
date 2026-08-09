@@ -329,7 +329,6 @@ export interface RunController {
   finishOutputReview: (execution: Execution) => Promise<void>;
   taskWorkerRoles: () => Array<{ role: string; purpose: string; agent: Agent; }>;
   taskPlanController: TaskPlanController;
-  itemErrors: Map<string, { message: string; at: string; }>;
   lastControlHealthAt: number;
   liveEvents: Map<string, RuntimeEvent[]>;
   loadExecutionHistory: (execution: Execution) => Promise<void>;

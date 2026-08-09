@@ -50,7 +50,7 @@ describe("assistant contract", () => {
 describe("parsing a turn", () => {
   it("reads actions out of a fenced, chatty answer", () => {
     const turn = parseTurn(
-      'Sure! Here you go:\n```json\n{"reply":"Made it.","actions":[{"type":"create_process","name":"Onboarding","description":"New hires","stages":["Draft","Review","Done"]}]}\n```\nHope that helps.'
+      'Sure! Here you go:\n```json\n{"reply":"Made it.","actions":[{"type":"create_process","name":"Onboarding","description":"New hires","stages":["Draft","Review","Done"],"terminalStages":["Done"]}]}\n```\nHope that helps.'
     );
     expect(turn.reply).toBe("Made it.");
     expect(turn.actions).toHaveLength(1);
@@ -92,7 +92,11 @@ describe("resolving against real data", () => {
     const processId = await repository.createProcess(local.teamId, {
       name: "Content",
       description: "",
-      stages: ["Draft", "Review", "Done"]
+      stages: [
+        { name: "Draft", isTerminal: false },
+        { name: "Review", isTerminal: false },
+        { name: "Done", isTerminal: true }
+      ]
     });
     const process = (await repository.listProcesses(local.teamId)).find(
       ({ id }) => id === processId
@@ -106,8 +110,8 @@ describe("resolving against real data", () => {
 
     const resolved = resolveActions(
       [
-        { type: "set_status", process: "content", stage: "Review", status: "done" },
-        { type: "set_status", process: "Nowhere", stage: "Review", status: "done" },
+        { type: "move_items", process: "content", fromStage: "Review", toStage: "Done" },
+        { type: "move_items", process: "Nowhere", fromStage: "Review", toStage: "Done" },
         { type: "move_items", process: "Content", fromStage: "Draft", toStage: "Ghost" }
       ],
       [process],
@@ -133,7 +137,7 @@ describe("resolving against real data", () => {
     expect(errors).toEqual([]);
     expect(applied).toBe(1);
     const after = await repository.listTeamWorkItems(local.teamId);
-    expect(after.filter(({ status }) => status === "done").map(({ title }) => title).sort()).toEqual([
+    expect(after.filter(({ isTerminal }) => isTerminal).map(({ title }) => title).sort()).toEqual([
       "Post one",
       "Post two"
     ]);
@@ -217,7 +221,7 @@ describe("resolving against real data", () => {
     const processId = await repository.createProcess(local.teamId, {
       name: "Content",
       description: "",
-      stages: ["Draft"]
+      stages: [{ name: "Draft", isTerminal: false }]
     });
     const process = (await repository.listProcesses(local.teamId)).find(
       ({ id }) => id === processId

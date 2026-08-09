@@ -51,13 +51,9 @@ export function createWorkspaceController(host: MainHost) {
     setSetting: (key, value) => host.repository.setSetting(key, value),
     runAgentTurns: (item, turns) => host.runs.runProcessAgentTurns(item, turns, true),
     moveWorkItem: (itemId, stageId) => host.repository.moveWorkItem(itemId, stageId),
-    setWorkItemStatus: (item, status) => host.repository.updateWorkItem(item.id, {
-      title: item.title,
-      description: item.description,
-      owner: item.owner ?? "",
-      status,
-      logicalFiles: item.logicalFiles
-    }),
+    createWorkItemWait: (itemId, input) => host.repository.createWorkItemWait(itemId, input),
+    resolveWorkItemWaits: (itemId, kind, resolution) =>
+      host.repository.resolveWorkItemWaits(itemId, kind, resolution),
     getWorkItem: async (itemId) => (await host.repository.getWorkItem(itemId)) ?? null,
     requireTeamRoot,
     chooseProjectFolder: async () => {
@@ -108,7 +104,7 @@ export function createWorkspaceController(host: MainHost) {
 
   /** Work still on someone's plate — finished and archived items are not workload, so never counted. */
   function openWork(list: WorkItem[]): WorkItem[] {
-    return list.filter(({ status }) => status !== "done" && status !== "archived");
+    return list.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt);
   }
 
   /**
@@ -163,7 +159,6 @@ export function createWorkspaceController(host: MainHost) {
       host.runs.executions = [];
       host.runs.executionOutputs = [];
       host.runs.projectFolderItemIds = new Set();
-      host.runs.itemErrors = new Map();
       host.runs.schedules = [];
       registries = [];
       mcpConnections = [];
@@ -199,7 +194,6 @@ export function createWorkspaceController(host: MainHost) {
       const executionIds = new Set(host.runs.executions.map(({ id }) => id));
       host.runs.executionOutputs = (await host.repository.listExecutionOutputs()).filter(({ executionId }) => executionIds.has(executionId));
       host.runs.projectFolderItemIds = new Set(await host.repository.listProjectFolderItemIds());
-      host.runs.itemErrors = await host.repository.listItemErrors();
       activeBoard =
         boards.find((board) => board.id === activeBoard?.id && processes.some((process) => process.id === board.processId)) ??
         boards.find((board) => board.processId === workspace.processId &&

@@ -16,7 +16,7 @@ import {
   type AiProvider
 } from "./ai-connections.js";
 import { CLI_TOOLS } from "./cli-tools.js";
-import type { Agent, Process, WorkItem, WorkItemStatus } from "./domain.js";
+import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
 import {
   LOCAL_PROVIDER,
@@ -35,8 +35,6 @@ export const ASSISTANT_AGENT = "bees-assistant";
 export const ASSISTANT_MODEL_KEY = "assistant_model";
 /** Model ids the user typed in for a provider that ships no catalog (OpenAI, OpenRouter). */
 export const ASSISTANT_EXTRA_MODELS_KEY = "assistant_extra_models";
-
-const WORK_ITEM_STATUSES: WorkItemStatus[] = ["open", "blocked", "done", "archived"];
 
 export interface ModelChoice {
   provider: string;
@@ -72,7 +70,13 @@ export function assistantInstanceId(teamId: string, choice: ModelChoice): string
 // fails if the two lists drift apart.
 
 export type AssistantAction =
-  | { type: "create_process"; name: string; description: string; stages: string[] }
+  | {
+      type: "create_process";
+      name: string;
+      description: string;
+      stages: string[];
+      terminalStages: string[];
+    }
   | { type: "operate_bees"; goal: string }
   | {
       type: "create_agent";
@@ -83,16 +87,14 @@ export type AssistantAction =
       stage: string;
     }
   | { type: "create_item"; process: string; stage: string; title: string; description: string }
-  | { type: "move_items"; process: string; fromStage: string; toStage: string }
-  | { type: "set_status"; process: string; stage: string; status: WorkItemStatus };
+  | { type: "move_items"; process: string; fromStage: string; toStage: string };
 
 export const ACTION_TYPES: AssistantAction["type"][] = [
   "create_process",
   "operate_bees",
   "create_agent",
   "create_item",
-  "move_items",
-  "set_status"
+  "move_items"
 ];
 
 export interface AssistantTurn {
@@ -136,8 +138,11 @@ function parseAction(value: unknown): AssistantAction | null {
     case "create_process": {
       const name = text(raw.name);
       const stages = textList(raw.stages);
-      return name && stages.length
-        ? { type: "create_process", name, description: text(raw.description), stages }
+      const terminalStages = textList(raw.terminalStages);
+      return name && stages.length && terminalStages.every((terminal) =>
+        stages.some((stage) => sameName(stage, terminal))
+      )
+        ? { type: "create_process", name, description: text(raw.description), stages, terminalStages }
         : null;
     }
     case "operate_bees": {
@@ -170,12 +175,6 @@ function parseAction(value: unknown): AssistantAction | null {
       const toStage = text(raw.toStage);
       return process && fromStage && toStage
         ? { type: "move_items", process, fromStage, toStage }
-        : null;
-    }
-    case "set_status": {
-      const status = text(raw.status).toLowerCase() as WorkItemStatus;
-      return process && WORK_ITEM_STATUSES.includes(status)
-        ? { type: "set_status", process, stage: text(raw.stage), status }
         : null;
     }
     default:
@@ -308,26 +307,7 @@ export function resolveActions(
       };
     }
 
-    const stage = action.stage ? findStage(process, action.stage) : undefined;
-    if (action.stage && !stage) {
-      return {
-        action,
-        summary: `Mark items in "${action.stage}"`,
-        items: [],
-        error: `"${action.stage}" is not a status of ${process.name}`
-      };
-    }
-    const hits = itemsIn(items, process.id, stage?.id).filter(
-      (item) => item.status !== action.status
-    );
-    const where = stage ? `in "${stage.name}"` : "in every status";
-    return {
-      action,
-      summary: `Mark ${plural(hits.length)} ${where} as ${action.status} (${process.name})`,
-      items: hits,
-      processId: process.id,
-      stageId: stage?.id
-    };
+    return { action, summary: "Unsupported action", items: [], error: "Unsupported action" };
   });
 }
 
@@ -347,17 +327,13 @@ export function applicable(resolved: ResolvedAction[]): ResolvedAction[] {
 export interface AssistantRepository {
   createProcess(
     teamId: string,
-    input: { name: string; description?: string; stages: string[] }
+    input: { name: string; description?: string; stages: Array<{ name: string; isTerminal: boolean }> }
   ): Promise<string>;
   createWorkItem(
     processId: string,
     input: { stageId: string; title: string; description?: string }
   ): Promise<string>;
   moveWorkItem(id: string, stageId: string): Promise<void>;
-  updateWorkItem(
-    id: string,
-    input: { title: string; description?: string; owner?: string; status: WorkItemStatus }
-  ): Promise<void>;
 }
 
 export interface ApplyContext {
@@ -391,10 +367,14 @@ export async function applyActions(
       if (action.type === "operate_bees") {
         await context.operateBees(action.goal);
       } else if (action.type === "create_process") {
+        const terminal = new Set(action.terminalStages.map((name) => name.toLowerCase()));
         await context.repository.createProcess(context.teamId, {
           name: action.name,
           description: action.description,
-          stages: action.stages
+          stages: action.stages.map((name) => ({
+            name,
+            isTerminal: terminal.has(name.toLowerCase())
+          }))
         });
       } else if (action.type === "create_agent") {
         await context.saveAgent({
@@ -412,15 +392,6 @@ export async function applyActions(
       } else if (action.type === "move_items") {
         for (const item of entry.items) {
           await context.repository.moveWorkItem(item.id, entry.targetStageId!);
-        }
-      } else {
-        for (const item of entry.items) {
-          await context.repository.updateWorkItem(item.id, {
-            title: item.title,
-            description: item.description,
-            owner: item.owner ?? "",
-            status: action.status
-          });
         }
       }
       applied += 1;

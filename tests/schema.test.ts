@@ -17,6 +17,7 @@ it("creates the complete fresh-install schema", () => {
     "conversation_purges",
     "execution_outputs",
     "executions",
+    "external_event_receipts",
     "file_location_mappings",
     "file_locations",
     "kanban_boards",
@@ -41,6 +42,7 @@ it("creates the complete fresh-install schema", () => {
     "tags",
     "team_folder_mappings",
     "teams",
+    "work_item_waits",
     "work_items"
   ]);
   expect(

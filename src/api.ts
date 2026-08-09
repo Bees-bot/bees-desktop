@@ -148,7 +148,11 @@ export interface ServerWorkItemClaim {
   runnerId: string;
   claimId: string;
   workItemVersion: number;
+  leaseVersion: number;
   claimedAt: string;
+  expiresAt: string;
+  executionId: string | null;
+  agentId: string | null;
 }
 
 /**
@@ -472,12 +476,14 @@ export class ApiClient {
     organizationId: string,
     workItemId: string,
     runnerId: string,
-    expectedVersion: number
+    expectedVersion: number,
+    executionId?: string,
+    agentId?: string
   ): Promise<{ claim: ServerWorkItemClaim }> {
     return this.request(
       token,
       `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      { method: "POST", body: JSON.stringify({ runnerId, expectedVersion }) },
+      { method: "POST", body: JSON.stringify({ runnerId, expectedVersion, executionId, agentId }) },
       organizationId
     );
   }
@@ -488,12 +494,29 @@ export class ApiClient {
     workItemId: string,
     runnerId: string,
     claimId: string,
-    expectedVersion: number
+    expectedVersion: number,
+    leaseVersion: number
   ): Promise<{ claim: null }> {
     return this.request(
       token,
       `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      { method: "POST", body: JSON.stringify({ runnerId, claimId, expectedVersion, release: true }) },
+      { method: "POST", body: JSON.stringify({ runnerId, claimId, expectedVersion, leaseVersion, release: true }) },
+      organizationId
+    );
+  }
+
+  renewWorkItemClaim(
+    token: string,
+    organizationId: string,
+    workItemId: string,
+    runnerId: string,
+    claimId: string,
+    leaseVersion: number
+  ): Promise<{ claim: ServerWorkItemClaim }> {
+    return this.request(
+      token,
+      `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
+      { method: "POST", body: JSON.stringify({ runnerId, claimId, leaseVersion, heartbeat: true }) },
       organizationId
     );
   }
@@ -505,6 +528,7 @@ export class ApiClient {
     runnerId: string,
     claimId: string,
     expectedVersion: number,
+    leaseVersion: number,
     record: {
       recordType: string;
       recordId: string;
@@ -522,10 +546,26 @@ export class ApiClient {
           runnerId,
           claimId,
           expectedVersion,
+          leaseVersion,
           complete: true,
           record
         })
       },
+      organizationId
+    );
+  }
+
+  receiveWorkItemEvent(
+    token: string,
+    organizationId: string,
+    teamId: string,
+    correlationKey: string,
+    resolution = "Received"
+  ): Promise<{ duplicate: boolean; resolved: number }> {
+    return this.request(
+      token,
+      `/api/work-item-events/${encodeURIComponent(correlationKey)}`,
+      { method: "POST", body: JSON.stringify({ teamId, resolution }) },
       organizationId
     );
   }

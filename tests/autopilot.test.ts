@@ -18,11 +18,13 @@ const item = {
   description: "",
   owner: null,
   goal: null,
-  status: "open",
+  isTerminal: false,
+  waits: [],
   logicalFiles: [],
   syncVersion: 0,
   checkpointStageId: null,
   checkpointAt: null,
+  archivedAt: null,
   deletedAt: null,
   createdAt: "2026-07-29T10:00:00.000Z",
   updatedAt: "2026-07-29T10:00:00.000Z"
@@ -57,7 +59,7 @@ describe("needsAutonomousRun", () => {
   });
 
   it("ignores items that are done", () => {
-    expect(needsAutonomousRun({ ...item, status: "done" }, [], new Set())).toBe(false);
+    expect(needsAutonomousRun({ ...item, isTerminal: true }, [], new Set())).toBe(false);
   });
 });
 
@@ -119,7 +121,7 @@ describe("runPrompt", () => {
     const prompt = runPrompt({
       item: child,
       parent: item,
-      children: [{ ...child, status: "done", logicalFiles: ["copy.md"] }],
+      children: [{ ...child, isTerminal: true, logicalFiles: ["copy.md"] }],
       agent,
       teamRoot: "/team",
       stages: stages("Work", "Review")

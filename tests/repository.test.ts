@@ -8,7 +8,10 @@ import { NodeDatabase } from "./node-database.js";
 async function createTestProcess(repository: LocalRepository, teamId: string) {
   const id = await repository.createProcess(teamId, {
     name: "Test process",
-    stages: ["To do", "Done"]
+    stages: [
+      { name: "To do", isTerminal: false },
+      { name: "Done", isTerminal: true }
+    ]
   });
   return (await repository.listProcesses(teamId)).find((process) => process.id === id)!;
 }
@@ -82,6 +85,9 @@ describe("local repository", () => {
     expect(await repository.listSchedules(local.teamId)).toEqual([
       expect.objectContaining({ mode: "spawn_goal", role: "researcher" })
     ]);
+    expect((await repository.getWorkItem(goalId))?.waits).toEqual([
+      expect.objectContaining({ kind: "schedule", resolvedAt: null })
+    ]);
     await expect(repository.createSchedule({
       teamId: local.teamId,
       workItemId: goalId,
@@ -94,6 +100,82 @@ describe("local repository", () => {
     })).rejects.toThrow("ordinary schedule");
   });
 
+  it("models waits independently and resolves dependencies when their item becomes terminal", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const process = await createTestProcess(repository, local.teamId);
+    const parentId = await repository.createWorkItem(process.id, {
+      stageId: process.stages[0]!.id,
+      title: "Parent"
+    });
+    const childId = await repository.createWorkItem(process.id, {
+      stageId: process.stages[0]!.id,
+      title: "Child"
+    });
+
+    await repository.createWorkItemWait(parentId, {
+      kind: "dependency",
+      reason: "Waiting for child",
+      dependencyWorkItemId: childId
+    });
+    expect((await repository.getWorkItem(parentId))?.waits).toEqual([
+      expect.objectContaining({ kind: "dependency", resolvedAt: null })
+    ]);
+
+    await repository.moveWorkItem(childId, process.stages[1]!.id);
+    expect(await repository.getWorkItem(childId)).toMatchObject({ isTerminal: true });
+    expect((await repository.getWorkItem(parentId))?.waits[0]).toMatchObject({
+      resolution: "Dependency completed"
+    });
+    expect(typeof (await repository.getWorkItem(parentId))?.waits[0]?.resolvedAt).toBe("string");
+  });
+
+  it("matches external events even when the event arrives before the wait", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const process = await createTestProcess(repository, local.teamId);
+    const itemId = await repository.createWorkItem(process.id, {
+      stageId: process.stages[0]!.id,
+      title: "Publish"
+    });
+
+    expect(await repository.receiveExternalEvent(local.teamId, "publish:42", "Published")).toBe(0);
+    await repository.createWorkItemWait(itemId, {
+      kind: "external_event",
+      reason: "Waiting for publisher",
+      correlationKey: "publish:42"
+    });
+    expect((await repository.getWorkItem(itemId))?.waits[0]).toMatchObject({
+      resolution: "Published"
+    });
+  });
+
+  it("resolves a subagent execution wait with the execution receipt", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const process = await createTestProcess(repository, local.teamId);
+    const itemId = await repository.createWorkItem(process.id, {
+      stageId: process.stages[0]!.id,
+      title: "Coordinate agents"
+    });
+    const executionId = await repository.createExecution({
+      agentId: "subagent",
+      config: { prompt: "Help" },
+      workItemId: itemId,
+      runtime: "flue"
+    });
+    await repository.createWorkItemWait(itemId, {
+      kind: "execution",
+      reason: "Waiting for subagent",
+      executionId
+    });
+
+    await repository.updateExecution(executionId, "completed");
+    expect((await repository.getWorkItem(itemId))?.waits[0]).toMatchObject({
+      resolution: "Execution completed"
+    });
+  });
+
   it("persists ordered offline processes and work items", async () => {
     const database = new NodeDatabase();
     const repository = new LocalRepository(database);
@@ -102,7 +184,11 @@ describe("local repository", () => {
     const processId = await repository.createProcess(local.teamId, {
       name: "Launch",
       description: "Ship a campaign",
-      stages: ["Brief", "Review", "Published"]
+      stages: [
+        { name: "Brief", isTerminal: false },
+        { name: "Review", isTerminal: false },
+        { name: "Published", isTerminal: true }
+      ]
     });
     let process = (await repository.listProcesses(local.teamId)).find(
       ({ id }) => id === processId
@@ -116,7 +202,10 @@ describe("local repository", () => {
     await repository.updateProcessDefinition(processId, {
       name: "Launch campaign",
       description: "Updated",
-      stages: ["Publish", "Review"]
+      stages: [
+        { name: "Publish", isTerminal: false },
+        { name: "Review", isTerminal: true }
+      ]
     });
     process = (await repository.listProcesses(local.teamId)).find(({ id }) => id === processId)!;
     expect(process).toMatchObject({
@@ -135,6 +224,29 @@ describe("local repository", () => {
       stageId: process.stages[1]!.id,
       logicalFiles: ["Drafts/launch.md"]
     });
+  });
+
+  it("uses terminal metadata rather than the last status position", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const processId = await repository.createProcess(local.teamId, {
+      name: "Reopenable",
+      stages: [
+        { name: "Working", isTerminal: false },
+        { name: "Completed", isTerminal: true },
+        { name: "Reopened", isTerminal: false }
+      ]
+    });
+    const process = (await repository.listProcesses(local.teamId)).find(({ id }) => id === processId)!;
+    const itemId = await repository.createWorkItem(processId, {
+      stageId: process.stages[0]!.id,
+      title: "Verify terminal semantics"
+    });
+
+    await repository.moveWorkItem(itemId, process.stages[1]!.id);
+    expect(await repository.getWorkItem(itemId)).toMatchObject({ isTerminal: true });
+    await repository.moveWorkItem(itemId, process.stages[2]!.id);
+    expect(await repository.getWorkItem(itemId)).toMatchObject({ isTerminal: false });
   });
 
   it("restores an archived process with its stages", async () => {
@@ -357,12 +469,12 @@ describe("local repository", () => {
 
     expect(await repository.getWorkItem(parentId)).toMatchObject({
       stageId: waiting!.id,
-      status: "open"
+      isTerminal: false
     });
     expect(await repository.listWorkItems(goals.id)).toEqual(
       expect.arrayContaining(
         childIds.map((id) =>
-          expect.objectContaining({ id, parentId, stageId: work!.id, status: "open" })
+          expect.objectContaining({ id, parentId, stageId: work!.id, isTerminal: false })
         )
       )
     );
@@ -416,7 +528,7 @@ describe("local repository", () => {
     await repository.checkpointWorkItem(named, [], third!.id);
     expect(await repository.getWorkItem(named)).toMatchObject({
       stageId: third!.id,
-      status: "open"
+      isTerminal: false
     });
 
     const unknown = await repository.createWorkItem(process.id, {
@@ -435,7 +547,7 @@ describe("local repository", () => {
     await repository.checkpointWorkItem(silent, []);
     expect((await repository.getWorkItem(silent))?.stageId).toBe(second!.id);
 
-    // Landing on the final status finishes the item, however it got there.
+    // Landing on a terminal status finishes the item, however it got there.
     const finished = await repository.createWorkItem(process.id, {
       stageId: first!.id,
       title: "Finished"
@@ -443,7 +555,7 @@ describe("local repository", () => {
     await repository.checkpointWorkItem(finished, [], last!.id);
     expect(await repository.getWorkItem(finished)).toMatchObject({
       stageId: last!.id,
-      status: "done"
+      isTerminal: true
     });
   });
 
@@ -616,7 +728,7 @@ describe("local repository", () => {
     expect(await repository.search(local.teamId, "invoice unicorn")).toEqual([]);
 
     // Edits follow the row.
-    await repository.updateWorkItem(itemId, { title: "Renamed", status: "open" });
+    await repository.updateWorkItem(itemId, { title: "Renamed", archived: false });
     expect(await repository.search(local.teamId, "quarterly")).toEqual([]);
 
     // Deleting the run takes its conversation out of the index with it.

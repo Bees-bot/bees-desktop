@@ -12,8 +12,7 @@ export const SOFTWARE_PROJECT_STAGES = [
   "Implement",
   "Phase Review",
   "Final Review",
-  "Done",
-  "Blocked"
+  "Done"
 ] as const;
 export const SOFTWARE_PROJECT_STATE_KEYS = [
   "requirements",
@@ -22,8 +21,7 @@ export const SOFTWARE_PROJECT_STATE_KEYS = [
   "implement",
   "phase-review",
   "final-review",
-  "done",
-  "blocked"
+  "done"
 ] as const;
 
 export const SOFTWARE_PROJECT_ROLES = {
@@ -508,9 +506,9 @@ export function softwareProjectView(input: {
 }): string {
   const { item, stageId, stateIds, states, state, runs, mapping, git } = input;
   const busy = runs.some(({ status }) => status === "queued" || status === "running");
+  const errorWait = item.waits.find(({ kind, resolvedAt }) => kind === "error" && !resolvedAt);
   const current = state.phases[state.currentPhaseIndex];
   const progress = states
-    .filter(({ id }) => id !== stateIds.blocked)
     .map(({ id, name }) => `<span class="badge ${id === stageId ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
     .join("");
   const projectFolder = mapping
@@ -534,7 +532,9 @@ export function softwareProjectView(input: {
       ? `<form class="grid gap-3" data-project-plan>${state.phases.map((phase, index) => phaseCard(phase, index, true)).join("")}<div class="flex flex-wrap justify-end gap-2"><button class="btn btn-outline" type="button" data-action="project-regenerate-plan" ${busy ? "disabled" : ""}>Regenerate</button><button class="btn btn-outline" type="submit">Save edits</button><button class="btn btn-primary" type="button" data-action="project-approve-plan">Approve plan</button></div></form>`
       : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center"><h2 class="font-bold">Break the architecture into reviewable phases</h2><p class="mt-2 text-sm text-base-content/55">The planner targets about 400–1,000 changed source lines per phase.</p><button class="btn btn-primary mt-4" data-action="project-generate-plan" ${busy ? "disabled" : ""}>Generate implementation plan</button></div>`;
   } else if (stageId === stateIds.implement) {
-    body = current ? `${phaseCard(current, state.currentPhaseIndex, false)}${state.feedback ? `<div class="alert alert-warning mt-4"><span><strong>Review feedback:</strong> ${html(state.feedback)}</span></div>` : ""}${state.testReport ? `<article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Latest test report</h3><p class="mt-1 text-sm">${html(state.testReport.summary)}</p>${bullets(state.testReport.failures)}</article>` : ""}<div class="mt-4 flex justify-end"><button class="btn btn-primary" data-action="project-implement-phase" ${!mapping || busy ? "disabled" : ""}>${state.attempts ? "Continue coding and testing" : "Implement and test phase"}</button></div>` : '<div class="alert alert-error">The approved plan has no current phase.</div>';
+    body = errorWait
+      ? `<div class="alert alert-error"><div><div class="font-bold">This project needs recovery</div><div class="text-sm">${html(errorWait.reason)}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`
+      : current ? `${phaseCard(current, state.currentPhaseIndex, false)}${state.feedback ? `<div class="alert alert-warning mt-4"><span><strong>Review feedback:</strong> ${html(state.feedback)}</span></div>` : ""}${state.testReport ? `<article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Latest test report</h3><p class="mt-1 text-sm">${html(state.testReport.summary)}</p>${bullets(state.testReport.failures)}</article>` : ""}<div class="mt-4 flex justify-end"><button class="btn btn-primary" data-action="project-implement-phase" ${!mapping || busy ? "disabled" : ""}>${state.attempts ? "Continue coding and testing" : "Implement and test phase"}</button></div>` : '<div class="alert alert-error">The approved plan has no current phase.</div>';
   } else if (stageId === stateIds["phase-review"]) {
     body = current && git ? `${phaseCard(current, state.currentPhaseIndex, false)}<div class="mt-4 grid gap-4 lg:grid-cols-3"><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Changed lines</div><div class="stat-value text-2xl">+${git.additions} / -${git.deletions}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Commits</div><div class="stat-value text-2xl">${git.commits.length}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Tests</div><div class="stat-value text-2xl ${state.testReport?.passed ? "text-success" : "text-error"}">${state.testReport?.passed ? "Passed" : "Needs work"}</div></div></div><article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Commits</h3>${bullets(git.commits.map(({ sha, subject }) => `${sha.slice(0, 8)} ${subject}`))}<h3 class="mt-4 font-bold">Diff</h3><pre class="mt-2 max-h-[34rem] overflow-auto whitespace-pre-wrap rounded bg-neutral p-3 text-xs text-neutral-content">${html(git.diff || "No textual diff")}</pre>${git.truncated ? '<p class="mt-2 text-xs text-warning">Diff truncated in the UI.</p>' : ""}</article><form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-review><label class="form-control"><span class="label-text font-semibold">Changes requested</span><textarea class="textarea textarea-bordered w-full" name="feedback" placeholder="What should the coding agent change?"></textarea></label><div class="mt-3 flex justify-end gap-2"><button class="btn btn-outline" type="submit">Request changes</button><button class="btn btn-success" type="button" data-action="project-approve-phase">Approve phase</button></div></form>` : '<div class="alert alert-error">Review data is unavailable.</div>';
   } else if (stageId === stateIds["final-review"]) {
@@ -542,7 +542,7 @@ export function softwareProjectView(input: {
   } else if (stageId === stateIds.done) {
     body = `<div class="hero min-h-72 rounded-box border border-success/30 bg-success/5"><div class="hero-content text-center"><div><div class="text-4xl">✓</div><h2 class="mt-3 text-xl font-bold">Project complete</h2><p class="mt-2 text-sm">The project branch was merged locally. Nothing was pushed.</p></div></div></div>`;
   } else {
-    body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;
+    body = '<div class="alert alert-error">The Code process is on an unknown status.</div>';
   }
   return `<div class="mb-4 flex flex-wrap gap-2">${progress}</div><div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3"><div class="flex flex-wrap items-center justify-between gap-2"><div><div class="text-xs font-bold uppercase text-primary">Code Studio</div><h1 class="font-bold">${html(item.title)}</h1></div><div class="text-right text-xs text-base-content/55">${mapping ? `<div>${html(mapping.projectBranch)}</div><div class="max-w-96 truncate font-mono">${html(mapping.worktreePath)}</div>` : '<span class="badge badge-warning badge-sm">Waiting on you: choose a folder</span>'}</div></div></div>${body}${runHistory(runs)}`;
 }

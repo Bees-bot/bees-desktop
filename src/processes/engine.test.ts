@@ -11,8 +11,7 @@ const stateIds = {
   implement: "implement-id",
   "phase-review": "phase-review-id",
   "final-review": "final-review-id",
-  done: "done-id",
-  blocked: "blocked-id"
+  done: "done-id"
 };
 
 const process = {
@@ -28,8 +27,7 @@ const process = {
     { id: "implement-id", name: "Build", position: 3 },
     { id: "phase-review-id", name: "Phase signoff", position: 4 },
     { id: "final-review-id", name: "Launch signoff", position: 5 },
-    { id: "done-id", name: "Shipped", position: 6 },
-    { id: "blocked-id", name: "Stuck", position: 7 }
+    { id: "done-id", name: "Shipped", position: 6 }
   ]
 } as unknown as Process;
 

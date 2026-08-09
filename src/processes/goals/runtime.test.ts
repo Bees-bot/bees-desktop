@@ -7,13 +7,14 @@ import {
 import { goalsProcess } from "./definition.js";
 import { persistProcessDefinition } from "../types.js";
 
-const stages = goalsProcess.definition.states.map(({ key, name }, position) => ({
-  id: `${key}-id`,
-  key,
+const stages = goalsProcess.definition.states.map((state, position) => ({
+  id: `${state.key}-id`,
+  key: state.key,
   processId: "goals",
-  name,
+  name: state.name,
   position,
   completionRules: "",
+  isTerminal: "terminal" in state && state.terminal === true,
   archivedAt: null
 }));
 const goals = {
@@ -36,11 +37,13 @@ const item = (value: Partial<WorkItem>): WorkItem =>
     title: "Goal",
     description: "",
     owner: null,
-    status: "open",
+    isTerminal: false,
+    waits: [],
     logicalFiles: [],
     syncVersion: 0,
     checkpointStageId: null,
     checkpointAt: null,
+    archivedAt: null,
     deletedAt: null,
     createdAt: "",
     updatedAt: "",
@@ -50,11 +53,11 @@ const item = (value: Partial<WorkItem>): WorkItem =>
 describe("Goals process runtime", () => {
   it("resumes a waiting goal only after every child is done", () => {
     const parent = item({});
-    const done = item({ id: "child-1", parentId: parent.id, status: "done", logicalFiles: ["a.md"] });
+    const done = item({ id: "child-1", parentId: parent.id, isTerminal: true, logicalFiles: ["a.md"] });
     expect(completedTaskPlanParentsReadyForReview([parent, done], [goals])).toEqual([
       expect.objectContaining({ parent, review: stages[3], logicalFiles: ["a.md"] })
     ]);
-    expect(completedTaskPlanParentsReadyForReview([parent, { ...done, status: "open" }], [goals])).toEqual([]);
+    expect(completedTaskPlanParentsReadyForReview([parent, { ...done, isTerminal: false }], [goals])).toEqual([]);
   });
 
   it("builds the run contract from the task-plan capability", () => {

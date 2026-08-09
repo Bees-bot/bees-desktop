@@ -56,7 +56,8 @@ import type {
   McpConnection,
   Process,
   Schedule,
-  WorkItem
+  WorkItem,
+  WorkItemWaitKind
 } from "./domain.js";
 import {
   errorText,
@@ -159,10 +160,14 @@ export function createMainActions(host: MainHost) {
    * `loadDashboardsByTeam` gives every process without one a board on the next refresh.
    */
   async function saveProcessDefinition(data: FormData): Promise<void> {
+    const stages = String(data.get("stages") ?? "").split(",").map((value) => {
+      const text = value.trim();
+      return { name: text.replace(/\s*\*$/, ""), isTerminal: text.endsWith("*") };
+    });
     const input = {
       name: String(data.get("name") ?? ""),
       description: String(data.get("description") ?? ""),
-      stages: String(data.get("stages") ?? "").split(",")
+      stages
     };
     if (host.shell.configProcessId) {
       await host.repository.updateProcessDefinition(host.shell.configProcessId, input);
@@ -867,7 +872,7 @@ export function createMainActions(host: MainHost) {
         type: "textarea",
         value: formatBoardFilters(board.filters),
         placeholder: "done 24",
-        hint: "One rule per line: status then hours untouched (0 = always). Statuses: open, blocked, done, archived. Hidden items move to the Filtered items drawer."
+        hint: "One rule per line: condition then hours untouched (0 = always). Conditions: terminal, archived, waiting, error."
       }
     ]);
     if (!data)
@@ -980,6 +985,59 @@ export function createMainActions(host: MainHost) {
           await host.runs.loadExecutionHistory(latest);
         host.shell.view = "item";
         host.shell.render();
+        return;
+      }
+      if (action === "resolve-wait") {
+        await host.repository.resolveWorkItemWait(button.dataset.id!, "Resolved by a person");
+        await host.workspaceController.refresh();
+        return;
+      }
+      if (action === "add-wait") {
+        const itemId = button.dataset.id!;
+        const choices = host.workspaceController.teamItems
+          .filter(({ id }) => id !== itemId)
+          .map(({ id, title }) => ({ label: title, value: id }));
+        const data = await edit("Pause work item", [
+          {
+            name: "kind",
+            label: "Wait for",
+            type: "select",
+            value: "human",
+            options: [
+              { label: "Human decision", value: "human" },
+              { label: "External event", value: "external_event" },
+              { label: "Another work item", value: "dependency" },
+              { label: "Agent or process run", value: "execution" },
+              { label: "Error recovery", value: "error" },
+              { label: "Scheduled time", value: "schedule" },
+              { label: "Manual resume", value: "manual" }
+            ]
+          },
+          { name: "reason", label: "Reason", type: "textarea" },
+          { name: "target", label: "Person or system", hint: "Optional owner or external system." },
+          { name: "correlationKey", label: "Event correlation key", hint: "Required only for an external event." },
+          { name: "executionId", label: "Run ID", hint: "Required only when waiting for an agent or process run." },
+          {
+            name: "dependencyWorkItemId",
+            label: "Dependent work item",
+            type: "select",
+            options: [{ label: "None", value: "" }, ...choices],
+            hint: "Required only when waiting for another work item."
+          },
+          { name: "wakeAt", label: "Wake time", placeholder: "2026-08-09T09:00:00-07:00", hint: "Required only for a scheduled wait; enter an ISO date/time." }
+        ], "Pause");
+        if (!data) return;
+        const kind = String(data.get("kind")) as WorkItemWaitKind;
+        await host.repository.createWorkItemWait(itemId, {
+          kind,
+          reason: String(data.get("reason") ?? ""),
+          ...(String(data.get("target") ?? "").trim() ? { target: String(data.get("target")) } : {}),
+          ...(String(data.get("correlationKey") ?? "").trim() ? { correlationKey: String(data.get("correlationKey")) } : {}),
+          ...(String(data.get("executionId") ?? "").trim() ? { executionId: String(data.get("executionId")) } : {}),
+          ...(String(data.get("dependencyWorkItemId") ?? "").trim() ? { dependencyWorkItemId: String(data.get("dependencyWorkItemId")) } : {}),
+          ...(String(data.get("wakeAt") ?? "").trim() ? { wakeAt: String(data.get("wakeAt")) } : {})
+        });
+        await host.workspaceController.refresh();
         return;
       }
       // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
@@ -1337,6 +1395,7 @@ export function createMainActions(host: MainHost) {
         if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
           throw new Error("Choose an available goal worker role");
         }
+        const nextRunAt = nextScheduleRun(recurrence, new Date()).toISOString();
         await host.repository.createSchedule({
           teamId: host.workspaceController.workspace.teamId,
           workItemId,
@@ -1345,10 +1404,8 @@ export function createMainActions(host: MainHost) {
           mode,
           role,
           timezone: String(data.get("timezone")),
-          nextRunAt: nextScheduleRun(recurrence, new Date()).toISOString()
+          nextRunAt
         });
-        if (mode === "spawn_goal")
-          await host.repository.setWorkItemStatus(workItemId, "blocked");
         await host.workspaceController.refresh();
         return;
       }
@@ -1796,14 +1853,14 @@ export function createMainActions(host: MainHost) {
           { name: "description", label: "Description", type: "textarea", value: item.description },
           { name: "owner", label: "Owner", value: item.owner ?? "" },
           {
-            name: "status",
-            label: "Item state",
+            name: "archived",
+            label: "Visibility",
             type: "toggle",
-            value: item.status,
-            options: ["open", "blocked", "done", "archived"].map((value) => ({
-              label: value[0]!.toUpperCase() + value.slice(1),
-              value
-            }))
+            value: item.archivedAt ? "archived" : "active",
+            options: [
+              { label: "Active", value: "active" },
+              { label: "Archived", value: "archived" }
+            ]
           },
           {
             name: "files",
@@ -1817,7 +1874,7 @@ export function createMainActions(host: MainHost) {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
             owner: String(data.get("owner") ?? ""),
-            status: String(data.get("status") ?? "") as WorkItem["status"],
+            archived: data.get("archived") === "archived",
             logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
           });
           await host.workspaceController.refresh();

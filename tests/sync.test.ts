@@ -216,7 +216,7 @@ describe("metadata synchronization", () => {
     );
     expect(processRecord.payload.definition).toEqual(process.definition);
     expect(Object.keys(stageRecord.payload).sort()).toEqual(
-      ["processId", "name", "position", "completionRules"].sort()
+      ["processId", "name", "position", "completionRules", "isTerminal"].sort()
     );
     expect(Object.keys(workItemRecord.payload).sort()).toEqual(
       [
@@ -227,10 +227,10 @@ describe("metadata synchronization", () => {
         "description",
         "owner",
         "goal",
-        "status",
         "logicalFiles",
         "checkpointStageId",
         "checkpointAt",
+        "archivedAt",
         "createdAt",
         "updatedAt"
       ].sort()

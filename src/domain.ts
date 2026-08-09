@@ -5,6 +5,7 @@ export type WorkItemWaitKind =
   | "human"
   | "external_event"
   | "dependency"
+  | "execution"
   | "error"
   | "schedule"
   | "manual";

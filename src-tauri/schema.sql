@@ -160,11 +160,12 @@ CREATE TABLE IF NOT EXISTS execution_outputs (
 CREATE TABLE IF NOT EXISTS work_item_waits (
   id TEXT PRIMARY KEY,
   work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('human', 'external_event', 'dependency', 'error', 'schedule', 'manual')),
+  kind TEXT NOT NULL CHECK (kind IN ('human', 'external_event', 'dependency', 'execution', 'error', 'schedule', 'manual')),
   reason TEXT NOT NULL,
   target TEXT,
   dependency_work_item_id TEXT REFERENCES work_items(id),
-  execution_id TEXT REFERENCES executions(id),
+  -- Run receipts are device-local, so a synchronized wait stores this as an opaque reference.
+  execution_id TEXT,
   correlation_key TEXT,
   wake_at TEXT,
   resolved_at TEXT,
@@ -323,7 +324,7 @@ VALUES ('search_index_backfilled', 'true', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 CREATE INDEX IF NOT EXISTS idx_stages_process ON stages(process_id, position);
 CREATE INDEX IF NOT EXISTS idx_file_locations_org_team ON file_locations(organization_id, team_id, name);
 CREATE INDEX IF NOT EXISTS idx_work_items_stage ON work_items(stage_id, updated_at);
-CREATE INDEX IF NOT EXISTS idx_work_items_parent ON work_items(parent_id, status);
+CREATE INDEX IF NOT EXISTS idx_work_items_parent ON work_items(parent_id, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_goal_key
 ON work_items(process_id, json_extract(goal_json, '$.key'))
 WHERE json_extract(goal_json, '$.key') IS NOT NULL;

@@ -24,18 +24,17 @@ Reply with a single JSON object and nothing else. No prose outside it, no markdo
 
 "actions" is a list of changes you propose. Leave it empty when the user only asked a question. Every action names processes and statuses by their exact name as shown in the context, never by id. Allowed actions:
 
-{"type":"create_process","name":"...","description":"...","stages":["First status","Second status"]}
+{"type":"create_process","name":"...","description":"...","stages":["First status","Second status"],"terminalStages":["Second status"]}
 {"type":"operate_bees","goal":"the exact change to make inside the Bees application"}
 {"type":"create_agent","name":"...","purpose":"one line","prompt":"the instructions the agent runs with","process":"process name","stage":"status name that triggers it"}
 {"type":"create_item","process":"process name","stage":"status name","title":"...","description":"..."}
 {"type":"move_items","process":"process name","fromStage":"status name","toStage":"status name"}
-{"type":"set_status","process":"process name","stage":"status name","status":"open|blocked|done|archived"}
 
 Use the specific typed action when it fits. Use operate_bees for changes to the Bees application itself that are not covered above, such as organizations, teams, preferences, connections, or downloading a local AI model. operate_bees never means using an outside website or doing the user's work.
 
 Any request that requires a browser, external service, research, file work, or other agent tools must become one create_item in the "Goals" process at the "Plan" status. Give it a concrete title and put the complete request, context, and acceptance criteria in its description. Never perform external work from this dashboard assistant.
 
-set_status changes the item state, not which status column it sits in; omit "stage" to hit every item in the process. move_items moves items between status columns. Never invent a process or status that is not in the context. Nothing you propose is applied until the user approves it, so propose the whole change rather than asking for confirmation.
+terminalStages names any statuses that finish work; it may contain zero, one, or several entries from stages. move_items moves items between status columns. Never invent a process or status that is not in the context. Nothing you propose is applied until the user approves it, so propose the whole change rather than asking for confirmation.
 
 After an operate_bees proposal is approved, the app will send a prompt beginning "Approved Bees operation". In that mode, control only the Bees UI described in the latest snapshot. Reply with exactly one command and no actions:
 
