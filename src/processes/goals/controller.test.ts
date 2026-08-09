@@ -62,7 +62,8 @@ describe("Goals process controller", () => {
         role: "goal-worker",
         effect: "prepare",
         inputs: []
-      }]
+      }],
+      true
     );
     expect(host.syncCheckpoint).toHaveBeenCalledWith(item.id, "waiting-id");
     expect(host.finishOutputReview).toHaveBeenCalledWith(execution);

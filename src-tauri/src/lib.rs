@@ -2276,6 +2276,45 @@ fn list_location_files(path: String) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+/// Reads one file inside a mapped folder as text, for the kanban card's inline Files tab.
+/// `None` means the file does not exist yet (a work item can reference a file before it is
+/// created).
+#[tauri::command]
+fn read_location_file(root: String, relative: String) -> Result<Option<String>, String> {
+    let root = canonical_directory(&root)?;
+    let path = root.join(safe_relative(&relative)?);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let canonical = fs::canonicalize(&path).map_err(|error| error.to_string())?;
+    if !canonical.starts_with(&root) || !canonical.is_file() {
+        return Err("file is outside the configured folder".into());
+    }
+    let (content, truncated) = text_preview(&canonical)?;
+    if truncated {
+        return Err("file is too large to edit here".into());
+    }
+    content.ok_or_else(|| "file is not text".into()).map(Some)
+}
+
+/// Writes one file inside a mapped folder, creating parent folders as needed — the save side of
+/// the kanban card's inline Files tab.
+#[tauri::command]
+fn write_location_file(root: String, relative: String, contents: String) -> Result<(), String> {
+    let root = canonical_directory(&root)?;
+    let relative = safe_relative(&relative)?;
+    let path = root.join(&relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(&path, contents).map_err(|error| error.to_string())?;
+    let canonical = fs::canonicalize(&path).map_err(|error| error.to_string())?;
+    if !canonical.starts_with(&root) {
+        return Err("file is outside the configured folder".into());
+    }
+    Ok(())
+}
+
 /// Agents are JSON files in <teamRoot>/agents, so they ride whatever sync the team
 /// folder already has (Dropbox, iCloud, git) instead of a second sync channel.
 fn agents_directory(team_root: &str) -> Result<PathBuf, String> {
@@ -2742,6 +2781,8 @@ pub fn run() {
             db_transaction,
             validate_directory,
             list_location_files,
+            read_location_file,
+            write_location_file,
             list_agent_files,
             write_agent_file,
             write_team_skill,

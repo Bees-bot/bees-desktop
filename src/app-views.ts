@@ -56,12 +56,15 @@ import {
   type KnowledgePolicy
 } from "./knowledge.js";
 import {
+  approvalCard,
   duration,
   runView,
   statusBadge,
+  taskPlanOutput,
   when,
   workItemView
 } from "./launch-views.js";
+import { renderMarkdown } from "./markdown.js";
 import {
   modelRef,
   parseModelRef,
@@ -78,6 +81,7 @@ import {
   registryCapabilities,
   selectedAgentCapabilities
 } from "./registries.js";
+import type { PlannedTask } from "./processes/goals/index.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import type { WorkState } from "./supervision.js";
 import { needsAttention } from "./supervision.js";
@@ -268,12 +272,10 @@ export function createMainViews(host: MainHost) {
       renderPrefsButton();
       return;
     }
+    // Only the active team has execution/agent state loaded, so only its row can show a live count.
     const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
     host.shell.teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
         <li><button class="${host.shell.activeClass(host.shell.view === "overview")}" data-view="overview">Overview</button></li>
-        <li><button class="${host.shell.activeClass(host.shell.view === "inbox")}" data-view="inbox">Inbox${inboxCount
-        ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
-        : ""}</button></li>
       </ul>
       <div class="mb-2 flex items-center justify-between px-2">
         <span class="text-[11px] font-bold uppercase tracking-widest text-base-content/45">Teams</span>
@@ -299,6 +301,9 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
+                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">Inbox${selected && inboxCount
+        ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
+        : ""}</button></li>
                     ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
               .map(({ board, process, count }) => processNavItem(team.id, board, process, count))
               .join("")}
@@ -349,7 +354,7 @@ export function createMainViews(host: MainHost) {
     const item = host.workspaceController.teamItems.find(({ id }) => id === host.shell.activeItemId);
     if (!item) {
       host.shell.view = "board";
-      renderBoard();
+      void renderBoard();
       return;
     }
     host.shell.setHeader(item.title, host.session.currentTeam()?.name);
@@ -360,25 +365,7 @@ export function createMainViews(host: MainHost) {
           (candidate) => candidate.id === processEngine.renderer(process)
         )
       : null;
-    // The same sentence the inbox shows, above whatever this item's view is — a person working on
-    // the item should not have to visit the inbox to learn it is stuck.
-    const activeWaits = item.waits.filter(({ resolvedAt }) => !resolvedAt);
-    const waitPanel = `<section class="mb-4 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <div><h2 class="text-sm font-bold">Waits</h2><p class="text-xs text-base-content/55">Pause work for a person, event, dependency, error, or time.</p></div>
-        ${item.isTerminal || item.archivedAt ? "" : `<button class="btn btn-ghost btn-xs" data-action="add-wait" data-id="${item.id}">Add wait</button>`}
-      </div>
-      ${activeWaits.length
-        ? `<ul class="mt-3 grid gap-2">${activeWaits.map((wait) => {
-            const resolve = waitResolveAction(wait.kind);
-            return `<li class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200/60 px-3 py-2 text-xs">
-              <span><strong>${host.shell.escapeHtml(wait.kind.replaceAll("_", " "))}</strong> · ${host.shell.escapeHtml(wait.reason)}${wait.target ? ` · ${host.shell.escapeHtml(wait.target)}` : ""}${wait.wakeAt ? ` · until ${host.shell.escapeHtml(new Date(wait.wakeAt).toLocaleString())}` : ""}</span>
-              <button class="btn btn-ghost btn-xs" data-action="resolve-wait" data-id="${wait.id}" title="${host.shell.escapeHtml(resolve.title)}">${resolve.label}</button>
-            </li>`;
-          }).join("")}</ul>`
-        : '<p class="mt-3 text-xs text-base-content/45">No active waits.</p>'}
-    </section>`;
-    const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null) + waitPanel;
+    const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null);
     if (process && renderer) {
       const content = await renderer.render(item, process, runs);
       if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
@@ -457,7 +444,277 @@ export function createMainViews(host: MainHost) {
       <span class="badge ${runTone} badge-sm">Run: ${run}</span>`;
   }
 
-  function renderBoard(): void {
+  /** The Details tab: every field the item edit dialog offers, read-only or as an inline form. */
+  async function boardItemDetails(item: WorkItem, runs: Execution[]): Promise<string> {
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    const files = displayFileReferences(item.logicalFiles, locations);
+    if (host.shell.boardItemEditing) {
+      return `<form data-board-item-form class="grid gap-3" data-id="${item.id}">
+        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Title</span>
+          <input class="input input-bordered w-full" name="title" value="${host.shell.escapeHtml(item.title)}" required></label>
+        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
+          <textarea class="textarea textarea-bordered min-h-28 w-full" name="description">${host.shell.escapeHtml(item.description)}</textarea></label>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Owner</span>
+            <input class="input input-bordered w-full" name="owner" value="${host.shell.escapeHtml(item.owner ?? "")}"></label>
+          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Visibility</span>
+            <select class="select select-bordered w-full" name="archived">
+              <option value="active" ${item.archivedAt ? "" : "selected"}>Active</option>
+              <option value="archived" ${item.archivedAt ? "selected" : ""}>Archived</option>
+            </select></label>
+        </div>
+        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">File references</span>
+          <input class="input input-bordered w-full" name="files" value="${host.shell.escapeHtml(files.join(", "))}">
+          <span class="text-xs text-base-content/55">${host.shell.escapeHtml(fileReferenceHint(locations))}</span></label>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>`;
+    }
+    return `<dl class="grid gap-3 text-sm">
+        <div><dt class="text-base-content/45">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description || "No description.")}</dd></div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div><dt class="text-base-content/45">Status</dt><dd>${host.shell.escapeHtml(workItemCondition(item, runs))}</dd></div>
+          <div><dt class="text-base-content/45">Owner</dt><dd>${host.shell.escapeHtml(item.owner || "Unassigned")}</dd></div>
+          <div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>
+          <div><dt class="text-base-content/45">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
+        </div>
+        <div><dt class="text-base-content/45">Files</dt><dd>${host.shell.escapeHtml(files.join(", ") || "None")}</dd></div>
+      </dl>`;
+  }
+
+  /** Last thing the agent said in a run — the summary a reviewer needs before approving. */
+  function lastAssistantSummary(run: Execution): string {
+    const snapshot = conversationFor(run);
+    for (const message of [...(snapshot?.messages ?? [])].reverse()) {
+      if (message.role !== "assistant")
+        continue;
+      const text = message.parts
+        .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+        .join("\n")
+        .trim();
+      if (text)
+        return text;
+    }
+    return "";
+  }
+
+  /**
+   * One proposed task of a plan, inline: its own Approve button beside the title, every dialog
+   * field editable in place. Field names match the approval dialog so both submit the same shape.
+   * An already-approved task renders as a settled row — it exists as a work item now.
+   */
+  function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean): string {
+    if (approved) {
+      return `<article class="rounded-box border border-success/30 bg-success/5 p-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold">${host.shell.escapeHtml(task.title)}</span>
+          <span class="badge badge-success badge-sm shrink-0">Approved</span>
+        </div>
+      </article>`;
+    }
+    const roles = host.runs.taskWorkerRoles();
+    return `<article class="rounded-box border border-base-300 bg-base-100 p-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
+        <input class="input input-bordered input-sm min-w-0 flex-1 basis-56 font-semibold" name="task-${index}-title" value="${host.shell.escapeHtml(task.title)}">
+        <button class="btn btn-success btn-xs shrink-0" type="submit" name="approveTask" value="${index}">Approve</button>
+      </div>
+      <div class="mt-2 grid gap-2">
+        <textarea class="textarea textarea-bordered min-h-20 w-full text-xs leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <label class="form-control grid gap-1"><span class="label-text text-xs text-base-content/55">Worker role</span>
+            <select class="select select-bordered select-sm w-full" name="task-${index}-role">
+              ${roles.map(({ role }) => `<option value="${host.shell.escapeHtml(role)}" ${role === task.role ? "selected" : ""}>${host.shell.escapeHtml(role)}</option>`).join("")}
+            </select></label>
+          <label class="form-control grid gap-1"><span class="label-text text-xs text-base-content/55">Effect</span>
+            <select class="select select-bordered select-sm w-full" name="task-${index}-effect">
+              ${[["read", "Read only"], ["prepare", "Prepare outputs"], ["external_write", "External action"]]
+                .map(([value, label]) => `<option value="${value}" ${value === task.effect ? "selected" : ""}>${label}</option>`).join("")}
+            </select></label>
+        </div>
+        ${item.logicalFiles.length
+          ? `<div><span class="label-text text-xs text-base-content/55">Approved inputs</span>
+              <div class="mt-1 flex flex-wrap gap-3">${item.logicalFiles
+                .map((path) => `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-xs">${host.shell.escapeHtml(path)}</span></label>`)
+                .join("")}</div>
+            </div>`
+          : ""}
+      </div>
+    </article>`;
+  }
+
+  /** The whole proposed plan as one inline form: Approve All on top, one card per task with
+   *  its own Approve button. The plan settles once nothing is left pending. */
+  function taskPlanApprovalForm(item: WorkItem, output: ExecutionOutput, proposed: PlannedTask[], busy: boolean): string {
+    const approved = new Set(host.workspaceController.teamItems
+      .filter(({ processId, goal }) => processId === item.processId && goal?.key)
+      .map(({ goal }) => goal!.key));
+    const remaining = proposed.filter(({ key }) => !approved.has(key)).length;
+    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-box border border-warning/40 bg-warning/5 p-4">
+      <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-xs font-bold uppercase tracking-wide text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
+        <div class="flex gap-2">
+          <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy ? "disabled" : ""}>Approve all</button>
+          <button class="btn btn-error btn-outline btn-sm" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
+        </div>
+      </div>
+      <p class="mb-3 text-xs text-base-content/60">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
+      <div class="grid gap-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key))).join("")}</div>
+    </form>`;
+  }
+
+  /** The Approval tab: only what needs a decision — the agent's summary, the proposed plan
+   *  spelled out with per-task approve toggles, and approve/reject per pending file. */
+  async function boardItemApprovals(item: WorkItem, runs: Execution[]): Promise<string> {
+    const pending = runs
+      .map((run) => ({
+        run,
+        outputs: host.runs.executionOutputs.filter(({ executionId, status }) => executionId === run.id && status === "pending")
+      }))
+      .filter(({ outputs }) => outputs.length);
+    if (!pending.length)
+      return `<p class="text-sm text-base-content/55">Nothing is waiting for approval on this item.</p>`;
+    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+    const sections: string[] = [];
+    for (const { run, outputs } of pending) {
+      const summary = lastAssistantSummary(run);
+      const busy = ["queued", "running"].includes(run.status);
+      const cards: string[] = [];
+      for (const output of outputs) {
+        if (mapping && host.runs.taskPlanController.matchesOutput(output.logicalOutput, run)) {
+          const proposed = await host.runs.taskPlanController
+            .readTaskPlan(output, run, mapping.localPath)
+            .catch(() => null);
+          if (proposed) {
+            cards.push(taskPlanApprovalForm(item, output, proposed, busy));
+            continue;
+          }
+        }
+        cards.push(approvalCard(output, busy, taskPlanOutput(run)));
+      }
+      sections.push(`<section class="grid gap-3">
+        <div class="flex flex-wrap items-center gap-2 text-sm text-base-content/55">
+          ${statusBadge(run.status)}<span>${when(run.startedAt ?? run.createdAt)}</span>
+        </div>
+        ${summary
+          ? `<article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${renderMarkdown(summary)}</article>`
+          : ""}
+        ${cards.join("")}
+      </section>`);
+    }
+    return `<div class="grid gap-4">${sections.join("")}</div>`;
+  }
+
+  /** One `<details>` per run, mirroring `workItemView` — the most recent run first, open only
+   *  when it is waiting on a person. */
+  function boardItemConversation(item: WorkItem, runs: Execution[]): string {
+    if (!runs.length)
+      return `<p class="text-sm text-base-content/55">This item has not run yet.</p>`;
+    const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
+    return `<div class="grid gap-3">${ordered
+      .map((run) => {
+        const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === run.id);
+        const pending = outputs.some(({ status }) => status === "pending");
+        return `<details class="rounded-box border border-base-300 bg-base-100" ${pending ? "open" : ""}>
+            <summary class="flex cursor-pointer flex-wrap items-center gap-2 p-4 font-semibold">
+              ${statusBadge(run.status)}
+              <span class="text-sm font-normal text-base-content/55">${when(run.startedAt ?? run.createdAt)}</span>
+              ${pending ? `<span class="badge badge-warning badge-sm">Needs you</span>` : ""}
+            </summary>
+            <div class="border-t border-base-300 p-4">${runView({
+              execution: run,
+              item,
+              outputs,
+              snapshot: conversationFor(run),
+              previews: host.runs.outputPreviews
+            })}</div>
+          </details>`;
+      })
+      .join("")}</div>`;
+  }
+
+  /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
+   *  files and toggled into a plain-text editor that saves back to disk. */
+  async function boardItemFiles(item: WorkItem): Promise<string> {
+    if (!item.logicalFiles.length)
+      return `<p class="text-sm text-base-content/55">No files referenced.</p>`;
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    const labels = displayFileReferences(item.logicalFiles, locations);
+    const selected = item.logicalFiles.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
+    const list = `<div class="mb-4 flex flex-wrap gap-2">${item.logicalFiles
+      .map((reference, index) => `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(labels[index] ?? reference)}</button>`)
+      .join("")}</div>`;
+    if (!selected)
+      return `${list}<p class="text-sm text-base-content/55">Select a file to preview it.</p>`;
+    const label = labels[item.logicalFiles.indexOf(selected)] ?? selected;
+    let content: string | null = null;
+    try {
+      content = await host.workspaces.readLogicalFile(selected, await host.workspaceController.requireTeamRoot(), locations);
+    }
+    catch (error) {
+      return `${list}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
+    }
+    if (content === null)
+      return `${list}<p class="text-sm text-base-content/55">${host.shell.escapeHtml(label)} does not exist yet.</p>`;
+    if (host.shell.boardFileEditing) {
+      return `${list}<form data-board-file-form class="grid gap-3">
+          <input type="hidden" name="reference" value="${host.shell.escapeHtml(selected)}">
+          <textarea name="contents" class="textarea textarea-bordered h-72 font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
+          <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          </div>
+        </form>`;
+    }
+    return `${list}<div class="mb-2 flex justify-end"><button class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Edit</button></div>
+      <article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(selected)
+        ? renderMarkdown(content)
+        : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
+  }
+
+  /** A card's detail, expanded in place under the board — Details / Approval / Conversation /
+   *  Files tabs, so opening an item never navigates away from the board it lives on. */
+  async function renderBoardItemPanel(item: WorkItem, process: Process): Promise<string> {
+    const tab = host.shell.boardTab;
+    const stage = process.stages.find(({ id }) => id === item.stageId);
+    const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
+    const pendingCount = host.runs.executionOutputs
+      .filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length;
+    const tabButton = (id: typeof tab, label: string): string =>
+      `<button role="tab" class="tab ${tab === id ? "tab-active" : ""}" data-board-tab="${id}">${label}</button>`;
+    const body = tab === "conversation"
+      ? boardItemConversation(item, runs)
+      : tab === "files"
+        ? await boardItemFiles(item)
+        : tab === "approval"
+          ? await boardItemApprovals(item, runs)
+          : await boardItemDetails(item, runs);
+    return `<div class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
+      ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="mb-1 text-[10px] font-black uppercase tracking-[.16em] text-primary">${host.shell.escapeHtml(stage?.name ?? "")}</p>
+          <h3 class="text-lg font-black tracking-[-.015em]">${host.shell.escapeHtml(item.title)}</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Edit</button>
+          <button class="btn btn-ghost btn-square btn-sm" data-action="close-board-item" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+        ${tabButton("details", "Details")}
+        ${tabButton("approval", `Approval${pendingCount ? ` <span class="badge badge-warning badge-xs">${pendingCount}</span>` : ""}`)}
+        ${tabButton("conversation", `Conversation${runs.length ? ` (${runs.length})` : ""}`)}
+        ${tabButton("files", `Files${item.logicalFiles.length ? ` (${item.logicalFiles.length})` : ""}`)}
+      </div>
+      ${body}
+    </div>`;
+  }
+
+  async function renderBoard(): Promise<void> {
     host.shell.setHeader(host.workspaceController.activeBoard?.name ?? "Work", host.workspaceController.activeProcess ? `${host.session.currentTeam()?.name} / ${host.workspaceController.activeProcess.name}` : undefined);
     if (!host.workspaceController.activeBoard || !host.workspaceController.activeProcess) {
       host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
@@ -478,6 +735,11 @@ export function createMainViews(host: MainHost) {
     const visible = host.workspaceController.items.filter((item) => !isFiltered(item, filters));
     const filtered = host.workspaceController.items.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const expandedItemId = host.shell.boardItemId;
+    const expandedItem = visible.find(({ id }) => id === expandedItemId) ?? null;
+    const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
+    if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
+      return;
     host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
           <span class="eyebrow-pill"><span class="status status-primary"></span> Workflow board</span>
@@ -505,7 +767,7 @@ export function createMainViews(host: MainHost) {
               <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
             </header>
             <div class="grid gap-3">${cards
-              .map((item) => `<article class="kanban-card card border border-base-300">
+              .map((item) => `<article class="kanban-card card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="card-body gap-3 p-4">
                     <div>
                       <p class="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-primary">${host.shell.escapeHtml(stage.name)}</p>
@@ -531,19 +793,6 @@ export function createMainViews(host: MainHost) {
                     ${needsAttention(waiting.get(item.id) ?? null)
                   ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-base-content/60"}">${host.shell.escapeHtml(waiting.get(item.id)!.detail)}</p>`
                   : ""}
-                    <div class="card-actions items-center justify-end">
-                      <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
-                      <button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>
-                      <div class="dropdown dropdown-end">
-                        <button class="btn btn-ghost btn-xs" tabindex="0">Move</button>
-                        <ul class="dropdown-content menu menu-sm z-20 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl" tabindex="0">
-                          ${processEngine.definition(host.workspaceController.activeProcess!).states
-                            .filter(({ id }) => id !== item.stageId)
-                            .map(({ id, name }) => `<li><button data-action="move-item" data-id="${item.id}" data-stage="${id}">${host.shell.escapeHtml(name)}</button></li>`)
-                            .join("")}
-                        </ul>
-                      </div>
-                    </div>
                   </div>
                 </article>`)
               .join("")}
@@ -552,6 +801,7 @@ export function createMainViews(host: MainHost) {
           </section>`;
         })
         .join("")}</div>
+      ${panel}
       ${filtered.length
         ? `<details class="collapse-arrow mt-5 rounded-box border border-base-300 bg-base-100">
               <summary class="cursor-pointer px-4 py-3 text-sm font-semibold">Filtered items (${filtered.length})</summary>
@@ -739,24 +989,6 @@ export function createMainViews(host: MainHost) {
     }
   }
 
-  /**
-   * "Resolve" alone tells nobody what pressing it does. An error wait is a stray failure record —
-   * clearing it changes nothing else. A human wait is a real handoff — clearing it tells Bees to
-   * continue. The label and tooltip say which one this is.
-   */
-  function waitResolveAction(kind: string): { label: string; title: string } {
-    if (kind === "error") {
-      return {
-        label: "Dismiss",
-        title: "Clears this failure notice. It does not retry or undo anything — redo whatever failed if it still needs doing."
-      };
-    }
-    if (kind === "human") {
-      return { label: "Mark done", title: "Tells Bees you've handled this so the item can continue." };
-    }
-    return { label: "Resolve", title: "Marks this wait as done so the item can continue." };
-  }
-
   /** One line of "why is this not moving", or nothing when it is. */
   function escalationBanner(state: WorkState | null): string {
     if (!needsAttention(state))
@@ -774,7 +1006,7 @@ export function createMainViews(host: MainHost) {
     const process = host.workspaceController.processes.find(({ id }) => id === host.shell.configProcessId);
     if (!process) {
       host.shell.view = "board";
-      renderBoard();
+      void renderBoard();
       return;
     }
     host.shell.setHeader(`${process.name} — past runs`, host.session.currentTeam()?.name);

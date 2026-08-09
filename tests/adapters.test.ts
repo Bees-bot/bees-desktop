@@ -19,7 +19,9 @@ describe("local adapters", () => {
       collectOutputs: vi.fn().mockResolvedValue(["result.md"]),
       preview: vi.fn().mockResolvedValue({ before: null, after: "result", truncated: false }),
       publish: vi.fn().mockResolvedValue("Approved/result.md"),
-      cleanup: vi.fn().mockResolvedValue(undefined)
+      cleanup: vi.fn().mockResolvedValue(undefined),
+      readLocationFile: vi.fn().mockResolvedValue(null),
+      writeLocationFile: vi.fn().mockResolvedValue(undefined)
     };
     const service = new TemporaryWorkspaceService(native);
     await expect(

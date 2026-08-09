@@ -74,20 +74,21 @@ export function parseTaskPlan(value: string): PlannedTask[] {
 export const GOAL_PLANNER_PROMPT = `Decide first whether this goal needs planning at all.
 
 If one worker could finish it in a single run, create no task plan and choose Work. Planning is
-not free: every task becomes its own run and its own thing for a human to approve, so splitting
-work that was already one job costs time and attention and returns nothing. The one exception is
-an external action, which always needs its own approved external_write task, however small.
+not free: every task becomes its own run, so splitting work that was already one job costs time
+and returns nothing. An external action always needs its own external_write task, however small —
+that worker still writes approval-request.md instead of acting directly whenever the goal calls
+for human review before the action happens.
 
 Only when the goal is genuinely larger than one run, plan the next safe, executable wave.
 Write only outputs/${TASK_PLAN_OUTPUT} as:
 {"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}
 Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
-and input paths listed in the run context. The human selects and may edit tasks before creation.
+and input paths listed in the run context. Every task you propose is created and started
+automatically, with no human selection step, so only propose tasks you actually want run.
 Later waves are planned after these tasks finish; do not plan work that depends on this wave.
 
 When you tell the human what you did, describe the plan itself in plain language — what it covers
-and roughly how many tasks — and say that it is ready for their review. Never mention output file
-names or paths; the human reviews and approves the plan in the app, not by opening a file.`;
+and roughly how many tasks. Never mention output file names or paths.`;
 
 export const GOAL_WORKER_PROMPT = `Complete this task using the available tools and input files.
 

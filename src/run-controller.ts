@@ -88,7 +88,7 @@ export function createRunController(host: MainHost) {
         throw new Error("Output workspace is unavailable");
       return host.workspaces.readOutput(execution.workspaceRef, output.logicalOutput, teamRoot);
     },
-    approveTaskPlan: (outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks) => host.repository.approveTaskPlan(outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks),
+    approveTaskPlan: (outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks, finalize) => host.repository.approveTaskPlan(outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks, finalize),
     workerRoles: () => taskWorkerRoles().map(({ role }) => role),
     syncCheckpoint: (itemId, targetStageId) => syncCheckpoint(itemId, undefined, targetStageId),
     finishOutputReview: (execution) => finishOutputReview(execution)
@@ -535,6 +535,17 @@ export function createRunController(host: MainHost) {
         }
         else {
           await host.repository.markExecutionProjectionLocal(execution.id);
+          // A task plan is the worker's own decomposition, not a deliverable a human authored —
+          // spawn every proposed task automatically instead of waiting for manual selection.
+          const settledExecution = execution;
+          const planOutput = settledExecution.status === "completed"
+            ? (await host.repository.listExecutionOutputs(settledExecution.id, "pending"))
+              .find(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, settledExecution))
+            : undefined;
+          if (planOutput) {
+            const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+            if (mapping?.localPath) await taskPlanController.approveTaskPlan(planOutput, settledExecution, mapping.localPath);
+          }
         }
         execution = (await host.repository.getExecution(execution.id)) ?? execution;
       }

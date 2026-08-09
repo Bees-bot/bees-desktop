@@ -161,8 +161,9 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
 }
 
 .kanban-column {
-  min-height: 32rem;
-  overflow: hidden;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
   border-radius: .9rem;
   background:

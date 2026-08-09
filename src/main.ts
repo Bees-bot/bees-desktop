@@ -77,7 +77,7 @@ import { type RuntimeEvent } from "./runtime.js";
 import { createSessionController } from "./session-controller.js";
 import "./styles.css";
 import type { WorkState } from "./supervision.js";
-import { type View } from "./views.js";
+import { type BoardItemTab, type View } from "./views.js";
 import { createWorkspaceController } from "./workspace-controller.js";
 import {
   TauriWorkspacePort,
@@ -191,6 +191,11 @@ export interface AppShell {
   assistantPanel: HTMLElement;
   assistantSend: HTMLButtonElement;
   assistantToggle: HTMLButtonElement;
+  boardFileEditing: boolean;
+  boardFileRef: string;
+  boardItemEditing: boolean;
+  boardItemId: string;
+  boardTab: BoardItemTab;
   configAgentId: string;
   configProcessId: string;
   darkDefaultTheme: ThemePreset;
@@ -201,6 +206,8 @@ export interface AppShell {
   dialogTitle: HTMLElement;
   escapeHtml: (value: unknown) => string;
   formatBytes: (bytes: number) => string;
+  /** Workflow ids hidden from the Inbox table. Empty means every workflow shows. */
+  inboxProcessFilter: Set<string>;
   isThemePreset: (value: unknown) => value is ThemePreset;
   lightDefaultTheme: ThemePreset;
   loadTheme: () => Promise<void>;

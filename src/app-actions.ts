@@ -51,13 +51,14 @@ import {
 import type {
   Agent,
   Board,
+  Execution,
+  ExecutionOutput,
   FileLocation,
   GoalTaskEffect,
   McpConnection,
   Process,
   Schedule,
   WorkItem,
-  WorkItemWaitKind
 } from "./domain.js";
 import {
   errorText,
@@ -100,7 +101,7 @@ import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import { runReceipt } from "./run-receipt.js";
 import { FlueRuntime } from "./runtime.js";
 import { nextScheduleRun } from "./scheduler.js";
-import { type View } from "./views.js";
+import { type BoardItemTab, type View } from "./views.js";
 
 export function createMainActions(host: MainHost) {
   /**
@@ -833,6 +834,120 @@ export function createMainActions(host: MainHost) {
     }
   }
 
+  /**
+   * Turns the selected, possibly edited tasks of a proposed plan into queued work items. Shared
+   * by the approval dialog and the inline plan form on the board's Approval tab — both submit
+   * the same field names (`selectedTasks`, `task-<i>-title`, …).
+   */
+  async function approvePlanSelection(
+    output: ExecutionOutput,
+    execution: Execution,
+    teamRoot: string,
+    proposed: PlannedTask[],
+    data: FormData,
+    indices: number[],
+    finalize = true
+  ): Promise<void> {
+    const selected = new Set(indices.map(String));
+    if (!selected.size)
+      throw new Error("Select at least one task to approve");
+    const edited = parseTaskPlan(JSON.stringify({
+      tasks: proposed.flatMap((task, index): PlannedTask[] => selected.has(String(index))
+        ? [{
+          ...task,
+          title: String(data.get(`task-${index}-title`) ?? task.title),
+          description: String(data.get(`task-${index}-description`) ?? task.description),
+          role: String(data.get(`task-${index}-role`) ?? task.role),
+          effect: String(data.get(`task-${index}-effect`) ?? task.effect) as GoalTaskEffect,
+          inputs: data.has(`task-${index}-inputs`) ? data.getAll(`task-${index}-inputs`).map(String) : task.inputs
+        }]
+        : [])
+    }));
+    for (const control of host.shell.app.querySelectorAll<HTMLButtonElement>('[data-action="approve-output"], [data-action="reject-output"]')) {
+      if (control.dataset.id === output.id)
+        control.disabled = true;
+    }
+    try {
+      const count = await host.runs.taskPlanController.approveTaskPlan(output, execution, teamRoot, edited, finalize);
+      host.shell.showNotice(count
+        ? `${count} task${count === 1 ? "" : "s"} approved and queued`
+        : "Plan approved; duplicate task keys were skipped", "success");
+    }
+    finally {
+      // Reconcile controls with the database even if shared coordination fails afterward.
+      await host.workspaceController.refresh();
+    }
+  }
+
+  /** Plan tasks that already became work items — matched the way the repository dedupes, by key. */
+  function approvedPlanIndices(execution: Execution, proposed: PlannedTask[]): Set<number> {
+    const parent = host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId);
+    const existing = new Set(host.workspaceController.teamItems
+      .filter(({ processId, goal }) => processId === parent?.processId && goal?.key)
+      .map(({ goal }) => goal!.key));
+    return new Set(proposed.flatMap((task, index) => (existing.has(task.key) ? [index] : [])));
+  }
+
+  /**
+   * The inline plan form on the Approval tab. The submitter decides scope: a per-task Approve
+   * button carries its index; the header button approves every task not yet turned into an item.
+   * The plan settles (finalize) only when nothing would be left pending afterward.
+   */
+  async function submitApprovalPlan(form: HTMLFormElement, submitter: HTMLButtonElement | null): Promise<void> {
+    const output = host.runs.executionOutputs.find(({ id }) => id === form.dataset.output);
+    const execution = output ? await host.repository.getExecution(output.executionId) : null;
+    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+    if (!output || !execution?.workspaceRef || !mapping)
+      throw new Error("Output is unavailable");
+    const proposed = await host.runs.taskPlanController.readTaskPlan(output, execution, mapping.localPath);
+    const done = approvedPlanIndices(execution, proposed);
+    const remaining = proposed.flatMap((_, index) => (done.has(index) ? [] : [index]));
+    const single = submitter?.name === "approveTask" ? Number(submitter.value) : null;
+    const indices = single !== null
+      ? [single]
+      : remaining.length
+        ? remaining
+        // Every task already exists — approve the full plan so the pending output settles.
+        : proposed.map((_, index) => index);
+    const finalize = single === null || (remaining.length === 1 && remaining[0] === single);
+    await approvePlanSelection(output, execution, mapping.localPath, proposed, new FormData(form), indices, finalize);
+  }
+
+  /** Saves the inline Details form of the expanded kanban card — same writes as the edit dialog. */
+  async function saveBoardItem(form: HTMLFormElement): Promise<void> {
+    const item = host.workspaceController.teamItems.find(({ id }) => id === form.dataset.id);
+    if (!item)
+      throw new Error("The work item is no longer available");
+    const data = new FormData(form);
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    const archived = data.get("archived") === "archived";
+    await host.repository.updateWorkItem(item.id, {
+      title: String(data.get("title") ?? ""),
+      description: String(data.get("description") ?? ""),
+      owner: String(data.get("owner") ?? ""),
+      logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
+    });
+    if (archived !== Boolean(item.archivedAt)) {
+      await host.workflowRuntime.command(item.id, {
+        type: archived ? "archive" : "restore"
+      });
+    }
+    host.shell.boardItemEditing = false;
+    await host.workspaceController.refresh();
+  }
+
+  /** Saves an edit made in the kanban card's inline Files tab, then drops back to the preview. */
+  async function saveBoardFile(data: FormData): Promise<void> {
+    const reference = String(data.get("reference") ?? "");
+    if (!reference)
+      return;
+    const teamRoot = await host.workspaceController.requireTeamRoot();
+    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+    await host.workspaces.writeLogicalFile(reference, teamRoot, locations, String(data.get("contents") ?? ""));
+    host.shell.boardFileEditing = false;
+    host.shell.render();
+  }
+
   function parseFileReferencesInput(value: string, locations: FileLocation[]): string[] {
     return value
       .split(",")
@@ -888,7 +1003,9 @@ export function createMainActions(host: MainHost) {
   }
 
   document.addEventListener("click", async (event) => {
-    const button = (event.target as Element).closest<HTMLButtonElement>("button");
+    // Table rows with data-action behave like buttons (e.g. the Inbox row opening its item), so a
+    // click anywhere on the row works without every cell needing its own button.
+    const button = (event.target as Element).closest<HTMLElement>("button, tr[data-action], article[data-action]");
     // The assistant panel runs its own delegation — it lives outside #app and its buttons share
     // no data-action vocabulary with the views.
     if (!button || button.closest("dialog") || button.closest("#assistant"))
@@ -913,6 +1030,12 @@ export function createMainActions(host: MainHost) {
       }
       if (button.dataset.teamTab) {
         host.shell.teamTab = button.dataset.teamTab as TeamTab;
+        host.shell.render();
+        return;
+      }
+      if (button.dataset.boardTab) {
+        host.shell.boardTab = button.dataset.boardTab as BoardItemTab;
+        host.shell.boardItemEditing = false;
         host.shell.render();
         return;
       }
@@ -985,66 +1108,51 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      if (action === "resolve-wait") {
-        const item = host.workspaceController.teamItems.find(({ waits }) =>
-          waits.some(({ id }) => id === button.dataset.id)
-        );
-        if (item) {
-          await host.workflowRuntime.command(item.id, {
-            type: "resolve_wait",
-            waitId: button.dataset.id!
-          });
+      // A card opens in place, under the board, rather than navigating away — clicking the
+      // already-open card closes it again.
+      if (action === "toggle-board-item") {
+        const id = button.dataset.id!;
+        const collapsing = host.shell.boardItemId === id;
+        host.shell.boardItemId = collapsing ? "" : id;
+        host.shell.boardFileRef = "";
+        host.shell.boardFileEditing = false;
+        host.shell.boardItemEditing = false;
+        if (!collapsing) {
+          const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
+          if (latest)
+            await host.runs.loadExecutionHistory(latest);
+          // Land on what needs a decision when something does, on the plain facts otherwise.
+          const itemRunIds = new Set(host.runs.executions.filter(({ workItemId }) => workItemId === id).map(({ id: runId }) => runId));
+          host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
+            ? "approval"
+            : "details";
         }
-        await host.workspaceController.refresh();
+        host.shell.render();
         return;
       }
-      if (action === "add-wait") {
-        const itemId = button.dataset.id!;
-        const choices = host.workspaceController.teamItems
-          .filter(({ id }) => id !== itemId)
-          .map(({ id, title }) => ({ label: title, value: id }));
-        const data = await edit("Pause work item", [
-          {
-            name: "kind",
-            label: "Wait for",
-            type: "select",
-            value: "human",
-            options: [
-              { label: "Human decision", value: "human" },
-              { label: "External event", value: "external_event" },
-              { label: "Another work item", value: "dependency" },
-              { label: "Agent or process run", value: "execution" },
-              { label: "Error recovery", value: "error" },
-              { label: "Scheduled time", value: "schedule" },
-              { label: "Manual resume", value: "manual" }
-            ]
-          },
-          { name: "reason", label: "Reason", type: "textarea" },
-          { name: "target", label: "Person or system", hint: "Optional owner or external system." },
-          { name: "correlationKey", label: "Event correlation key", hint: "Required only for an external event." },
-          { name: "executionId", label: "Run ID", hint: "Required only when waiting for an agent or process run." },
-          {
-            name: "dependencyWorkItemId",
-            label: "Dependent work item",
-            type: "select",
-            options: [{ label: "None", value: "" }, ...choices],
-            hint: "Required only when waiting for another work item."
-          },
-          { name: "wakeAt", label: "Wake time", placeholder: "2026-08-09T09:00:00-07:00", hint: "Required only for a scheduled wait; enter an ISO date/time." }
-        ], "Pause");
-        if (!data) return;
-        const kind = String(data.get("kind")) as WorkItemWaitKind;
-        await host.workflowRuntime.command(itemId, {
-          type: "wait",
-          kind,
-          reason: String(data.get("reason") ?? ""),
-          ...(String(data.get("target") ?? "").trim() ? { target: String(data.get("target")) } : {}),
-          ...(String(data.get("correlationKey") ?? "").trim() ? { correlationKey: String(data.get("correlationKey")) } : {}),
-          ...(String(data.get("executionId") ?? "").trim() ? { executionId: String(data.get("executionId")) } : {}),
-          ...(String(data.get("dependencyWorkItemId") ?? "").trim() ? { dependencyWorkItemId: String(data.get("dependencyWorkItemId")) } : {}),
-          ...(String(data.get("wakeAt") ?? "").trim() ? { wakeAt: String(data.get("wakeAt")) } : {})
-        });
-        await host.workspaceController.refresh();
+      if (action === "close-board-item") {
+        host.shell.boardItemId = "";
+        host.shell.boardFileRef = "";
+        host.shell.boardFileEditing = false;
+        host.shell.boardItemEditing = false;
+        host.shell.render();
+        return;
+      }
+      if (action === "toggle-board-item-edit") {
+        host.shell.boardTab = "details";
+        host.shell.boardItemEditing = !host.shell.boardItemEditing;
+        host.shell.render();
+        return;
+      }
+      if (action === "select-board-file") {
+        host.shell.boardFileRef = button.dataset.ref === host.shell.boardFileRef ? "" : (button.dataset.ref ?? "");
+        host.shell.boardFileEditing = false;
+        host.shell.render();
+        return;
+      }
+      if (action === "toggle-board-file-edit") {
+        host.shell.boardFileEditing = !host.shell.boardFileEditing;
+        host.shell.render();
         return;
       }
       // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
@@ -1235,36 +1343,9 @@ export function createMainActions(host: MainHost) {
           const data = await edit("Approve goal tasks", fields, "Approve selected");
           if (!data)
             return;
-          const selected = new Set(data.getAll("selectedTasks").map(String));
-          if (!selected.size)
-            throw new Error("Select at least one task to approve");
-          const edited = parseTaskPlan(JSON.stringify({
-            tasks: proposed.flatMap((task, index): PlannedTask[] => selected.has(String(index))
-              ? [{
-                ...task,
-                title: String(data.get(`task-${index}-title`) ?? ""),
-                description: String(data.get(`task-${index}-description`) ?? ""),
-                role: String(data.get(`task-${index}-role`) ?? ""),
-                effect: String(data.get(`task-${index}-effect`) ?? "") as GoalTaskEffect,
-                inputs: data.getAll(`task-${index}-inputs`).map(String)
-              }]
-              : [])
-          }));
-          for (const control of host.shell.app.querySelectorAll<HTMLButtonElement>('[data-action="approve-output"], [data-action="reject-output"]')) {
-            if (control.dataset.id === output.id)
-              control.disabled = true;
-          }
-          try {
-            const count = await host.runs.taskPlanController.approveTaskPlan(output, execution, mapping.localPath, edited);
-            host.shell.showNotice(count
-              ? `${count} task${count === 1 ? "" : "s"} approved and queued`
-              : "Plan approved; duplicate task keys were skipped", "success");
-            return;
-          }
-          finally {
-            // Reconcile controls with the database even if shared coordination fails afterward.
-            await host.workspaceController.refresh();
-          }
+          await approvePlanSelection(output, execution, mapping.localPath, proposed, data,
+            data.getAll("selectedTasks").map(Number));
+          return;
         }
         const data = await edit("Approve file change", [
           { name: "destination", label: "Team-folder destination", value: output.logicalDestination }
@@ -1860,13 +1941,6 @@ export function createMainActions(host: MainHost) {
         if (board)
           await editDashboard(board);
       }
-      if (action === "move-item") {
-        await host.workflowRuntime.command(button.dataset.id!, {
-          type: "move",
-          targetStageId: button.dataset.stage!
-        });
-        await host.workspaceController.refresh();
-      }
       if (action === "new-item-in-stage")
         await createItem(button.dataset.stage);
       if (action === "cancel-new-item") {
@@ -2200,6 +2274,25 @@ export function createMainActions(host: MainHost) {
       void saveProcessDefinition(new FormData(definitionForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
+    const approvalPlanForm = (event.target as Element).closest<HTMLFormElement>("form[data-approval-plan-form]");
+    if (approvalPlanForm) {
+      event.preventDefault();
+      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+      void submitApprovalPlan(approvalPlanForm, submitter).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      return;
+    }
+    const boardItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-item-form]");
+    if (boardItemForm) {
+      event.preventDefault();
+      void saveBoardItem(boardItemForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      return;
+    }
+    const boardFileForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-file-form]");
+    if (boardFileForm) {
+      event.preventDefault();
+      void saveBoardFile(new FormData(boardFileForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      return;
+    }
     const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
     if (agentsForm) {
       event.preventDefault();
@@ -2302,6 +2395,15 @@ export function createMainActions(host: MainHost) {
 
   // Inline org branding controls save on change (no popup).
   document.addEventListener("change", (event) => {
+    const inboxFilter = (event.target as Element).closest<HTMLInputElement>("[data-inbox-filter]");
+    if (inboxFilter) {
+      if (inboxFilter.checked)
+        host.shell.inboxProcessFilter.delete(inboxFilter.value);
+      else
+        host.shell.inboxProcessFilter.add(inboxFilter.value);
+      host.shell.render();
+      return;
+    }
     const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
     if (themeDefault && host.shell.isThemePreset(themeDefault.value)) {
       const mode = themeDefault.dataset.themeDefault;

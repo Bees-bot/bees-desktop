@@ -35,6 +35,8 @@ export interface WorkspaceNativePort {
     destination: string
   ): Promise<string>;
   cleanup(workspaceRoot: string): Promise<void>;
+  readLocationFile(root: string, relative: string): Promise<string | null>;
+  writeLocationFile(root: string, relative: string, contents: string): Promise<void>;
 }
 
 /**
@@ -128,6 +130,14 @@ export class TauriWorkspacePort implements WorkspaceNativePort {
 
   cleanup(workspaceRoot: string): Promise<void> {
     return invoke("cleanup_workspace", { workspaceRoot });
+  }
+
+  readLocationFile(root: string, relative: string): Promise<string | null> {
+    return invoke("read_location_file", { root, relative });
+  }
+
+  writeLocationFile(root: string, relative: string, contents: string): Promise<void> {
+    return invoke("write_location_file", { root, relative, contents });
   }
 }
 
@@ -256,6 +266,40 @@ export class TemporaryWorkspaceService {
 
   cleanup(workspace: string): Promise<void> {
     return this.native.cleanup(workspace);
+  }
+
+  private async logicalFileRoot(
+    reference: string,
+    teamRoot: string,
+    locations: FileLocation[]
+  ): Promise<{ root: string; path: string }> {
+    const { locationId, path } = parseLogicalFileReference(reference);
+    if (!locationId) {
+      return { root: await this.native.validateDirectory(teamRoot), path };
+    }
+    const location = locations.find(({ id }) => id === locationId);
+    if (!location) {
+      throw new Error("Linked file location is not available to this team");
+    }
+    if (!location.localPath) {
+      throw new Error(`Map the linked location "${location.name}" on this machine first`);
+    }
+    return { root: await this.native.validateDirectory(location.localPath), path };
+  }
+
+  async readLogicalFile(reference: string, teamRoot: string, locations: FileLocation[]): Promise<string | null> {
+    const { root, path } = await this.logicalFileRoot(reference, teamRoot, locations);
+    return this.native.readLocationFile(root, path);
+  }
+
+  async writeLogicalFile(
+    reference: string,
+    teamRoot: string,
+    locations: FileLocation[],
+    contents: string
+  ): Promise<void> {
+    const { root, path } = await this.logicalFileRoot(reference, teamRoot, locations);
+    await this.native.writeLocationFile(root, path, contents);
   }
 }
 

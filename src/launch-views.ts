@@ -2,6 +2,7 @@ import type {
   Execution,
   ExecutionOutput,
   Organization,
+  Process,
   Schedule,
   Team,
   WorkItem
@@ -30,7 +31,7 @@ function itemName(items: WorkItem[], id: string): string {
   return items.find((item) => item.id === id)?.title ?? "Unknown work item";
 }
 
-function taskPlanOutput(execution: Execution): string | undefined {
+export function taskPlanOutput(execution: Execution): string | undefined {
   return execution.result?.taskPlan?.output;
 }
 
@@ -38,7 +39,7 @@ function outputName(output: ExecutionOutput, taskPlan?: string): string {
   return output.logicalOutput === taskPlan ? "Proposed subtasks" : output.logicalDestination;
 }
 
-function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
+export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
   const actions = `<div class="flex shrink-0 gap-2">
     <button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" ${
       busy ? "disabled" : ""
@@ -207,53 +208,81 @@ export function overviewView(
     </section>`;
 }
 
+/** Checkbox dropdown to hide selected workflows' items from the Inbox table. */
+function inboxWorkflowFilter(processes: Process[], excluded: ReadonlySet<string>): string {
+  if (!processes.length) return "";
+  return `<div class="dropdown mb-3">
+    <button class="btn btn-sm" tabindex="0">Workflow<span class="badge badge-ghost badge-sm">${
+      processes.length - excluded.size
+    }/${processes.length}</span></button>
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-10 mt-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+      ${processes
+        .map(
+          ({ id, name }) => `<li><label class="flex cursor-pointer items-center gap-2 px-1 py-1">
+            <input class="checkbox checkbox-sm" type="checkbox" data-inbox-filter value="${id}" ${
+              excluded.has(id) ? "" : "checked"
+            }>
+            <span class="truncate">${escapeHtml(name)}</span>
+          </label></li>`
+        )
+        .join("")}
+    </ul>
+  </div>`;
+}
+
 /**
- * One list over everything that owes a person an answer, grouped by why. The view knows nothing
- * about causes — `escalationGroups` decides what is stuck and how it reads, so a new state shows
- * up here without this function changing.
+ * One row per work item that owes a person an answer, newest cause first. `escalationGroups`
+ * decides what is stuck and how it reads; this view only flattens its groups into a table and
+ * lets the workflow dropdown hide rows — a new state still shows up here without this changing.
  */
-export function inboxView(groups: EscalationGroup[], executions: Execution[]): string {
-  if (!groups.length) {
-    return empty("Inbox clear", "Work that is stuck, waiting, or failed will appear here.");
+export function inboxView(
+  groups: EscalationGroup[],
+  executions: Execution[],
+  processes: Process[],
+  org: string,
+  team: string,
+  excludedProcessIds: ReadonlySet<string>
+): string {
+  const filter = inboxWorkflowFilter(processes, excludedProcessIds);
+  const rows = groups.flatMap((group) => group.escalations.map((escalation) => ({ group, ...escalation })))
+    .filter(({ item }) => !excludedProcessIds.has(item.processId));
+  if (!rows.length) {
+    return `${filter}${empty("Inbox clear", "Work that is stuck, waiting, or failed will appear here.")}`;
   }
   const failedRun = (itemId: string): Execution | undefined =>
     executions.find(
       ({ workItemId, status }) =>
         workItemId === itemId && (status === "failed" || status === "interrupted")
     );
-  return `<div class="grid gap-4">${groups
-    .map(
-      (group) => `<section>
-      <h2 class="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${
-        group.kind === "stalled" ? "text-error" : "text-warning"
-      }">${escapeHtml(group.label)}<span class="badge badge-ghost badge-sm">${group.escalations.length}</span></h2>
-      <div class="grid gap-2">${group.escalations
-        .map(({ item, state }) => {
+  return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <table class="table table-zebra">
+      <thead><tr><th>Org</th><th>Team</th><th>Workflow</th><th>Details</th><th></th></tr></thead>
+      <tbody>${rows
+        .map(({ group, item, state }) => {
           const run = group.reason === "run-failed" ? failedRun(item.id) : undefined;
-          return `<article class="card border ${
-            group.kind === "stalled" ? "border-error/30" : "border-warning/40"
-          } bg-base-100 shadow-sm"><div class="card-body p-4">
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0">
-                <h3 class="font-bold">${escapeHtml(item.title)}</h3>
-                <p class="line-clamp-2 text-sm text-base-content/55">${escapeHtml(state.detail)}</p>
+          const workflow = processes.find(({ id }) => id === item.processId)?.name ?? "—";
+          return `<tr class="cursor-pointer hover" data-action="open-item" data-id="${item.id}">
+            <td>${escapeHtml(org)}</td>
+            <td>${escapeHtml(team)}</td>
+            <td>${escapeHtml(workflow)}</td>
+            <td class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-sm ${group.kind === "stalled" ? "badge-error" : "badge-warning"} badge-outline">${escapeHtml(state.label)}</span>
+                <span class="truncate font-semibold">${escapeHtml(item.title)}</span>
               </div>
-              <div class="flex shrink-0 gap-2">
-                ${
-                  run
-                    ? `<button class="btn btn-ghost btn-sm" data-action="dismiss-run" data-id="${run.id}">Dismiss</button>
-                       <button class="btn btn-ghost btn-sm" data-action="open-run" data-id="${run.id}">Open run</button>`
-                    : ""
-                }
-                <button class="btn btn-primary btn-sm" data-action="open-item" data-id="${item.id}">Open</button>
-              </div>
-            </div>
-          </div></article>`;
+              <p class="line-clamp-1 text-sm text-base-content/55">${escapeHtml(state.detail)}</p>
+            </td>
+            <td class="text-right">${
+              run
+                ? `<button class="btn btn-ghost btn-xs" data-action="dismiss-run" data-id="${run.id}">Dismiss</button>
+                   <button class="btn btn-ghost btn-xs" data-action="open-run" data-id="${run.id}">Open run</button>`
+                : ""
+            }</td>
+          </tr>`;
         })
-        .join("")}</div>
-    </section>`
-    )
-    .join("")}</div>`;
+        .join("")}</tbody>
+    </table>
+  </div>`;
 }
 
 export function runsView(items: WorkItem[], executions: Execution[]): string {

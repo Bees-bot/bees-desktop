@@ -1624,7 +1624,9 @@ export class LocalRepository {
     workStageId: string,
     waitingStageId: string,
     reviewStageId: string,
-    tasks: PlannedTask[]
+    tasks: PlannedTask[],
+    /** False approves a subset and leaves the plan pending so remaining tasks stay decidable. */
+    finalize = true
   ): Promise<string[]> {
     if (!tasks.length) throw new Error("Select at least one task to approve");
     const pending = await this.database.query<Row>(
@@ -1700,11 +1702,13 @@ export class LocalRepository {
               WHERE id = ? AND deleted_at IS NULL`,
         params: [timestamp, timestamp, parentId]
       },
-      {
-        sql: `UPDATE execution_outputs SET status = 'approved', decided_at = ?
+      ...(finalize
+        ? [{
+          sql: `UPDATE execution_outputs SET status = 'approved', decided_at = ?
               WHERE id = ? AND status = 'pending'`,
-        params: [timestamp, outputId]
-      }
+          params: [timestamp, outputId]
+        }]
+        : [])
     ]);
     return ids;
   }

@@ -22,7 +22,7 @@ import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js
 import { renderMarkdown } from "./markdown.js";
 import { type SearchHit } from "./repository.js";
 import { escalationGroups } from "./supervision.js";
-import { LAST_VIEW_KEY, RESTORABLE_VIEWS, type View } from "./views.js";
+import { LAST_VIEW_KEY, RESTORABLE_VIEWS, type BoardItemTab, type View } from "./views.js";
 
 export function createAppShell(host: MainHost) {
   // daisyUI themes that ship a dark color-scheme (drive the native colorScheme + toggle icon).
@@ -51,6 +51,19 @@ export function createAppShell(host: MainHost) {
 
   let activeItemId = "";
 
+  // The kanban card expanded inline under the board, its active tab, and — inside the Files
+  // tab — the file being previewed or edited. Empty `boardItemId` means no card is expanded.
+  let boardItemId = "";
+
+  let boardTab: BoardItemTab = "details";
+
+  let boardFileRef = "";
+
+  let boardFileEditing = false;
+
+  /** The Details tab flipped into its inline edit form. */
+  let boardItemEditing = false;
+
   // The process whose editor or run history is open, and the agent whose panel shows on the
   // editor. Every agent of the process is in the DOM, so switching panels is a visibility
   // toggle: unsaved edits survive it. Empty `configProcessId` on the editor means a new process.
@@ -75,6 +88,9 @@ export function createAppShell(host: MainHost) {
   let searchQuery = "";
 
   let searchHits: SearchHit[] = [];
+
+  /** Workflow ids hidden from the Inbox table. Empty means every workflow shows. */
+  let inboxProcessFilter = new Set<string>();
 
   let prefsTab: PrefsTab = "theme";
 
@@ -265,11 +281,18 @@ export function createAppShell(host: MainHost) {
       }));
     }
     if (view === "inbox") {
-      setHeader("Inbox", "Work, approvals, and runs that need you");
-      swap(inboxView(escalationGroups(host.runs.supervise(), host.workspaceController.teamItems), host.runs.executions));
+      setHeader("Inbox", host.session.currentTeam()?.name);
+      swap(inboxView(
+        escalationGroups(host.runs.supervise(), host.workspaceController.teamItems),
+        host.runs.executions,
+        host.workspaceController.processes,
+        host.session.currentOrganization()?.name ?? "—",
+        host.session.currentTeam()?.name ?? "—",
+        inboxProcessFilter
+      ));
     }
     if (view === "board")
-      host.views.renderBoard();
+      void host.views.renderBoard();
     if (view === "process")
       host.views.renderProcessEditor();
     if (view === "process-runs")
@@ -331,6 +354,16 @@ export function createAppShell(host: MainHost) {
     set activeExecutionId(value: typeof activeExecutionId) { activeExecutionId = value; },
     get activeItemId() { return activeItemId; },
     set activeItemId(value: typeof activeItemId) { activeItemId = value; },
+    get boardItemId() { return boardItemId; },
+    set boardItemId(value: typeof boardItemId) { boardItemId = value; },
+    get boardTab() { return boardTab; },
+    set boardTab(value: typeof boardTab) { boardTab = value; },
+    get boardFileRef() { return boardFileRef; },
+    set boardFileRef(value: typeof boardFileRef) { boardFileRef = value; },
+    get boardFileEditing() { return boardFileEditing; },
+    set boardFileEditing(value: typeof boardFileEditing) { boardFileEditing = value; },
+    get boardItemEditing() { return boardItemEditing; },
+    set boardItemEditing(value: typeof boardItemEditing) { boardItemEditing = value; },
     get configProcessId() { return configProcessId; },
     set configProcessId(value: typeof configProcessId) { configProcessId = value; },
     get configAgentId() { return configAgentId; },
@@ -347,6 +380,8 @@ export function createAppShell(host: MainHost) {
     set searchQuery(value: typeof searchQuery) { searchQuery = value; },
     get searchHits() { return searchHits; },
     set searchHits(value: typeof searchHits) { searchHits = value; },
+    get inboxProcessFilter() { return inboxProcessFilter; },
+    set inboxProcessFilter(value: typeof inboxProcessFilter) { inboxProcessFilter = value; },
     get prefsTab() { return prefsTab; },
     set prefsTab(value: typeof prefsTab) { prefsTab = value; },
     get orgTab() { return orgTab; },

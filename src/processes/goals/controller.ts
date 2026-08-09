@@ -14,7 +14,8 @@ export interface TaskPlanHost {
     workStageId: string,
     waitingStageId: string,
     reviewStageId: string,
-    tasks: PlannedTask[]
+    tasks: PlannedTask[],
+    finalize?: boolean
   ): Promise<string[]>;
   workerRoles(): string[];
   syncCheckpoint(itemId: string, targetStageId: string): Promise<void>;
@@ -42,7 +43,9 @@ export class TaskPlanController {
     output: ExecutionOutput,
     execution: Execution,
     teamRoot: string,
-    selectedTasks?: PlannedTask[]
+    selectedTasks?: PlannedTask[],
+    /** False approves a subset without settling the plan — the rest stays pending. */
+    finalize = true
   ): Promise<number> {
     const item = this.host.findWorkItem(execution.workItemId);
     const process = item ? this.host.findProcess(item.processId) : null;
@@ -62,9 +65,12 @@ export class TaskPlanController {
       stages.work.id,
       stages.waiting.id,
       stages.review.id,
-      approved
+      approved,
+      finalize
     );
     await this.host.syncCheckpoint(item.id, ids.length ? stages.waiting.id : stages.review.id);
+    // finishOutputReview no-ops while any output is still pending, so a partial approval
+    // (finalize false) leaves the run open for the remaining tasks.
     await this.host.finishOutputReview(execution);
     return ids.length;
   }

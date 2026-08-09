@@ -1,7 +1,7 @@
 import { conversationToSnapshotV1 } from "../src/conversation-snapshot.js";
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import type { Agent, Execution, ExecutionOutput, Registry, WorkItem } from "../src/domain.js";
+import type { Agent, Execution, ExecutionOutput, Process, Registry, WorkItem } from "../src/domain.js";
 import { runtimeAgentName } from "../src/flue-project.js";
 import { registryCapabilities } from "../src/registries.js";
 import { buildBeesRunInitialData } from "../src/run-config.js";
@@ -174,6 +174,18 @@ describe("lean launch modules", () => {
       createdAt: "",
       updatedAt: ""
     } satisfies WorkItem;
+    const process = {
+      id: "process",
+      teamId: "team",
+      name: "Onboarding",
+      description: "",
+      archivedAt: null,
+      createdAt: "",
+      updatedAt: "",
+      stages: [],
+      definition: { moduleId: null, version: 1, automation: "interactive", renderer: "", stateIds: {}, capabilities: [], roleBindings: [] },
+      tags: []
+    } satisfies Process;
 
     const failed = escalationGroups(
       new Map([
@@ -184,10 +196,10 @@ describe("lean launch modules", () => {
       ]),
       [item]
     );
-    expect(inboxView(failed, [execution])).toContain('data-action="dismiss-run"');
+    expect(inboxView(failed, [execution], [process], "Acme", "Growth", new Set())).toContain('data-action="dismiss-run"');
     // A dismissed failure is one a person has answered for: the sweep stops reporting it, so
     // the inbox has nothing to render rather than filtering runs itself.
-    expect(inboxView([], [execution])).toContain("Inbox clear");
+    expect(inboxView([], [execution], [process], "Acme", "Growth", new Set())).toContain("Inbox clear");
     // A step only a person can start belongs here too — it produces no run at all, so a
     // run-shaped inbox never mentioned it and the work looked like nothing was wrong.
     const waiting = inboxView(
@@ -200,7 +212,11 @@ describe("lean launch modules", () => {
         ]),
         [item]
       ),
-      [execution]
+      [execution],
+      [process],
+      "Acme",
+      "Growth",
+      new Set()
     );
     expect(waiting).not.toContain("Inbox clear");
     expect(waiting).toContain("Waiting on you");
