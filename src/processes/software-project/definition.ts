@@ -29,7 +29,7 @@ export const softwareProjectProcess = {
       { key: SOFTWARE_PROJECT_STATE_KEYS[3], name: SOFTWARE_PROJECT_STAGES[3] },
       { key: SOFTWARE_PROJECT_STATE_KEYS[4], name: SOFTWARE_PROJECT_STAGES[4] },
       { key: SOFTWARE_PROJECT_STATE_KEYS[5], name: SOFTWARE_PROJECT_STAGES[5] },
-      { key: SOFTWARE_PROJECT_STATE_KEYS[6], name: SOFTWARE_PROJECT_STAGES[6] },
+      { key: SOFTWARE_PROJECT_STATE_KEYS[6], name: SOFTWARE_PROJECT_STAGES[6], terminal: true },
       { key: SOFTWARE_PROJECT_STATE_KEYS[7], name: SOFTWARE_PROJECT_STAGES[7] }
     ],
     automation: "interactive",

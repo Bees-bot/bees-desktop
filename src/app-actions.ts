@@ -121,7 +121,7 @@ export function createMainActions(host: MainHost) {
         name,
         triggerStageId,
         exempt: Boolean(
-          context && processEngine.allowsMultipleAgents(context.process, triggerStageId ?? "")
+          !context || processEngine.allowsMultipleAgents(context.process, triggerStageId ?? "")
         )
       };
     };

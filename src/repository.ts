@@ -36,7 +36,8 @@ import {
   type Stage,
   type Team,
   type WorkItem,
-  type WorkItemStatus
+  type WorkItemWait,
+  type WorkItemWaitKind
 } from "./domain.js";
 import type { PlannedTask } from "./processes/goals/index.js";
 import { starterProcessModule } from "./processes/registry.js";
@@ -91,6 +92,22 @@ function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+const workItemWaitsJson = `(SELECT json_group_array(json_object(
+  'id', q.id,
+  'workItemId', q.work_item_id,
+  'kind', q.kind,
+  'reason', q.reason,
+  'target', q.target,
+  'dependencyWorkItemId', q.dependency_work_item_id,
+  'executionId', q.execution_id,
+  'correlationKey', q.correlation_key,
+  'wakeAt', q.wake_at,
+  'resolvedAt', q.resolved_at,
+  'resolution', q.resolution,
+  'createdAt', q.created_at,
+  'updatedAt', q.updated_at
+)) FROM work_item_waits q WHERE q.work_item_id = w.id) AS waitsJson`;
+
 /** Stable UUIDv8 for one bundled process slot across every machine in a team. */
 async function deterministicUuid(value: string): Promise<string> {
   const bytes = new Uint8Array(
@@ -138,10 +155,11 @@ function newStarterProcess(teamId: string, timestamp: string): {
 } {
   const template = starterProcessModule().definition;
   const processId = createId();
-  const stages = template.states.map(({ key, name }, position) => ({
+  const stages = template.states.map(({ key, name, terminal = false }, position) => ({
     id: createId(),
     key,
     name,
+    isTerminal: terminal,
     position
   }));
   const definition = persistProcessDefinition(
@@ -159,9 +177,9 @@ function newStarterProcess(teamId: string, timestamp: string): {
         sql: "INSERT INTO process_definitions (process_id, definition_json) VALUES (?, ?)",
         params: [processId, JSON.stringify(definition)]
       },
-      ...stages.map(({ id, name, position }) => ({
-        sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
-        params: [id, processId, name, position]
+      ...stages.map(({ id, name, position, isTerminal }) => ({
+        sql: "INSERT INTO stages (id, process_id, name, position, is_terminal) VALUES (?, ?, ?, ?, ?)",
+        params: [id, processId, name, position, Number(isTerminal)]
       })),
       {
         sql: `INSERT INTO kanban_boards
@@ -221,6 +239,7 @@ function stageRow(row: Row): Stage {
     name: stringValue(row.name),
     position: Number(row.position),
     completionRules: stringValue(row.completionRules),
+    isTerminal: Boolean(row.isTerminal),
     archivedAt: nullableString(row.archivedAt)
   };
 }
@@ -235,11 +254,13 @@ function workItemRow(row: Row): WorkItem {
     description: stringValue(row.description),
     owner: nullableString(row.owner),
     goal: parseJson<GoalWorkMetadata | null>(row.goalJson, null),
-    status: stringValue(row.status) as WorkItemStatus,
+    isTerminal: Boolean(row.stageTerminal),
+    waits: parseJson<WorkItemWait[]>(row.waitsJson, []),
     logicalFiles: parseJson<string[]>(row.logicalFilesJson, []),
     syncVersion: Number(row.syncVersion),
     checkpointStageId: nullableString(row.checkpointStageId),
     checkpointAt: nullableString(row.checkpointAt),
+    archivedAt: nullableString(row.archivedAt),
     deletedAt: nullableString(row.deletedAt),
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt)

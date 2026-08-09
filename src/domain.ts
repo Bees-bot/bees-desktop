@@ -1,7 +1,21 @@
 import type { BeesConversationSnapshotV1 } from "./conversation-snapshot.js";
 
-export type WorkItemStatus = "open" | "blocked" | "done" | "archived";
 export type GoalTaskEffect = "read" | "prepare" | "external_write";
+export type WorkItemWaitKind =
+  | "human"
+  | "external_event"
+  | "dependency"
+  | "error"
+  | "schedule"
+  | "manual";
+export type WorkItemCondition =
+  | "ready"
+  | "running"
+  | "claimed"
+  | "waiting"
+  | "error"
+  | "terminal"
+  | "archived";
 export type ExecutionStatus =
   | "queued"
   | "running"
@@ -51,24 +65,24 @@ export interface Board {
 }
 
 /**
- * Hide items of `status` once they have sat untouched for `hours` — 0 hides all of them. Hidden
+ * Hide items in a derived condition once untouched for `hours` — 0 hides all of them. Hidden
  * items move to the dashboard's filtered drawer; nothing is deleted.
  */
 export interface BoardFilter {
-  status: WorkItemStatus;
+  condition: "terminal" | "archived" | "waiting" | "error";
   hours: number;
 }
 
 export const defaultBoardFilters: BoardFilter[] = [
-  { status: "done", hours: 24 },
-  { status: "archived", hours: 0 }
+  { condition: "terminal", hours: 24 },
+  { condition: "archived", hours: 0 }
 ];
 
-const workItemStatuses: WorkItemStatus[] = ["open", "blocked", "done", "archived"];
+const filterConditions: BoardFilter["condition"][] = ["terminal", "archived", "waiting", "error"];
 
-/** Rules are edited as text, one `<status> <hours>` line each. */
+/** Rules are edited as text, one `<condition> <hours>` line each. */
 export function formatBoardFilters(filters: BoardFilter[]): string {
-  return filters.map(({ status, hours }) => `${status} ${hours}`).join("\n");
+  return filters.map(({ condition, hours }) => `${condition} ${hours}`).join("\n");
 }
 
 export function parseBoardFilters(text: string): BoardFilter[] {
@@ -77,22 +91,23 @@ export function parseBoardFilters(text: string): BoardFilter[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [status = "", hours = "0"] = line.split(/\s+/);
-      if (!workItemStatuses.includes(status as WorkItemStatus)) {
-        throw new Error(`"${status}" is not a status — use one of ${workItemStatuses.join(", ")}`);
+      const [condition = "", hours = "0"] = line.split(/\s+/);
+      if (!filterConditions.includes(condition as BoardFilter["condition"])) {
+        throw new Error(`"${condition}" is not a condition — use one of ${filterConditions.join(", ")}`);
       }
       const age = Number(hours);
       if (!Number.isFinite(age) || age < 0) {
         throw new Error(`"${hours}" is not a number of hours`);
       }
-      return { status: status as WorkItemStatus, hours: age };
+      return { condition: condition as BoardFilter["condition"], hours: age };
     });
 }
 
 export function isFiltered(item: WorkItem, filters: BoardFilter[], at = Date.now()): boolean {
+  const condition = workItemCondition(item);
   return filters.some(
-    ({ status, hours }) =>
-      item.status === status && at - Date.parse(item.updatedAt) >= hours * 3_600_000
+    ({ condition: filtered, hours }) =>
+      condition === filtered && at - Date.parse(item.updatedAt) >= hours * 3_600_000
   );
 }
 
@@ -102,6 +117,7 @@ export interface Stage {
   name: string;
   position: number;
   completionRules: string;
+  isTerminal: boolean;
   archivedAt: string | null;
 }
 
@@ -160,14 +176,51 @@ export interface WorkItem {
   owner: string | null;
   /** Approved task-plan metadata. Null for ordinary process items and unplanned roots. */
   goal: GoalWorkMetadata | null;
-  status: WorkItemStatus;
+  /** Derived from the current stage; never stored separately on the item. */
+  isTerminal: boolean;
+  waits: WorkItemWait[];
   logicalFiles: string[];
   syncVersion: number;
   checkpointStageId: string | null;
   checkpointAt: string | null;
+  archivedAt: string | null;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface WorkItemWait {
+  id: string;
+  workItemId: string;
+  kind: WorkItemWaitKind;
+  reason: string;
+  target: string | null;
+  dependencyWorkItemId: string | null;
+  executionId: string | null;
+  correlationKey: string | null;
+  wakeAt: string | null;
+  resolvedAt: string | null;
+  resolution: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function activeWorkItemWaits(item: Pick<WorkItem, "waits">): WorkItemWait[] {
+  return item.waits.filter(({ resolvedAt }) => !resolvedAt);
+}
+
+export function workItemCondition(
+  item: WorkItem,
+  executions: Execution[] = [],
+  claimed = false
+): WorkItemCondition {
+  if (item.archivedAt) return "archived";
+  if (item.isTerminal) return "terminal";
+  const waits = activeWorkItemWaits(item);
+  if (waits.some(({ kind }) => kind === "error")) return "error";
+  if (waits.length) return "waiting";
+  if (activeExecutionForItem(item.id, executions)) return "running";
+  return claimed ? "claimed" : "ready";
 }
 
 export interface GoalWorkMetadata {
@@ -495,7 +548,7 @@ export function needsAutonomousRun(
   executions: Execution[],
   startedKeys: ReadonlySet<string>
 ): boolean {
-  if (item.status !== "open") return false;
+  if (workItemCondition(item, executions) !== "ready") return false;
   const [stageKey, versionKey] = autonomousRunKeys(item);
   if (startedKeys.has(item.checkpointAt === item.updatedAt ? stageKey! : versionKey!)) return false;
   return !executions.some(

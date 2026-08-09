@@ -15,6 +15,8 @@ export interface ProcessLibraryState {
   key: string;
   /** Initial display label. Installed processes may rename it. */
   name: string;
+  /** Terminal states stop automation; names and positions carry no terminal semantics. */
+  terminal?: boolean;
 }
 
 export interface TaskPlanCapabilityTemplate {

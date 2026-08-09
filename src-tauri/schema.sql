@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS stages (
   name TEXT NOT NULL,
   position INTEGER NOT NULL CHECK (position >= 0),
   completion_rules TEXT NOT NULL DEFAULT '',
+  is_terminal INTEGER NOT NULL DEFAULT 0 CHECK (is_terminal IN (0, 1)),
   archived_at TEXT,
   UNIQUE (process_id, position)
 );
@@ -84,11 +85,11 @@ CREATE TABLE IF NOT EXISTS work_items (
   description TEXT NOT NULL DEFAULT '',
   owner TEXT,
   goal_json TEXT NOT NULL DEFAULT 'null',
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'blocked', 'done', 'archived')),
   logical_files_json TEXT NOT NULL DEFAULT '[]',
   sync_version INTEGER NOT NULL DEFAULT 0,
   checkpoint_stage_id TEXT,
   checkpoint_at TEXT,
+  archived_at TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -154,6 +155,39 @@ CREATE TABLE IF NOT EXISTS execution_outputs (
   created_at TEXT NOT NULL,
   decided_at TEXT,
   UNIQUE (execution_id, logical_output)
+);
+
+CREATE TABLE IF NOT EXISTS work_item_waits (
+  id TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('human', 'external_event', 'dependency', 'error', 'schedule', 'manual')),
+  reason TEXT NOT NULL,
+  target TEXT,
+  dependency_work_item_id TEXT REFERENCES work_items(id),
+  execution_id TEXT REFERENCES executions(id),
+  correlation_key TEXT,
+  wake_at TEXT,
+  resolved_at TEXT,
+  resolution TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (dependency_work_item_id IS NULL OR dependency_work_item_id <> work_item_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS work_item_wait_correlation_idx
+ON work_item_waits(work_item_id, correlation_key)
+WHERE correlation_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS work_item_wait_dependency_idx
+ON work_item_waits(dependency_work_item_id)
+WHERE resolved_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS external_event_receipts (
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  correlation_key TEXT NOT NULL,
+  resolution TEXT NOT NULL DEFAULT '',
+  received_at TEXT NOT NULL,
+  PRIMARY KEY (team_id, correlation_key)
 );
 
 CREATE TABLE IF NOT EXISTS schedules (

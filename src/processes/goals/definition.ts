@@ -24,7 +24,7 @@ export const goalsProcess = {
       { key: "work", name: GOALS_STAGES[1] },
       { key: "waiting", name: GOALS_STAGES[2] },
       { key: "review", name: GOALS_STAGES[3] },
-      { key: "done", name: GOALS_STAGES[4] }
+      { key: "done", name: GOALS_STAGES[4], terminal: true }
     ],
     automation: "automatic",
     renderer: "default",
