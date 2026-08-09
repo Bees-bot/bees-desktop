@@ -74,7 +74,6 @@ import { LocalRepository, type SearchHit } from "./repository.js";
 import { createRunController } from "./run-controller.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { type RuntimeEvent } from "./runtime.js";
-import { AppOpenScheduler } from "./scheduler.js";
 import { createSessionController } from "./session-controller.js";
 import "./styles.css";
 import type { WorkState } from "./supervision.js";
@@ -85,6 +84,7 @@ import {
   TemporaryWorkspaceService,
   type OutputPreview
 } from "./workspaces.js";
+import { WorkflowRuntimeClient } from "./workflow-runtime.js";
 
 export type PrefsTab =
   | "theme"
@@ -114,6 +114,11 @@ const flueProject = new FlueProjectService(flueProjectPort);
 const registryFiles = new RegistryFiles(flueProjectPort);
 const agentFiles = new AgentFileStore(new TauriAgentFilePort());
 const api = new ApiClient();
+const workflowRuntime = new WorkflowRuntimeClient(api, () => ({
+  organizationId: workspaceController.workspace.organizationId,
+  connected: session.orgIsConnected(),
+  token: session.orgToken()
+}));
 const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, ensureFlueRuntime);
 
 /**
@@ -167,7 +172,8 @@ const mainHost: MainHost = {
   get repository() { return repository; },
   get runCoordinator() { return runCoordinator; },
   get scheduleItems() { return scheduleItems; },
-  get workspaces() { return workspaces; }
+  get workspaces() { return workspaces; },
+  get workflowRuntime() { return workflowRuntime; }
 };
 export interface AppShell {
   DARK_THEMES: Set<string>;
@@ -348,7 +354,6 @@ export interface RunController {
   runStageId: (execution: Execution) => string | null;
   runnerId: string;
   runningProcesses: Set<string>;
-  scheduler: AppOpenScheduler;
   schedules: Schedule[];
   setProcessRunning: (processId: string, running: boolean) => Promise<void>;
   startBackgroundSync: () => void;
@@ -396,6 +401,7 @@ export interface MainHost {
   runCoordinator: RunCoordinator;
   scheduleItems: () => WorkItem[];
   workspaces: TemporaryWorkspaceService;
+  workflowRuntime: WorkflowRuntimeClient;
 }
 const shell: AppShell = createAppShell(mainHost);
 const session: SessionController = createSessionController(mainHost);

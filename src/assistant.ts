@@ -333,12 +333,12 @@ export interface AssistantRepository {
     processId: string,
     input: { stageId: string; title: string; description?: string }
   ): Promise<string>;
-  moveWorkItem(id: string, stageId: string): Promise<void>;
 }
 
 export interface ApplyContext {
   repository: AssistantRepository;
   teamId: string;
+  moveWorkItem?(id: string, stageId: string): Promise<void>;
   /** Runs only after Apply; the desktop app drives its own visible semantic controls. */
   operateBees(goal: string): Promise<void>;
   /** Agents are files in the team folder, not rows — main.ts owns that write and the restart. */
@@ -390,8 +390,9 @@ export async function applyActions(
           description: action.description
         });
       } else if (action.type === "move_items") {
+        if (!context.moveWorkItem) throw new Error("The workflow runtime is unavailable");
         for (const item of entry.items) {
-          await context.repository.moveWorkItem(item.id, entry.targetStageId!);
+          await context.moveWorkItem(item.id, entry.targetStageId!);
         }
       }
       applied += 1;

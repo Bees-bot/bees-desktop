@@ -4,9 +4,9 @@ import {
   skillSlug
 } from "./agent-files.js";
 import {
-  apiBaseUrl,
-  type ServerWorkItemClaim
+  apiBaseUrl
 } from "./api.js";
+import type { RuntimeClaim, WorkItemCommand } from "./workflow-runtime.js";
 import {
   resolveModelChoice
 } from "./assistant.js";
@@ -72,7 +72,6 @@ import {
 } from "./registries.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import { FlueRuntime, type RuntimeEvent } from "./runtime.js";
-import { AppOpenScheduler } from "./scheduler.js";
 import type { WorkState } from "./supervision.js";
 import { workState } from "./supervision.js";
 import { HttpSyncTransport, MetadataSyncService } from "./sync.js";
@@ -91,7 +90,7 @@ export function createRunController(host: MainHost) {
     },
     approveTaskPlan: (outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks) => host.repository.approveTaskPlan(outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks),
     workerRoles: () => taskWorkerRoles().map(({ role }) => role),
-    syncCheckpoint: (itemId) => syncCheckpoint(itemId),
+    syncCheckpoint: (itemId, targetStageId) => syncCheckpoint(itemId, undefined, targetStageId),
     finishOutputReview: (execution) => finishOutputReview(execution)
   });
 
@@ -130,22 +129,12 @@ export function createRunController(host: MainHost) {
 
   let autopilotBusy = false;
 
-  const scheduler = new AppOpenScheduler(host.repository, () => host.workspaceController.workspace?.teamId ?? "", async (schedule) => {
-    try {
-      await runScheduledOccurrence(schedule, true);
-    }
-    catch (error) {
-      const message = errorText(error);
-      host.shell.notifyLocal("Scheduled Bees run could not start", message);
-      host.shell.showNotice(message, "error");
-    }
-  });
-
   /** A decomposed goal resumes only after every approved child task has reached Done. */
   async function resumeCompletedTaskPlans(): Promise<number> {
     const ready = completedTaskPlanParentsReadyForReview(host.workspaceController.teamItems, host.workspaceController.processes);
     for (const { parent, review, logicalFiles } of ready) {
       await host.repository.checkpointWorkItem(parent.id, logicalFiles, review.id);
+      await host.workflowRuntime.command(parent.id, { type: "move", targetStageId: review.id });
     }
     return ready.length;
   }
@@ -167,10 +156,11 @@ export function createRunController(host: MainHost) {
     const subject = [itemId, host.shell.view === "item" ? host.shell.activeItemId : ""].find((candidate) => host.workspaceController.teamItems.some(({ id }) => id === candidate));
     if (!subject)
       return;
-    void host.repository.getWorkItem(subject)
-      .then((item) => item?.waits.some(({ kind, resolvedAt }) => kind === "error" && !resolvedAt)
+    const item = host.workspaceController.teamItems.find(({ id }) => id === subject);
+    void Promise.resolve(item)
+      .then((current) => current?.waits.some(({ kind, resolvedAt }) => kind === "error" && !resolvedAt)
         ? undefined
-        : host.repository.createWorkItemWait(subject, { kind: "error", reason: message }))
+        : createRuntimeWait(subject, { kind: "error", reason: message }))
       .then(() => host.workspaceController.refresh())
       .catch(() => undefined);
   }
@@ -286,11 +276,15 @@ export function createRunController(host: MainHost) {
         return;
       running = true;
       try {
-        const due = host.workspaceController.workspace.teamId
-          ? await host.repository.resolveDueWaits(host.workspaceController.workspace.teamId)
-          : 0;
+        const runtimeChanged = (await Promise.all(
+          host.workspaceController.teamItems.map(async (item) =>
+            host.workflowRuntime.state(item.id)
+              .then(({ revision }) => revision !== item.runtime?.revision)
+              .catch(() => false)
+          )
+        )).some(Boolean);
         if (!host.session.accounts.size) {
-          if (due) await host.workspaceController.refresh();
+          if (runtimeChanged) await host.workspaceController.refresh();
           return;
         }
         const before = await signature();
@@ -304,7 +298,7 @@ export function createRunController(host: MainHost) {
           }
           await controlTick();
         }
-        if (due > 0 || applied > 0 || (await signature()) !== before) {
+        if (runtimeChanged || applied > 0 || (await signature()) !== before) {
           await host.workspaceController.refresh();
           if (applied > 0) await host.workspaceController.seedInstalledWorkflows();
         }
@@ -325,6 +319,40 @@ export function createRunController(host: MainHost) {
     return `work_claim_${itemId}`;
   }
 
+  async function createRuntimeWait(
+    itemId: string,
+    input: Omit<Extract<WorkItemCommand, { type: "wait" }>, "type" | "claimToken">
+  ): Promise<void> {
+    const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
+    const state = await host.workflowRuntime.command(itemId, {
+      type: "wait",
+      ...input,
+      ...(claim?.token ? { claimToken: claim.token } : {})
+    });
+    if (!state.claim && claim) {
+      stopClaimHeartbeat(itemId);
+      await host.repository.setSetting(claimSetting(itemId), null);
+    }
+  }
+
+  async function resolveRuntimeWait(itemId: string, correlationKey: string): Promise<void> {
+    await host.workflowRuntime.command(itemId, { type: "resolve_wait", correlationKey });
+  }
+
+  async function attachExecution(itemId: string, agentId: string, executionId: string): Promise<void> {
+    const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
+    if (!claim?.token) throw new Error("The work claim is unavailable");
+    const state = await host.workflowRuntime.command(itemId, {
+      type: "claim",
+      machineId: runnerId,
+      claimToken: claim.token,
+      agentId,
+      executionId
+    });
+    if (!state.claim) throw new Error("The work claim is unavailable");
+    await host.repository.setSetting(claimSetting(itemId), state.claim);
+  }
+
   function stopClaimHeartbeat(itemId: string): void {
     const heartbeat = claimHeartbeats.get(itemId);
     if (heartbeat) clearInterval(heartbeat);
@@ -338,17 +366,14 @@ export function createRunController(host: MainHost) {
       if (renewing) return;
       renewing = true;
       try {
-        const claim = await host.repository.getSetting<ServerWorkItemClaim | null>(claimSetting(itemId), null);
-        const token = host.session.orgToken(organizationId);
-        if (!claim || !token) throw new Error("The shared-work lease is unavailable");
-        const renewed = await host.api.renewWorkItemClaim(
-          token,
-          organizationId,
-          itemId,
-          runnerId,
-          claim.claimId,
-          claim.leaseVersion
-        );
+        const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
+        if (!claim) throw new Error("The work claim is unavailable");
+        const renewed = await host.workflowRuntime.command(itemId, {
+          type: "heartbeat",
+          machineId: runnerId,
+          claimToken: claim.token
+        });
+        if (!renewed.claim) throw new Error("The work claim is unavailable");
         await host.repository.setSetting(claimSetting(itemId), renewed.claim);
       }
       catch (error) {
@@ -358,7 +383,7 @@ export function createRunController(host: MainHost) {
           workItemId === itemId && (status === "queued" || status === "running")
         );
         await Promise.all(active.map(({ id }) => host.runCoordinator.stop(id).catch(() => undefined)));
-        host.shell.notifyLocal("Shared work stopped", `This device lost its work lease: ${errorText(error)}`);
+        host.shell.notifyLocal("Work stopped", `This device lost its work claim: ${errorText(error)}`);
       }
       finally {
         renewing = false;
@@ -371,73 +396,69 @@ export function createRunController(host: MainHost) {
     item: WorkItem,
     agentId: string,
     executionId?: string
-  ): Promise<ServerWorkItemClaim | null> {
-    if (!host.session.orgIsConnected())
-      return null;
-    const token = host.session.orgToken();
-    if (!token)
-      throw new Error("Sign in before running shared work");
-    await syncService().synchronize(host.workspaceController.workspace.organizationId, host.workspaceController.workspace.teamId);
-    const current = await host.repository.getWorkItem(item.id);
-    if (!current)
-      throw new Error("Work item is no longer available");
+  ): Promise<RuntimeClaim> {
+    if (host.session.orgIsConnected()) {
+      if (!host.session.orgToken()) throw new Error("Sign in before running shared work");
+      await syncService().synchronize(host.workspaceController.workspace.organizationId, host.workspaceController.workspace.teamId);
+    }
     const organizationId = host.workspaceController.workspace.organizationId;
-    const { claim } = await host.api.claimWorkItem(
-      token,
-      organizationId,
-      item.id,
-      runnerId,
-      current.syncVersion,
-      executionId,
-      agentId
+    const existingClaim = await host.repository.getSetting<RuntimeClaim | null>(
+      claimSetting(item.id),
+      null
     );
+    const state = await host.workflowRuntime.command(item.id, {
+      type: "claim",
+      machineId: runnerId,
+      ...(existingClaim?.token ? { claimToken: existingClaim.token } : {}),
+      agentId,
+      ...(executionId ? { executionId } : {})
+    });
+    const claim = state.claim;
+    if (!claim || claim.machineId !== runnerId) throw new Error("The work item was not claimed");
     await host.repository.setSetting(claimSetting(item.id), claim);
     startClaimHeartbeat(item.id, organizationId);
     return claim;
   }
 
   async function releaseClaim(itemId: string, organizationId = host.workspaceController.workspace.organizationId): Promise<void> {
-    const claim = await host.repository.getSetting<ServerWorkItemClaim | null>(claimSetting(itemId), null);
+    const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
     if (!claim)
       return;
-    const token = host.session.orgToken(organizationId);
-    if (!token)
-      throw new Error("Sign in to release this shared-work claim");
     stopClaimHeartbeat(itemId);
-    await host.api.releaseWorkItemClaim(
-      token,
-      organizationId,
-      itemId,
-      runnerId,
-      claim.claimId,
-      claim.workItemVersion,
-      claim.leaseVersion
-    );
-    await host.repository.setSetting(claimSetting(itemId), null);
+    try {
+      await host.workflowRuntime.command(itemId, {
+        type: "release",
+        machineId: runnerId,
+        claimToken: claim.token
+      });
+    } finally {
+      await host.repository.setSetting(claimSetting(itemId), null);
+    }
   }
 
-  async function syncCheckpoint(itemId: string, organizationId = host.workspaceController.workspace.organizationId, teamId = host.workspaceController.workspace.teamId): Promise<void> {
-    if (host.session.orgHasConnection(organizationId)) {
-      const claim = await host.repository.getSetting<ServerWorkItemClaim | null>(claimSetting(itemId), null);
-      const token = host.session.orgToken(organizationId);
-      if (!claim || !token)
-        throw new Error("The shared-work claim is unavailable");
-      const record = (await host.repository.coordinationProjection(teamId)).find(({ recordType, recordId }) => recordType === "work_item" && recordId === itemId);
-      if (!record)
-        throw new Error("The completed work-item checkpoint is unavailable");
-      stopClaimHeartbeat(itemId);
-      await host.api.completeWorkItemClaim(
-        token,
-        organizationId,
-        itemId,
-        runnerId,
-        claim.claimId,
-        claim.workItemVersion,
-        claim.leaseVersion,
-        record
+  async function syncCheckpoint(
+    itemId: string,
+    executionId?: string,
+    targetStageId?: string
+  ): Promise<void> {
+    const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
+    if (!claim) return;
+    const item = await host.repository.getWorkItem(itemId);
+    if (!item) throw new Error("The completed work item is unavailable");
+    stopClaimHeartbeat(itemId);
+    await host.workflowRuntime.command(itemId, {
+      type: "complete",
+      machineId: runnerId,
+      claimToken: claim.token,
+      executionId: executionId ?? claim.executionId ?? crypto.randomUUID(),
+      targetStageId: targetStageId ?? item.stageId
+    });
+    await host.repository.setSetting(claimSetting(itemId), null);
+    if (host.session.orgIsConnected()) {
+      await syncService().synchronize(
+        host.workspaceController.workspace.organizationId,
+        host.workspaceController.workspace.teamId
       );
-      await host.repository.setSetting(claimSetting(itemId), null);
-      await syncService().synchronize(organizationId, teamId);
     }
   }
 
@@ -477,6 +498,10 @@ export function createRunController(host: MainHost) {
         execution.result.projectionState === "done") {
         return;
       }
+      await resolveRuntimeWait(
+        execution.workItemId,
+        `execution:${execution.id}`
+      ).catch(() => undefined);
       const outputs = Array.isArray(execution.result.outputs)
         ? execution.result.outputs.filter((output): output is string => typeof output === "string")
         : [];
@@ -487,7 +512,7 @@ export function createRunController(host: MainHost) {
       if (execution.result.projectionState === "pending") {
         const projectedItem = await host.repository.getWorkItem(execution.workItemId);
         if (execution.status !== "completed" && projectedItem) {
-          await host.repository.createWorkItemWait(projectedItem.id, {
+          await createRuntimeWait(projectedItem.id, {
             kind: "error",
             reason: execution.error || "The agent run did not complete",
             executionId: execution.id,
@@ -498,13 +523,14 @@ export function createRunController(host: MainHost) {
           outputs.length === 0 &&
           !continuation &&
           !manualProjection) {
-          // Checkpoint and projection marker share one SQLite transaction: a crash cannot advance
-          // the work item twice or mark an unapplied checkpoint as applied.
+          const targetStageId = await checkpointTargetId(execution.workItemId, statusId);
+          await syncCheckpoint(execution.workItemId, execution.id, targetStageId);
           await host.repository.checkpointWorkItem(
             execution.workItemId,
             [],
-            await checkpointTargetId(execution.workItemId, statusId),
-            execution.id
+            targetStageId,
+            execution.id,
+            projectedItem?.stageId
           );
         }
         else {
@@ -514,15 +540,7 @@ export function createRunController(host: MainHost) {
       }
       if (execution.result?.projectionState === "local_applied") {
         const scope = await host.repository.getWorkItemScope(execution.workItemId);
-        if (execution.status === "completed" &&
-          outputs.length === 0 &&
-          !continuation &&
-          !manualProjection) {
-          if (scope)
-            await syncCheckpoint(execution.workItemId, scope.organizationId, scope.teamId);
-          await releaseClaim(execution.workItemId, scope?.organizationId);
-        }
-        else if (!retainClaim && (manualProjection || execution.status !== "completed" || outputs.length === 0)) {
+        if (!retainClaim && (manualProjection || execution.status !== "completed" || outputs.length === 0)) {
           await releaseClaim(execution.workItemId, scope?.organizationId);
         }
         if (!projectMode &&
@@ -634,21 +652,21 @@ export function createRunController(host: MainHost) {
   }
 
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
-    if (!auto) {
-      const scheduled = await host.repository.getWorkItem(schedule.workItemId);
-      const wait = scheduled?.waits.find(({ correlationKey, resolvedAt }) =>
-        !resolvedAt && correlationKey?.startsWith(`schedule:${schedule.id}:`)
-      );
-      if (wait) await host.repository.resolveWorkItemWait(wait.id, "Run started manually");
-    }
     const itemId = await scheduledWorkItemId(schedule);
-    await host.repository.resolveDueWaits(schedule.teamId);
     if (schedule.mode === "spawn_goal" &&
       (await host.repository.listExecutionsForWorkItem(itemId)).length) {
+      await host.workflowRuntime.command(schedule.workItemId, {
+        type: "ack_schedule",
+        scheduleId: schedule.id
+      });
       return;
     }
     try {
       await runItem(itemId, auto, undefined, undefined, true);
+      await host.workflowRuntime.command(schedule.workItemId, {
+        type: "ack_schedule",
+        scheduleId: schedule.id
+      });
     }
     catch (error) {
       if (schedule.mode === "spawn_goal")
@@ -992,6 +1010,13 @@ export function createRunController(host: MainHost) {
       return;
     autopilotBusy = true;
     try {
+      for (const schedule of schedules.filter(({ enabled, pending }) => enabled && pending)) {
+        await runScheduledOccurrence(schedule, true).catch((error) => {
+          const message = errorText(error);
+          host.shell.notifyLocal("Scheduled Bees run could not start", message);
+          host.shell.showNotice(message, "error");
+        });
+      }
       for (let next = autopilotNext(); next; next = autopilotNext()) {
         const item = next;
         for (const key of autonomousRunKeys(item))
@@ -1125,7 +1150,7 @@ export function createRunController(host: MainHost) {
         ...(turn.executionId ? { executionId: turn.executionId, message: turn.prompt } : {}),
         ...(projectMode ? { projectWorkItemId: item.id } : {}),
         onCreated: async (executionId) => {
-          await host.repository.createWorkItemWait(item.id, {
+          await createRuntimeWait(item.id, {
             kind: "execution",
             reason: `Waiting for ${agent.name}`,
             executionId,
@@ -1156,7 +1181,8 @@ export function createRunController(host: MainHost) {
     execution: Execution;
     message: string;
   }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {
-    const item = (await host.repository.getWorkItem(itemId)) ?? host.workspaceController.teamItems.find(({ id }) => id === itemId);
+    const item = host.workspaceController.teamItems.find(({ id }) => id === itemId)
+      ?? (await host.repository.getWorkItem(itemId));
     if (!item)
       throw new Error("Work item not found");
     const condition = workItemCondition(item, executions);
@@ -1318,6 +1344,7 @@ export function createRunController(host: MainHost) {
               outputPreviews.delete(output.id);
             }
           }
+          await attachExecution(item.id, runAgent.id, executionId);
           // An autonomous run must not yank the user out of whatever they are looking at.
           if (!auto) {
             host.shell.activeExecutionId = executionId;
@@ -1351,7 +1378,7 @@ export function createRunController(host: MainHost) {
         : "";
       const settled = executionId ? await host.repository.getExecution(executionId) : null;
       if (settled?.status !== "completed" && !settled?.result?.projectionState) {
-        await host.repository.createWorkItemWait(item.id, {
+        await createRuntimeWait(item.id, {
           kind: "error",
           reason: settled?.error || errorText(error),
           ...(executionId ? { executionId, correlationKey: `execution-error:${executionId}` } : {})
@@ -1477,18 +1504,22 @@ export function createRunController(host: MainHost) {
       return;
     }
     if (!outputs.some(({ status }) => status === "rejected")) {
-      // approveTaskPlan already checkpointed the parent into Waiting in the same transaction that
-      // created its children. A second checkpoint here would skip straight to Review.
+      // Task-plan approval already checkpointed and moved the parent. A second checkpoint here
+      // would skip straight to Review.
       if (!outputs.some(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, execution))) {
         const requested = typeof execution.result?.statusId === "string"
           ? execution.result.statusId
           : undefined;
+        const item = await host.repository.getWorkItem(execution.workItemId);
+        const targetStageId = await checkpointTargetId(execution.workItemId, requested);
+        await syncCheckpoint(execution.workItemId, execution.id, targetStageId);
         await host.repository.checkpointWorkItem(
           execution.workItemId,
           outputs.filter(({ status }) => status === "approved").map(({ logicalDestination }) => logicalDestination),
-          await checkpointTargetId(execution.workItemId, requested)
+          targetStageId,
+          undefined,
+          item?.stageId
         );
-        await syncCheckpoint(execution.workItemId);
       }
     }
     else {
@@ -1496,7 +1527,7 @@ export function createRunController(host: MainHost) {
       // become due on its own or it sits at this status forever.
       const item = await host.repository.getWorkItem(execution.workItemId);
       if (item?.goal?.effect === "external_write") {
-        await host.repository.createWorkItemWait(item.id, {
+        await createRuntimeWait(item.id, {
           kind: "human",
           reason: "The rejected external action needs human review before another attempt",
           executionId: execution.id,
@@ -1565,7 +1596,6 @@ export function createRunController(host: MainHost) {
     get disabledAgentIds() { return disabledAgentIds; },
     set disabledAgentIds(value: typeof disabledAgentIds) { disabledAgentIds = value; },
     autopilotDone,
-    scheduler,
     resumeCompletedTaskPlans,
     reportFailure,
     supervise,

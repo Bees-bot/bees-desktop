@@ -1,12 +1,11 @@
 import { conversationToSnapshotV1 } from "../src/conversation-snapshot.js";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import type { Agent, Execution, ExecutionOutput, Registry, Schedule, WorkItem } from "../src/domain.js";
+import type { Agent, Execution, ExecutionOutput, Registry, WorkItem } from "../src/domain.js";
 import { runtimeAgentName } from "../src/flue-project.js";
 import { registryCapabilities } from "../src/registries.js";
 import { buildBeesRunInitialData } from "../src/run-config.js";
 import { runReceipt } from "../src/run-receipt.js";
-import { AppOpenScheduler, nextScheduleRun } from "../src/scheduler.js";
 import { inboxView, overviewView, runView } from "../src/launch-views.js";
 import { escalationGroups } from "../src/supervision.js";
 import { renderMarkdown } from "../src/markdown.js";
@@ -63,85 +62,6 @@ describe("lean launch modules", () => {
       ["skill", "writer"],
       ["tool", "publish"]
     ]);
-  });
-
-  it("skips missed app-closed occurrences and runs a currently due schedule once", async () => {
-    const schedule = {
-      id: "schedule",
-      teamId: "team",
-      workItemId: "item",
-      name: "Daily",
-      recurrence: "daily",
-      mode: "run",
-      role: null,
-      timezone: "America/Los_Angeles",
-      enabled: true,
-      nextRunAt: "2026-01-01T12:00:00.000Z",
-      lastRunAt: null,
-      createdAt: "",
-      updatedAt: ""
-    } satisfies Schedule;
-    const run = vi.fn();
-    const update = vi.fn();
-    const scheduler = new AppOpenScheduler(
-      {
-        listSchedules: vi.fn().mockResolvedValue([schedule]),
-        updateScheduleAfterTick: update
-      },
-      () => "team",
-      run,
-      30_000,
-      90_000
-    );
-    await scheduler.tick(false, new Date("2026-01-03T12:00:00.000Z"));
-    expect(run).not.toHaveBeenCalled();
-    expect(update).toHaveBeenLastCalledWith(
-      "schedule",
-      "2026-01-04T12:00:00.000Z",
-      false
-    );
-    schedule.nextRunAt = "2026-01-03T12:00:00.000Z";
-    await scheduler.tick(true, new Date("2026-01-03T12:00:30.000Z"));
-    expect(run).toHaveBeenCalledWith(schedule);
-    expect(nextScheduleRun("weekdays", new Date("2026-01-02T12:00:00.000Z")).getDay()).toBe(1);
-  });
-
-  it("creates one catch-up goal occurrence after downtime", async () => {
-    const schedule = {
-      id: "schedule",
-      teamId: "team",
-      workItemId: "goal-template",
-      name: "Hourly discovery",
-      recurrence: "hourly",
-      mode: "spawn_goal",
-      role: "researcher",
-      timezone: "America/Los_Angeles",
-      enabled: true,
-      nextRunAt: "2026-01-01T12:00:00.000Z",
-      lastRunAt: null,
-      createdAt: "",
-      updatedAt: ""
-    } satisfies Schedule;
-    const run = vi.fn();
-    const update = vi.fn();
-    const scheduler = new AppOpenScheduler(
-      {
-        listSchedules: vi.fn().mockResolvedValue([schedule]),
-        updateScheduleAfterTick: update
-      },
-      () => "team",
-      run
-    );
-
-    await scheduler.tick(true, new Date("2026-01-01T15:00:00.000Z"));
-
-    expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith(schedule);
-    expect(update).toHaveBeenCalledWith(
-      schedule.id,
-      "2026-01-01T16:00:00.000Z",
-      true
-    );
   });
 
   it("exports a content-free receipt", () => {

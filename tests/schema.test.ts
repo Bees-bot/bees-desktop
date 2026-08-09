@@ -17,7 +17,6 @@ it("creates the complete fresh-install schema", () => {
     "conversation_purges",
     "execution_outputs",
     "executions",
-    "external_event_receipts",
     "file_location_mappings",
     "file_locations",
     "kanban_boards",
@@ -25,7 +24,6 @@ it("creates the complete fresh-install schema", () => {
     "process_definitions",
     "processes",
     "registries",
-    "schedules",
     // FTS5 expands `search_index` into its own shadow tables; they are the index, not schema.
     "search_index",
     "search_index_config",
@@ -42,7 +40,6 @@ it("creates the complete fresh-install schema", () => {
     "tags",
     "team_folder_mappings",
     "teams",
-    "work_item_waits",
     "work_items"
   ]);
   expect(

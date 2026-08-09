@@ -64,7 +64,7 @@ describe("Goals process controller", () => {
         inputs: []
       }]
     );
-    expect(host.syncCheckpoint).toHaveBeenCalledWith(item.id);
+    expect(host.syncCheckpoint).toHaveBeenCalledWith(item.id, "waiting-id");
     expect(host.finishOutputReview).toHaveBeenCalledWith(execution);
   });
 });

@@ -63,119 +63,6 @@ describe("local repository", () => {
     expect(created.definition.stateIds.requirements).toBe(created.stages[0]!.id);
   });
 
-  it("persists ordinary schedules and recurring Goals occurrences as distinct modes", async () => {
-    const repository = new LocalRepository(new NodeDatabase());
-    const local = await repository.bootstrap();
-    const goals = (await repository.listProcesses(local.teamId))[0]!;
-    const goalId = await repository.createWorkItem(goals.id, {
-      stageId: goals.stages[0]!.id,
-      title: "Find relevant conversations"
-    });
-    await repository.createSchedule({
-      teamId: local.teamId,
-      workItemId: goalId,
-      name: "Hourly discovery",
-      recurrence: "hourly",
-      mode: "spawn_goal",
-      role: "researcher",
-      timezone: "America/Los_Angeles",
-      nextRunAt: "2026-08-05T12:00:00.000Z"
-    });
-
-    expect(await repository.listSchedules(local.teamId)).toEqual([
-      expect.objectContaining({ mode: "spawn_goal", role: "researcher" })
-    ]);
-    expect((await repository.getWorkItem(goalId))?.waits).toEqual([
-      expect.objectContaining({ kind: "schedule", resolvedAt: null })
-    ]);
-    await expect(repository.createSchedule({
-      teamId: local.teamId,
-      workItemId: goalId,
-      name: "Invalid",
-      recurrence: "daily",
-      mode: "run",
-      role: "researcher",
-      timezone: "UTC",
-      nextRunAt: "2026-08-05T12:00:00.000Z"
-    })).rejects.toThrow("ordinary schedule");
-  });
-
-  it("models waits independently and resolves dependencies when their item becomes terminal", async () => {
-    const repository = new LocalRepository(new NodeDatabase());
-    const local = await repository.bootstrap();
-    const process = await createTestProcess(repository, local.teamId);
-    const parentId = await repository.createWorkItem(process.id, {
-      stageId: process.stages[0]!.id,
-      title: "Parent"
-    });
-    const childId = await repository.createWorkItem(process.id, {
-      stageId: process.stages[0]!.id,
-      title: "Child"
-    });
-
-    await repository.createWorkItemWait(parentId, {
-      kind: "dependency",
-      reason: "Waiting for child",
-      dependencyWorkItemId: childId
-    });
-    expect((await repository.getWorkItem(parentId))?.waits).toEqual([
-      expect.objectContaining({ kind: "dependency", resolvedAt: null })
-    ]);
-
-    await repository.moveWorkItem(childId, process.stages[1]!.id);
-    expect(await repository.getWorkItem(childId)).toMatchObject({ isTerminal: true });
-    expect((await repository.getWorkItem(parentId))?.waits[0]).toMatchObject({
-      resolution: "Dependency completed"
-    });
-    expect(typeof (await repository.getWorkItem(parentId))?.waits[0]?.resolvedAt).toBe("string");
-  });
-
-  it("matches external events even when the event arrives before the wait", async () => {
-    const repository = new LocalRepository(new NodeDatabase());
-    const local = await repository.bootstrap();
-    const process = await createTestProcess(repository, local.teamId);
-    const itemId = await repository.createWorkItem(process.id, {
-      stageId: process.stages[0]!.id,
-      title: "Publish"
-    });
-
-    expect(await repository.receiveExternalEvent(local.teamId, "publish:42", "Published")).toBe(0);
-    await repository.createWorkItemWait(itemId, {
-      kind: "external_event",
-      reason: "Waiting for publisher",
-      correlationKey: "publish:42"
-    });
-    expect((await repository.getWorkItem(itemId))?.waits[0]).toMatchObject({
-      resolution: "Published"
-    });
-  });
-
-  it("resolves a subagent execution wait with the execution receipt", async () => {
-    const repository = new LocalRepository(new NodeDatabase());
-    const local = await repository.bootstrap();
-    const process = await createTestProcess(repository, local.teamId);
-    const itemId = await repository.createWorkItem(process.id, {
-      stageId: process.stages[0]!.id,
-      title: "Coordinate agents"
-    });
-    const executionId = await repository.createExecution({
-      agentId: "subagent",
-      config: { prompt: "Help" },
-      workItemId: itemId,
-      runtime: "flue"
-    });
-    await repository.createWorkItemWait(itemId, {
-      kind: "execution",
-      reason: "Waiting for subagent",
-      executionId
-    });
-
-    await repository.updateExecution(executionId, "completed");
-    expect((await repository.getWorkItem(itemId))?.waits[0]).toMatchObject({
-      resolution: "Execution completed"
-    });
-  });
-
   it("persists ordered offline processes and work items", async () => {
     const database = new NodeDatabase();
     const repository = new LocalRepository(database);
@@ -218,35 +105,11 @@ describe("local repository", () => {
       title: "Launch brief",
       logicalFiles: ["Drafts/launch.md"]
     });
-    await repository.moveWorkItem(itemId, process.stages[1]!.id);
     expect((await repository.listWorkItems(process.id))[0]).toMatchObject({
       title: "Launch brief",
-      stageId: process.stages[1]!.id,
+      stageId: process.stages[0]!.id,
       logicalFiles: ["Drafts/launch.md"]
     });
-  });
-
-  it("uses terminal metadata rather than the last status position", async () => {
-    const repository = new LocalRepository(new NodeDatabase());
-    const local = await repository.bootstrap();
-    const processId = await repository.createProcess(local.teamId, {
-      name: "Reopenable",
-      stages: [
-        { name: "Working", isTerminal: false },
-        { name: "Completed", isTerminal: true },
-        { name: "Reopened", isTerminal: false }
-      ]
-    });
-    const process = (await repository.listProcesses(local.teamId)).find(({ id }) => id === processId)!;
-    const itemId = await repository.createWorkItem(processId, {
-      stageId: process.stages[0]!.id,
-      title: "Verify terminal semantics"
-    });
-
-    await repository.moveWorkItem(itemId, process.stages[1]!.id);
-    expect(await repository.getWorkItem(itemId)).toMatchObject({ isTerminal: true });
-    await repository.moveWorkItem(itemId, process.stages[2]!.id);
-    expect(await repository.getWorkItem(itemId)).toMatchObject({ isTerminal: false });
   });
 
   it("restores an archived process with its stages", async () => {
@@ -396,7 +259,7 @@ describe("local repository", () => {
     expect(await repository.listTeamWorkItems(doomed)).toEqual([]);
   });
 
-  it("keeps review state and advances work only at an approved step boundary", async () => {
+  it("records approved checkpoint metadata without owning workflow state", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const process = (await repository.listProcesses(local.teamId))[0]!;
@@ -419,13 +282,13 @@ describe("local repository", () => {
     await repository.decideExecutionOutput(output!.id, "approved", "approved/revised.md");
     await repository.checkpointWorkItem(itemId, ["approved/revised.md"]);
     expect(await repository.getWorkItem(itemId)).toMatchObject({
-      stageId: process.stages[1]!.id,
+      stageId: process.stages[0]!.id,
       checkpointStageId: process.stages[0]!.id,
       logicalFiles: ["brief.md", "approved/revised.md"]
     });
   });
 
-  it("creates approved subtasks and parks their parent atomically", async () => {
+  it("creates approved subtasks without moving their Temporal-owned parent", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const goals = (await repository.listProcesses(local.teamId))[0]!;
@@ -468,7 +331,7 @@ describe("local repository", () => {
     );
 
     expect(await repository.getWorkItem(parentId)).toMatchObject({
-      stageId: waiting!.id,
+      stageId: plan!.id,
       isTerminal: false
     });
     expect(await repository.listWorkItems(goals.id)).toEqual(
@@ -512,14 +375,14 @@ describe("local repository", () => {
       review!.id,
       [{ key: "build", title: "Build again", description: "Duplicate", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] }]
     )).resolves.toEqual([]);
-    expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: review!.id });
+    expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: plan!.id });
   });
 
-  it("routes a checkpoint to a state id, and uses the next state when omitted", async () => {
+  it("validates checkpoint targets without changing workflow state", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const process = (await repository.listProcesses(local.teamId))[0]!;
-    const [first, second, third] = process.stages;
+    const [first, , third] = process.stages;
     const last = process.stages.at(-1)!;
     const named = await repository.createWorkItem(process.id, {
       stageId: first!.id,
@@ -527,7 +390,7 @@ describe("local repository", () => {
     });
     await repository.checkpointWorkItem(named, [], third!.id);
     expect(await repository.getWorkItem(named)).toMatchObject({
-      stageId: third!.id,
+      stageId: first!.id,
       isTerminal: false
     });
 
@@ -545,17 +408,17 @@ describe("local repository", () => {
       title: "Silent"
     });
     await repository.checkpointWorkItem(silent, []);
-    expect((await repository.getWorkItem(silent))?.stageId).toBe(second!.id);
+    expect((await repository.getWorkItem(silent))?.stageId).toBe(first!.id);
 
-    // Landing on a terminal status finishes the item, however it got there.
+    // Terminal semantics belong to Temporal, not checkpoint persistence.
     const finished = await repository.createWorkItem(process.id, {
       stageId: first!.id,
       title: "Finished"
     });
     await repository.checkpointWorkItem(finished, [], last!.id);
     expect(await repository.getWorkItem(finished)).toMatchObject({
-      stageId: last!.id,
-      isTerminal: true
+      stageId: first!.id,
+      isTerminal: false
     });
   });
 
@@ -591,7 +454,7 @@ describe("local repository", () => {
     await repository.checkpointWorkItem(itemId, [], process.stages[2]!.id, executionId);
 
     expect(await repository.getWorkItem(itemId)).toMatchObject({
-      stageId: process.stages[1]!.id,
+      stageId: process.stages[0]!.id,
       syncVersion: 1
     });
     expect((await repository.getExecution(executionId))?.result?.projectionState).toBe(
@@ -728,7 +591,7 @@ describe("local repository", () => {
     expect(await repository.search(local.teamId, "invoice unicorn")).toEqual([]);
 
     // Edits follow the row.
-    await repository.updateWorkItem(itemId, { title: "Renamed", archived: false });
+    await repository.updateWorkItem(itemId, { title: "Renamed" });
     expect(await repository.search(local.teamId, "quarterly")).toEqual([]);
 
     // Deleting the run takes its conversation out of the index with it.

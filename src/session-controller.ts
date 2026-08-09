@@ -152,9 +152,6 @@ export function createSessionController(host: MainHost) {
   // is used (the Preferences badge); the Orgs tab re-fetches its own rows when it renders.
   let pendingInvitations: PendingInvitation[] = [];
 
-  // Marks the one-time drop of connected-org teams that predate server-owned team ids.
-  const LEGACY_TEAMS_PURGED_KEY = "legacy_connected_teams_purged";
-
   const SEEN_CONNECTIONS_KEY = "seen_org_connections";
 
   const providerLabel: Record<string, string> = { google: "Google", github: "GitHub" };
@@ -299,7 +296,6 @@ export function createSessionController(host: MainHost) {
    * or partial list (a plain member only sees their own teams) must never delete local work.
    */
   async function reconcileServerTeams(): Promise<void> {
-    await purgeLegacyConnectedTeams();
     for (const orgId of connectedOrgs) {
       const token = orgToken(orgId);
       if (!token)
@@ -310,22 +306,6 @@ export function createSessionController(host: MainHost) {
       for (const team of remote)
         await host.repository.upsertServerTeam(team.id, orgId, team.name);
     }
-  }
-
-  /**
-   * One-time cleanup. Teams created in a connected org before ids became server-owned carry a local
-   * id no other desktop can resolve, so they would sit next to the server's copy forever. They are
-   * dropped (with their work items) and the server list above becomes the only truth. Local orgs are
-   * untouched.
-   */
-  async function purgeLegacyConnectedTeams(): Promise<void> {
-    if (await host.repository.getSetting(LEGACY_TEAMS_PURGED_KEY, false))
-      return;
-    for (const orgId of connectedOrgs) {
-      for (const team of await host.repository.listTeams(orgId))
-        await host.repository.deleteTeam(team.id);
-    }
-    await host.repository.setSetting(LEGACY_TEAMS_PURGED_KEY, true);
   }
 
   /**
@@ -831,42 +811,6 @@ export function createSessionController(host: MainHost) {
         // ignore malformed marker
       }
     }
-    else {
-      // Upgrading: treat every org already on this machine as seen by every pooled account, so the
-      // first reconcile after the update auto-connects genuinely new memberships only — a logged-out
-      // org from before the upgrade is not silently signed back in.
-      for (const key of connections)
-        seenConnections.add(key);
-      for (const orgId of connectedOrgs) {
-        for (const userId of accounts.keys())
-          seenConnections.add(connKey(orgId, userId));
-      }
-    }
-    // Migrate legacy per-org tokens (and an older single auth_token) into connections by matching
-    // each stored token back to a pooled account.
-    const userOf = (token: string): string | undefined => [...accounts.values()].find((account) => account.token === token)?.user.id;
-    const legacyTokens: Record<string, string> = {};
-    const legacyRaw = await host.repository.getSetting("org_tokens", "");
-    if (legacyRaw) {
-      try {
-        Object.assign(legacyTokens, JSON.parse(legacyRaw) as Record<string, string>);
-      }
-      catch {
-        // ignore malformed legacy token store
-      }
-    }
-    const legacySingle = await host.repository.getSetting("auth_token", "");
-    if (legacySingle && host.workspaceController.workspace.organizationId)
-      legacyTokens[host.workspaceController.workspace.organizationId] ??= legacySingle;
-    for (const [orgId, token] of Object.entries(legacyTokens)) {
-      const userId = userOf(String(token));
-      if (userId)
-        connections.add(connKey(orgId, userId));
-    }
-    if (legacyRaw)
-      await host.repository.setSetting("org_tokens", "");
-    if (legacySingle)
-      await host.repository.setSetting("auth_token", "");
     // Drop connections whose account is no longer pooled. Reconciliation below removes sessions
     // only when the server explicitly rejects them, so launching offline keeps valid sign-ins.
     for (const key of [...connections]) {

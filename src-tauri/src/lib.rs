@@ -2,6 +2,7 @@ mod local_models;
 mod process;
 mod processes;
 mod runs;
+mod workflow_runtime;
 
 use base64::{
     engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
@@ -17,6 +18,7 @@ use processes::software_project::{
     software_project_select_folder, software_project_snapshot, software_project_workspace,
 };
 use runs::{resume_run, run_is_active, start_run, stop_run, RunService};
+use workflow_runtime::{ensure_local_workflow_runtime, WorkflowRuntimeManager};
 use rusqlite::{
     params_from_iter, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension,
 };
@@ -1740,18 +1742,10 @@ fn canonical_workspace_in_roots(path: &str, roots: &[PathBuf]) -> Result<PathBuf
 }
 
 fn allowed_workspace_roots(app: &tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
-    let candidates = [
-        app.path()
-            .app_data_dir()
-            .map_err(|error| error.to_string())?
-            .join("runs"),
-        // Read old pending outputs in place until the user settles or deletes them.
-        app.path()
-            .app_cache_dir()
-            .map_err(|error| error.to_string())?
-            .join("workspaces"),
-    ];
-    candidates
+    [app.path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("runs")]
         .into_iter()
         .filter(|root| root.exists())
         .map(|root| fs::canonicalize(root).map_err(|error| error.to_string()))
@@ -2701,95 +2695,10 @@ fn cleanup_workspace(app: tauri::AppHandle, workspace_root: String) -> Result<()
     fs::remove_dir_all(workspace).map_err(|error| error.to_string())
 }
 
-/// Columns `executions` gained after the app shipped. `schema.sql` is all
-/// `CREATE TABLE IF NOT EXISTS`, so it does nothing to a table that already exists: a column
-/// added to that file never reaches an install that already has the table, and the statements
-/// at the bottom of the same file then select it and take the app down at startup. Adding it
-/// here is the migration. `schema.sql` still has to carry the column for fresh installs.
-const EXECUTION_ADDED_COLUMNS: &[(&str, &str)] = &[
-    // Runs moved from a stream (`instance_id`, `stream_url`, `stream_offset`) to a
-    // conversation. The three stale columns are left alone: dropping them buys nothing.
-    ("conversation_id", "TEXT NOT NULL DEFAULT ''"),
-    ("instance_uid", "TEXT"),
-    ("conversation_snapshot_json", "TEXT"),
-    ("conversation_text", "TEXT"),
-    ("restarted_from_execution_id", "TEXT"),
-];
-
-const WORK_ITEM_ADDED_COLUMNS: &[(&str, &str)] = &[("goal_json", "TEXT NOT NULL DEFAULT 'null'")];
-
-const SCHEDULE_ADDED_COLUMNS: &[(&str, &str)] =
-    &[("mode", "TEXT NOT NULL DEFAULT 'run'"), ("role", "TEXT")];
-
-fn column_exists(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-) -> Result<bool, rusqlite::Error> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        if row.get::<_, String>(1)? == column {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-/// Runs before `schema.sql` so the statements at the bottom of it see every column.
-/// Checking each column rather than keeping a version number makes this safe on a database
-/// of any age, including one a crashed build already half-migrated.
-fn migrate_database(connection: &Connection) -> Result<(), rusqlite::Error> {
-    let table_exists = |table: &str| -> Result<bool, rusqlite::Error> {
-        connection
-            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?
-            .exists([table])
-    };
-    let has_executions = table_exists("executions")?;
-    // A fresh database has no tables yet; `schema.sql` creates them already correct.
-    if !has_executions {
-        return Ok(());
-    }
-
-    for (column, definition) in EXECUTION_ADDED_COLUMNS {
-        if !column_exists(connection, "executions", column)? {
-            connection.execute_batch(&format!(
-                "ALTER TABLE executions ADD COLUMN {column} {definition}"
-            ))?;
-        }
-    }
-
-    for (table, columns) in [
-        ("work_items", WORK_ITEM_ADDED_COLUMNS),
-        ("schedules", SCHEDULE_ADDED_COLUMNS),
-    ] {
-        if !table_exists(table)? {
-            continue;
-        }
-        for (column, definition) in columns {
-            if !column_exists(connection, table, column)? {
-                connection.execute_batch(&format!(
-                    "ALTER TABLE {table} ADD COLUMN {column} {definition}"
-                ))?;
-            }
-        }
-    }
-
-    // `instance_id` became `instance_uid`. Carrying the values across is a no-op once done,
-    // so it is safe on every launch.
-    if column_exists(connection, "executions", "instance_id")? {
-        connection.execute_batch(
-            "UPDATE executions SET instance_uid = instance_id WHERE instance_uid IS NULL",
-        )?;
-    }
-    Ok(())
-}
-
 fn initialize_database(app: &tauri::App) -> Result<Database, Box<dyn std::error::Error>> {
     let app_data = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data)?;
     let connection = Connection::open(app_data.join("bees.db"))?;
-    migrate_database(&connection)?;
     connection.execute_batch(include_str!("../schema.sql"))?;
     Ok(Database(Mutex::new(connection)))
 }
@@ -2817,6 +2726,7 @@ pub fn run() {
             app.manage(OAuth(Mutex::new(None)));
             app.manage(ConnectionOAuth(Mutex::new(None)));
             app.manage(RunService::new());
+            app.manage(WorkflowRuntimeManager::default());
             // Register the bees:// scheme at runtime so dev builds catch the OAuth
             // callback (packaged macOS builds also declare it in tauri.conf.json).
             #[cfg(desktop)]
@@ -2860,6 +2770,7 @@ pub fn run() {
             cancel_local_model_download,
             delete_local_model,
             ensure_flue_runtime,
+            ensure_local_workflow_runtime,
             ensure_knowledge_worker,
             restart_flue_runtime,
             detect_cli_tools,
@@ -3009,33 +2920,23 @@ mod tests {
     }
 
     #[test]
-    fn workspace_boundary_accepts_persistent_and_legacy_roots_only() {
+    fn workspace_boundary_accepts_only_persistent_run_roots() {
         let base = std::env::temp_dir().join(format!(
             "bees-workspace-roots-{}",
             loopback_token().expect("random name")
         ));
         let persistent = base.join("data").join("runs");
-        let legacy = base.join("cache").join("workspaces");
         let outside = base.join("outside");
         let persistent_run = persistent.join("run-new");
-        let legacy_run = legacy.join("run-old");
-        for directory in [&persistent_run, &legacy_run, &outside] {
+        for directory in [&persistent_run, &outside] {
             fs::create_dir_all(directory).expect("workspace fixture");
         }
-        let roots = vec![
-            fs::canonicalize(&persistent).expect("persistent root"),
-            fs::canonicalize(&legacy).expect("legacy root"),
-        ];
+        let roots = vec![fs::canonicalize(&persistent).expect("persistent root")];
 
         assert_eq!(
             canonical_workspace_in_roots(persistent_run.to_str().unwrap(), &roots)
                 .expect("new persistent workspace"),
             fs::canonicalize(&persistent_run).unwrap()
-        );
-        assert_eq!(
-            canonical_workspace_in_roots(legacy_run.to_str().unwrap(), &roots)
-                .expect("legacy pending workspace"),
-            fs::canonicalize(&legacy_run).unwrap()
         );
         assert!(canonical_workspace_in_roots(persistent.to_str().unwrap(), &roots).is_err());
         assert!(canonical_workspace_in_roots(outside.to_str().unwrap(), &roots).is_err());

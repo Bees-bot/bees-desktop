@@ -45,6 +45,34 @@ mkdirSync(dirname(destination), { recursive: true });
 copyFileSync(process.execPath, destination);
 chmodSync(destination, 0o755);
 
+const temporalRelease = "1.8.2";
+const temporalAssets = {
+  "aarch64-apple-darwin": [
+    `temporal_cli_${temporalRelease}_darwin_arm64.tar.gz`,
+    "dacdc3587682c04cf27e67c8878ca2d755230b6ad63c0c6ebddd7348ae90ed94"
+  ],
+  "x86_64-apple-darwin": [
+    `temporal_cli_${temporalRelease}_darwin_amd64.tar.gz`,
+    "489d7f5420cae02b559774ac23df035141954c33a51dba96f5759a0ddccdf1b6"
+  ],
+  "aarch64-unknown-linux-gnu": [
+    `temporal_cli_${temporalRelease}_linux_arm64.tar.gz`,
+    "83600a8fac6e3da54093e5da6918d399f501532b9f1172235603f9606f4ac6e4"
+  ],
+  "x86_64-unknown-linux-gnu": [
+    `temporal_cli_${temporalRelease}_linux_amd64.tar.gz`,
+    "d8421bda989e6514b4bdb4d63a9012a8a05a806892e881a5aad8510496349a94"
+  ],
+  "aarch64-pc-windows-msvc": [
+    `temporal_cli_${temporalRelease}_windows_arm64.tar.gz`,
+    "da78339510b1f91a8212ff247940d3b1dd3022ccfa00add400359311f941697e"
+  ],
+  "x86_64-pc-windows-msvc": [
+    `temporal_cli_${temporalRelease}_windows_amd64.tar.gz`,
+    "c845948aa4ab3b1a3643f9fea6d1cd691188bc31513de5f2dc5f7eceea25f22a"
+  ]
+};
+
 // b10153 is the first release with the `nanbeige` architecture the seeded model uses.
 const llamaRelease = "b10164";
 const macTarget = target.endsWith("-apple-darwin");
@@ -112,6 +140,69 @@ async function downloadVerified(url, expectedSha256) {
     throw new Error(`Integrity check failed for ${basename(url)}.`);
   }
   return archive;
+}
+
+function signMacBinary(path) {
+  if (!target.endsWith("-apple-darwin")) return;
+  execFileSync("xattr", ["-cr", path]);
+  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+  const adhoc = !identity || identity === "-";
+  execFileSync("codesign", [
+    "--force",
+    adhoc ? "--timestamp=none" : "--timestamp",
+    ...(adhoc ? [] : ["--options", "runtime"]),
+    "--sign",
+    adhoc ? "-" : identity,
+    path
+  ]);
+}
+
+async function prepareTemporalRuntime() {
+  const asset = temporalAssets[target];
+  if (!asset) throw new Error(`No bundled Temporal runtime is configured for ${target}.`);
+  const temporalDestination = resolve(
+    desktopRoot,
+    "src-tauri",
+    "binaries",
+    `temporal-${target}${extension}`
+  );
+  const marker = resolve(
+    desktopRoot,
+    "src-tauri",
+    "binaries",
+    `.temporal-${target}.version`
+  );
+  if (
+    existsSync(temporalDestination) &&
+    existsSync(marker) &&
+    readFileSync(marker, "utf8").trim() === temporalRelease
+  ) {
+    signMacBinary(temporalDestination);
+    return;
+  }
+
+  const [fileName, expectedSha256] = asset;
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-temporal-"));
+  try {
+    console.log(`Preparing Temporal CLI ${temporalRelease} for ${target}...`);
+    const archive = await downloadVerified(
+      `https://github.com/temporalio/cli/releases/download/v${temporalRelease}/${fileName}`,
+      expectedSha256
+    );
+    const archivePath = join(temporaryRoot, fileName);
+    const extracted = join(temporaryRoot, "extracted");
+    writeFileSync(archivePath, archive);
+    mkdirSync(extracted);
+    execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
+    const binary = findFile(extracted, `temporal${extension}`);
+    if (!binary) throw new Error(`${fileName} did not contain temporal${extension}.`);
+    copyFileSync(binary, temporalDestination);
+    if (!target.includes("windows")) chmodSync(temporalDestination, 0o755);
+    signMacBinary(temporalDestination);
+    writeFileSync(marker, `${temporalRelease}\n`);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
@@ -268,4 +359,5 @@ async function prepareLlamaRuntime() {
   }
 }
 
+await prepareTemporalRuntime();
 await prepareLlamaRuntime();

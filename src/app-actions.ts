@@ -940,7 +940,11 @@ export function createMainActions(host: MainHost) {
         host.workspaceController.activeBoard = host.workspaceController.boards.find(({ id }) => id === button.dataset.board) ?? null;
         host.workspaceController.activeProcess = host.workspaceController.processes.find(({ id }) => id === host.workspaceController.activeBoard?.processId) ?? null;
         host.workspaceController.workspace.processId = host.workspaceController.activeProcess?.id ?? "";
-        host.workspaceController.items = host.workspaceController.activeProcess ? await host.repository.listWorkItems(host.workspaceController.activeProcess.id) : [];
+        host.workspaceController.items = host.workspaceController.activeProcess
+          ? host.workspaceController.teamItems.filter(
+            ({ processId }) => processId === host.workspaceController.activeProcess?.id
+          )
+          : [];
         host.shell.view = "board";
         host.shell.render();
         return;
@@ -988,7 +992,15 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "resolve-wait") {
-        await host.repository.resolveWorkItemWait(button.dataset.id!, "Resolved by a person");
+        const item = host.workspaceController.teamItems.find(({ waits }) =>
+          waits.some(({ id }) => id === button.dataset.id)
+        );
+        if (item) {
+          await host.workflowRuntime.command(item.id, {
+            type: "resolve_wait",
+            waitId: button.dataset.id!
+          });
+        }
         await host.workspaceController.refresh();
         return;
       }
@@ -1028,7 +1040,8 @@ export function createMainActions(host: MainHost) {
         ], "Pause");
         if (!data) return;
         const kind = String(data.get("kind")) as WorkItemWaitKind;
-        await host.repository.createWorkItemWait(itemId, {
+        await host.workflowRuntime.command(itemId, {
+          type: "wait",
           kind,
           reason: String(data.get("reason") ?? ""),
           ...(String(data.get("target") ?? "").trim() ? { target: String(data.get("target")) } : {}),
@@ -1396,35 +1409,53 @@ export function createMainActions(host: MainHost) {
           throw new Error("Choose an available goal worker role");
         }
         const nextRunAt = nextScheduleRun(recurrence, new Date()).toISOString();
-        await host.repository.createSchedule({
-          teamId: host.workspaceController.workspace.teamId,
-          workItemId,
-          name: String(data.get("name")),
-          recurrence,
-          mode,
-          role,
-          timezone: String(data.get("timezone")),
-          nextRunAt
+        await host.workflowRuntime.command(workItemId, {
+          type: "upsert_schedule",
+          schedule: {
+            id: crypto.randomUUID(),
+            name: String(data.get("name")),
+            recurrence,
+            mode,
+            ...(role ? { role } : {}),
+            timezone: String(data.get("timezone")),
+            enabled: true,
+            nextRunAt
+          }
         });
         await host.workspaceController.refresh();
         return;
       }
       if (action === "run-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
-        if (schedule)
+        if (schedule) {
+          await host.workflowRuntime.command(schedule.workItemId, {
+            type: "trigger_schedule",
+            scheduleId: schedule.id
+          });
           await host.runs.runScheduledOccurrence(schedule, false);
+        }
         return;
       }
       if (action === "toggle-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule) {
-          await host.repository.setScheduleEnabled(schedule.id, !schedule.enabled);
+          await host.workflowRuntime.command(schedule.workItemId, {
+            type: "toggle_schedule",
+            scheduleId: schedule.id,
+            enabled: !schedule.enabled
+          });
           await host.workspaceController.refresh();
         }
         return;
       }
       if (action === "delete-schedule") {
-        await host.repository.deleteSchedule(button.dataset.id!);
+        const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
+        if (schedule) {
+          await host.workflowRuntime.command(schedule.workItemId, {
+            type: "delete_schedule",
+            scheduleId: schedule.id
+          });
+        }
         await host.workspaceController.refresh();
         return;
       }
@@ -1836,7 +1867,10 @@ export function createMainActions(host: MainHost) {
           await editDashboard(board);
       }
       if (action === "move-item") {
-        await host.repository.moveWorkItem(button.dataset.id!, button.dataset.stage!);
+        await host.workflowRuntime.command(button.dataset.id!, {
+          type: "move",
+          targetStageId: button.dataset.stage!
+        });
         await host.workspaceController.refresh();
       }
       if (action === "new-item-in-stage")
@@ -1870,13 +1904,18 @@ export function createMainActions(host: MainHost) {
           }
         ]);
         if (data) {
+          const archived = data.get("archived") === "archived";
           await host.repository.updateWorkItem(item.id, {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
             owner: String(data.get("owner") ?? ""),
-            archived: data.get("archived") === "archived",
             logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
           });
+          if (archived !== Boolean(item.archivedAt)) {
+            await host.workflowRuntime.command(item.id, {
+              type: archived ? "archive" : "restore"
+            });
+          }
           await host.workspaceController.refresh();
         }
       }
@@ -2555,7 +2594,13 @@ export function createMainActions(host: MainHost) {
     const operationNotes: string[] = [];
     try {
       const { applied, errors } = await applyActions(entry.actions, {
-        repository: host.repository,
+        repository: {
+          createProcess: (teamId, input) => host.repository.createProcess(teamId, input),
+          createWorkItem: (processId, input) => host.repository.createWorkItem(processId, input)
+        },
+        moveWorkItem: async (itemId, stageId) => {
+          await host.workflowRuntime.command(itemId, { type: "move", targetStageId: stageId });
+        },
         teamId: host.workspaceController.workspace.teamId,
         operateBees: async (goal) => {
           const result = await runApprovedBeesOperation(goal);

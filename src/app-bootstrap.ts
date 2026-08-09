@@ -140,7 +140,6 @@ export function createAppBootstrap(host: MainHost) {
       const teamFolder = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
       if (teamFolder?.localPath)
         await host.workspaceController.ensureTeamSkillsRegistry(teamFolder.localPath);
-      await host.runs.scheduler.start();
       host.runs.startBackgroundSync();
       // Nothing in the app is required to hand its errors to the boundary — these catch the ones
       // that were never handed anywhere, which is exactly the class that used to vanish.

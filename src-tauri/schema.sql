@@ -89,7 +89,6 @@ CREATE TABLE IF NOT EXISTS work_items (
   sync_version INTEGER NOT NULL DEFAULT 0,
   checkpoint_stage_id TEXT,
   checkpoint_at TEXT,
-  archived_at TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -155,56 +154,6 @@ CREATE TABLE IF NOT EXISTS execution_outputs (
   created_at TEXT NOT NULL,
   decided_at TEXT,
   UNIQUE (execution_id, logical_output)
-);
-
-CREATE TABLE IF NOT EXISTS work_item_waits (
-  id TEXT PRIMARY KEY,
-  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('human', 'external_event', 'dependency', 'execution', 'error', 'schedule', 'manual')),
-  reason TEXT NOT NULL,
-  target TEXT,
-  dependency_work_item_id TEXT REFERENCES work_items(id),
-  -- Run receipts are device-local, so a synchronized wait stores this as an opaque reference.
-  execution_id TEXT,
-  correlation_key TEXT,
-  wake_at TEXT,
-  resolved_at TEXT,
-  resolution TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  CHECK (dependency_work_item_id IS NULL OR dependency_work_item_id <> work_item_id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS work_item_wait_correlation_idx
-ON work_item_waits(work_item_id, correlation_key)
-WHERE correlation_key IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS work_item_wait_dependency_idx
-ON work_item_waits(dependency_work_item_id)
-WHERE resolved_at IS NULL;
-
-CREATE TABLE IF NOT EXISTS external_event_receipts (
-  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  correlation_key TEXT NOT NULL,
-  resolution TEXT NOT NULL DEFAULT '',
-  received_at TEXT NOT NULL,
-  PRIMARY KEY (team_id, correlation_key)
-);
-
-CREATE TABLE IF NOT EXISTS schedules (
-  id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  recurrence TEXT NOT NULL CHECK (recurrence IN ('hourly', 'daily', 'weekdays')),
-  mode TEXT NOT NULL CHECK (mode IN ('run', 'spawn_goal')),
-  role TEXT,
-  timezone TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-  next_run_at TEXT NOT NULL,
-  last_run_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS registries (
@@ -334,6 +283,5 @@ CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status, created_a
 CREATE INDEX IF NOT EXISTS idx_executions_agent ON executions(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_executions_restarted_from ON executions(restarted_from_execution_id);
 CREATE INDEX IF NOT EXISTS idx_execution_outputs_status ON execution_outputs(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_registries_team ON registries(team_id, name);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_due ON sync_queue(next_attempt_at);

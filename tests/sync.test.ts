@@ -230,7 +230,6 @@ describe("metadata synchronization", () => {
         "logicalFiles",
         "checkpointStageId",
         "checkpointAt",
-        "archivedAt",
         "createdAt",
         "updatedAt"
       ].sort()

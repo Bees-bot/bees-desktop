@@ -53,7 +53,8 @@
       "entitlements": "entitlements.plist"
     },
     "externalBin": [
-      "binaries/bees-node"
+      "binaries/bees-node",
+      "binaries/temporal"
     ],
     "resources": {
       "../flue-runtime/default-registry": "flue-runtime/default-registry",
@@ -61,6 +62,7 @@
       "../flue-runtime/project/dist": "flue-runtime/project/dist",
       "../flue-runtime/project/capability-server.mjs": "flue-runtime/project/capability-server.mjs",
       "../flue-runtime/project/start.mjs": "flue-runtime/project/start.mjs",
+      "../flue-runtime/project/workflow": "flue-runtime/project/workflow",
       "../llama-runtime": "llama-runtime",
       "../services/knowledge-worker/bees_knowledge_worker": "knowledge-worker/bees_knowledge_worker"
     }

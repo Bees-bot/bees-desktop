@@ -1,4 +1,5 @@
 import type { BeesConversationSnapshotV1 } from "./conversation-snapshot.js";
+import type { WorkItemRuntimeState } from "./workflow-runtime.js";
 
 export type GoalTaskEffect = "read" | "prepare" | "external_write";
 export type WorkItemWaitKind =
@@ -180,6 +181,8 @@ export interface WorkItem {
   /** Derived from the current stage; never stored separately on the item. */
   isTerminal: boolean;
   waits: WorkItemWait[];
+  /** Durable execution state projected from Temporal; never stored in the app database. */
+  runtime?: WorkItemRuntimeState | null;
   logicalFiles: string[];
   syncVersion: number;
   checkpointStageId: string | null;
@@ -221,6 +224,7 @@ export function workItemCondition(
   if (waits.some(({ kind }) => kind === "error")) return "error";
   if (waits.length) return "waiting";
   if (activeExecutionForItem(item.id, executions)) return "running";
+  if (item.runtime?.phase === "running") return "claimed";
   return claimed ? "claimed" : "ready";
 }
 
@@ -363,6 +367,7 @@ export interface Schedule {
   role: string | null;
   timezone: string;
   enabled: boolean;
+  pending?: boolean;
   nextRunAt: string;
   lastRunAt: string | null;
   createdAt: string;

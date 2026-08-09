@@ -2,6 +2,7 @@
 // bearer token (no cookies), so the same account works on web and desktop.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import type { WorkItemCommand, WorkItemRuntimeState } from "./workflow-runtime.js";
 
 /**
  * Where this build points unless something overrides it. Production, because that is what
@@ -141,18 +142,6 @@ export interface LinkedAccount {
 export interface AuthResult {
   user: SessionUser;
   token: string;
-}
-
-export interface ServerWorkItemClaim {
-  workItemId: string;
-  runnerId: string;
-  claimId: string;
-  workItemVersion: number;
-  leaseVersion: number;
-  claimedAt: string;
-  expiresAt: string;
-  executionId: string | null;
-  agentId: string | null;
 }
 
 /**
@@ -471,102 +460,31 @@ export class ApiClient {
     });
   }
 
-  claimWorkItem(
+  workItemRuntime(
     token: string,
     organizationId: string,
-    workItemId: string,
-    runnerId: string,
-    expectedVersion: number,
-    executionId?: string,
-    agentId?: string
-  ): Promise<{ claim: ServerWorkItemClaim }> {
+    workItemId: string
+  ): Promise<{ runtime: WorkItemRuntimeState }> {
     return this.request(
       token,
-      `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      { method: "POST", body: JSON.stringify({ runnerId, expectedVersion, executionId, agentId }) },
+      `/api/work-items/${encodeURIComponent(workItemId)}/runtime`,
+      {},
       organizationId
     );
   }
 
-  releaseWorkItemClaim(
+  commandWorkItem(
     token: string,
     organizationId: string,
     workItemId: string,
-    runnerId: string,
-    claimId: string,
-    expectedVersion: number,
-    leaseVersion: number
-  ): Promise<{ claim: null }> {
+    command: WorkItemCommand
+  ): Promise<{ runtime: WorkItemRuntimeState }> {
     return this.request(
       token,
-      `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      { method: "POST", body: JSON.stringify({ runnerId, claimId, expectedVersion, leaseVersion, release: true }) },
+      `/api/work-items/${encodeURIComponent(workItemId)}/runtime`,
+      { method: "POST", body: JSON.stringify(command) },
       organizationId
     );
   }
 
-  renewWorkItemClaim(
-    token: string,
-    organizationId: string,
-    workItemId: string,
-    runnerId: string,
-    claimId: string,
-    leaseVersion: number
-  ): Promise<{ claim: ServerWorkItemClaim }> {
-    return this.request(
-      token,
-      `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      { method: "POST", body: JSON.stringify({ runnerId, claimId, leaseVersion, heartbeat: true }) },
-      organizationId
-    );
-  }
-
-  completeWorkItemClaim(
-    token: string,
-    organizationId: string,
-    workItemId: string,
-    runnerId: string,
-    claimId: string,
-    expectedVersion: number,
-    leaseVersion: number,
-    record: {
-      recordType: string;
-      recordId: string;
-      version: number;
-      deleted: boolean;
-      payload: Record<string, unknown>;
-    }
-  ): Promise<{ claim: null; version: number }> {
-    return this.request(
-      token,
-      `/api/work-items/${encodeURIComponent(workItemId)}/claim`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          runnerId,
-          claimId,
-          expectedVersion,
-          leaseVersion,
-          complete: true,
-          record
-        })
-      },
-      organizationId
-    );
-  }
-
-  receiveWorkItemEvent(
-    token: string,
-    organizationId: string,
-    teamId: string,
-    correlationKey: string,
-    resolution = "Received"
-  ): Promise<{ duplicate: boolean; resolved: number }> {
-    return this.request(
-      token,
-      `/api/work-item-events/${encodeURIComponent(correlationKey)}`,
-      { method: "POST", body: JSON.stringify({ teamId, resolution }) },
-      organizationId
-    );
-  }
 }

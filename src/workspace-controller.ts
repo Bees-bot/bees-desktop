@@ -22,6 +22,7 @@ import type {
   Team,
   WorkItem
 } from "./domain.js";
+import type { WorkItemRuntimeState } from "./workflow-runtime.js";
 import {
   isKnowledgeConnection
 } from "./knowledge.js";
@@ -50,10 +51,22 @@ export function createWorkspaceController(host: MainHost) {
     getSetting: (key, fallback) => host.repository.getSetting(key, fallback),
     setSetting: (key, value) => host.repository.setSetting(key, value),
     runAgentTurns: (item, turns) => host.runs.runProcessAgentTurns(item, turns, true),
-    moveWorkItem: (itemId, stageId) => host.repository.moveWorkItem(itemId, stageId),
-    createWorkItemWait: (itemId, input) => host.repository.createWorkItemWait(itemId, input),
-    resolveWorkItemWaits: (itemId, kind, resolution) =>
-      host.repository.resolveWorkItemWaits(itemId, kind, resolution),
+    moveWorkItem: async (itemId, stageId) => {
+      await host.workflowRuntime.command(itemId, { type: "move", targetStageId: stageId });
+    },
+    createWorkItemWait: async (itemId, input) => {
+      const before = new Set((await host.workflowRuntime.state(itemId)).waits.map(({ id }) => id));
+      const state = await host.workflowRuntime.command(itemId, { type: "wait", ...input });
+      return state.waits.find(({ id }) => !before.has(id))?.id ?? "";
+    },
+    resolveWorkItemWaits: async (itemId, kind) => {
+      const state = await host.workflowRuntime.state(itemId);
+      const waits = state.waits.filter((wait) => !kind || wait.kind === kind);
+      await Promise.all(waits.map(({ id }) =>
+        host.workflowRuntime.command(itemId, { type: "resolve_wait", waitId: id })
+      ));
+      return waits.length;
+    },
     getWorkItem: async (itemId) => (await host.repository.getWorkItem(itemId)) ?? null,
     requireTeamRoot,
     chooseProjectFolder: async () => {
@@ -89,6 +102,8 @@ export function createWorkspaceController(host: MainHost) {
 
   let teamItems: WorkItem[] = [];
 
+  const runtimeCache = new Map<string, WorkItemRuntimeState>();
+
   let agents: Agent[] = [];
 
   let registries: Registry[] = [];
@@ -105,6 +120,40 @@ export function createWorkspaceController(host: MainHost) {
   /** Work still on someone's plate — finished and archived items are not workload, so never counted. */
   function openWork(list: WorkItem[]): WorkItem[] {
     return list.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt);
+  }
+
+  function projectRuntime(item: WorkItem, runtime: WorkItemRuntimeState): WorkItem {
+    const process = processes.find(({ id }) => id === runtime.processId);
+    return {
+      ...item,
+      processId: runtime.processId,
+      stageId: runtime.stageId,
+      archivedAt: runtime.archivedAt,
+      isTerminal: Boolean(
+        process?.stages.find(({ id }) => id === runtime.stageId)?.isTerminal
+      ),
+      runtime,
+      waits: runtime.waits.map((wait) => ({
+        ...wait,
+        workItemId: item.id,
+        resolvedAt: null,
+        resolution: null,
+        updatedAt: wait.createdAt
+      }))
+    };
+  }
+
+  async function hydrateRuntime(workItems: WorkItem[]): Promise<WorkItem[]> {
+    return Promise.all(workItems.map(async (item) => {
+      try {
+        const runtime = await host.workflowRuntime.state(item.id);
+        runtimeCache.set(item.id, runtime);
+        return projectRuntime(item, runtime);
+      } catch {
+        const cached = runtimeCache.get(item.id);
+        return cached ? projectRuntime(item, cached) : { ...item, waits: [], runtime: null };
+      }
+    }));
   }
 
   /**
@@ -170,16 +219,23 @@ export function createWorkspaceController(host: MainHost) {
     else {
       host.runs.runningProcesses = new Set(await host.repository.getSetting<string[]>(host.runs.RUNNING_PROCESSES_KEY, []));
       host.runs.disabledAgentIds = new Set(await host.repository.getSetting<string[]>(`disabled_agents:${workspace.teamId}`, []));
-      [boards, processes, agents, teamItems, host.runs.executions, host.runs.schedules, registries, mcpConnections] = await Promise.all([
+      [boards, processes, agents, teamItems, host.runs.executions, registries, mcpConnections] = await Promise.all([
         host.repository.listBoards(workspace.teamId),
         host.repository.listProcesses(workspace.teamId),
         host.actions.loadAgents(),
         host.repository.listTeamWorkItems(workspace.teamId),
         host.repository.listExecutions(workspace.teamId),
-        host.repository.listSchedules(workspace.teamId),
         host.repository.listRegistries(workspace.teamId),
         listMcpConnections(host.repository, workspace.teamId)
       ]);
+      teamItems = await hydrateRuntime(teamItems);
+      host.runs.schedules = teamItems.flatMap((item) =>
+        item.runtime?.schedules.map((schedule) => ({
+          ...schedule,
+          teamId: workspace.teamId,
+          workItemId: item.id
+        })) ?? []
+      );
       host.session.knowledgeConnection = mcpConnections.find(isKnowledgeConnection) ?? null;
       mcpConnections = mcpConnections.filter((connection) => !isKnowledgeConnection(connection));
       host.assistant.skillReviews = reviewSkills({
@@ -189,7 +245,7 @@ export function createWorkspaceController(host: MainHost) {
         now: new Date().toISOString()
       });
       if (await host.runs.resumeCompletedTaskPlans()) {
-        teamItems = await host.repository.listTeamWorkItems(workspace.teamId);
+        teamItems = await hydrateRuntime(await host.repository.listTeamWorkItems(workspace.teamId));
       }
       const executionIds = new Set(host.runs.executions.map(({ id }) => id));
       host.runs.executionOutputs = (await host.repository.listExecutionOutputs()).filter(({ executionId }) => executionIds.has(executionId));
@@ -206,7 +262,10 @@ export function createWorkspaceController(host: MainHost) {
         processes[0] ??
         null;
       workspace.processId = activeProcess?.id ?? "";
-      items = activeProcess ? await host.repository.listWorkItems(activeProcess.id) : [];
+      const activeProcessId = activeProcess?.id;
+      items = activeProcessId
+        ? teamItems.filter(({ processId }) => processId === activeProcessId)
+        : [];
     }
     host.views.renderNavigation();
     host.shell.render();

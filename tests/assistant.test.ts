@@ -124,9 +124,11 @@ describe("resolving against real data", () => {
     expect(resolved[1]!.error).toContain("No process");
     expect(resolved[2]!.error).toContain("Ghost");
 
+    const moved: Array<[string, string]> = [];
     const { applied, errors } = await applyActions(resolved, {
       repository,
       teamId: local.teamId,
+      moveWorkItem: async (itemId, stageId) => { moved.push([itemId, stageId]); },
       operateBees: async () => {
         throw new Error("no Bees operation expected");
       },
@@ -136,13 +138,10 @@ describe("resolving against real data", () => {
     });
     expect(errors).toEqual([]);
     expect(applied).toBe(1);
-    const after = await repository.listTeamWorkItems(local.teamId);
-    expect(after.filter(({ isTerminal }) => isTerminal).map(({ title }) => title).sort()).toEqual([
-      "Post one",
-      "Post two"
-    ]);
-    // The erroring actions changed nothing.
-    expect(after.find(({ title }) => title === "Post three")!.stageId).toBe(draft.id);
+    expect(moved.map(([itemId]) => itemId).sort()).toEqual(
+      resolved[0]!.items.map(({ id }) => id).sort()
+    );
+    expect(moved.every(([, stageId]) => stageId === resolved[0]!.targetStageId)).toBe(true);
   });
 
   it("runs a generic Bees operation only through the approved apply path", async () => {

@@ -17,7 +17,7 @@ export interface TaskPlanHost {
     tasks: PlannedTask[]
   ): Promise<string[]>;
   workerRoles(): string[];
-  syncCheckpoint(itemId: string): Promise<void>;
+  syncCheckpoint(itemId: string, targetStageId: string): Promise<void>;
   finishOutputReview(execution: Execution): Promise<void>;
 }
 
@@ -64,7 +64,7 @@ export class TaskPlanController {
       stages.review.id,
       approved
     );
-    await this.host.syncCheckpoint(item.id);
+    await this.host.syncCheckpoint(item.id, ids.length ? stages.waiting.id : stages.review.id);
     await this.host.finishOutputReview(execution);
     return ids.length;
   }
