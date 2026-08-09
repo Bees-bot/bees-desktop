@@ -258,7 +258,7 @@ export function createMainViews(host: MainHost) {
           const ring = active ? "ring-2 ring-primary ring-offset-1 ring-offset-base-100" : "";
           const inner = branding.logo
             ? `<img src="${host.shell.escapeHtml(branding.logo)}" alt="" class="size-full object-cover">`
-            : `<span class="grid size-full place-items-center text-[11px] font-black text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+            : `<span class="grid size-full place-items-center text-[11px] font-semibold text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
           const label = `${name} — ${email}`;
           return `<button class="btn btn-xs btn-square overflow-hidden p-0 ${ring}" data-action="switch-org" data-id="${orgId}" data-account="${host.shell.escapeHtml(userId)}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${inner}</button>`;
         })
@@ -417,14 +417,13 @@ export function createMainViews(host: MainHost) {
       : execution?.status === "queued"
         ? "Queued"
         : "Idle";
-    const runTone = execution?.status === "running"
-      ? "badge-success"
-      : execution?.status === "queued"
-        ? "badge-warning"
-        : "badge-ghost";
-    return `<span class="badge badge-ghost badge-sm">Owner: ${host.shell.escapeHtml(item.owner || "Unassigned")}</span>
-      <span class="badge badge-ghost badge-sm">Agent: ${host.shell.escapeHtml(agent?.name || (execution ? "Unknown agent" : "Unassigned"))}</span>
-      <span class="badge ${runTone} badge-sm">Run: ${run}</span>`;
+    // Owner/agent are context, not state — render them as quiet meta text and only badge a
+    // run that is actually doing something; "Idle" on every card is noise.
+    const runBadge = run === "Idle"
+      ? ""
+      : `<span class="badge ${run === "Running" ? "badge-success" : "badge-warning"} badge-sm">${run}</span>`;
+    return `<span class="min-w-0 truncate text-xs text-base-content/55">${host.shell.escapeHtml(item.owner || "Unassigned")} · ${host.shell.escapeHtml(agent?.name || (execution ? "Unknown agent" : "No agent"))}</span>
+      ${runBadge}`;
   }
 
   /** The Details tab: every field the item edit dialog offers, read-only or as an inline form. */
@@ -679,8 +678,8 @@ export function createMainViews(host: MainHost) {
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p class="mb-1 text-[10px] font-black uppercase tracking-[.16em] text-primary">${host.shell.escapeHtml(stage?.name ?? "")}</p>
-          <h3 class="text-lg font-black tracking-[-.015em]">${host.shell.escapeHtml(item.title)}</h3>
+          <p class="mb-1 text-[11px] font-medium uppercase tracking-[.06em] text-base-content/50">${host.shell.escapeHtml(stage?.name ?? "")}</p>
+          <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
           <button class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Edit</button>
@@ -746,7 +745,7 @@ export function createMainViews(host: MainHost) {
             <header class="flex items-center justify-between px-1 pb-3 pt-1">
               <div class="flex items-center gap-2">
                 <span class="status ${stage.isTerminal ? "status-success" : "status-primary"}"></span>
-                <h2 class="text-sm font-black tracking-[-.01em]">${host.shell.escapeHtml(stage.name)}</h2>
+                <h2 class="text-[13px] font-semibold">${host.shell.escapeHtml(stage.name)}</h2>
               </div>
               <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
             </header>
@@ -754,8 +753,7 @@ export function createMainViews(host: MainHost) {
               .map((item) => `<article class="kanban-card card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="card-body gap-3 p-4">
                     <div>
-                      <p class="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-primary">${host.shell.escapeHtml(stage.name)}</p>
-                      <h3 class="card-title text-sm font-black tracking-[-.015em]">${host.shell.escapeHtml(item.title)}</h3>
+                      <h3 class="card-title text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
                       <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-base-content/60">${host.shell.escapeHtml(item.description || "No description")}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">

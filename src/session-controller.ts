@@ -577,7 +577,7 @@ export function createSessionController(host: MainHost) {
     const branding = brandingFor(orgId);
     return branding.logo
       ? `<img src="${host.shell.escapeHtml(branding.logo)}" alt="" class="size-10 overflow-hidden rounded-lg object-cover">`
-      : `<span class="grid size-10 place-items-center rounded-lg text-sm font-black text-white" style="background:${host.shell.escapeHtml(branding.color || defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+      : `<span class="grid size-10 place-items-center rounded-lg text-sm font-semibold text-white" style="background:${host.shell.escapeHtml(branding.color || defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
   }
 
   /** Stable fallback color from the org name, so same-initial orgs (Acme vs Ace) still differ. */
