@@ -28,6 +28,7 @@ import {
   type GoalWorkMetadata,
   type LocalWorkspace,
   type Organization,
+  type PersistedProcessDefinition,
   type Process,
   type Registry,
   type Schedule,
@@ -38,7 +39,11 @@ import {
   type WorkItemStatus
 } from "./domain.js";
 import type { PlannedTask } from "./processes/goals/index.js";
-import { processModuleTag, starterProcessModule } from "./processes/registry.js";
+import { starterProcessModule } from "./processes/registry.js";
+import {
+  persistProcessDefinition,
+  type ProcessLibraryEntry
+} from "./processes/types.js";
 
 type Row = Record<string, DatabaseValue>;
 
@@ -86,6 +91,35 @@ function nullableString(value: DatabaseValue | undefined): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+function synchronizedProcessDefinition(value: unknown): PersistedProcessDefinition {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Process definition must be an object");
+  }
+  const definition = value as Partial<PersistedProcessDefinition>;
+  if (
+    !(definition.moduleId === null || typeof definition.moduleId === "string") ||
+    typeof definition.version !== "number" ||
+    !Number.isInteger(definition.version) ||
+    definition.version < 1 ||
+    !["automatic", "interactive"].includes(definition.automation ?? "") ||
+    typeof definition.renderer !== "string" ||
+    !definition.renderer ||
+    !definition.stateIds ||
+    typeof definition.stateIds !== "object" ||
+    Array.isArray(definition.stateIds) ||
+    !Object.values(definition.stateIds).every((id) => typeof id === "string" && id) ||
+    !Array.isArray(definition.capabilities) ||
+    !Array.isArray(definition.roleBindings) ||
+    !definition.roleBindings.every(
+      (binding) =>
+        binding && typeof binding.role === "string" && typeof binding.stageId === "string"
+    )
+  ) {
+    throw new Error("Process definition is invalid");
+  }
+  return definition as PersistedProcessDefinition;
+}
+
 /** The first local workspace stays useful on launch; later teams choose from the library. */
 function newStarterProcess(teamId: string, timestamp: string): {
   processId: string;
@@ -93,7 +127,16 @@ function newStarterProcess(teamId: string, timestamp: string): {
 } {
   const template = starterProcessModule().definition;
   const processId = createId();
-  const stages = template.states.map(({ name }, position) => ({ id: createId(), name, position }));
+  const stages = template.states.map(({ key, name }, position) => ({
+    id: createId(),
+    key,
+    name,
+    position
+  }));
+  const definition = persistProcessDefinition(
+    template,
+    Object.fromEntries(stages.map(({ key, id }) => [key, id]))
+  );
   return {
     processId,
     statements: [
@@ -102,8 +145,8 @@ function newStarterProcess(teamId: string, timestamp: string): {
         params: [processId, teamId, template.name, template.description, timestamp, timestamp]
       },
       {
-        sql: "INSERT INTO tags (entity, entity_id, tag) VALUES ('process', ?, ?)",
-        params: [processId, processModuleTag(template.id)]
+        sql: "INSERT INTO process_definitions (process_id, definition_json) VALUES (?, ?)",
+        params: [processId, JSON.stringify(definition)]
       },
       ...stages.map(({ id, name, position }) => ({
         sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
@@ -140,7 +183,12 @@ function boardRow(row: Row): Board {
   };
 }
 
-function processRow(row: Row, stages: Stage[], tags: string[]): Process {
+function processRow(
+  row: Row,
+  stages: Stage[],
+  definition: PersistedProcessDefinition,
+  tags: string[]
+): Process {
   return {
     id: stringValue(row.id),
     teamId: stringValue(row.teamId),
@@ -150,6 +198,7 @@ function processRow(row: Row, stages: Stage[], tags: string[]): Process {
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt),
     stages,
+    definition,
     tags
   };
 }
@@ -630,11 +679,13 @@ export class LocalRepository {
 
   async listProcesses(teamId: string, includeArchived = false): Promise<Process[]> {
     const rows = await this.database.query<Row>(
-      `SELECT id, team_id AS teamId, name, description, archived_at AS archivedAt,
-              created_at AS createdAt, updated_at AS updatedAt
-       FROM processes
-       WHERE team_id = ? ${includeArchived ? "" : "AND archived_at IS NULL"}
-       ORDER BY created_at`,
+      `SELECT p.id, p.team_id AS teamId, p.name, p.description,
+              p.archived_at AS archivedAt, p.created_at AS createdAt,
+              p.updated_at AS updatedAt, d.definition_json AS definitionJson
+       FROM processes p
+       JOIN process_definitions d ON d.process_id = p.id
+       WHERE p.team_id = ? ${includeArchived ? "" : "AND p.archived_at IS NULL"}
+       ORDER BY p.created_at`,
       [teamId]
     );
     const stages = await this.database.query<Row>(
@@ -660,6 +711,7 @@ export class LocalRepository {
         stages
           .map(stageRow)
           .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt),
+        JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
         tags
           .filter((tag) => stringValue(tag.entityId) === stringValue(row.id))
           .map((tag) => stringValue(tag.tag))
@@ -667,7 +719,7 @@ export class LocalRepository {
     );
   }
 
-  /** Replaces every tag on one row. Tags are the stable handle; names are free to change. */
+  /** Replaces the row's free-form labels. Process behavior never depends on tags. */
   async setTags(entity: string, entityId: string, tags: readonly string[]): Promise<void> {
     const unique = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
     await this.database.transaction([
@@ -681,23 +733,45 @@ export class LocalRepository {
 
   async createProcess(
     teamId: string,
-    input: { name: string; description?: string; stages: string[]; tags?: readonly string[] }
+    input: {
+      name: string;
+      description?: string;
+      stages?: string[];
+      tags?: readonly string[];
+      template?: ProcessLibraryEntry;
+    }
   ): Promise<string> {
     const name = requiredText(input.name, "Process name", 120);
-    const stageNames = input.stages.map((stage) => requiredText(stage, "Stage name", 80));
-    if (stageNames.length === 0) {
+    const stageInputs: Array<{ key?: string; name: string }> = input.template
+      ? input.template.states.map(({ key, name }) => ({ key, name }))
+      : (input.stages ?? []).map((stage) => ({ name: stage }));
+    if (stageInputs.length === 0) {
       throw new Error("A process needs at least one stage");
     }
     const id = createId();
     const timestamp = now();
+    const stages = stageInputs.map((stage, position) => ({
+      id: createId(),
+      name: requiredText(stage.name, "Stage name", 80),
+      position,
+      ...(stage.key ? { key: stage.key } : {})
+    }));
+    const definition = persistProcessDefinition(
+      input.template,
+      Object.fromEntries(stages.flatMap((stage) => stage.key ? [[stage.key, stage.id]] : []))
+    );
     await this.database.transaction([
       {
         sql: "INSERT INTO processes (id, team_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         params: [id, teamId, name, input.description?.trim() ?? "", timestamp, timestamp]
       },
-      ...stageNames.map((stage, position) => ({
+      {
+        sql: "INSERT INTO process_definitions (process_id, definition_json) VALUES (?, ?)",
+        params: [id, JSON.stringify(definition)]
+      },
+      ...stages.map((stage) => ({
         sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
-        params: [createId(), id, stage, position]
+        params: [stage.id, id, stage.name, stage.position]
       })),
       ...(input.tags ?? []).map((tag) => ({
         sql: "INSERT INTO tags (entity, entity_id, tag) VALUES ('process', ?, ?)",
@@ -751,6 +825,16 @@ export class LocalRepository {
         ]
       },
       {
+        sql: `UPDATE process_definitions
+              SET definition_json = json_set(
+                definition_json,
+                '$.version',
+                COALESCE(json_extract(definition_json, '$.version'), 0) + 1
+              )
+              WHERE process_id = ?`,
+        params: [id]
+      },
+      {
         sql: "UPDATE stages SET position = position + 10000 WHERE process_id = ?",
         params: [id]
       },
@@ -794,10 +878,23 @@ export class LocalRepository {
       [processId]
     );
     const id = createId();
-    await this.database.execute(
-      "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
-      [id, processId, requiredText(name, "Stage name", 80), Number(rows[0]?.position ?? 0)]
-    );
+    const timestamp = now();
+    await this.database.transaction([
+      {
+        sql: "INSERT INTO stages (id, process_id, name, position) VALUES (?, ?, ?, ?)",
+        params: [id, processId, requiredText(name, "Stage name", 80), Number(rows[0]?.position ?? 0)]
+      },
+      {
+        sql: `UPDATE process_definitions
+              SET definition_json = json_set(definition_json, '$.version', json_extract(definition_json, '$.version') + 1)
+              WHERE process_id = ?`,
+        params: [processId]
+      },
+      {
+        sql: "UPDATE processes SET updated_at = ? WHERE id = ?",
+        params: [timestamp, processId]
+      }
+    ]);
     return id;
   }
 
@@ -813,7 +910,17 @@ export class LocalRepository {
       ...stageIds.map((id, position) => ({
         sql: "UPDATE stages SET position = ? WHERE id = ? AND process_id = ?",
         params: [position, id, processId]
-      }))
+      })),
+      {
+        sql: `UPDATE process_definitions
+              SET definition_json = json_set(definition_json, '$.version', json_extract(definition_json, '$.version') + 1)
+              WHERE process_id = ?`,
+        params: [processId]
+      },
+      {
+        sql: "UPDATE processes SET updated_at = ? WHERE id = ?",
+        params: [now(), processId]
+      }
     ];
     await this.database.transaction(statements);
   }
@@ -1999,8 +2106,11 @@ export class LocalRepository {
   > {
     const [processes, stages, workItems, fileLocations] = await Promise.all([
       this.database.query<Row>(
-        `SELECT id, name, description, archived_at AS archivedAt, updated_at AS updatedAt
-         FROM processes WHERE team_id = ?`,
+        `SELECT p.id, p.name, p.description, p.archived_at AS archivedAt,
+                p.updated_at AS updatedAt, d.definition_json AS definitionJson
+         FROM processes p
+         JOIN process_definitions d ON d.process_id = p.id
+         WHERE p.team_id = ?`,
         [teamId]
       ),
       this.database.query<Row>(
@@ -2050,6 +2160,7 @@ export class LocalRepository {
           teamId,
           name: stringValue(row.name),
           description: stringValue(row.description),
+          definition: JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
           updatedAt: stringValue(row.updatedAt)
         }
       })),
@@ -2143,24 +2254,36 @@ export class LocalRepository {
     }
     if (record.recordType === "process") {
       const updatedAt = requiredText(payload.updatedAt, "Process update time");
-      await this.database.execute(
-        `INSERT INTO processes
-         (id, team_id, name, description, archived_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name, description = excluded.description,
-           archived_at = excluded.archived_at, updated_at = excluded.updated_at
-         WHERE excluded.updated_at > processes.updated_at`,
-        [
-          recordId,
-          requiredText(payload.teamId, "Team identifier"),
-          requiredText(payload.name, "Process name"),
-          typeof payload.description === "string" ? payload.description : "",
-          record.deleted ? updatedAt : null,
-          updatedAt,
-          updatedAt
-        ]
+      const current = await this.database.query<Row>(
+        "SELECT updated_at AS updatedAt FROM processes WHERE id = ?",
+        [recordId]
       );
+      if (current[0] && stringValue(current[0].updatedAt) >= updatedAt) return;
+      const definition = synchronizedProcessDefinition(payload.definition);
+      await this.database.transaction([
+        {
+          sql: `INSERT INTO processes
+                (id, team_id, name, description, archived_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name = excluded.name, description = excluded.description,
+                  archived_at = excluded.archived_at, updated_at = excluded.updated_at`,
+          params: [
+            recordId,
+            requiredText(payload.teamId, "Team identifier"),
+            requiredText(payload.name, "Process name"),
+            typeof payload.description === "string" ? payload.description : "",
+            record.deleted ? updatedAt : null,
+            updatedAt,
+            updatedAt
+          ]
+        },
+        {
+          sql: `INSERT INTO process_definitions (process_id, definition_json) VALUES (?, ?)
+                ON CONFLICT(process_id) DO UPDATE SET definition_json = excluded.definition_json`,
+          params: [recordId, JSON.stringify(definition)]
+        }
+      ]);
       return;
     }
     if (record.recordType === "stage") {

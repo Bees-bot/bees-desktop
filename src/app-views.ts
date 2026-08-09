@@ -506,8 +506,8 @@ export function createMainViews(host: MainHost) {
                         <button class="btn btn-ghost btn-xs" tabindex="0">Move</button>
                         <ul class="dropdown-content menu menu-sm z-20 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl" tabindex="0">
                           ${processEngine.definition(host.workspaceController.activeProcess!).states
-                            .filter(({ stageId }) => stageId !== item.stageId)
-                            .map(({ stageId, name }) => `<li><button data-action="move-item" data-id="${item.id}" data-stage="${stageId}">${host.shell.escapeHtml(name)}</button></li>`)
+                            .filter(({ id }) => id !== item.stageId)
+                            .map(({ id, name }) => `<li><button data-action="move-item" data-id="${item.id}" data-stage="${id}">${host.shell.escapeHtml(name)}</button></li>`)
                             .join("")}
                         </ul>
                       </div>

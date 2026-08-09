@@ -23,7 +23,7 @@ function host(settled: Partial<SettledRun> = {}) {
       executionId,
       status: "completed",
       outputs: [],
-      statusName: "",
+      statusId: "",
       ...settled
     })
   };
@@ -57,7 +57,7 @@ describe("RunCoordinator", () => {
     };
     const workspaces = { prepare: vi.fn().mockResolvedValue("/cache/workspaces/run-new") };
     const flueProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
-    const runHost = host({ outputs: ["draft.md"], statusName: "Review" });
+    const runHost = host({ outputs: ["draft.md"], statusId: "review-id" });
 
     const outcome = await coordinator(repository, workspaces, runHost, flueProject).start({
       item: { id: "item-1", title: "Draft", description: "", logicalFiles: [] } as unknown as WorkItem,
@@ -66,7 +66,10 @@ describe("RunCoordinator", () => {
         config: { prompt: "Work.", validationRules: ["require-output"] }
       } as unknown as Agent,
       teamRoot: "/team",
-      stages: ["Review", "Done"],
+      stages: [
+        { id: "review-id", name: "Review" },
+        { id: "done-id", name: "Done" }
+      ],
       taskPlan: {
         state: "plan",
         output: ".tasks.json",
@@ -101,7 +104,7 @@ describe("RunCoordinator", () => {
       executionId: "run-new",
       status: "completed",
       outputs: ["draft.md"],
-      statusName: "Review"
+      statusId: "review-id"
     });
   });
 
@@ -124,7 +127,10 @@ describe("RunCoordinator", () => {
       agent: { id: "planner", config: { prompt: "Plan it." } } as unknown as Agent,
       teamRoot: "/team",
       message: "Add a sixth task",
-      stages: ["Plan", "Work"]
+      stages: [
+        { id: "plan-id", name: "Plan" },
+        { id: "work-id", name: "Work" }
+      ]
     });
 
     expect(repository.createExecution).not.toHaveBeenCalled();

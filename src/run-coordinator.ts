@@ -9,6 +9,7 @@ import type {
   FileLocation,
   GoalTaskEffect,
   McpConnection,
+  Stage,
   TaskPlanRunContext,
   WorkItem
 } from "./domain.js";
@@ -41,8 +42,8 @@ export interface RunRequest {
   executionId?: string;
   /** A human follow-up for the agent's existing item conversation. */
   message?: string;
-  /** Status names of the item's process — the menu the agent picks its answer from. */
-  stages: string[];
+  /** Database IDs and display labels for the status menu shown to the agent. */
+  stages: Array<Pick<Stage, "id" | "name">>;
   taskPlan?: TaskPlanRunContext;
   goalEffect?: GoalTaskEffect;
   workerRoles?: Array<{ role: string; purpose: string }>;
@@ -66,8 +67,8 @@ export interface RunOutcome {
   status: ExecutionStatus;
   workspacePath: string;
   outputs: string[];
-  /** What the run wrote to outputs/.status, verbatim. Empty when it wrote nothing. */
-  statusName: string;
+  /** Database stage ID written to outputs/.status. Empty when the run wrote nothing. */
+  statusId: string;
 }
 
 export interface RuntimeLauncher {
@@ -96,7 +97,7 @@ export interface SettledRun {
   executionId: string;
   status: ExecutionStatus;
   outputs: string[];
-  statusName: string;
+  statusId: string;
   error?: string | null;
 }
 
@@ -151,7 +152,7 @@ export function runPrompt({
     }
     return followUp;
   }
-  const menu = stages.filter((stage) => stage.trim());
+  const menu = stages.filter(({ id, name }) => id.trim() && name.trim());
   const rejections = feedback.map((note) => note.trim()).filter(Boolean);
   // A project run works in the repository itself, so its inputs are staged beside it rather
   // than in the plain workspace layout. Either way the agent is told the folder, because a
@@ -198,7 +199,7 @@ export function runPrompt({
           .join("\n")}`
       : "",
     menu.length
-      ? `Statuses: ${menu.join(", ")}.\nWhen you are done, write the status you chose to outputs/${STATUS_OUTPUT} — the name on its own, nothing else.`
+      ? `Statuses:\n${menu.map(({ id, name }) => `- ${name}: ${id}`).join("\n")}\nWhen you are done, write the chosen status ID to outputs/${STATUS_OUTPUT} — the ID on its own, nothing else.`
       : ""
   ]
     .filter(Boolean)
@@ -345,7 +346,7 @@ export class RunCoordinator {
         status: outcome.status,
         workspacePath,
         outputs: outcome.outputs,
-        statusName: outcome.statusName
+        statusId: outcome.statusId
       };
     } catch (error) {
       const message = errorText(error);

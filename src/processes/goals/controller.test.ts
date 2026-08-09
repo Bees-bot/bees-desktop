@@ -2,25 +2,31 @@ import { describe, expect, it, vi } from "vitest";
 import type { Execution, ExecutionOutput, Process, WorkItem } from "../../domain.js";
 import { goalsProcess } from "./definition.js";
 import { TaskPlanController, type TaskPlanHost } from "./controller.js";
+import { persistProcessDefinition } from "../types.js";
 
 describe("Goals process controller", () => {
   it("owns task-plan approval", async () => {
-    const stages = goalsProcess.definition.states.map(({ name }, position) => ({
-      id: name.toLowerCase(),
+    const stages = goalsProcess.definition.states.map(({ key, name }, position) => ({
+      id: `${key}-id`,
+      key,
       processId: "goals",
       name,
       position,
       completionRules: "",
       archivedAt: null
     }));
-    const item = { id: "goal", processId: "goals", stageId: "plan" } as WorkItem;
+    const item = { id: "goal", processId: "goals", stageId: "plan-id" } as WorkItem;
     const process = {
       id: "goals",
       name: "Goals",
-      tags: ["module:goals"],
+      tags: [],
       updatedAt: "2026-01-01T00:00:00.000Z",
+      definition: persistProcessDefinition(
+        goalsProcess.definition,
+        Object.fromEntries(stages.map(({ key, id }) => [key, id]))
+      ),
       stages
-    } as Process;
+    } as unknown as Process;
     const host = {
       findWorkItem: vi.fn(() => item),
       findProcess: vi.fn(() => process),
@@ -45,10 +51,10 @@ describe("Goals process controller", () => {
     expect(host.approveTaskPlan).toHaveBeenCalledWith(
       output.id,
       item.id,
-      "plan",
-      "work",
-      "waiting",
-      "review",
+      "plan-id",
+      "work-id",
+      "waiting-id",
+      "review-id",
       [{
         key: "first",
         title: "First task",

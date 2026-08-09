@@ -75,7 +75,7 @@ pub struct RunSettled {
     pub execution_id: String,
     pub status: String,
     pub outputs: Vec<String>,
-    pub status_name: String,
+    pub status_id: String,
     pub error: Option<String>,
 }
 
@@ -385,7 +385,7 @@ fn collect(workspace: &str) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-fn read_status(workspace: &str) -> String {
+fn read_status_id(workspace: &str) -> String {
     std::fs::read_to_string(Path::new(workspace).join("outputs").join(STATUS_OUTPUT))
         .map(|value| value.trim().to_owned())
         .unwrap_or_default()
@@ -398,7 +398,7 @@ fn record(
     conversation: Option<&JsonValue>,
     error: Option<&str>,
     outputs: &[String],
-    status_name: &str,
+    status_id: &str,
 ) -> Result<(), String> {
     let mut connection = database.0.lock().map_err(|error| error.to_string())?;
     let transaction = connection.transaction().map_err(|e| e.to_string())?;
@@ -419,7 +419,7 @@ fn record(
     // compact outcome and its two-step projection marker, not another copy of user content.
     result.remove("prompt");
     result.insert("outputs".into(), serde_json::json!(outputs));
-    result.insert("statusName".into(), serde_json::json!(status_name));
+    result.insert("statusId".into(), serde_json::json!(status_id));
     result.insert("projectionState".into(), serde_json::json!("pending"));
     let now = chrono_now();
     let changed = transaction
@@ -527,7 +527,7 @@ fn settle(app: &tauri::AppHandle, request: RunRequest, resume_from: Option<Admis
                 execution_id: request.execution_id.clone(),
                 status: "failed".into(),
                 outputs: Vec::new(),
-                status_name: String::new(),
+                status_id: String::new(),
                 error: Some(error),
             }
         }
@@ -617,8 +617,8 @@ fn run_to_settlement(
     } else {
         collect(&request.workspace)?
     };
-    let status_name = if collected.iter().any(|output| output == STATUS_OUTPUT) {
-        read_status(&request.workspace)
+    let status_id = if collected.iter().any(|output| output == STATUS_OUTPUT) {
+        read_status_id(&request.workspace)
     } else {
         String::new()
     };
@@ -675,13 +675,13 @@ fn run_to_settlement(
         Some(&conversation),
         None,
         &outputs,
-        &status_name,
+        &status_id,
     )?;
     Ok(RunSettled {
         execution_id: request.execution_id.clone(),
         status: "completed".into(),
         outputs,
-        status_name,
+        status_id,
         error: None,
     })
 }
@@ -706,7 +706,7 @@ fn finish_terminal(
         execution_id: request.execution_id.clone(),
         status: status.to_owned(),
         outputs: Vec::new(),
-        status_name: String::new(),
+        status_id: String::new(),
         error: error.map(str::to_owned),
     })
 }

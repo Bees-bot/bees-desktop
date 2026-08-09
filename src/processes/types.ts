@@ -2,7 +2,7 @@ export interface ProcessLibraryAgent {
   role: string;
   name: string;
   purpose: string;
-  /** Stable process-state key. Display labels may be renamed without changing this binding. */
+  /** Installation alias resolved to a database stage ID when the process is created. */
   state: string;
   prompt: string;
   provider: string;
@@ -11,13 +11,13 @@ export interface ProcessLibraryAgent {
 }
 
 export interface ProcessLibraryState {
-  /** Stable semantic key used by capabilities and role bindings. */
+  /** Installation alias; it is not retained as a runtime state identity. */
   key: string;
   /** Initial display label. Installed processes may rename it. */
   name: string;
 }
 
-export interface TaskPlanCapability {
+export interface TaskPlanCapabilityTemplate {
   type: "task-plan";
   output: string;
   states: {
@@ -29,11 +29,13 @@ export interface TaskPlanCapability {
   };
 }
 
-export interface ProjectWorkspaceCapability {
+export interface ProjectWorkspaceCapabilityTemplate {
   type: "project-workspace";
 }
 
-export type ProcessCapability = TaskPlanCapability | ProjectWorkspaceCapability;
+export type ProcessCapabilityTemplate =
+  | TaskPlanCapabilityTemplate
+  | ProjectWorkspaceCapabilityTemplate;
 
 export interface ProcessLibraryEntry {
   id: string;
@@ -45,7 +47,7 @@ export interface ProcessLibraryEntry {
   states: readonly ProcessLibraryState[];
   automation: "automatic" | "interactive";
   renderer: string;
-  capabilities?: readonly ProcessCapability[];
+  capabilities?: readonly ProcessCapabilityTemplate[];
   agents: readonly ProcessLibraryAgent[];
 }
 
@@ -55,12 +57,43 @@ export interface ProcessModule {
   autoStart?: boolean;
 }
 
-/**
- * The tag that ties an installed process back to its bundled module. Written once at install and
- * never rewritten, so a team can rename the process to anything without losing its behaviour.
- */
-export function processModuleTag(moduleId: string): string {
-  return `module:${moduleId}`;
+/** Resolves template aliases once. The persisted result contains database stage IDs only. */
+export function persistProcessDefinition(
+  template?: ProcessLibraryEntry,
+  stateIds: Record<string, string> = {}
+): PersistedProcessDefinition {
+  const stageId = (key: string): string => {
+    const id = stateIds[key];
+    if (!id) throw new Error(`The process template is missing the ${key} state`);
+    return id;
+  };
+  const capabilities: ProcessCapability[] = (template?.capabilities ?? []).map((capability) =>
+    capability.type === "task-plan"
+      ? {
+        type: capability.type,
+        output: capability.output,
+        stageIds: {
+          plan: stageId(capability.states.plan),
+          work: stageId(capability.states.work),
+          waiting: stageId(capability.states.waiting),
+          review: stageId(capability.states.review),
+          done: stageId(capability.states.done)
+        }
+      }
+      : { type: capability.type }
+  );
+  return {
+    moduleId: template?.id ?? null,
+    version: template?.version ?? 1,
+    automation: template?.automation ?? "automatic",
+    renderer: template?.renderer ?? "default",
+    stateIds,
+    capabilities,
+    roleBindings: (template?.agents ?? []).map(({ role, state }) => ({
+      role,
+      stageId: stageId(state)
+    }))
+  };
 }
 
 export interface ProcessRenderer {
@@ -70,4 +103,10 @@ export interface ProcessRenderer {
   handlesSubmit(form: HTMLFormElement): boolean;
   handleSubmit(form: HTMLFormElement): Promise<boolean>;
 }
-import type { Execution, Process, WorkItem } from "../domain.js";
+import type {
+  Execution,
+  PersistedProcessDefinition,
+  Process,
+  ProcessCapability,
+  WorkItem
+} from "../domain.js";

@@ -1,12 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Process, WorkItem } from "../domain.js";
 import { processEngine } from "./registry.js";
+import { softwareProjectProcess } from "./software-project/definition.js";
+import { persistProcessDefinition } from "./types.js";
+
+const stateIds = {
+  requirements: "requirements-id",
+  architecture: "architecture-id",
+  plan: "plan-id",
+  implement: "implement-id",
+  "phase-review": "phase-review-id",
+  "final-review": "final-review-id",
+  done: "done-id",
+  blocked: "blocked-id"
+};
 
 const process = {
   id: "installed-code",
   name: "Renamed code process",
-  tags: ["module:software-project"],
+  tags: [],
   updatedAt: "2026-01-01T00:00:00.000Z",
+  definition: persistProcessDefinition(softwareProjectProcess.definition, stateIds),
   stages: [
     { id: "requirements-id", name: "Intake", position: 0 },
     { id: "architecture-id", name: "Design", position: 1 },
@@ -17,29 +31,21 @@ const process = {
     { id: "done-id", name: "Shipped", position: 6 },
     { id: "blocked-id", name: "Stuck", position: 7 }
   ]
-} as Process;
+} as unknown as Process;
 
 describe("process engine", () => {
-  it("keeps semantic keys while allowing any installed state as the target", () => {
-    expect(processEngine.definition(process).states.map(({ key }) => key)).toEqual([
-      "requirements",
-      "architecture",
-      "plan",
-      "implement",
-      "phase-review",
-      "final-review",
-      "done",
-      "blocked"
-    ]);
-    expect(processEngine.target(process, "requirements")?.id).toBe("requirements-id");
-    expect(processEngine.target(process, "Shipped")?.id).toBe("done-id");
+  it("uses database IDs while allowing any installed state as the target", () => {
+    expect(processEngine.definition(process).stateIds).toEqual(stateIds);
+    expect(processEngine.target(process, "requirements")).toBeUndefined();
+    expect(processEngine.target(process, "requirements-id")?.id).toBe("requirements-id");
+    expect(processEngine.target(process, "Shipped")).toBeUndefined();
     expect(processEngine.target(process, "missing")).toBeUndefined();
   });
 
   it("uses board order only when no state was requested", () => {
     const item = { stageId: "requirements-id" } as WorkItem;
     expect(processEngine.resolveTarget(process, item)?.id).toBe("architecture-id");
-    expect(processEngine.resolveTarget(process, item, "Shipped")?.id).toBe("done-id");
+    expect(processEngine.resolveTarget(process, item, "done-id")?.id).toBe("done-id");
   });
 
   it("uses installed agent bindings when users customize them", () => {
@@ -53,7 +59,7 @@ describe("process engine", () => {
       updatedAt: "2026-01-01T00:00:00.000Z"
     } satisfies Agent;
     expect(processEngine.definition(process, [agent]).roleBindings).toEqual([
-      { role: "custom-role", stateKey: "requirements" }
+      { role: "custom-role", stageId: "requirements-id" }
     ]);
   });
 });

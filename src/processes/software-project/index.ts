@@ -81,7 +81,7 @@ Return exactly one JSON object, with no Markdown fence:
 
 Set passed=false for a failed acceptance criterion, a relevant failing check, or when verification is impossible.`;
 
-export type SoftwareProjectStage = (typeof SOFTWARE_PROJECT_STATE_KEYS)[number];
+export type SoftwareProjectStateBinding = (typeof SOFTWARE_PROJECT_STATE_KEYS)[number];
 
 export interface RequirementSpec {
   summary: string;
@@ -498,47 +498,48 @@ export function softwareProjectStateKey(workItemId: string): string {
 
 export function softwareProjectView(input: {
   item: WorkItem;
-  stage: SoftwareProjectStage;
-  states: readonly { key: string; name: string }[];
+  stageId: string;
+  stateIds: Record<SoftwareProjectStateBinding, string>;
+  states: readonly { id: string; name: string }[];
   state: SoftwareProjectState;
   runs: Execution[];
   mapping: SoftwareProjectMapping | null;
   git: SoftwareProjectGitSnapshot | null;
 }): string {
-  const { item, stage, states, state, runs, mapping, git } = input;
+  const { item, stageId, stateIds, states, state, runs, mapping, git } = input;
   const busy = runs.some(({ status }) => status === "queued" || status === "running");
   const current = state.phases[state.currentPhaseIndex];
   const progress = states
-    .filter(({ key }) => key !== "blocked")
-    .map(({ key, name }) => `<span class="badge ${key === stage ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
+    .filter(({ id }) => id !== stateIds.blocked)
+    .map(({ id, name }) => `<span class="badge ${id === stageId ? "badge-primary" : "badge-ghost"}">${html(name)}</span>`)
     .join("");
   const projectFolder = mapping
     ? `<div class="alert alert-success mb-4"><div><div class="font-semibold">${state.projectKind === "new" ? "New project" : "Continued work"}</div><div class="break-all font-mono text-xs">${html(mapping.repositoryPath)}</div><div class="mt-1 text-xs opacity-70">Base branch: ${html(mapping.baseBranch)}. Bees works locally and never fetches, pulls, pushes, or opens pull requests.</div></div></div>`
     : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-6"><h2 class="font-bold">Choose the local project folder</h2><p class="mt-2 text-sm text-base-content/60">An empty folder starts a new Git project. A folder with code must already be a clean Git repository on the branch you want Bees to use.</p><button class="btn btn-primary mt-4" type="button" data-action="project-select-folder" ${busy ? "disabled" : ""}>Choose project folder</button></div>`;
   let body = "";
-  if (stage === "requirements") {
+  if (stageId === stateIds.requirements) {
     body = `${projectFolder}${state.requirements
       ? `<section class="grid gap-4"><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Requirements draft</h2><p class="mt-2">${html(state.requirements.summary)}</p><div class="mt-4 grid gap-4 lg:grid-cols-2"><div><h3 class="mb-2 text-xs font-bold uppercase">Functional</h3>${bullets(state.requirements.functionalRequirements)}</div><div><h3 class="mb-2 text-xs font-bold uppercase">Acceptance</h3>${bullets(state.requirements.acceptanceCriteria)}</div></div>${state.requirements.followUpQuestions.length ? `<div class="mt-4 rounded bg-warning/10 p-3"><h3 class="text-xs font-bold uppercase text-warning">Open questions</h3>${bullets(state.requirements.followUpQuestions)}</div>` : ""}<form class="mt-4" data-project-refine><textarea class="textarea textarea-bordered w-full" name="message" placeholder="Answer open questions or ask the requirements agent to revise something"></textarea><div class="mt-2 flex justify-end gap-2"><button class="btn btn-outline btn-sm" type="submit" ${busy ? "disabled" : ""}>Refine with AI</button><button class="btn btn-primary btn-sm" type="button" data-action="project-approve-requirements" ${busy ? "disabled" : ""}>Approve requirements</button></div></form></article></section>`
       : mapping
         ? `<form class="grid gap-4" data-project-requirements><article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Describe what to build or change</h2><p class="mt-1 text-sm text-base-content/55">Write it however you like. The requirements agent inspects the repository, answers what it can from the code, and asks you only what it cannot work out.</p><textarea class="textarea textarea-bordered mt-4 min-h-56 w-full" name="brief" placeholder="What should be built or changed, and anything else worth knowing" required>${html(state.brief)}</textarea><div class="mt-4 flex justify-end"><button class="btn btn-primary" type="submit" ${busy ? "disabled" : ""}>Create requirements draft</button></div></article></form>`
         : ""}`;
-  } else if (stage === "architecture") {
+  } else if (stageId === stateIds.architecture) {
     const architecture = state.architecture ?? {};
     const hasProposals = Boolean(architecture.openai && architecture.anthropic);
     const rounds = architecture.rounds ?? [];
     const settled = hasProposals && debateSettled(rounds);
     body = `${mapping ? `<div class="alert alert-success"><span>Project worktree: <span class="break-all font-mono text-xs">${html(mapping.worktreePath)}</span></span></div>` : '<div class="alert alert-error">The local project folder is unavailable.</div>'}${hasProposals ? debateProgress(rounds, settled) : ""}<div class="mt-4 grid gap-4 xl:grid-cols-2">${proposalCard("OpenAI architect", architecture.openai, architecture.anthropicCritique)}${proposalCard("Anthropic architect", architecture.anthropic, architecture.openaiCritique)}</div>${rounds.length ? debateTranscript(rounds) : ""}${hasProposals ? `<form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-architecture-chat><div class="grid gap-2 md:grid-cols-[12rem_1fr_auto]"><select class="select select-bordered" name="architect"><option value="openai">Ask OpenAI</option><option value="anthropic">Ask Anthropic</option></select><input class="input input-bordered" name="message" placeholder="Challenge a choice or request a revised proposal" required><button class="btn btn-outline" type="submit" ${busy ? "disabled" : ""}>Send</button></div></form>` : ""}<div class="mt-4 flex flex-wrap justify-end gap-2">${!hasProposals ? `<button class="btn btn-primary" data-action="project-start-architecture" ${!mapping || busy ? "disabled" : ""}>Generate independent proposals</button>` : !settled ? `<button class="btn btn-primary" data-action="project-debate-architecture" ${busy ? "disabled" : ""}>Run debate round ${rounds.length + 1} of ${MAX_DEBATE_ROUNDS}</button>` : !architecture.decision ? `<button class="btn btn-primary" data-action="project-synthesize-architecture" ${busy ? "disabled" : ""}>Synthesize decision</button>` : `<button class="btn btn-primary" data-action="project-approve-architecture" ${busy ? "disabled" : ""}>Approve architecture</button>`}</div>${architecture.decision ? `<article class="mt-4 rounded-box border-2 border-primary/40 bg-base-100 p-5"><div class="text-xs font-bold uppercase text-primary">Proposed decision</div><h2 class="mt-1 font-bold">${html(architecture.decision.summary)}</h2><div class="mt-3 grid gap-2 md:grid-cols-2">${architecture.decision.decisions.map((decision) => `<div class="rounded border border-base-300 p-3"><div class="text-xs font-bold uppercase">${html(decision.area)}</div><div>${html(decision.choice)}</div><p class="text-xs text-base-content/55">${html(decision.reason)}</p></div>`).join("")}</div></article>` : ""}`;
-  } else if (stage === "plan") {
+  } else if (stageId === stateIds.plan) {
     body = state.phases.length
       ? `<form class="grid gap-3" data-project-plan>${state.phases.map((phase, index) => phaseCard(phase, index, true)).join("")}<div class="flex flex-wrap justify-end gap-2"><button class="btn btn-outline" type="button" data-action="project-regenerate-plan" ${busy ? "disabled" : ""}>Regenerate</button><button class="btn btn-outline" type="submit">Save edits</button><button class="btn btn-primary" type="button" data-action="project-approve-plan">Approve plan</button></div></form>`
       : `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center"><h2 class="font-bold">Break the architecture into reviewable phases</h2><p class="mt-2 text-sm text-base-content/55">The planner targets about 400–1,000 changed source lines per phase.</p><button class="btn btn-primary mt-4" data-action="project-generate-plan" ${busy ? "disabled" : ""}>Generate implementation plan</button></div>`;
-  } else if (stage === "implement") {
+  } else if (stageId === stateIds.implement) {
     body = current ? `${phaseCard(current, state.currentPhaseIndex, false)}${state.feedback ? `<div class="alert alert-warning mt-4"><span><strong>Review feedback:</strong> ${html(state.feedback)}</span></div>` : ""}${state.testReport ? `<article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Latest test report</h3><p class="mt-1 text-sm">${html(state.testReport.summary)}</p>${bullets(state.testReport.failures)}</article>` : ""}<div class="mt-4 flex justify-end"><button class="btn btn-primary" data-action="project-implement-phase" ${!mapping || busy ? "disabled" : ""}>${state.attempts ? "Continue coding and testing" : "Implement and test phase"}</button></div>` : '<div class="alert alert-error">The approved plan has no current phase.</div>';
-  } else if (stage === "phase-review") {
+  } else if (stageId === stateIds["phase-review"]) {
     body = current && git ? `${phaseCard(current, state.currentPhaseIndex, false)}<div class="mt-4 grid gap-4 lg:grid-cols-3"><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Changed lines</div><div class="stat-value text-2xl">+${git.additions} / -${git.deletions}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Commits</div><div class="stat-value text-2xl">${git.commits.length}</div></div><div class="stat rounded-box border border-base-300 bg-base-100"><div class="stat-title">Tests</div><div class="stat-value text-2xl ${state.testReport?.passed ? "text-success" : "text-error"}">${state.testReport?.passed ? "Passed" : "Needs work"}</div></div></div><article class="mt-4 rounded-box border border-base-300 bg-base-100 p-4"><h3 class="font-bold">Commits</h3>${bullets(git.commits.map(({ sha, subject }) => `${sha.slice(0, 8)} ${subject}`))}<h3 class="mt-4 font-bold">Diff</h3><pre class="mt-2 max-h-[34rem] overflow-auto whitespace-pre-wrap rounded bg-neutral p-3 text-xs text-neutral-content">${html(git.diff || "No textual diff")}</pre>${git.truncated ? '<p class="mt-2 text-xs text-warning">Diff truncated in the UI.</p>' : ""}</article><form class="mt-4 rounded-box border border-base-300 bg-base-100 p-4" data-project-review><label class="form-control"><span class="label-text font-semibold">Changes requested</span><textarea class="textarea textarea-bordered w-full" name="feedback" placeholder="What should the coding agent change?"></textarea></label><div class="mt-3 flex justify-end gap-2"><button class="btn btn-outline" type="submit">Request changes</button><button class="btn btn-success" type="button" data-action="project-approve-phase">Approve phase</button></div></form>` : '<div class="alert alert-error">Review data is unavailable.</div>';
-  } else if (stage === "final-review") {
+  } else if (stageId === stateIds["final-review"]) {
     body = `<article class="rounded-box border border-base-300 bg-base-100 p-5"><h2 class="font-bold">Final project review</h2><p class="mt-2 text-sm text-base-content/60">Run independent whole-project verification, inspect the cumulative branch diff, then explicitly merge. Bees never pushes.</p>${git ? `<div class="mt-4 grid gap-3 md:grid-cols-3"><div class="stat rounded border border-base-300"><div class="stat-title">Source lines</div><div class="stat-value text-xl">+${git.additions} / -${git.deletions}</div></div><div class="stat rounded border border-base-300"><div class="stat-title">Commits</div><div class="stat-value text-xl">${git.commits.length}</div></div><div class="stat rounded border border-base-300"><div class="stat-title">Generated files</div><div class="stat-value text-xl">${git.generatedChanges}</div></div></div><details class="mt-4 rounded border border-base-300 p-3"><summary class="cursor-pointer font-semibold">Cumulative diff</summary><pre class="mt-3 max-h-[34rem] overflow-auto whitespace-pre-wrap rounded bg-neutral p-3 text-xs text-neutral-content">${html(git.diff || "No textual diff")}</pre></details>` : ""}${state.finalReport ? `<div class="mt-4 alert ${state.finalReport.passed ? "alert-success" : "alert-error"}"><span>${html(state.finalReport.summary)}</span></div>${bullets(state.finalReport.failures)}` : ""}<div class="mt-4 flex justify-end gap-2"><button class="btn btn-outline" data-action="project-final-test" ${busy ? "disabled" : ""}>Run final verification</button><button class="btn btn-primary" data-action="project-finish" ${state.finalReport?.passed && !busy ? "" : "disabled"}>Merge and finish</button></div></article>`;
-  } else if (stage === "done") {
+  } else if (stageId === stateIds.done) {
     body = `<div class="hero min-h-72 rounded-box border border-success/30 bg-success/5"><div class="hero-content text-center"><div><div class="text-4xl">✓</div><h2 class="mt-3 text-xl font-bold">Project complete</h2><p class="mt-2 text-sm">The project branch was merged locally. Nothing was pushed.</p></div></div></div>`;
   } else {
     body = `<div class="alert alert-error"><div><div class="font-bold">This project is blocked</div><div class="text-sm">${html(state.testReport?.summary || "The coding and testing loop reached its retry limit.")}</div>${state.testReport ? bullets(state.testReport.failures) : ""}</div><button class="btn btn-sm" data-action="project-resume">Resume with another three attempts</button></div>`;

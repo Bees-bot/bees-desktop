@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS processes (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS process_definitions (
+  process_id TEXT PRIMARY KEY REFERENCES processes(id) ON DELETE CASCADE,
+  definition_json TEXT NOT NULL
+);
+
 -- Free-form labels on any row, so identity never has to ride on an editable display name.
 -- `entity` is the table the id belongs to ('process' today).
 CREATE TABLE IF NOT EXISTS tags (

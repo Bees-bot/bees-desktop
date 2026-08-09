@@ -4,9 +4,12 @@ import {
   completedTaskPlanParentsReadyForReview,
   taskPlanContextForRun
 } from "./runtime.js";
+import { goalsProcess } from "./definition.js";
+import { persistProcessDefinition } from "../types.js";
 
-const stages = ["Plan", "Work", "Waiting", "Review", "Done"].map((name, position) => ({
-  id: name.toLowerCase(),
+const stages = goalsProcess.definition.states.map(({ key, name }, position) => ({
+  id: `${key}-id`,
+  key,
   processId: "goals",
   name,
   position,
@@ -16,15 +19,19 @@ const stages = ["Plan", "Work", "Waiting", "Review", "Done"].map((name, position
 const goals = {
   id: "goals",
   name: "Goals",
-  tags: ["module:goals"],
+  tags: [],
   updatedAt: "2026-01-01T00:00:00.000Z",
+  definition: persistProcessDefinition(
+    goalsProcess.definition,
+    Object.fromEntries(stages.map(({ key, id }) => [key, id]))
+  ),
   stages
-} as Process;
+} as unknown as Process;
 const item = (value: Partial<WorkItem>): WorkItem =>
   ({
     id: "parent",
     processId: "goals",
-    stageId: "waiting",
+    stageId: "waiting-id",
     parentId: null,
     title: "Goal",
     description: "",
@@ -52,10 +59,13 @@ describe("Goals process runtime", () => {
 
   it("builds the run contract from the task-plan capability", () => {
     expect(taskPlanContextForRun(goals, stages[0]!)).toEqual({
-      state: "plan",
+      state: "plan-id",
       output: ".tasks.json",
-      outputBlockedStates: ["waiting", "done"]
+      outputBlockedStates: ["waiting-id", "done-id"]
     });
-    expect(taskPlanContextForRun({ ...goals, tags: [] }, stages[0]!)).toBeUndefined();
+    expect(taskPlanContextForRun({
+      ...goals,
+      definition: persistProcessDefinition()
+    }, stages[0]!)).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@ it("creates the complete fresh-install schema", () => {
     "file_locations",
     "kanban_boards",
     "organizations",
+    "process_definitions",
     "processes",
     "registries",
     "schedules",

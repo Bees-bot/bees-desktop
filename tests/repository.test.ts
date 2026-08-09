@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LocalRepository } from "../src/repository.js";
 import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/processes/goals/index.js";
-import {
-  processEngine
-} from "../src/processes/registry.js";
+import { softwareProjectProcess } from "../src/processes/software-project/definition.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
 
@@ -31,37 +29,35 @@ describe("local repository", () => {
     expect(await repository.listProcesses(teamId)).toEqual([]);
   });
 
-  it("keeps a process's module tag across a rename", async () => {
+  it("keeps persisted behavior and free-form tags across a rename", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const seeded = (await repository.listProcesses(local.teamId))[0]!;
-    expect(seeded.tags).toEqual(["module:goals"]);
+    expect(seeded.definition.moduleId).toBe("goals");
+    expect(seeded.tags).toEqual([]);
 
     await repository.updateProcess(seeded.id, { name: "Objectives" });
     const renamed = (await repository.listProcesses(local.teamId))[0]!;
     expect(renamed.name).toBe("Objectives");
-    expect(processEngine.module(renamed)?.definition.id).toBe("goals");
+    expect(renamed.definition.moduleId).toBe("goals");
 
     // setTags replaces rather than appends, so re-tagging cannot accumulate duplicates.
-    await repository.setTags("process", seeded.id, ["module:goals", "module:goals", "starred"]);
-    expect((await repository.listProcesses(local.teamId))[0]!.tags).toEqual([
-      "module:goals",
-      "starred"
-    ]);
+    await repository.setTags("process", seeded.id, ["starred", "starred"]);
+    expect((await repository.listProcesses(local.teamId))[0]!.tags).toEqual(["starred"]);
   });
 
-  it("tags a process created from the library and finds its module by tag", async () => {
+  it("persists resolved stage IDs for a library process", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const id = await repository.createProcess(local.teamId, {
       name: "Anything",
-      stages: ["To do"],
-      tags: ["module:software-project"]
+      template: softwareProjectProcess.definition
     });
     const created = (await repository.listProcesses(local.teamId)).find(
       (process) => process.id === id
     )!;
-    expect(processEngine.module(created)?.definition.renderer).toBe("software-project");
+    expect(created.definition.renderer).toBe("software-project");
+    expect(created.definition.stateIds.requirements).toBe(created.stages[0]!.id);
   });
 
   it("persists ordinary schedules and recurring Goals occurrences as distinct modes", async () => {
@@ -469,7 +465,7 @@ describe("local repository", () => {
       deliveryId: "delivery-1",
       continuation: false,
       outputs: [],
-      statusName: process.stages[1]!.name,
+      statusId: process.stages[1]!.id,
       projectionState: "pending" as const
     };
     await repository.beginExecutionDelivery(executionId, {

@@ -90,7 +90,6 @@ import {
   processLibraryEntry,
   processEngine,
   processModuleById,
-  processModuleTag,
   type ProcessLibraryEntry
 } from "./processes/registry.js";
 import {
@@ -181,15 +180,13 @@ export function createMainActions(host: MainHost) {
 
   async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
     const allProcesses = await host.repository.listProcesses(host.workspaceController.workspace.teamId, true);
-    const tag = processModuleTag(template.id);
-    let process = allProcesses.find((entry) => entry.tags.includes(tag));
+    let process = allProcesses.find((entry) => entry.definition.moduleId === template.id);
     if (process && !process.archivedAt) {
       throw new Error(`${process.name} is already in this team`);
     }
     let processId: string;
     if (process?.archivedAt) {
       await host.repository.restoreProcess(process.id);
-      await host.repository.setTags("process", process.id, [tag]);
       // Adding from the library is a fresh install, so the restored row takes the library's current
       // name. Without this it keeps whatever it was called when it was archived.
       await host.repository.updateProcess(process.id, {
@@ -202,8 +199,7 @@ export function createMainActions(host: MainHost) {
       processId = await host.repository.createProcess(host.workspaceController.workspace.teamId, {
         name: template.name,
         description: template.description,
-        stages: template.states.map(({ name }) => name),
-        tags: [tag]
+        template
       });
     }
     process = (await host.repository.listProcesses(host.workspaceController.workspace.teamId)).find((entry) => entry.id === processId);
@@ -214,10 +210,9 @@ export function createMainActions(host: MainHost) {
     const existingAgents = await host.agentFiles.list(teamRoot).catch(() => []);
     const skills = registryCapabilities(host.workspaceController.registries).filter(({ kind }) => kind === "skill");
     for (const definition of template.agents) {
-      const state = template.states.find(({ key }) => key === definition.state);
-      const stage = state && process.stages[template.states.indexOf(state)];
+      const stage = processEngine.boundState(process, definition.state);
       if (!stage)
-        throw new Error(`${template.name} is missing the ${state?.name ?? definition.state} status`);
+        throw new Error(`${template.name} is missing the ${definition.state} status`);
       // Role alone is not enough: an agent left over from an earlier install of this module still
       // carries that install's stage id, so keeping it would leave every lane of the new process
       // empty. Only an agent already on one of this process's statuses counts as present.

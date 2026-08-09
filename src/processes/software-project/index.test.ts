@@ -4,12 +4,14 @@ import type { Execution, Process, WorkItem } from "../../domain.js";
 import {
   MAX_DEBATE_ROUNDS,
   SOFTWARE_PROJECT_ROLES,
+  SOFTWARE_PROJECT_STATE_KEYS,
   emptySoftwareProjectState,
   parseDebateTurn,
   parseImplementationPlan,
   softwareProjectStateKey,
   softwareProjectView,
   type SoftwareProjectMapping,
+  type SoftwareProjectStateBinding,
   type SoftwareProjectState
 } from "./index.js";
 import {
@@ -18,6 +20,15 @@ import {
   type SoftwareProjectHost
 } from "./controller.js";
 import { softwareProjectProcess } from "./definition.js";
+import { persistProcessDefinition } from "../types.js";
+
+const SOFTWARE_STATE_IDS = Object.fromEntries(
+  SOFTWARE_PROJECT_STATE_KEYS.map((key) => [key, `stage-${key}`])
+) as Record<SoftwareProjectStateBinding, string>;
+const SOFTWARE_STATES = softwareProjectProcess.definition.states.map(({ key, name }) => ({
+  id: SOFTWARE_STATE_IDS[key],
+  name
+}));
 
 describe("software project module contract", () => {
   it("provides the software-project renderer and its forms", () => {
@@ -30,12 +41,13 @@ describe("software project module contract", () => {
   });
 
   it("asks for the brief in one textbox", () => {
-    const states = softwareProjectProcess.definition.states.map((state) =>
-      state.key === "requirements" ? { ...state, name: "Intake" } : state
+    const states = SOFTWARE_STATES.map((state) =>
+      state.id === SOFTWARE_STATE_IDS.requirements ? { ...state, name: "Intake" } : state
     );
     const view = softwareProjectView({
       item: { title: "Change the app" } as WorkItem,
-      stage: "requirements",
+      stageId: SOFTWARE_STATE_IDS.requirements,
+      stateIds: SOFTWARE_STATE_IDS,
       states,
       state: emptySoftwareProjectState(),
       runs: [],
@@ -51,8 +63,9 @@ describe("software project module contract", () => {
   it("requires one local project folder before requirements", () => {
     const view = softwareProjectView({
       item: { title: "Change the app" } as WorkItem,
-      stage: "requirements",
-      states: softwareProjectProcess.definition.states,
+      stageId: SOFTWARE_STATE_IDS.requirements,
+      stateIds: SOFTWARE_STATE_IDS,
+      states: SOFTWARE_STATES,
       state: emptySoftwareProjectState(),
       runs: [],
       mapping: null,
@@ -116,7 +129,11 @@ function debateHost(reply: (round: number) => string): {
       item: DEBATE_ITEM,
       process: {
         name: "Code",
-        tags: ["module:software-project"],
+        tags: [],
+        definition: persistProcessDefinition(
+          softwareProjectProcess.definition,
+          SOFTWARE_STATE_IDS
+        ),
         stages: []
       } as unknown as Process
     }),

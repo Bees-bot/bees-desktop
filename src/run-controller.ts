@@ -374,9 +374,7 @@ export function createRunController(host: MainHost) {
     if (!item || !process) throw new Error("The work item's process is unavailable");
     const target = processEngine.resolveTarget(process, item, requested);
     if (requested?.trim() && !target) {
-      throw new Error(
-        `Unknown status "${requested.trim()}" — choose one of: ${process.stages.map(({ name }) => name).join(", ")}`
-      );
+      throw new Error(`Unknown status ID "${requested.trim()}"`);
     }
     return target?.id;
   }
@@ -405,7 +403,7 @@ export function createRunController(host: MainHost) {
       const continuation = execution.result.continuation === true;
       const manualProjection = execution.result.manualProjection === true;
       const projectMode = execution.result.projectMode === true;
-      const statusName = typeof execution.result.statusName === "string" ? execution.result.statusName : undefined;
+      const statusId = typeof execution.result.statusId === "string" ? execution.result.statusId : undefined;
       if (execution.result.projectionState === "pending") {
         const projectedItem = await host.repository.getWorkItem(execution.workItemId);
         if (execution.status !== "completed" &&
@@ -421,7 +419,7 @@ export function createRunController(host: MainHost) {
           await host.repository.checkpointWorkItem(
             execution.workItemId,
             [],
-            await checkpointTargetId(execution.workItemId, statusName),
+            await checkpointTargetId(execution.workItemId, statusId),
             execution.id
           );
         }
@@ -1192,7 +1190,7 @@ export function createRunController(host: MainHost) {
           ? { executionId: continuation.execution.id, message: continuation.message }
           : {}),
         ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
-        stages: process.stages.map(({ name }) => name),
+        stages: process.stages.map(({ id, name }) => ({ id, name })),
         ...(taskPlan ? { taskPlan } : {}),
         ...(goalEffect ? { goalEffect } : {}),
         ...(hasTaskPlanCapability(process)
@@ -1371,8 +1369,8 @@ export function createRunController(host: MainHost) {
       // approveTaskPlan already checkpointed the parent into Waiting in the same transaction that
       // created its children. A second checkpoint here would skip straight to Review.
       if (!outputs.some(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, execution))) {
-        const requested = typeof execution.result?.statusName === "string"
-          ? execution.result.statusName
+        const requested = typeof execution.result?.statusId === "string"
+          ? execution.result.statusId
           : undefined;
         await host.repository.checkpointWorkItem(
           execution.workItemId,

@@ -130,8 +130,9 @@ describe("metadata synchronization", () => {
     const workItemRecord = projection.find(({ recordId }) => recordId === workItemId)!;
 
     expect(Object.keys(processRecord.payload).sort()).toEqual(
-      ["teamId", "name", "description", "updatedAt"].sort()
+      ["teamId", "name", "description", "definition", "updatedAt"].sort()
     );
+    expect(processRecord.payload.definition).toEqual(process.definition);
     expect(Object.keys(stageRecord.payload).sort()).toEqual(
       ["processId", "name", "position", "completionRules"].sort()
     );

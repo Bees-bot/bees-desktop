@@ -63,13 +63,14 @@ describe("needsAutonomousRun", () => {
 
 describe("runPrompt", () => {
   const agent = { config: { prompt: "Write a tweet" } } as Agent;
+  const stages = (...names: string[]) => names.map((name) => ({ id: `${name.toLowerCase()}-id`, name }));
 
   it("tells the agent what the rejections asked for", () => {
     const prompt = runPrompt({
       item,
       agent,
       teamRoot: "/team",
-      stages: ["Draft", "Review"],
+      stages: stages("Draft", "Review"),
       feedback: ["Too long", "  ", "Wrong tone"]
     });
     expect(prompt).toContain("- Too long");
@@ -77,8 +78,10 @@ describe("runPrompt", () => {
   });
 
   it("says nothing about rejections on a first attempt", () => {
-    const prompt = runPrompt({ item, agent, teamRoot: "/team", stages: ["Draft"] });
+    const prompt = runPrompt({ item, agent, teamRoot: "/team", stages: stages("Draft") });
     expect(prompt).not.toContain("rejected");
+    expect(prompt).toContain("Draft: draft-id");
+    expect(prompt).toContain("write the chosen status ID");
   });
 
   it("supplies the strict Goals schema and external-action receipt contract", () => {
@@ -96,7 +99,7 @@ describe("runPrompt", () => {
       },
       agent,
       teamRoot: "/team",
-      stages: ["Work", "Review"],
+      stages: stages("Work", "Review"),
       taskPlan: {
         state: "work",
         output: ".tasks.json",
@@ -119,7 +122,7 @@ describe("runPrompt", () => {
       children: [{ ...child, status: "done", logicalFiles: ["copy.md"] }],
       agent,
       teamRoot: "/team",
-      stages: ["Work", "Review"]
+      stages: stages("Work", "Review")
     });
     expect(prompt).toContain("Parent goal: Draft");
     expect(prompt).toContain("[done] Write copy — files: copy.md");
@@ -130,7 +133,7 @@ describe("runPrompt", () => {
       item,
       agent,
       teamRoot: "/team",
-      stages: ["Draft", "Review"],
+      stages: stages("Draft", "Review"),
       message: "  Can you make the opening friendlier?  "
     });
     expect(prompt).toBe("Can you make the opening friendlier?");

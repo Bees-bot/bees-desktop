@@ -27,6 +27,7 @@ import {
 } from "./knowledge.js";
 import type { MainHost } from "./main.js";
 import {
+  processEngine,
   starterProcessModule,
   type ProcessRenderer
 } from "./processes/registry.js";
@@ -247,15 +248,14 @@ export function createWorkspaceController(host: MainHost) {
     if (await host.repository.getSetting(key, false))
       return;
     const template = module.definition;
-    const process = processes.find(({ name }) => name.toLowerCase() === template.name.toLowerCase());
+    const process = processes.find(({ definition }) => definition.moduleId === template.id);
     const mapping = await host.repository.getResolvedTeamFolder(workspace.teamId);
     if (!process || !mapping?.localPath)
       return;
     await host.workspaces.ensureDirectory(mapping.localPath);
     const skills = registryCapabilities(registries).filter(({ kind }) => kind === "skill");
     for (const definition of template.agents) {
-      const state = template.states.find(({ key }) => key === definition.state);
-      const stage = state && process.stages[template.states.indexOf(state)];
+      const stage = processEngine.boundState(process, definition.state);
       if (!stage || agents.some(({ triggerStageId }) => triggerStageId === stage.id))
         continue;
       const saved = await host.agentFiles.save(mapping.localPath, newAgent({

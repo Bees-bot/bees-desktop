@@ -10,12 +10,11 @@ export function taskPlanContextForRun(
   stage: Stage
 ): TaskPlanRunContext | undefined {
   const capability = processEngine.capability(process, "task-plan");
-  const state = capability && processEngine.state(process, stage.id)?.key;
-  return capability && state
+  return capability && processEngine.state(process, stage.id)
     ? {
-      state,
+      state: stage.id,
       output: capability.output,
-      outputBlockedStates: [capability.states.waiting, capability.states.done]
+      outputBlockedStates: [capability.stageIds.waiting, capability.stageIds.done]
     }
     : undefined;
 }
@@ -25,15 +24,11 @@ export function taskPlanStages(
 ): { plan: Stage; work: Stage; waiting: Stage; review: Stage; done: Stage } | null {
   const capability = processEngine.capability(process, "task-plan");
   if (!capability) return null;
-  const stage = (key: string): Stage | undefined => {
-    const state = processEngine.stateByKey(process, key);
-    return state && process.stages.find(({ id }) => id === state.stageId);
-  };
-  const plan = stage(capability.states.plan);
-  const work = stage(capability.states.work);
-  const waiting = stage(capability.states.waiting);
-  const review = stage(capability.states.review);
-  const done = stage(capability.states.done);
+  const plan = processEngine.state(process, capability.stageIds.plan);
+  const work = processEngine.state(process, capability.stageIds.work);
+  const waiting = processEngine.state(process, capability.stageIds.waiting);
+  const review = processEngine.state(process, capability.stageIds.review);
+  const done = processEngine.state(process, capability.stageIds.done);
   return plan && work && waiting && review && done
     ? { plan, work, waiting, review, done }
     : null;

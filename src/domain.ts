@@ -105,6 +105,36 @@ export interface Stage {
   archivedAt: string | null;
 }
 
+export interface TaskPlanProcessCapability {
+  type: "task-plan";
+  output: string;
+  stageIds: {
+    plan: string;
+    work: string;
+    waiting: string;
+    review: string;
+    done: string;
+  };
+}
+
+export interface ProjectWorkspaceCapability {
+  type: "project-workspace";
+}
+
+export type ProcessCapability = TaskPlanProcessCapability | ProjectWorkspaceCapability;
+
+/** Persisted behavior for one installed process. Every state reference is a database stage ID. */
+export interface PersistedProcessDefinition {
+  moduleId: string | null;
+  version: number;
+  automation: "automatic" | "interactive";
+  renderer: string;
+  /** Renderer-specific slots resolved from template aliases during installation. */
+  stateIds: Record<string, string>;
+  capabilities: ProcessCapability[];
+  roleBindings: Array<{ role: string; stageId: string }>;
+}
+
 export interface Process {
   id: string;
   teamId: string;
@@ -114,7 +144,8 @@ export interface Process {
   createdAt: string;
   updatedAt: string;
   stages: Stage[];
-  /** Stable labels. Renaming the process leaves these alone, so code keys off them, not `name`. */
+  definition: PersistedProcessDefinition;
+  /** Free-form labels; process behavior lives in `definition`. */
   tags: string[];
 }
 
@@ -233,13 +264,13 @@ export interface ExecutionResult extends Record<string, unknown> {
   /** Strict, credential-free instance seed; also authorizes capabilities on later submissions. */
   initialData?: BeesRunInitialData;
   outputs?: string[];
-  statusName?: string;
+  statusId?: string;
   /** pending -> local_applied -> done; makes webview/app restart reconciliation idempotent. */
   projectionState?: "pending" | "local_applied" | "done";
 }
 
 export interface TaskPlanRunContext {
-  /** Stable state key, independent of the installed state's display label. */
+  /** Database stage ID for the state executing this run. */
   state: string;
   output: string;
   outputBlockedStates: string[];
@@ -455,7 +486,7 @@ export function autonomousRunKeys(item: WorkItem): string[] {
  * Whether a running process still owes this item a run: nothing has run since the item last
  * changed, so a finished run waiting on output review is left alone.
  *
- * A checkpoint is the process moving itself, and an agent that answers with its own status name
+ * A checkpoint is the process moving itself, and an agent that answers with its current status ID
  * would checkpoint in place forever — so a checkpoint buys exactly one run per status. Any other
  * change (an edit, a rejected output) is a person asking for the work again, and always counts.
  */

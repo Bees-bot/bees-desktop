@@ -20,7 +20,7 @@ import {
   softwareProjectStateKey,
   softwareProjectView,
   type DebateRound,
-  type SoftwareProjectStage,
+  type SoftwareProjectStateBinding,
   type SoftwareProjectState,
   type TestReport
 } from "./index.js";
@@ -61,19 +61,20 @@ export class SoftwareProjectController implements ProcessRenderer {
 
   async render(item: WorkItem, process: Process, runs: Execution[]): Promise<string> {
     const definition = processEngine.definition(process);
-    const stage = definition.states.find(({ stageId }) => stageId === item.stageId)?.key;
-    if (!SOFTWARE_PROJECT_STATE_KEYS.includes(stage as SoftwareProjectStage)) {
+    const stateIds = this.stateIds(process);
+    if (!Object.values(stateIds).includes(item.stageId)) {
       throw new Error("The Code process definition has changed");
     }
     const state = await this.state(item.id);
     const mapping = await this.git.get(item.id);
     const snapshot =
-      mapping && (stage === "phase-review" || stage === "final-review")
+      mapping && (item.stageId === stateIds["phase-review"] || item.stageId === stateIds["final-review"])
         ? await this.git.snapshot(item.id, state.phaseStartSha).catch(() => null)
         : null;
     return softwareProjectView({
       item,
-      stage: stage as SoftwareProjectStage,
+      stageId: item.stageId,
+      stateIds,
       states: definition.states,
       state,
       runs,
@@ -422,11 +423,19 @@ export class SoftwareProjectController implements ProcessRenderer {
   private async move(
     item: WorkItem,
     process: Process,
-    target: string
+    target: SoftwareProjectStateBinding
   ): Promise<void> {
-    const destination = processEngine.target(process, target);
+    const destination = processEngine.boundState(process, target);
     if (!destination) throw new Error(`The process is missing the ${target} state`);
     await this.host.moveWorkItem(item.id, destination.id);
+  }
+
+  private stateIds(process: Process): Record<SoftwareProjectStateBinding, string> {
+    const ids = process.definition.stateIds;
+    if (SOFTWARE_PROJECT_STATE_KEYS.some((key) => !processEngine.state(process, ids[key] ?? ""))) {
+      throw new Error("The Code process definition has changed");
+    }
+    return ids as Record<SoftwareProjectStateBinding, string>;
   }
 
   private projectContext(state: SoftwareProjectState): string {
@@ -770,7 +779,7 @@ Return exactly one JSON object, with no Markdown fence:
       }
       feedback = state.feedback;
     }
-    const blocked = processEngine.target(process, "blocked");
+    const blocked = processEngine.boundState(process, "blocked");
     if (!blocked) throw new Error("The Code process is missing Blocked");
     await this.host.moveWorkItem(item.id, blocked.id);
     await this.host.setWorkItemStatus(item, "blocked");
