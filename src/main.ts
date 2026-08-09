@@ -59,9 +59,9 @@ import {
   TauriLocalModelPort,
   type LocalModelProgress
 } from "./local-models.js";
-import { GoalsController } from "./processes/goals/controller.js";
+import { TaskPlanController } from "./processes/goals/controller.js";
 import {
-  type ProcessStudio
+  type ProcessRenderer
 } from "./processes/registry.js";
 import {
   type ProcessAgentTurn
@@ -297,7 +297,7 @@ export interface WorkspaceController {
   mcpConnections: McpConnection[];
   openWork: (list: WorkItem[]) => WorkItem[];
   organizations: Organization[];
-  processStudios: readonly ProcessStudio[];
+  processRenderers: readonly ProcessRenderer[];
   processes: Process[];
   refresh: () => Promise<void>;
   registries: Registry[];
@@ -327,8 +327,8 @@ export interface RunController {
   executionOutputs: ExecutionOutput[];
   executions: Execution[];
   finishOutputReview: (execution: Execution) => Promise<void>;
-  goalWorkerRoles: () => Array<{ role: string; purpose: string; agent: Agent; }>;
-  goalsController: GoalsController;
+  taskWorkerRoles: () => Array<{ role: string; purpose: string; agent: Agent; }>;
+  taskPlanController: TaskPlanController;
   itemErrors: Map<string, { message: string; at: string; }>;
   lastControlHealthAt: number;
   liveEvents: Map<string, RuntimeEvent[]>;
@@ -340,7 +340,7 @@ export interface RunController {
   releaseClaim: (itemId: string, organizationId?: string) => Promise<void>;
   rememberRejection: (item: WorkItem, reason: string) => Promise<() => Promise<void>>;
   reportFailure: (error: unknown, itemId?: string) => void;
-  resumeCompletedGoals: () => Promise<number>;
+  resumeCompletedTaskPlans: () => Promise<number>;
   resumeInterruptedRuns: (resumed: Execution[]) => Promise<void>;
   retryConversationPurges: () => Promise<ReturnType<typeof drainConversationPurges>>;
   runItem: (itemId: string, auto?: boolean, continuation?: { execution: Execution; message: string; }, restartedFromExecutionId?: string, scheduled?: boolean) => Promise<void>;

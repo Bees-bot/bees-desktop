@@ -84,11 +84,11 @@ import {
   type PlannedTask
 } from "./processes/goals/index.js";
 import {
-  isGoalsProcess
+  hasTaskPlanCapability
 } from "./processes/goals/runtime.js";
 import {
   processLibraryEntry,
-  processModule,
+  processEngine,
   processModuleById,
   processModuleTag,
   type ProcessLibraryEntry
@@ -121,7 +121,9 @@ export function createMainActions(host: MainHost) {
       return {
         name,
         triggerStageId,
-        exempt: Boolean(context && processModule(context.process.tags)?.mode === "studio")
+        exempt: Boolean(
+          context && processEngine.allowsMultipleAgents(context.process, triggerStageId ?? "")
+        )
       };
     };
     const conflict = firstTriggerConflict([
@@ -180,10 +182,7 @@ export function createMainActions(host: MainHost) {
   async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
     const allProcesses = await host.repository.listProcesses(host.workspaceController.workspace.teamId, true);
     const tag = processModuleTag(template.id);
-    // The tag finds an install the team has since renamed; the name still finds one from a build
-    // that predates tags, which the backfill has not reached because it skips archived processes.
-    let process = allProcesses.find((entry) => entry.tags.includes(tag)) ??
-      allProcesses.find(({ name }) => name.toLowerCase() === template.name.toLowerCase());
+    let process = allProcesses.find((entry) => entry.tags.includes(tag));
     if (process && !process.archivedAt) {
       throw new Error(`${process.name} is already in this team`);
     }
@@ -203,7 +202,7 @@ export function createMainActions(host: MainHost) {
       processId = await host.repository.createProcess(host.workspaceController.workspace.teamId, {
         name: template.name,
         description: template.description,
-        stages: [...template.stages],
+        stages: template.states.map(({ name }) => name),
         tags: [tag]
       });
     }
@@ -215,9 +214,10 @@ export function createMainActions(host: MainHost) {
     const existingAgents = await host.agentFiles.list(teamRoot).catch(() => []);
     const skills = registryCapabilities(host.workspaceController.registries).filter(({ kind }) => kind === "skill");
     for (const definition of template.agents) {
-      const stage = process.stages.find(({ name }) => name === definition.stage);
+      const state = template.states.find(({ key }) => key === definition.state);
+      const stage = state && process.stages[template.states.indexOf(state)];
       if (!stage)
-        throw new Error(`${template.name} is missing the ${definition.stage} status`);
+        throw new Error(`${template.name} is missing the ${state?.name ?? definition.state} status`);
       // Role alone is not enough: an agent left over from an earlier install of this module still
       // carries that install's stage id, so keeping it would leave every lane of the new process
       // empty. Only an agent already on one of this process's statuses counts as present.
@@ -288,7 +288,7 @@ export function createMainActions(host: MainHost) {
         name: "contents",
         label: "",
         type: "note",
-        value: `✓ ${template.stages.length} statuses, one dashboard, and ${template.agents.length} agents with instructions will be added.`
+        value: `✓ ${template.states.length} statuses, one dashboard, and ${template.agents.length} agents with instructions will be added.`
       },
       ...checks.map(({ agent, eligibility }, index) => ({
         name: `agent-${index}`,
@@ -815,7 +815,7 @@ export function createMainActions(host: MainHost) {
   async function submitNewItem(data: FormData): Promise<void> {
     if (!host.workspaceController.activeProcess)
       throw new Error("Open a board first");
-    const studio = processModule(host.workspaceController.activeProcess.tags)?.mode === "studio";
+    const interactive = processEngine.isInteractive(host.workspaceController.activeProcess);
     const itemId = await host.repository.createWorkItem(host.workspaceController.activeProcess.id, {
       stageId: host.shell.newItemStageId,
       title: String(data.get("title") ?? ""),
@@ -825,9 +825,8 @@ export function createMainActions(host: MainHost) {
     });
     host.shell.view = "board";
     await host.workspaceController.refresh();
-    // A studio item cannot start until a person points it at a Git folder, and the board says
-    // nothing about that until it is opened — so open it, on the step that is waiting.
-    if (studio) {
+    // Interactive processes begin in their renderer, where the next human action is available.
+    if (interactive) {
       host.shell.activeItemId = itemId;
       host.shell.view = "item";
       host.shell.render();
@@ -947,8 +946,8 @@ export function createMainActions(host: MainHost) {
         return;
       }
       const action = button.dataset.action;
-      for (const studio of host.workspaceController.processStudios) {
-        if (await studio.handleAction(action ?? "", button))
+      for (const renderer of host.workspaceController.processRenderers) {
+        if (await renderer.handleAction(action ?? "", button))
           return;
       }
       if (action === "knowledge-local") {
@@ -1115,12 +1114,12 @@ export function createMainActions(host: MainHost) {
         const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
         if (!output || !execution?.workspaceRef || !mapping)
           throw new Error("Output is unavailable");
-        if (host.runs.goalsController.matchesOutput(output.logicalOutput)) {
-          const proposed = await host.runs.goalsController.readTaskPlan(output, execution, mapping.localPath);
+        if (host.runs.taskPlanController.matchesOutput(output.logicalOutput, execution)) {
+          const proposed = await host.runs.taskPlanController.readTaskPlan(output, execution, mapping.localPath);
           const item = await host.repository.getWorkItem(execution.workItemId);
           if (!item)
             throw new Error("The goal is unavailable");
-          const roles = host.runs.goalWorkerRoles();
+          const roles = host.runs.taskWorkerRoles();
           const fields: EditorField[] = [
             {
               name: "selectedTasks",
@@ -1196,7 +1195,7 @@ export function createMainActions(host: MainHost) {
               control.disabled = true;
           }
           try {
-            const count = await host.runs.goalsController.approveTaskPlan(output, execution, mapping.localPath, edited);
+            const count = await host.runs.taskPlanController.approveTaskPlan(output, execution, mapping.localPath, edited);
             host.shell.showNotice(count
               ? `${count} task${count === 1 ? "" : "s"} approved and queued`
               : "Plan approved; duplicate task keys were skipped", "success");
@@ -1228,7 +1227,7 @@ export function createMainActions(host: MainHost) {
           return;
         // The reason is the only instruction the retry gets, so ask for it here rather than
         // leaving the agent to guess what was wrong with the same task it just did.
-        const data = await edit(host.runs.goalsController.matchesOutput(output.logicalOutput)
+        const data = await edit(host.runs.taskPlanController.matchesOutput(output.logicalOutput, execution)
           ? "Reject task plan"
           : "Reject file change", [
           {
@@ -1263,7 +1262,7 @@ export function createMainActions(host: MainHost) {
         await host.workspaceController.refresh();
         host.shell.showNotice(undo
           ? "Rejected — feedback saved for future items"
-          : host.runs.goalsController.matchesOutput(output.logicalOutput)
+          : host.runs.taskPlanController.matchesOutput(output.logicalOutput, execution)
             ? "Task plan rejected — the planner will try again"
             : "File change rejected — the agent will try again", "success", undo);
         if (!undo && item && !isProposal(execution)) {
@@ -1290,7 +1289,7 @@ export function createMainActions(host: MainHost) {
         if (!schedulable.length)
           throw new Error("Create a work item before adding a schedule");
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const roles = host.runs.goalWorkerRoles();
+        const roles = host.runs.taskWorkerRoles();
         const data = await edit("New schedule", [
           { name: "name", label: "Name", value: "Scheduled work" },
           {
@@ -1306,9 +1305,9 @@ export function createMainActions(host: MainHost) {
             value: "run",
             options: [
               { label: "Run this item again", value: "run" },
-              { label: "Create a new Goals occurrence", value: "spawn_goal" }
+              { label: "Create a new task-plan occurrence", value: "spawn_goal" }
             ],
-            hint: "Goal occurrences preserve history and can propose separately approved actions."
+            hint: "Task-plan occurrences preserve history and can propose separately approved actions."
           },
           {
             name: "role",
@@ -1316,7 +1315,7 @@ export function createMainActions(host: MainHost) {
             type: "select",
             value: roles[0]?.role ?? "",
             options: roles.map(({ role }) => ({ label: role, value: role })),
-            hint: "Used only when creating a Goals occurrence."
+            hint: "Used only when creating a task-plan occurrence."
           },
           {
             name: "recurrence",
@@ -1336,8 +1335,8 @@ export function createMainActions(host: MainHost) {
         const scheduledProcess = scheduledItem
           ? host.workspaceController.processes.find(({ id }) => id === scheduledItem.processId)
           : null;
-        if (mode === "spawn_goal" && (!scheduledItem || !isGoalsProcess(scheduledProcess))) {
-          throw new Error("New goal occurrences can only be created from a Goals work item");
+        if (mode === "spawn_goal" && (!scheduledItem || !hasTaskPlanCapability(scheduledProcess))) {
+          throw new Error("New task-plan occurrences require a task-plan work item");
         }
         const role = mode === "spawn_goal" ? String(data.get("role")) : null;
         if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
@@ -2120,12 +2119,12 @@ export function createMainActions(host: MainHost) {
       return;
     }
     const processForm = (event.target as Element).closest<HTMLFormElement>("form");
-    const studio = processForm
-      ? host.workspaceController.processStudios.find((candidate) => candidate.handlesSubmit(processForm))
+    const renderer = processForm
+      ? host.workspaceController.processRenderers.find((candidate) => candidate.handlesSubmit(processForm))
       : undefined;
-    if (processForm && studio) {
+    if (processForm && renderer) {
       event.preventDefault();
-      void studio.handleSubmit(processForm).catch(host.runs.reportFailure);
+      void renderer.handleSubmit(processForm).catch(host.runs.reportFailure);
       return;
     }
     const assistant = (event.target as Element).closest<HTMLFormElement>("form[data-overview-assistant]");

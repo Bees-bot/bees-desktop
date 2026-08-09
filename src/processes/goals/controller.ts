@@ -1,8 +1,9 @@
 import type { Execution, ExecutionOutput, Process, WorkItem } from "../../domain.js";
-import { parseTaskPlan, TASK_PLAN_OUTPUT, type PlannedTask } from "./index.js";
-import { goalPlanStages } from "./runtime.js";
+import { parseTaskPlan, type PlannedTask } from "./index.js";
+import { processEngine } from "../registry.js";
+import { taskPlanStages } from "./runtime.js";
 
-export interface GoalsHost {
+export interface TaskPlanHost {
   findWorkItem(itemId: string): WorkItem | null;
   findProcess(processId: string): Process | null;
   readOutput(execution: Execution, output: ExecutionOutput, teamRoot: string): Promise<string>;
@@ -20,11 +21,13 @@ export interface GoalsHost {
   finishOutputReview(execution: Execution): Promise<void>;
 }
 
-export class GoalsController {
-  constructor(private readonly host: GoalsHost) {}
+export class TaskPlanController {
+  constructor(private readonly host: TaskPlanHost) {}
 
-  matchesOutput(path: string): boolean {
-    return path === TASK_PLAN_OUTPUT;
+  matchesOutput(path: string, execution: Execution): boolean {
+    const item = this.host.findWorkItem(execution.workItemId);
+    const process = item ? this.host.findProcess(item.processId) : null;
+    return Boolean(process && processEngine.capability(process, "task-plan")?.output === path);
   }
 
   async readTaskPlan(
@@ -43,8 +46,8 @@ export class GoalsController {
   ): Promise<number> {
     const item = this.host.findWorkItem(execution.workItemId);
     const process = item ? this.host.findProcess(item.processId) : null;
-    const stages = process ? goalPlanStages(process) : null;
-    if (!item || !stages) throw new Error("The Goals process definition has changed");
+    const stages = process ? taskPlanStages(process) : null;
+    if (!item || !stages) throw new Error("The task-plan process definition has changed");
     const tasks = selectedTasks ?? (await this.readTaskPlan(output, execution, teamRoot));
     const available = new Map(this.host.workerRoles().map((role) => [role.toLowerCase(), role]));
     const approved = tasks.map((task) => {

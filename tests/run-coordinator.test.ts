@@ -67,7 +67,11 @@ describe("RunCoordinator", () => {
       } as unknown as Agent,
       teamRoot: "/team",
       stages: ["Review", "Done"],
-      goalStage: "Plan"
+      taskPlan: {
+        state: "plan",
+        output: ".tasks.json",
+        outputBlockedStates: ["waiting", "done"]
+      }
     });
 
     // One id: the execution addresses the conversation, the pointer, and the sandbox.
@@ -86,8 +90,11 @@ describe("RunCoordinator", () => {
         baseUrl: "http://runtime",
         token: "tok",
         validationRules: ["require-output"],
-        stages: ["Review", "Done"],
-        goalStage: "Plan"
+        taskPlan: {
+          state: "plan",
+          output: ".tasks.json",
+          outputBlockedStates: ["waiting", "done"]
+        }
       })
     );
     expect(outcome).toMatchObject({
@@ -282,8 +289,11 @@ describe("RunCoordinator", () => {
           config: { prompt: "Work.", validationRules: [] },
           result: {
             deliveryId: "delivery-1",
-            stages: ["Plan", "Done"],
-            goalStage: "Plan",
+            taskPlan: {
+              state: "plan",
+              output: ".tasks.json",
+              outputBlockedStates: ["waiting", "done"]
+            },
             continuation: false,
             projectionState: "pending"
           }
@@ -298,8 +308,11 @@ describe("RunCoordinator", () => {
         prompt: "",
         workspace: "/cache/workspaces/run-old",
         instanceUid: "uid-1",
-        stages: ["Plan", "Done"],
-        goalStage: "Plan"
+        taskPlan: {
+          state: "plan",
+          output: ".tasks.json",
+          outputBlockedStates: ["waiting", "done"]
+        }
       }),
       "sub-1"
     );
@@ -321,7 +334,6 @@ describe("RunCoordinator", () => {
           result: {
             deliveryId: "delivery-stable",
             prompt: "Persisted prompt",
-            stages: [],
             continuation: false,
             initialData: {
               version: 1,

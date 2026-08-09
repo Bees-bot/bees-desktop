@@ -7,7 +7,6 @@ import {
 } from "../src/domain.js";
 import { skillFile, skillSlug } from "../src/agent-files.js";
 import type { Agent, Execution, WorkItem } from "../src/domain.js";
-import { TASK_PLAN_OUTPUT, validateGoalRun } from "../src/processes/goals/index.js";
 import { runPrompt } from "../src/run-coordinator.js";
 
 const item = {
@@ -98,7 +97,11 @@ describe("runPrompt", () => {
       agent,
       teamRoot: "/team",
       stages: ["Work", "Review"],
-      goalStage: "Work",
+      taskPlan: {
+        state: "work",
+        output: ".tasks.json",
+        outputBlockedStates: ["waiting", "done"]
+      },
       goalEffect: "external_write",
       workerRoles: [{ role: "publisher", purpose: "Publishes approved replies" }]
     });
@@ -131,24 +134,6 @@ describe("runPrompt", () => {
       message: "  Can you make the opening friendlier?  "
     });
     expect(prompt).toBe("Can you make the opening friendlier?");
-  });
-});
-
-describe("validateGoalRun", () => {
-  const stages = ["Plan", "Work", "Waiting", "Review", "Done"];
-
-  it("rejects prose-only planning and reserves Waiting for approved task plans", () => {
-    expect(() => validateGoalRun("Plan", [], "", stages)).toThrow(
-      `write ${TASK_PLAN_OUTPUT} for approval`
-    );
-    expect(() => validateGoalRun("Work", [], "Waiting", stages)).toThrow(
-      "approved subtasks"
-    );
-    expect(() => validateGoalRun("Plan", [TASK_PLAN_OUTPUT], "", stages)).not.toThrow();
-    expect(() => validateGoalRun("Work", [TASK_PLAN_OUTPUT, "draft.md"], "", stages)).toThrow(
-      "only reviewable output"
-    );
-    expect(() => validateGoalRun("Work", ["campaign.md"], "Review", stages)).not.toThrow();
   });
 });
 

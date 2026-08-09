@@ -1,38 +1,55 @@
-import type { Process, Stage, WorkItem } from "../../domain.js";
-import { GOALS_PROCESS_NAME, GOALS_STAGES } from "./index.js";
+import type { Process, Stage, TaskPlanRunContext, WorkItem } from "../../domain.js";
+import { processEngine } from "../registry.js";
 
-export function isGoalsProcess(process: Process | null | undefined): boolean {
-  return process?.name.toLowerCase() === GOALS_PROCESS_NAME.toLowerCase();
+export function hasTaskPlanCapability(process: Process | null | undefined): process is Process {
+  return Boolean(process && processEngine.capability(process, "task-plan"));
 }
 
-export function goalStageForRun(process: Process, stage: Stage): string | undefined {
-  return isGoalsProcess(process) ? stage.name : undefined;
+export function taskPlanContextForRun(
+  process: Process,
+  stage: Stage
+): TaskPlanRunContext | undefined {
+  const capability = processEngine.capability(process, "task-plan");
+  const state = capability && processEngine.state(process, stage.id)?.key;
+  return capability && state
+    ? {
+      state,
+      output: capability.output,
+      outputBlockedStates: [capability.states.waiting, capability.states.done]
+    }
+    : undefined;
 }
 
-export function goalPlanStages(
+export function taskPlanStages(
   process: Process
-): { plan: Stage; work: Stage; waiting: Stage; review: Stage } | null {
-  if (!isGoalsProcess(process)) return null;
-  const plan = process.stages.find(({ name }) => name === GOALS_STAGES[0]);
-  const work = process.stages.find(({ name }) => name === GOALS_STAGES[1]);
-  const waiting = process.stages.find(({ name }) => name === GOALS_STAGES[2]);
-  const review = process.stages.find(({ name }) => name === GOALS_STAGES[3]);
-  return plan && work && waiting && review ? { plan, work, waiting, review } : null;
+): { plan: Stage; work: Stage; waiting: Stage; review: Stage; done: Stage } | null {
+  const capability = processEngine.capability(process, "task-plan");
+  if (!capability) return null;
+  const stage = (key: string): Stage | undefined => {
+    const state = processEngine.stateByKey(process, key);
+    return state && process.stages.find(({ id }) => id === state.stageId);
+  };
+  const plan = stage(capability.states.plan);
+  const work = stage(capability.states.work);
+  const waiting = stage(capability.states.waiting);
+  const review = stage(capability.states.review);
+  const done = stage(capability.states.done);
+  return plan && work && waiting && review && done
+    ? { plan, work, waiting, review, done }
+    : null;
 }
 
-export function completedGoalsReadyForReview(
+export function completedTaskPlanParentsReadyForReview(
   items: WorkItem[],
   processes: Process[]
 ): Array<{ parent: WorkItem; review: Stage; logicalFiles: string[] }> {
   return items.flatMap((parent) => {
     const process = processes.find(({ id }) => id === parent.processId);
-    if (!process || !isGoalsProcess(process)) return [];
-    const waiting = process.stages.find(({ name }) => name === GOALS_STAGES[2]);
-    const review = process.stages.find(({ name }) => name === GOALS_STAGES[3]);
-    if (parent.stageId !== waiting?.id || !review || parent.status !== "open") return [];
+    const states = process ? taskPlanStages(process) : null;
+    if (!states || parent.stageId !== states.waiting.id || parent.status !== "open") return [];
     const children = items.filter(({ parentId }) => parentId === parent.id);
     return children.length > 0 && children.every(({ status }) => status === "done")
-      ? [{ parent, review, logicalFiles: children.flatMap(({ logicalFiles }) => logicalFiles) }]
+      ? [{ parent, review: states.review, logicalFiles: children.flatMap(({ logicalFiles }) => logicalFiles) }]
       : [];
   });
 }

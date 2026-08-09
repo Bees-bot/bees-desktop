@@ -127,7 +127,7 @@ export interface WorkItem {
   title: string;
   description: string;
   owner: string | null;
-  /** Approved Goals task metadata. Null for ordinary process items and unplanned root goals. */
+  /** Approved task-plan metadata. Null for ordinary process items and unplanned roots. */
   goal: GoalWorkMetadata | null;
   status: WorkItemStatus;
   logicalFiles: string[];
@@ -226,8 +226,7 @@ export interface ExecutionResult extends Record<string, unknown> {
   deliveryId?: string;
   /** Retained only until Flue admits the delivery, so a crash can safely resend it. */
   prompt?: string;
-  stages?: string[];
-  goalStage?: string;
+  taskPlan?: TaskPlanRunContext;
   projectMode?: boolean;
   manualProjection?: boolean;
   continuation?: boolean;
@@ -237,6 +236,13 @@ export interface ExecutionResult extends Record<string, unknown> {
   statusName?: string;
   /** pending -> local_applied -> done; makes webview/app restart reconciliation idempotent. */
   projectionState?: "pending" | "local_applied" | "done";
+}
+
+export interface TaskPlanRunContext {
+  /** Stable state key, independent of the installed state's display label. */
+  state: string;
+  output: string;
+  outputBlockedStates: string[];
 }
 
 /** A deleted run whose Flue conversation has not been removed yet. */

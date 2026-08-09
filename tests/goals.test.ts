@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseTaskPlan,
-  recoverGoalPlannerOutput
+  parseTaskPlan
 } from "../src/processes/goals/index.js";
 
 const task = {
@@ -34,19 +33,5 @@ describe("goal task plans", () => {
         key: String(index)
       })) }))
     ).toThrow("at most 25");
-  });
-
-  it("recovers only strict JSON or the exact Work control value", () => {
-    expect(
-      recoverGoalPlannerOutput({ text: `\`\`\`json\n${JSON.stringify({ tasks: [task] })}\n\`\`\`` })
-    ).toEqual({ taskPlan: `${JSON.stringify({ tasks: [task] }, null, 2)}\n` });
-    expect(recoverGoalPlannerOutput({ text: "Work" })).toEqual({ statusName: "Work" });
-    expect(recoverGoalPlannerOutput({ text: "Here is a plan." })).toBeNull();
-  });
-
-  it("does not reinterpret Markdown as authorized work", () => {
-    expect(recoverGoalPlannerOutput({
-      text: "1. **Develop Strategy:** Define the audience and approach."
-    })).toBeNull();
   });
 });

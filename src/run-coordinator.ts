@@ -9,6 +9,7 @@ import type {
   FileLocation,
   GoalTaskEffect,
   McpConnection,
+  TaskPlanRunContext,
   WorkItem
 } from "./domain.js";
 import type { FlueProjectService } from "./flue-project.js";
@@ -42,8 +43,7 @@ export interface RunRequest {
   message?: string;
   /** Status names of the item's process — the menu the agent picks its answer from. */
   stages: string[];
-  /** Present only for the built-in Goals process, whose Waiting status has stricter semantics. */
-  goalStage?: string;
+  taskPlan?: TaskPlanRunContext;
   goalEffect?: GoalTaskEffect;
   workerRoles?: Array<{ role: string; purpose: string }>;
   parent?: WorkItem;
@@ -87,8 +87,7 @@ export interface RustRunRequest {
   continuation: boolean;
   initialData?: BeesRunInitialData;
   validationRules: string[];
-  stages: string[];
-  goalStage?: string;
+  taskPlan?: TaskPlanRunContext;
   projectMode: boolean;
   manualProjection: boolean;
 }
@@ -139,7 +138,7 @@ export function runPrompt({
   feedback = [],
   feedbackIntro = "Earlier attempts at this step were rejected. Address every point before you finish:",
   fileLocations = [],
-  goalStage,
+  taskPlan,
   goalEffect,
   workerRoles = [],
   projectWorkItemId
@@ -171,8 +170,8 @@ export function runPrompt({
           .map(({ role, purpose }) => `- ${role}: ${purpose}`)
           .join("\n")}`
       : "",
-    goalStage
-      ? `Goals task plans must be written only to outputs/.tasks.json as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}. Every field is required. Use only approved input paths. An external action must be its own external_write task.`
+    taskPlan
+      ? `Task plans must be written only to outputs/${taskPlan.output} as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}. Every field is required. Use only approved input paths. An external action must be its own external_write task.`
       : "",
     goalEffect === "external_write"
       ? `This approved task authorizes one external action. Perform exactly the described action using only approved inputs. Do not revise its substance. On confirmed success, write outputs/${ACTION_RECEIPT_OUTPUT} as {"status":"succeeded","destination":"service or recipient","externalId":"confirmation id or empty string","url":"result URL or empty string","timestamp":"ISO-8601 UTC"}. If success is uncertain, write no receipt and stop; Bees will block the task instead of retrying.`
@@ -308,8 +307,7 @@ export class RunCoordinator {
       await this.repository.beginExecutionDelivery(executionId, {
         deliveryId,
         prompt,
-        stages: request.stages,
-        ...(request.goalStage ? { goalStage: request.goalStage } : {}),
+        ...(request.taskPlan ? { taskPlan: request.taskPlan } : {}),
         projectMode: Boolean(request.projectWorkItemId),
         manualProjection: Boolean(request.manualProjection),
         continuation: previous !== null,
@@ -333,8 +331,7 @@ export class RunCoordinator {
         continuation: previous !== null,
         ...(initialData ? { initialData } : {}),
         validationRules: request.agent.config.validationRules ?? [],
-        stages: request.stages,
-        ...(request.goalStage ? { goalStage: request.goalStage } : {}),
+        ...(request.taskPlan ? { taskPlan: request.taskPlan } : {}),
         projectMode: Boolean(request.projectWorkItemId),
         manualProjection: Boolean(request.manualProjection)
       });
@@ -378,7 +375,6 @@ export class RunCoordinator {
         typeof result.deliveryId !== "string" ||
         (!execution.submissionId && typeof result.prompt !== "string") ||
         (!execution.submissionId && !result.continuation && !result.initialData) ||
-        !Array.isArray(result.stages) ||
         typeof result.continuation !== "boolean"
       ) {
         await this.repository.updateExecution(execution.id, "interrupted", {
@@ -386,6 +382,7 @@ export class RunCoordinator {
         });
         continue;
       }
+      const taskPlan = result.taskPlan;
       try {
         await this.host.resumeRun(
           {
@@ -402,8 +399,7 @@ export class RunCoordinator {
               ? { initialData: result.initialData }
               : {}),
             validationRules: execution.config.validationRules ?? [],
-            stages: result.stages.filter((stage): stage is string => typeof stage === "string"),
-            ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {}),
+            ...(taskPlan ? { taskPlan } : {}),
             projectMode: result.projectMode === true,
             manualProjection: result.manualProjection === true
           },
@@ -425,12 +421,12 @@ export class RunCoordinator {
       typeof result.deliveryId !== "string" ||
       (!execution.submissionId && typeof result.prompt !== "string") ||
       (!execution.submissionId && !result.continuation && !result.initialData) ||
-      !Array.isArray(result.stages) ||
       typeof result.continuation !== "boolean"
     ) {
       throw new Error("This run has no complete recovery context");
     }
     const { baseUrl, token = "" } = await this.launchRuntime();
+    const taskPlan = result.taskPlan;
     await this.host.stopRun(
       {
         executionId,
@@ -444,8 +440,7 @@ export class RunCoordinator {
         continuation: result.continuation,
         ...(!result.continuation && result.initialData ? { initialData: result.initialData } : {}),
         validationRules: execution.config.validationRules ?? [],
-        stages: result.stages.filter((stage): stage is string => typeof stage === "string"),
-        ...(typeof result.goalStage === "string" ? { goalStage: result.goalStage } : {}),
+        ...(taskPlan ? { taskPlan } : {}),
         projectMode: result.projectMode === true,
         manualProjection: result.manualProjection === true
       },

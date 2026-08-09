@@ -51,15 +51,15 @@ import {
   modelRef
 } from "./local-models.js";
 import type { ControlInput, MainHost } from "./main.js";
-import { GoalsController } from "./processes/goals/controller.js";
+import { TaskPlanController } from "./processes/goals/controller.js";
 import {
-  completedGoalsReadyForReview,
-  goalPlanStages,
-  goalStageForRun,
-  isGoalsProcess
+  completedTaskPlanParentsReadyForReview,
+  hasTaskPlanCapability,
+  taskPlanContextForRun,
+  taskPlanStages,
 } from "./processes/goals/runtime.js";
 import {
-  processModule
+  processEngine
 } from "./processes/registry.js";
 import {
   type ProcessAgentTurn
@@ -80,7 +80,7 @@ import {
 } from "./workspaces.js";
 
 export function createRunController(host: MainHost) {
-  const goalsController = new GoalsController({
+  const taskPlanController = new TaskPlanController({
     findWorkItem: (itemId) => host.workspaceController.teamItems.find(({ id }) => id === itemId) ?? null,
     findProcess: (processId) => host.workspaceController.processes.find(({ id }) => id === processId) ?? null,
     readOutput: (execution, output, teamRoot) => {
@@ -89,7 +89,7 @@ export function createRunController(host: MainHost) {
       return host.workspaces.readOutput(execution.workspaceRef, output.logicalOutput, teamRoot);
     },
     approveTaskPlan: (outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks) => host.repository.approveTaskPlan(outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks),
-    workerRoles: () => goalWorkerRoles().map(({ role }) => role),
+    workerRoles: () => taskWorkerRoles().map(({ role }) => role),
     syncCheckpoint: (itemId) => syncCheckpoint(itemId),
     finishOutputReview: (execution) => finishOutputReview(execution)
   });
@@ -98,7 +98,7 @@ export function createRunController(host: MainHost) {
 
   let executionOutputs: ExecutionOutput[] = [];
 
-  /** Studio items that already have a validated project folder. The rest are waiting on a person. */
+  /** Project-workspace items that already have a validated folder. */
   let projectFolderItemIds = new Set<string>();
 
   /** What last threw on each item, written by the error boundary and read by the supervision sweep. */
@@ -145,10 +145,10 @@ export function createRunController(host: MainHost) {
   });
 
   /** A decomposed goal resumes only after every approved child task has reached Done. */
-  async function resumeCompletedGoals(): Promise<number> {
-    const ready = completedGoalsReadyForReview(host.workspaceController.teamItems, host.workspaceController.processes);
+  async function resumeCompletedTaskPlans(): Promise<number> {
+    const ready = completedTaskPlanParentsReadyForReview(host.workspaceController.teamItems, host.workspaceController.processes);
     for (const { parent, review, logicalFiles } of ready) {
-      await host.repository.checkpointWorkItem(parent.id, logicalFiles, review.name);
+      await host.repository.checkpointWorkItem(parent.id, logicalFiles, review.id);
     }
     return ready.length;
   }
@@ -189,7 +189,8 @@ export function createRunController(host: MainHost) {
       const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
       if (!process)
         continue;
-      const studio = processModule(process.tags)?.mode === "studio";
+      const interactive = processEngine.isInteractive(process);
+      const projectWorkspace = Boolean(processEngine.capability(process, "project-workspace"));
       const agent = agentForItem(item);
       const eligibility = agent ? host.workspaceController.eligibilityForAgent(agent) : null;
       const runs = executions.filter(({ workItemId, id, status }) => workItemId === item.id &&
@@ -208,18 +209,18 @@ export function createRunController(host: MainHost) {
         stageName: process.stages.find(({ id }) => id === item.stageId)?.name ?? "this status",
         runs,
         pendingApprovals: executionOutputs.filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length,
-        ...(studio
+        ...(interactive
           ? {
             humanStep: projectFolderItemIds.has(item.id)
-              ? process.stages.find(({ id }) => id === item.stageId)?.name ?? "Open the project"
+              || !projectWorkspace
+              ? process.stages.find(({ id }) => id === item.stageId)?.name ?? "Open the item"
               : "Choose a folder"
           }
           : {}),
         ...(agent && eligibility && !eligibility.active ? { agentBlocked: eligibility.reason } : {}),
-        // A studio drives itself from its own screen, so neither an agent for the status nor a
-        // started process is what it is missing.
-        hasAgent: studio || Boolean(agent?.config.prompt.trim()),
-        processRunning: studio || runningProcesses.has(process.id),
+        // Interactive processes drive themselves from their renderer rather than a process run.
+        hasAgent: interactive || Boolean(agent?.config.prompt.trim()),
+        processRunning: interactive || runningProcesses.has(process.id),
         ...(schedules.find(({ workItemId, enabled }) => workItemId === item.id && enabled)?.nextRunAt
           ? {
             scheduledFor: when(schedules.find(({ workItemId, enabled }) => workItemId === item.id && enabled)!.nextRunAt)
@@ -365,6 +366,21 @@ export function createRunController(host: MainHost) {
     }
   }
 
+  async function checkpointTargetId(itemId: string, requested?: string): Promise<string | undefined> {
+    const item = await host.repository.getWorkItem(itemId);
+    const process = item
+      ? host.workspaceController.processes.find(({ id }) => id === item.processId)
+      : undefined;
+    if (!item || !process) throw new Error("The work item's process is unavailable");
+    const target = processEngine.resolveTarget(process, item, requested);
+    if (requested?.trim() && !target) {
+      throw new Error(
+        `Unknown status "${requested.trim()}" — choose one of: ${process.stages.map(({ name }) => name).join(", ")}`
+      );
+    }
+    return target?.id;
+  }
+
   const settlementApplications = new Map<string, Promise<void>>();
 
   /**
@@ -402,7 +418,12 @@ export function createRunController(host: MainHost) {
           !manualProjection) {
           // Checkpoint and projection marker share one SQLite transaction: a crash cannot advance
           // the work item twice or mark an unapplied checkpoint as applied.
-          await host.repository.checkpointWorkItem(execution.workItemId, [], statusName, execution.id);
+          await host.repository.checkpointWorkItem(
+            execution.workItemId,
+            [],
+            await checkpointTargetId(execution.workItemId, statusName),
+            execution.id
+          );
         }
         else {
           await host.repository.markExecutionProjectionLocal(execution.id);
@@ -461,13 +482,13 @@ export function createRunController(host: MainHost) {
     return String(agent.config.role ?? agent.name).trim();
   }
 
-  function goalWorkerRoles(): Array<{
+  function taskWorkerRoles(): Array<{
     role: string;
     purpose: string;
     agent: Agent;
   }> {
-    const goalWorkStages = new Set(host.workspaceController.processes.filter(isGoalsProcess)
-      .flatMap((process) => goalPlanStages(process)?.work.id ?? []));
+    const taskWorkStages = new Set(host.workspaceController.processes.filter(hasTaskPlanCapability)
+      .flatMap((process) => taskPlanStages(process)?.work.id ?? []));
     const reserved = new Set(["goal-planner", "goal-reviewer", "skill-editor"]);
     const seen = new Set<string>();
     return host.workspaceController.agents.flatMap((agent) => {
@@ -476,7 +497,7 @@ export function createRunController(host: MainHost) {
       if (!role ||
         !agent.config.prompt.trim() ||
         reserved.has(normalized) ||
-        (agent.triggerStageId !== null && !goalWorkStages.has(agent.triggerStageId)) ||
+        (agent.triggerStageId !== null && !taskWorkStages.has(agent.triggerStageId)) ||
         seen.has(normalized)) {
         return [];
       }
@@ -487,11 +508,9 @@ export function createRunController(host: MainHost) {
 
   function agentForItem(item: WorkItem): Agent | undefined {
     const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
-    const stages = process ? goalPlanStages(process) : null;
-    if (stages?.work.id === item.stageId && item.goal?.role) {
-      return goalWorkerRoles().find(({ role }) => role.toLowerCase() === item.goal!.role.toLowerCase())?.agent;
-    }
-    return agentForStage(item.stageId);
+    return process
+      ? processEngine.agentForItem(process, item, host.workspaceController.agents)
+      : agentForStage(item.stageId);
   }
 
   async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
@@ -499,13 +518,13 @@ export function createRunController(host: MainHost) {
       return schedule.workItemId;
     const template = await host.repository.getWorkItem(schedule.workItemId);
     const process = template ? host.workspaceController.processes.find(({ id }) => id === template.processId) : null;
-    const stages = process ? goalPlanStages(process) : null;
+    const stages = process ? taskPlanStages(process) : null;
     if (!template || !process || !stages) {
-      throw new Error("A goal occurrence schedule must target a Goals work item");
+      throw new Error("A task-plan occurrence schedule must target a task-plan work item");
     }
-    const worker = goalWorkerRoles().find(({ role }) => role.toLowerCase() === schedule.role?.toLowerCase());
+    const worker = taskWorkerRoles().find(({ role }) => role.toLowerCase() === schedule.role?.toLowerCase());
     if (!worker)
-      throw new Error(`Scheduled goal role is unavailable: ${schedule.role ?? ""}`);
+      throw new Error(`Scheduled task role is unavailable: ${schedule.role ?? ""}`);
     const key = `schedule:${schedule.id}:${schedule.nextRunAt}`;
     const existing = (await host.repository.listWorkItems(process.id)).find((item) => item.goal?.key === key);
     if (existing)
@@ -743,8 +762,8 @@ export function createRunController(host: MainHost) {
    */
   async function setProcessRunning(processId: string, running: boolean): Promise<void> {
     const process = host.workspaceController.processes.find(({ id }) => id === processId);
-    if (running && process && processModule(process.tags)?.mode === "studio") {
-      throw new Error("Code projects run from the item's Studio");
+    if (running && process && processEngine.isInteractive(process)) {
+      throw new Error("Interactive processes run from the item view");
     }
     if (running) {
       runningProcesses.add(processId);
@@ -1041,6 +1060,7 @@ export function createRunController(host: MainHost) {
     const stage = process?.stages.find(({ id }) => id === item.stageId);
     if (!process || !stage)
       throw new Error("This work item has no active process step");
+    const taskPlan = taskPlanContextForRun(process, stage);
     const currentAgent = agentForItem(item);
     const originalAgent = continuation
       ? host.workspaceController.agents.find(({ id }) => id === continuation.execution.agentId)
@@ -1066,7 +1086,7 @@ export function createRunController(host: MainHost) {
         }
       }
       : agent;
-    const goalEffect = isGoalsProcess(process) ? item.goal?.effect ?? "prepare" : undefined;
+    const goalEffect = hasTaskPlanCapability(process) ? item.goal?.effect ?? "prepare" : undefined;
     if (goalEffect === "external_write") {
       if (!item.goal?.authorizedAt || !item.goal.planOutputId) {
         throw new Error("This external action has no approval receipt");
@@ -1173,10 +1193,10 @@ export function createRunController(host: MainHost) {
           : {}),
         ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
         stages: process.stages.map(({ name }) => name),
-        ...(goalStageForRun(process, stage) ? { goalStage: stage.name } : {}),
+        ...(taskPlan ? { taskPlan } : {}),
         ...(goalEffect ? { goalEffect } : {}),
-        ...(isGoalsProcess(process)
-          ? { workerRoles: goalWorkerRoles().map(({ role, purpose }) => ({ role, purpose })) }
+        ...(hasTaskPlanCapability(process)
+          ? { workerRoles: taskWorkerRoles().map(({ role, purpose }) => ({ role, purpose })) }
           : {}),
         ...(item.parentId
           ? { parent: host.workspaceController.teamItems.find(({ id }) => id === item.parentId)! }
@@ -1350,10 +1370,15 @@ export function createRunController(host: MainHost) {
     if (!outputs.some(({ status }) => status === "rejected")) {
       // approveTaskPlan already checkpointed the parent into Waiting in the same transaction that
       // created its children. A second checkpoint here would skip straight to Review.
-      if (!outputs.some(({ logicalOutput }) => goalsController.matchesOutput(logicalOutput))) {
-        await host.repository.checkpointWorkItem(execution.workItemId, outputs
-          .filter(({ status }) => status === "approved")
-          .map(({ logicalDestination }) => logicalDestination), typeof execution.result?.statusName === "string" ? execution.result.statusName : undefined);
+      if (!outputs.some(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, execution))) {
+        const requested = typeof execution.result?.statusName === "string"
+          ? execution.result.statusName
+          : undefined;
+        await host.repository.checkpointWorkItem(
+          execution.workItemId,
+          outputs.filter(({ status }) => status === "approved").map(({ logicalDestination }) => logicalDestination),
+          await checkpointTargetId(execution.workItemId, requested)
+        );
         await syncCheckpoint(execution.workItemId);
       }
     }
@@ -1402,7 +1427,7 @@ export function createRunController(host: MainHost) {
   }
 
   return {
-    goalsController,
+    taskPlanController,
     get executions() { return executions; },
     set executions(value: typeof executions) { executions = value; },
     get executionOutputs() { return executionOutputs; },
@@ -1429,7 +1454,7 @@ export function createRunController(host: MainHost) {
     set disabledAgentIds(value: typeof disabledAgentIds) { disabledAgentIds = value; },
     autopilotDone,
     scheduler,
-    resumeCompletedGoals,
+    resumeCompletedTaskPlans,
     reportFailure,
     supervise,
     runStageId,
@@ -1438,7 +1463,7 @@ export function createRunController(host: MainHost) {
     startBackgroundSync,
     releaseClaim,
     applySettledExecution,
-    goalWorkerRoles,
+    taskWorkerRoles,
     agentForItem,
     runScheduledOccurrence,
     controlInput,

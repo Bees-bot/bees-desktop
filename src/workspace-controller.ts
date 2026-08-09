@@ -27,11 +27,8 @@ import {
 } from "./knowledge.js";
 import type { MainHost } from "./main.js";
 import {
-  libraryRename,
-  processModule,
-  processModuleTagForName,
   starterProcessModule,
-  type ProcessStudio
+  type ProcessRenderer
 } from "./processes/registry.js";
 import {
   SoftwareProjectController
@@ -43,12 +40,11 @@ import {
 import { type View } from "./views.js";
 
 export function createWorkspaceController(host: MainHost) {
-  const softwareProjectStudio = new SoftwareProjectController({
+  const softwareProjectRenderer = new SoftwareProjectController({
     current: () => {
       const item = teamItems.find(({ id }) => id === host.shell.activeItemId);
       const process = item ? processes.find(({ id }) => id === item.processId) : undefined;
-      const stage = process?.stages.find(({ id }) => id === item?.stageId)?.name;
-      return item && process && stage ? { item, process, stage } : null;
+      return item && process ? { item, process } : null;
     },
     getSetting: (key, fallback) => host.repository.getSetting(key, fallback),
     setSetting: (key, value) => host.repository.setSetting(key, value),
@@ -76,7 +72,7 @@ export function createWorkspaceController(host: MainHost) {
     notify: host.shell.showNotice
   });
 
-  const processStudios: readonly ProcessStudio[] = [softwareProjectStudio];
+  const processRenderers: readonly ProcessRenderer[] = [softwareProjectRenderer];
 
   let workspace: LocalWorkspace;
 
@@ -117,8 +113,7 @@ export function createWorkspaceController(host: MainHost) {
   /**
    * Dashboards (one per live process) plus open-work counts for every team in the org, so each
    * team's nav renders the same whether or not it is the open one. Every process owns exactly one
-   * dashboard, so missing ones are made here — covers a just-created process and any that predate
-   * dashboards.
+   * dashboard, so missing ones are made here — including a process created just before refresh.
    */
   async function loadDashboardsByTeam(): Promise<void> {
     dashboardsByTeam = new Map();
@@ -128,10 +123,6 @@ export function createWorkspaceController(host: MainHost) {
         host.repository.listProcesses(team.id),
         host.repository.listTeamWorkItems(team.id)
       ]);
-      // Before anything reads them: the left menu renders straight out of this map, so the repairs
-      // have to land here rather than on the active team's copy loaded further down.
-      teamProcesses = await backfillProcessTags(teamProcesses);
-      teamBoards = await backfillBoardNames(teamBoards, teamProcesses, team.id);
       const undashboarded = teamProcesses.filter(({ id }) => !teamBoards.some(({ processId }) => processId === id));
       for (const process of undashboarded) {
         await host.repository.createBoard(team.id, {
@@ -152,63 +143,12 @@ export function createWorkspaceController(host: MainHost) {
     }
   }
 
-  /**
-   * Two one-time repairs on load. Processes created before tags existed carry no module tag, so
-   * their behaviour would be lost: match those by the only handle they have — the name they were
-   * installed under — and write the tag. Then bring any row still named after an older release of
-   * its module up to the current library name. A process a team renamed itself keeps that name, and
-   * one renamed before tags shipped stays untagged; re-adding it from the library is the way back.
-   */
-  async function backfillProcessTags(loaded: Process[]): Promise<Process[]> {
-    const patched = new Map<string, Process>();
-    for (const process of loaded) {
-      const tag = process.tags[0] ?? processModuleTagForName(process.name);
-      const module = tag ? processModule([tag]) : undefined;
-      if (!tag || !module)
-        continue;
-      if (!process.tags.length)
-        await host.repository.setTags("process", process.id, [tag]);
-      const renamed = libraryRename(process.name, module.legacyNames ?? [], module.definition.name);
-      if (renamed) {
-        await host.repository.updateProcess(process.id, { name: renamed, description: process.description });
-      }
-      if (!process.tags.length || renamed) {
-        patched.set(process.id, { ...process, tags: [tag], name: renamed ?? process.name });
-      }
-    }
-    return patched.size ? loaded.map((process) => patched.get(process.id) ?? process) : loaded;
-  }
-
-  /** The board half of the same repair: a dashboard still named after an older release follows it. */
-  async function backfillBoardNames(loaded: Board[], known: Process[], teamId: string): Promise<Board[]> {
-    const renamed = new Map<string, string>();
-    for (const board of loaded) {
-      const process = known.find(({ id }) => id === board.processId);
-      const module = process && processModule(process.tags);
-      if (!module)
-        continue;
-      const current = libraryRename(board.name, module.legacyBoardNames ?? [], module.definition.boardName);
-      if (!current)
-        continue;
-      await host.repository.updateBoard(board.id, teamId, {
-        name: current,
-        processId: board.processId,
-        stageIds: board.stageIds,
-        filters: board.filters
-      });
-      renamed.set(board.id, current);
-    }
-    return renamed.size
-      ? loaded.map((board) => renamed.has(board.id) ? { ...board, name: renamed.get(board.id)! } : board)
-      : loaded;
-  }
-
   async function refresh(): Promise<void> {
     organizations = await host.repository.listOrganizations();
     teams = await host.repository.listTeams(workspace.organizationId);
     if (!teams.some(({ id }) => id === workspace.teamId))
       workspace.teamId = teams[0]?.id ?? "";
-    // Runs first: it backfills missing dashboards, so the loads below see them.
+    // Load every team's dashboards before the active-team views derive their state.
     await loadDashboardsByTeam();
     host.runs.dismissedRunIds = new Set(await host.repository.getSetting<string[]>(host.runs.DISMISSED_RUNS_KEY, []));
     if (!workspace.teamId) {
@@ -252,7 +192,7 @@ export function createWorkspaceController(host: MainHost) {
         selectedRefs: agents.flatMap((agent) => capabilityRefsFor(agent.config, "skill")),
         now: new Date().toISOString()
       });
-      if (await host.runs.resumeCompletedGoals()) {
+      if (await host.runs.resumeCompletedTaskPlans()) {
         teamItems = await host.repository.listTeamWorkItems(workspace.teamId);
       }
       const executionIds = new Set(host.runs.executions.map(({ id }) => id));
@@ -314,7 +254,8 @@ export function createWorkspaceController(host: MainHost) {
     await host.workspaces.ensureDirectory(mapping.localPath);
     const skills = registryCapabilities(registries).filter(({ kind }) => kind === "skill");
     for (const definition of template.agents) {
-      const stage = process.stages.find(({ name }) => name === definition.stage);
+      const state = template.states.find(({ key }) => key === definition.state);
+      const stage = state && process.stages[template.states.indexOf(state)];
       if (!stage || agents.some(({ triggerStageId }) => triggerStageId === stage.id))
         continue;
       const saved = await host.agentFiles.save(mapping.localPath, newAgent({
@@ -413,7 +354,7 @@ export function createWorkspaceController(host: MainHost) {
   }
 
   return {
-    processStudios,
+    processRenderers,
     get workspace() { return workspace; },
     set workspace(value: typeof workspace) { workspace = value; },
     get organizations() { return organizations; },

@@ -1,13 +1,14 @@
 import type { Execution, Process, WorkItem, WorkItemStatus } from "../../domain.js";
 import { FOLLOW_UP_LIMIT } from "../../domain.js";
-import { processModuleTag, type ProcessStudio } from "../types.js";
+import { processEngine } from "../registry.js";
+import type { ProcessRenderer } from "../types.js";
 import { SoftwareProjectGit } from "./git.js";
 import {
   DEBATE_CONCERN_BUDGET,
   MAX_DEBATE_ROUNDS,
   SOFTWARE_PROJECT_PROCESS_ID,
   SOFTWARE_PROJECT_ROLES,
-  SOFTWARE_PROJECT_STAGES,
+  SOFTWARE_PROJECT_STATE_KEYS,
   debateSettled,
   emptySoftwareProjectState,
   lastAssistantText,
@@ -16,11 +17,9 @@ import {
   parseImplementationPlan,
   parseRequirementSpec,
   parseTestReport,
-  routeSoftwareProject,
   softwareProjectStateKey,
   softwareProjectView,
   type DebateRound,
-  type SoftwareProjectEvent,
   type SoftwareProjectStage,
   type SoftwareProjectState,
   type TestReport
@@ -29,7 +28,6 @@ import {
 interface SoftwareProjectContext {
   item: WorkItem;
   process: Process;
-  stage: string;
 }
 
 /** One agent turn. `executionId` reopens that conversation instead of starting a cold one. */
@@ -55,29 +53,28 @@ export interface SoftwareProjectHost {
   notify(message: string, kind: "success" | "error"): void;
 }
 
-export class SoftwareProjectController implements ProcessStudio {
+export class SoftwareProjectController implements ProcessRenderer {
+  readonly id = SOFTWARE_PROJECT_PROCESS_ID;
   readonly git = new SoftwareProjectGit();
 
   constructor(private readonly host: SoftwareProjectHost) {}
 
-  matches(process: Process): boolean {
-    return process.tags.includes(processModuleTag(SOFTWARE_PROJECT_PROCESS_ID));
-  }
-
   async render(item: WorkItem, process: Process, runs: Execution[]): Promise<string> {
-    const stage = process.stages.find(({ id }) => id === item.stageId)?.name;
-    if (!SOFTWARE_PROJECT_STAGES.includes(stage as SoftwareProjectStage)) {
+    const definition = processEngine.definition(process);
+    const stage = definition.states.find(({ stageId }) => stageId === item.stageId)?.key;
+    if (!SOFTWARE_PROJECT_STATE_KEYS.includes(stage as SoftwareProjectStage)) {
       throw new Error("The Code process definition has changed");
     }
     const state = await this.state(item.id);
     const mapping = await this.git.get(item.id);
     const snapshot =
-      mapping && (stage === "Phase Review" || stage === "Final Review")
+      mapping && (stage === "phase-review" || stage === "final-review")
         ? await this.git.snapshot(item.id, state.phaseStartSha).catch(() => null)
         : null;
     return softwareProjectView({
       item,
       stage: stage as SoftwareProjectStage,
+      states: definition.states,
       state,
       runs,
       mapping,
@@ -86,7 +83,7 @@ export class SoftwareProjectController implements ProcessStudio {
   }
 
   // Failures are not caught here: the app's error boundary records whatever throws against
-  // this item, so a studio step gets escalated without the studio knowing how.
+  // this item, so a renderer step gets escalated without the renderer knowing how.
   async handleAction(action: string, control: HTMLElement): Promise<boolean> {
     if (!action.startsWith("project-")) return false;
     if (action === "project-select-folder") {
@@ -111,12 +108,12 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-approve-requirements") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       if (!state.requirements) throw new Error("Create the requirements draft first");
       state.requirementsApprovedAt = new Date().toISOString();
       await this.save(item.id, state);
-      await this.move(item, process, stage, "requirements-approved");
+      await this.move(item, process, "architecture");
       await this.host.refresh();
       return true;
     }
@@ -133,12 +130,12 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-approve-architecture") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       if (!state.architecture?.decision) throw new Error("Synthesize the architecture first");
       state.architecture.approvedAt = new Date().toISOString();
       await this.save(item.id, state);
-      await this.move(item, process, stage, "architecture-approved");
+      await this.move(item, process, "plan");
       await this.host.refresh();
       return true;
     }
@@ -219,7 +216,7 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-approve-plan") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.stateFromPlan(control);
       if (!state.phases.length) throw new Error("Generate the implementation plan first");
       const oversized = state.phases.filter(({ estimatedChangedLines }) => estimatedChangedLines > 1500);
@@ -236,7 +233,7 @@ export class SoftwareProjectController implements ProcessStudio {
       state.planApprovedAt = new Date().toISOString();
       state.currentPhaseIndex = 0;
       await this.save(item.id, state);
-      await this.move(item, process, stage, "plan-approved");
+      await this.move(item, process, "implement");
       await this.host.refresh();
       return true;
     }
@@ -245,7 +242,7 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-approve-phase") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       if (!state.testReport?.passed) throw new Error("Independent testing must pass before approval");
       const snapshot = await this.git.snapshot(item.id, state.phaseStartSha);
@@ -268,7 +265,7 @@ export class SoftwareProjectController implements ProcessStudio {
       delete state.feedback;
       delete state.testReport;
       await this.save(item.id, state);
-      await this.move(item, process, stage, "phase-approved", hasMore);
+      await this.move(item, process, hasMore ? "implement" : "final-review");
       await this.host.refresh();
       return true;
     }
@@ -277,11 +274,11 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-finish") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       if (!state.finalReport?.passed) throw new Error("Final verification must pass before merging");
       await this.git.merge(item.id);
-      await this.move(item, process, stage, "final-tests-passed");
+      await this.move(item, process, "done");
       const latest = (await this.host.getWorkItem(item.id)) ?? item;
       await this.host.setWorkItemStatus(latest, "done");
       await this.host.refresh();
@@ -289,11 +286,11 @@ export class SoftwareProjectController implements ProcessStudio {
       return true;
     }
     if (action === "project-resume") {
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       state.attempts = 0;
       await this.save(item.id, state);
-      await this.move(item, process, stage, "resume");
+      await this.move(item, process, "implement");
       await this.host.setWorkItemStatus(item, "open");
       await this.host.refresh();
       return true;
@@ -331,13 +328,13 @@ export class SoftwareProjectController implements ProcessStudio {
     if (form.matches("form[data-project-review]")) {
       const feedback = String(new FormData(form).get("feedback") ?? "").trim();
       if (!feedback) throw new Error("Explain what the coding agent should change");
-      const { item, process, stage } = this.current();
+      const { item, process } = this.current();
       const state = await this.state(item.id);
       state.feedback = feedback;
       state.attempts = 0;
       delete state.testReport;
       await this.save(item.id, state);
-      await this.move(item, process, stage, "phase-changes-requested");
+      await this.move(item, process, "implement");
       await this.host.refresh();
       return true;
     }
@@ -350,7 +347,7 @@ export class SoftwareProjectController implements ProcessStudio {
     );
   }
 
-  /** One turn, waited on. Every studio turn runs against the item's project worktree. */
+  /** One turn, waited on. Every project turn runs against the item's project worktree. */
   private async turn(
     item: WorkItem,
     role: string,
@@ -364,16 +361,12 @@ export class SoftwareProjectController implements ProcessStudio {
     return execution;
   }
 
-  private current(): { item: WorkItem; process: Process; stage: SoftwareProjectStage } {
+  private current(): SoftwareProjectContext {
     const current = this.host.current();
-    if (
-      !current ||
-      !this.matches(current.process) ||
-      !SOFTWARE_PROJECT_STAGES.includes(current.stage as SoftwareProjectStage)
-    ) {
+    if (!current || processEngine.renderer(current.process) !== this.id) {
       throw new Error("Open a Code item first");
     }
-    return { ...current, stage: current.stage as SoftwareProjectStage };
+    return current;
   }
 
   private async state(workItemId: string): Promise<SoftwareProjectState> {
@@ -429,15 +422,11 @@ export class SoftwareProjectController implements ProcessStudio {
   private async move(
     item: WorkItem,
     process: Process,
-    stage: SoftwareProjectStage,
-    event: SoftwareProjectEvent,
-    hasMorePhases = true
-  ): Promise<SoftwareProjectStage> {
-    const next = routeSoftwareProject(stage, event, hasMorePhases);
-    const destination = process.stages.find(({ name }) => name === next);
-    if (!destination) throw new Error(`The Code process is missing ${next}`);
+    target: string
+  ): Promise<void> {
+    const destination = processEngine.target(process, target);
+    if (!destination) throw new Error(`The process is missing the ${target} state`);
     await this.host.moveWorkItem(item.id, destination.id);
-    return next;
   }
 
   private projectContext(state: SoftwareProjectState): string {
@@ -724,7 +713,7 @@ Return exactly one JSON object, with no Markdown fence:
   }
 
   private async runPhaseLoop(): Promise<void> {
-    const { item, process, stage } = this.current();
+    const { item, process } = this.current();
     const state = await this.state(item.id);
     const phase = state.phases[state.currentPhaseIndex];
     if (!phase || !state.planApprovedAt) throw new Error("Approve a valid implementation plan first");
@@ -775,13 +764,13 @@ Return exactly one JSON object, with no Markdown fence:
       if (report.passed) {
         delete state.feedback;
         await this.save(item.id, state);
-        await this.move(item, process, stage, "tests-passed");
+        await this.move(item, process, "phase-review");
         await this.host.refresh();
         return;
       }
       feedback = state.feedback;
     }
-    const blocked = process.stages.find(({ name }) => name === "Blocked");
+    const blocked = processEngine.target(process, "blocked");
     if (!blocked) throw new Error("The Code process is missing Blocked");
     await this.host.moveWorkItem(item.id, blocked.id);
     await this.host.setWorkItemStatus(item, "blocked");

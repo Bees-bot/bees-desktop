@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LocalRepository } from "../src/repository.js";
 import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/processes/goals/index.js";
 import {
-  libraryRename,
-  processModule,
-  processModuleTagForName
+  processEngine
 } from "../src/processes/registry.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
@@ -42,7 +40,7 @@ describe("local repository", () => {
     await repository.updateProcess(seeded.id, { name: "Objectives" });
     const renamed = (await repository.listProcesses(local.teamId))[0]!;
     expect(renamed.name).toBe("Objectives");
-    expect(processModule(renamed.tags)?.definition.id).toBe("goals");
+    expect(processEngine.module(renamed)?.definition.id).toBe("goals");
 
     // setTags replaces rather than appends, so re-tagging cannot accumulate duplicates.
     await repository.setTags("process", seeded.id, ["module:goals", "module:goals", "starred"]);
@@ -63,20 +61,7 @@ describe("local repository", () => {
     const created = (await repository.listProcesses(local.teamId)).find(
       (process) => process.id === id
     )!;
-    expect(processModule(created.tags)?.mode).toBe("studio");
-    expect(processModuleTagForName("Software Project")).toBe("module:software-project");
-    expect(processModuleTagForName("code")).toBe("module:software-project");
-    expect(processModuleTagForName("Anything")).toBeUndefined();
-  });
-
-  it("follows a library rename only for a name the library itself gave the row", () => {
-    const legacy = ["Software Project"];
-    expect(libraryRename("Software Project", legacy, "Code")).toBe("Code");
-    expect(libraryRename("  software project  ", legacy, "Code")).toBe("Code");
-    // A name the team chose, and one already current, both stay put.
-    expect(libraryRename("dev", legacy, "Code")).toBeUndefined();
-    expect(libraryRename("Code", legacy, "Code")).toBeUndefined();
-    expect(libraryRename("Software Project", [], "Code")).toBeUndefined();
+    expect(processEngine.module(created)?.definition.renderer).toBe("software-project");
   });
 
   it("persists ordinary schedules and recurring Goals occurrences as distinct modes", async () => {
@@ -422,7 +407,7 @@ describe("local repository", () => {
     expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: review!.id });
   });
 
-  it("routes a checkpoint to the status the run named, and falls back when it did not", async () => {
+  it("routes a checkpoint to a state id, and uses the next state when omitted", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const process = (await repository.listProcesses(local.teamId))[0]!;
@@ -432,8 +417,7 @@ describe("local repository", () => {
       stageId: first!.id,
       title: "Named"
     });
-    // Case-insensitive and trimmed, because the name comes back from a model.
-    await repository.checkpointWorkItem(named, [], `  ${third!.name.toUpperCase()} `);
+    await repository.checkpointWorkItem(named, [], third!.id);
     expect(await repository.getWorkItem(named)).toMatchObject({
       stageId: third!.id,
       status: "open"
@@ -443,8 +427,10 @@ describe("local repository", () => {
       stageId: first!.id,
       title: "Unknown"
     });
-    await repository.checkpointWorkItem(unknown, [], "Not a status");
-    expect((await repository.getWorkItem(unknown))?.stageId).toBe(second!.id);
+    await expect(repository.checkpointWorkItem(unknown, [], "not-a-stage-id")).rejects.toThrow(
+      "Target status not found"
+    );
+    expect((await repository.getWorkItem(unknown))?.stageId).toBe(first!.id);
 
     const silent = await repository.createWorkItem(process.id, {
       stageId: first!.id,
@@ -458,7 +444,7 @@ describe("local repository", () => {
       stageId: first!.id,
       title: "Finished"
     });
-    await repository.checkpointWorkItem(finished, [], last!.name);
+    await repository.checkpointWorkItem(finished, [], last!.id);
     expect(await repository.getWorkItem(finished)).toMatchObject({
       stageId: last!.id,
       status: "done"
@@ -481,7 +467,6 @@ describe("local repository", () => {
     });
     const context = {
       deliveryId: "delivery-1",
-      stages: process.stages.map(({ name }) => name),
       continuation: false,
       outputs: [],
       statusName: process.stages[1]!.name,
@@ -494,8 +479,8 @@ describe("local repository", () => {
     });
     await repository.updateExecution(executionId, "completed", { result: context });
 
-    await repository.checkpointWorkItem(itemId, [], context.statusName, executionId);
-    await repository.checkpointWorkItem(itemId, [], process.stages[2]!.name, executionId);
+    await repository.checkpointWorkItem(itemId, [], process.stages[1]!.id, executionId);
+    await repository.checkpointWorkItem(itemId, [], process.stages[2]!.id, executionId);
 
     expect(await repository.getWorkItem(itemId)).toMatchObject({
       stageId: process.stages[1]!.id,

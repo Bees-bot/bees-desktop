@@ -15,8 +15,7 @@
 
 use crate::{
     canonical_workspace, collect_relative_files,
-    processes::goals::{validate_run as validate_goal_run, TASK_PLAN_OUTPUT},
-    Database,
+    processes::goals::validate_run as validate_task_plan_run, Database,
 };
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -53,16 +52,21 @@ pub struct RunRequest {
     /// Agent validation rules, e.g. `require-output`, `extension:.md`.
     #[serde(default)]
     pub validation_rules: Vec<String>,
-    /// Status names the run may choose from. Empty for runs with no status menu.
     #[serde(default)]
-    pub stages: Vec<String>,
-    /// Set only for the built-in Goals process, whose statuses have stricter rules.
-    #[serde(default)]
-    pub goal_stage: Option<String>,
+    pub task_plan: Option<TaskPlanRunContext>,
     #[serde(default)]
     pub project_mode: bool,
     #[serde(default)]
     pub manual_projection: bool,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPlanRunContext {
+    pub state: String,
+    pub output: String,
+    #[serde(default)]
+    pub output_blocked_states: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -623,19 +627,13 @@ fn run_to_settlement(
         .filter(|output| output != STATUS_OUTPUT)
         .collect();
 
-    if outputs.iter().any(|output| output == TASK_PLAN_OUTPUT) && outputs.len() != 1 {
-        return finish_terminal(
-            database,
-            request,
-            "failed",
-            Some(&conversation),
-            Some(&format!(
-                "{TASK_PLAN_OUTPUT} must be the run's only reviewable output"
-            )),
-        );
-    }
-    if let Some(goal_stage) = &request.goal_stage {
-        if let Err(error) = validate_goal_run(goal_stage, &outputs, &status_name, &request.stages) {
+    if let Some(task_plan) = &request.task_plan {
+        if let Err(error) = validate_task_plan_run(
+            &task_plan.state,
+            &task_plan.output,
+            &task_plan.output_blocked_states,
+            &outputs,
+        ) {
             return finish_terminal(
                 database,
                 request,

@@ -7,7 +7,6 @@ import {
   emptySoftwareProjectState,
   parseDebateTurn,
   parseImplementationPlan,
-  routeSoftwareProject,
   softwareProjectStateKey,
   softwareProjectView,
   type SoftwareProjectMapping,
@@ -20,42 +19,24 @@ import {
 } from "./controller.js";
 import { softwareProjectProcess } from "./definition.js";
 
-describe("software project router", () => {
-  it("requires each approval gate", () => {
-    expect(routeSoftwareProject("Requirements", "requirements-approved")).toBe("Architecture");
-    expect(routeSoftwareProject("Architecture", "architecture-approved")).toBe("Plan");
-    expect(routeSoftwareProject("Plan", "plan-approved")).toBe("Implement");
-    expect(routeSoftwareProject("Implement", "tests-passed")).toBe("Phase Review");
-    expect(routeSoftwareProject("Phase Review", "phase-approved", true)).toBe("Implement");
-    expect(routeSoftwareProject("Phase Review", "phase-approved", false)).toBe("Final Review");
-    expect(routeSoftwareProject("Final Review", "final-tests-passed")).toBe("Done");
-  });
-
-  it("rejects impossible transitions", () => {
-    expect(() => routeSoftwareProject("Requirements", "plan-approved")).toThrow();
-  });
-});
-
 describe("software project module contract", () => {
-  it("claims only its own process and Studio forms", () => {
+  it("provides the software-project renderer and its forms", () => {
     const controller = new SoftwareProjectController({} as SoftwareProjectHost);
     const form = {
       matches: (selector: string) => selector.includes("form[data-project-plan]")
     } as HTMLFormElement;
-    const tagged = { name: "Code", tags: ["module:software-project"] } as Process;
-    // Renaming the process must not change what the Studio claims, and the tag is what decides.
-    const renamed = { ...tagged, name: "Anything else" } as Process;
-    expect(controller.matches(tagged)).toBe(true);
-    expect(controller.matches(renamed)).toBe(true);
-    expect(controller.matches({ name: "Code", tags: ["module:goals"] } as Process)).toBe(false);
-    expect(controller.matches({ name: "Code", tags: [] } as unknown as Process)).toBe(false);
+    expect(controller.id).toBe("software-project");
     expect(controller.handlesSubmit(form)).toBe(true);
   });
 
   it("asks for the brief in one textbox", () => {
+    const states = softwareProjectProcess.definition.states.map((state) =>
+      state.key === "requirements" ? { ...state, name: "Intake" } : state
+    );
     const view = softwareProjectView({
       item: { title: "Change the app" } as WorkItem,
-      stage: "Requirements",
+      stage: "requirements",
+      states,
       state: emptySoftwareProjectState(),
       runs: [],
       mapping: { repositoryPath: "/tmp/repo", baseBranch: "main" } as SoftwareProjectMapping,
@@ -63,13 +44,15 @@ describe("software project module contract", () => {
     });
     expect(view.match(/<textarea/g)).toHaveLength(1);
     expect(view).toContain('name="brief"');
+    expect(view).toContain(">Intake</span>");
     expect(view).not.toContain("<select");
   });
 
   it("requires one local project folder before requirements", () => {
     const view = softwareProjectView({
       item: { title: "Change the app" } as WorkItem,
-      stage: "Requirements",
+      stage: "requirements",
+      states: softwareProjectProcess.definition.states,
       state: emptySoftwareProjectState(),
       runs: [],
       mapping: null,
@@ -135,8 +118,7 @@ function debateHost(reply: (round: number) => string): {
         name: "Code",
         tags: ["module:software-project"],
         stages: []
-      } as unknown as Process,
-      stage: "Architecture"
+      } as unknown as Process
     }),
     getSetting: async (key: string, fallback: unknown) =>
       settings.has(key) ? settings.get(key) : fallback,
@@ -242,14 +224,14 @@ describe("architecture debate", () => {
 });
 
 describe("studio agent triggers", () => {
-  it("puts several agents on one status, which only a studio process may do", () => {
-    const { mode, definition } = softwareProjectProcess;
+  it("puts several role bindings on one state", () => {
+    const { definition } = softwareProjectProcess;
     const perStage = new Map<string, number>();
-    for (const { stage } of definition.agents) {
-      perStage.set(stage, (perStage.get(stage) ?? 0) + 1);
+    for (const { state } of definition.agents) {
+      perStage.set(state, (perStage.get(state) ?? 0) + 1);
     }
-    expect(mode).toBe("studio");
-    expect(perStage.get("Architecture")).toBe(2);
+    expect(definition.renderer).toBe("software-project");
+    expect(perStage.get("architecture")).toBe(2);
     expect([...perStage.values()].some((count) => count > 1)).toBe(true);
   });
 });

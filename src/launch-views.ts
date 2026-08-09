@@ -7,7 +7,6 @@ import type {
   WorkItem
 } from "./domain.js";
 import { modelRef } from "./local-models.js";
-import { TASK_PLAN_OUTPUT } from "./processes/goals/index.js";
 import type {
   BeesConversationSnapshotV1,
   SnapshotMessage,
@@ -30,11 +29,15 @@ function itemName(items: WorkItem[], id: string): string {
   return items.find((item) => item.id === id)?.title ?? "Unknown work item";
 }
 
-function outputName(output: ExecutionOutput): string {
-  return output.logicalOutput === TASK_PLAN_OUTPUT ? "Proposed subtasks" : output.logicalDestination;
+function taskPlanOutput(execution: Execution): string | undefined {
+  return execution.result?.taskPlan?.output;
 }
 
-function approvalCard(output: ExecutionOutput, busy: boolean): string {
+function outputName(output: ExecutionOutput, taskPlan?: string): string {
+  return output.logicalOutput === taskPlan ? "Proposed subtasks" : output.logicalDestination;
+}
+
+function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
   const actions = `<div class="flex shrink-0 gap-2">
     <button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" ${
       busy ? "disabled" : ""
@@ -61,9 +64,9 @@ function approvalCard(output: ExecutionOutput, busy: boolean): string {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div class="text-xs font-bold uppercase tracking-wide text-warning">${
-          output.logicalOutput === TASK_PLAN_OUTPUT ? "Task plan approval required" : "Approval required"
+          output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"
         }</div>
-        <h4 class="mt-1 font-semibold">${escapeHtml(outputName(output))}</h4>
+        <h4 class="mt-1 font-semibold">${escapeHtml(outputName(output, taskPlan))}</h4>
       </div>
       ${actions}
     </div>
@@ -447,6 +450,7 @@ export function runView(input: {
 }): string {
   const { execution, item, outputs, snapshot, previews, remoteConnections = [] } = input;
   const busy = ["queued", "running"].includes(execution.status);
+  const taskPlan = taskPlanOutput(execution);
   const model = String(
     execution.model?.id ?? execution.model?.model ?? modelRef(execution.config)
   );
@@ -489,7 +493,7 @@ export function runView(input: {
           <div class="grid gap-2">${conversationView(execution, snapshot)}</div>
           ${outputs
             .filter(({ status }) => status === "pending")
-            .map((output) => approvalCard(output, busy))
+            .map((output) => approvalCard(output, busy, taskPlan))
             .join("")}
           <form class="mt-2 border-t border-base-300 pt-4" data-run-followup="${execution.id}">
             <label class="sr-only" for="run-followup-message">Continue conversation</label>
@@ -512,7 +516,7 @@ export function runView(input: {
                   const preview = previews.get(output.id);
                   return `<article class="rounded-box border border-base-300 bg-base-100 p-4">
                     <div class="flex items-start justify-between gap-3"><div><h4 class="font-semibold">${escapeHtml(
-                      outputName(output)
+                      outputName(output, taskPlan)
                     )}</h4>${statusBadge(output.status)}</div></div>
                     ${
                       output.reason
@@ -546,7 +550,7 @@ export function runView(input: {
 
 export function schedulesView(items: WorkItem[], schedules: Schedule[], executions: Execution[]): string {
   return `<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-base-content/60">Runs while Bees is open and this computer is awake. Goal schedules create one catch-up occurrence after downtime.</p>
+      <p class="text-sm text-base-content/60">Runs while Bees is open and this computer is awake. Task-plan schedules create one catch-up occurrence after downtime.</p>
       <button class="btn btn-primary btn-sm" data-action="new-schedule">New schedule</button>
     </div>
     ${
@@ -560,7 +564,7 @@ export function schedulesView(items: WorkItem[], schedules: Schedule[], executio
                 ({ workItemId }) => workItemId === schedule.workItemId || occurrenceIds.has(workItemId)
               ).slice(0, 3);
               const behavior = schedule.mode === "spawn_goal"
-                ? `new goal occurrence · ${schedule.role}`
+                ? `new task-plan occurrence · ${schedule.role}`
                 : "rerun item";
               return `<article class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(schedule.name)}</h3>

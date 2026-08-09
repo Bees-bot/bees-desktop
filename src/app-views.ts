@@ -69,7 +69,7 @@ import {
 import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
 import {
   PROCESS_LIBRARY,
-  processModule,
+  processEngine,
   type ProcessLibraryEntry
 } from "./processes/registry.js";
 import {
@@ -177,7 +177,7 @@ export function createMainViews(host: MainHost) {
     const history = host.shell.view === "process-runs" && host.shell.configProcessId === process.id;
     const scheduled = host.shell.view === "schedules" && host.shell.configProcessId === process.id;
     const running = host.runs.runningProcesses.has(process.id);
-    const studio = processModule(process.tags)?.mode === "studio";
+    const interactive = processEngine.isInteractive(process);
     const icon = (action: string, label: string, svg: string, extra = ""): string => `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${process.id}" data-team="${teamId}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${svg}</button>`;
     const open = editing || history || scheduled; // a right-hand view of this process is on screen
     return `<li class="group relative">
@@ -189,7 +189,7 @@ export function createMainViews(host: MainHost) {
         : ""}
       </button>
       <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${open ? "opacity-100" : ""}">
-        ${studio
+        ${interactive
         ? ""
         : icon(running ? "stop-process" : "start-process", running ? "Running. Click to stop." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, running ? "text-success" : "text-warning")}
         ${icon("open-process-runs", `Past runs of ${process.name}`, ACTION_ICONS.history, history ? "btn-active" : "")}
@@ -353,12 +353,16 @@ export function createMainViews(host: MainHost) {
     host.shell.setHeader(item.title, host.session.currentTeam()?.name);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
     const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
-    const studio = process ? host.workspaceController.processStudios.find((candidate) => candidate.matches(process)) : null;
+    const renderer = process
+      ? host.workspaceController.processRenderers.find(
+          (candidate) => candidate.id === processEngine.renderer(process)
+        )
+      : null;
     // The same sentence the inbox shows, above whatever this item's view is — a person working on
     // the item should not have to visit the inbox to learn it is stuck.
     const banner = escalationBanner(host.runs.supervise().get(item.id) ?? null);
-    if (process && studio) {
-      const content = await studio.render(item, process, runs);
+    if (process && renderer) {
+      const content = await renderer.render(item, process, runs);
       if (host.shell.view !== "item" || host.shell.activeItemId !== item.id)
         return;
       host.shell.swap(`${banner}${content}`);
@@ -435,8 +439,8 @@ export function createMainViews(host: MainHost) {
       return;
     }
     const stages = host.workspaceController.activeProcess.stages.filter(({ id }) => host.workspaceController.activeBoard?.stageIds.includes(id));
-    const projectStudio = processModule(host.workspaceController.activeProcess.tags)?.mode === "studio";
-    const running = projectStudio || host.runs.runningProcesses.has(host.workspaceController.activeProcess.id);
+    const interactive = processEngine.isInteractive(host.workspaceController.activeProcess);
+    const running = interactive || host.runs.runningProcesses.has(host.workspaceController.activeProcess.id);
     const filters = host.workspaceController.activeBoard.filters;
     const waiting = host.runs.supervise();
     const visible = host.workspaceController.items.filter((item) => !isFiltered(item, filters));
@@ -498,17 +502,20 @@ export function createMainViews(host: MainHost) {
                     <div class="card-actions items-center justify-end">
                       <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
                       <button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>
-                      ${!projectStudio && stageIndex > 0
-                  ? `<button class="btn btn-square btn-ghost btn-xs" aria-label="Move left" data-action="move-item" data-id="${item.id}" data-stage="${stages[stageIndex - 1]!.id}">←</button>`
-                  : ""}
-                      ${!projectStudio && stageIndex < stages.length - 1
-                  ? `<button class="btn btn-square btn-ghost btn-xs" aria-label="Move right" data-action="move-item" data-id="${item.id}" data-stage="${stages[stageIndex + 1]!.id}">→</button>`
-                  : ""}
+                      <div class="dropdown dropdown-end">
+                        <button class="btn btn-ghost btn-xs" tabindex="0">Move</button>
+                        <ul class="dropdown-content menu menu-sm z-20 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl" tabindex="0">
+                          ${processEngine.definition(host.workspaceController.activeProcess!).states
+                            .filter(({ stageId }) => stageId !== item.stageId)
+                            .map(({ stageId, name }) => `<li><button data-action="move-item" data-id="${item.id}" data-stage="${stageId}">${host.shell.escapeHtml(name)}</button></li>`)
+                            .join("")}
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 </article>`)
               .join("")}
-              ${!projectStudio || stageIndex === 0 ? `<button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${stage.id}">+ Add item</button>` : ""}
+              <button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${stage.id}">+ Add item</button>
             </div>
           </section>`;
         })
@@ -576,7 +583,9 @@ export function createMainViews(host: MainHost) {
     const selectable = [...own, ...unassigned];
     if (!selectable.some(({ id }) => id === host.shell.configAgentId))
       host.shell.configAgentId = selectable[0]?.id ?? "";
-    const studio = processModule(process.tags)?.mode === "studio";
+    const allowsSeveralAgents = process.stages.some((stage) =>
+      processEngine.allowsMultipleAgents(process, stage.id)
+    );
     const card = (agent: Agent): string => {
       const model = agent.config.provider && agent.config.model
         ? `${agent.config.provider} · ${agent.config.model}`
@@ -660,8 +669,8 @@ export function createMainViews(host: MainHost) {
         <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
           <header class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 p-4">
             <div><h3 class="font-bold">Agents by status</h3>
-              <p class="mt-1 text-sm text-base-content/55">${studio
-        ? "This process picks its agent by role, so several agents may share a status."
+              <p class="mt-1 text-sm text-base-content/55">${allowsSeveralAgents
+        ? "Statuses with several role bindings may use several agents."
         : "One agent per status. Pick one to configure it below, then save once."}</p></div>
             <button class="btn btn-primary btn-sm" type="submit" ${selectable.length ? "" : "disabled"}>Save agents</button>
           </header>
@@ -843,7 +852,7 @@ export function createMainViews(host: MainHost) {
               <span class="badge badge-outline badge-sm">Bundled</span>
             </div>
             <div class="flex flex-wrap gap-1.5">
-              <span class="badge badge-ghost badge-sm">${entry.stages.length} statuses</span>
+              <span class="badge badge-ghost badge-sm">${entry.states.length} statuses</span>
               <span class="badge badge-ghost badge-sm">${entry.agents.length} agents</span>
               ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
@@ -2055,8 +2064,8 @@ export function createMainViews(host: MainHost) {
 
   function processStateBadge(processId: string): string {
     const process = host.workspaceController.processes.find(({ id }) => id === processId);
-    if (process && processModule(process.tags)?.mode === "studio") {
-      return '<span class="badge badge-primary badge-sm">Studio</span>';
+    if (process && processEngine.isInteractive(process)) {
+      return '<span class="badge badge-primary badge-sm">Interactive</span>';
     }
     return host.runs.runningProcesses.has(processId)
       ? '<span class="badge badge-success badge-sm">Running</span>'
@@ -2065,9 +2074,9 @@ export function createMainViews(host: MainHost) {
 
   function processStatusButton(processId: string): string {
     const process = host.workspaceController.processes.find(({ id }) => id === processId);
-    // ponytail: studio processes have no process-level run, so the footer shows nothing here.
+    // ponytail: interactive processes have no process-level run, so the footer shows nothing here.
     // The board header carries the explanation, where people look for Run.
-    if (process && processModule(process.tags)?.mode === "studio")
+    if (process && processEngine.isInteractive(process))
       return "";
     const running = host.runs.runningProcesses.has(processId);
     return actionIconButton(running ? "stop-process" : "start-process", running ? "Running. Click to stop." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, processId, running ? "btn-ghost text-success" : "btn-ghost text-warning");
@@ -2075,8 +2084,8 @@ export function createMainViews(host: MainHost) {
 
   function processRunButtons(processId: string, size: string): string {
     const process = host.workspaceController.processes.find(({ id }) => id === processId);
-    if (process && processModule(process.tags)?.mode === "studio") {
-      return `<button class="btn btn-ghost ${size}" disabled>Run from Project Studio</button>`;
+    if (process && processEngine.isInteractive(process)) {
+      return `<button class="btn btn-ghost ${size}" disabled>Run from the item view</button>`;
     }
     const running = host.runs.runningProcesses.has(processId);
     return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${running ? " disabled" : ""}>Run</button><button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}"${running ? "" : " disabled"}>Stop</button>`;

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Execution, ExecutionOutput, Process, WorkItem } from "../../domain.js";
 import { goalsProcess } from "./definition.js";
-import { GoalsController, type GoalsHost } from "./controller.js";
+import { TaskPlanController, type TaskPlanHost } from "./controller.js";
 
 describe("Goals process controller", () => {
   it("owns task-plan approval", async () => {
-    const stages = goalsProcess.definition.stages.map((name, position) => ({
+    const stages = goalsProcess.definition.states.map(({ name }, position) => ({
       id: name.toLowerCase(),
       processId: "goals",
       name,
@@ -14,7 +14,13 @@ describe("Goals process controller", () => {
       archivedAt: null
     }));
     const item = { id: "goal", processId: "goals", stageId: "plan" } as WorkItem;
-    const process = { id: "goals", name: "Goals", stages } as Process;
+    const process = {
+      id: "goals",
+      name: "Goals",
+      tags: ["module:goals"],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      stages
+    } as Process;
     const host = {
       findWorkItem: vi.fn(() => item),
       findProcess: vi.fn(() => process),
@@ -30,8 +36,8 @@ describe("Goals process controller", () => {
       workerRoles: vi.fn(() => ["goal-worker"]),
       syncCheckpoint: vi.fn(),
       finishOutputReview: vi.fn()
-    } satisfies GoalsHost;
-    const controller = new GoalsController(host);
+    } satisfies TaskPlanHost;
+    const controller = new TaskPlanController(host);
     const output = { id: "output", logicalOutput: ".tasks.json" } as ExecutionOutput;
     const execution = { workItemId: item.id } as Execution;
 

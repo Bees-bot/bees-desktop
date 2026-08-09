@@ -93,7 +93,7 @@ function newStarterProcess(teamId: string, timestamp: string): {
 } {
   const template = starterProcessModule().definition;
   const processId = createId();
-  const stages = template.stages.map((name, position) => ({ id: createId(), name, position }));
+  const stages = template.states.map(({ name }, position) => ({ id: createId(), name, position }));
   return {
     processId,
     statements: [
@@ -410,8 +410,7 @@ export class LocalRepository {
     input: {
       deliveryId: string;
       prompt: string;
-      stages: string[];
-      goalStage?: string;
+      taskPlan?: ExecutionResult["taskPlan"];
       continuation: boolean;
       initialData?: ExecutionResult["initialData"];
       manualProjection?: boolean;
@@ -1565,7 +1564,7 @@ export class LocalRepository {
     );
     const expectedStages = new Set([sourceStageId, workStageId, waitingStageId, reviewStageId]);
     if (validStages.length !== expectedStages.size) {
-      throw new Error("The Goals process definition has changed");
+      throw new Error("The task-plan process definition has changed");
     }
 
     // ponytail: one small process-wide scan beats a dependency graph or dedupe service.
@@ -1658,15 +1657,10 @@ export class LocalRepository {
     return rows.map((row) => stringValue(row.reason)).reverse();
   }
 
-  /**
-   * `statusName` is what the agent asked for, verbatim. An unrecognized or missing
-   * name falls back to the next status by position, so a run that says nothing (or
-   * says something odd) still advances the way it always did.
-   */
   async checkpointWorkItem(
     workItemId: string,
     approvedFiles: string[],
-    statusName?: string,
+    targetStageId?: string,
     projectionExecutionId?: string
   ): Promise<void> {
     const rows = await this.database.query<Row>(
@@ -1681,17 +1675,16 @@ export class LocalRepository {
     const current = rows[0];
     if (!current) throw new Error("Work item not found");
     const stages = await this.database.query<Row>(
-      `SELECT id, name, position FROM stages
+      `SELECT id, position FROM stages
        WHERE process_id = ? AND archived_at IS NULL
        ORDER BY position`,
       [stringValue(current.processId)]
     );
-    const wanted = statusName?.trim().toLowerCase();
-    const next =
-      (wanted
-        ? stages.find((stage) => stringValue(stage.name).trim().toLowerCase() === wanted)
-        : undefined) ??
-      stages.find((stage) => Number(stage.position) > Number(current.position));
+    const requested = targetStageId?.trim();
+    const next = requested
+      ? stages.find((stage) => stringValue(stage.id) === requested)
+      : stages.find((stage) => Number(stage.position) > Number(current.position));
+    if (requested && !next) throw new Error("Target status not found");
     const last = stages.at(-1);
     const finished = !next || (last !== undefined && stringValue(next.id) === stringValue(last.id));
     const timestamp = now();
@@ -1758,7 +1751,7 @@ export class LocalRepository {
     nextRunAt: string;
   }): Promise<string> {
     if (input.mode === "spawn_goal" && !input.role?.trim()) {
-      throw new Error("A goal occurrence schedule requires an agent role");
+      throw new Error("A task-plan occurrence schedule requires an agent role");
     }
     if (input.mode === "run" && input.role) {
       throw new Error("An ordinary schedule cannot assign a goal agent role");

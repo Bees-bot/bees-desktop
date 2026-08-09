@@ -10,10 +10,11 @@ describe("bundled process library", () => {
 
     for (const entry of PROCESS_LIBRARY) {
       expect(entry.name.trim()).not.toBe("");
-      expect(entry.stages.length).toBeGreaterThan(0);
-      expect(new Set(entry.stages).size).toBe(entry.stages.length);
+      expect(entry.version).toBeGreaterThan(0);
+      expect(entry.states.length).toBeGreaterThan(0);
+      expect(new Set(entry.states.map(({ key }) => key)).size).toBe(entry.states.length);
       for (const agent of entry.agents) {
-        expect(entry.stages).toContain(agent.stage);
+        expect(entry.states.some(({ key }) => key === agent.state)).toBe(true);
         expect(agent.prompt.trim()).not.toBe("");
         expect(agent.provider.trim()).not.toBe("");
         expect(agent.model.trim()).not.toBe("");

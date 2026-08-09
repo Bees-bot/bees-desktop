@@ -71,64 +71,6 @@ export function parseTaskPlan(value: string): PlannedTask[] {
   return tasks;
 }
 
-/**
- * Small local models sometimes return the requested control value as their final text instead of
- * calling a file tool. Recover only the planner's two exact, privileged outputs.
- */
-export function recoverGoalPlannerOutput(
-  output: unknown
-): { statusName?: string; taskPlan?: string } | null {
-  const text =
-    typeof output === "string"
-      ? output
-      : output && typeof output === "object" && typeof (output as { text?: unknown }).text === "string"
-        ? (output as { text: string }).text
-        : "";
-  const trimmed = text.trim();
-  const candidate = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim() ?? trimmed;
-  if (candidate.toLowerCase() === GOALS_STAGES[1].toLowerCase()) {
-    return { statusName: GOALS_STAGES[1] };
-  }
-  if (candidate.startsWith("{") || candidate.startsWith("[")) {
-    return { taskPlan: `${JSON.stringify({ tasks: parseTaskPlan(candidate) }, null, 2)}\n` };
-  }
-  return null;
-}
-
-export function validateGoalRun(
-  currentStage: string,
-  outputs: string[],
-  statusName: string,
-  stages: readonly string[]
-): void {
-  const stage = currentStage.trim().toLowerCase();
-  const taskPlan = outputs.includes(TASK_PLAN_OUTPUT);
-  if (taskPlan) {
-    if (outputs.length !== 1) {
-      throw new Error(`${TASK_PLAN_OUTPUT} must be the run's only reviewable output`);
-    }
-    if (stage === GOALS_STAGES[2].toLowerCase() || stage === GOALS_STAGES[4].toLowerCase()) {
-      throw new Error("Waiting and Done cannot propose tasks");
-    }
-    return;
-  }
-  const target = stages.find(
-    (name) => name.trim().toLowerCase() === statusName.trim().toLowerCase()
-  );
-  if (stage === GOALS_STAGES[0].toLowerCase()) {
-    if (outputs.length || target?.trim().toLowerCase() !== GOALS_STAGES[1].toLowerCase()) {
-      throw new Error(`Goal planner must choose Work or write ${TASK_PLAN_OUTPUT} for approval`);
-    }
-    return;
-  }
-  if (!target) {
-    throw new Error(`Goal run must choose one of: ${stages.join(", ")}`);
-  }
-  if (target.trim().toLowerCase() === GOALS_STAGES[2].toLowerCase()) {
-    throw new Error("Waiting is reserved for goals with approved subtasks");
-  }
-}
-
 export const GOAL_PLANNER_PROMPT = `Decide first whether this goal needs planning at all.
 
 If one worker could finish it in a single run, create no task plan and choose Work. Planning is
