@@ -149,7 +149,27 @@ async function command(organizationId, workItemId, value) {
       }]
     });
   }
-  return handle.executeUpdate(commandUpdate, { args: [value] });
+  const result = await handle.executeUpdate(commandUpdate, { args: [value] });
+  if (value.type === "archive") {
+    // Archiving a task archives its whole subtask tree with it.
+    const descendants = database
+      .prepare(
+        `WITH RECURSIVE descendants(id) AS (
+           SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
+           UNION
+           SELECT w.id FROM work_items w
+           JOIN descendants d ON w.parent_id = d.id
+           WHERE w.deleted_at IS NULL
+         )
+         SELECT id FROM descendants`
+      )
+      .all(workItemId);
+    for (const { id } of descendants) {
+      const descendant = workflowInput(organizationId, String(id));
+      await (await ensure(descendant)).executeUpdate(commandUpdate, { args: [value] });
+    }
+  }
+  return result;
 }
 
 function authorized(request) {

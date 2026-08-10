@@ -104,6 +104,38 @@ describe("supervision", () => {
     ).toMatchObject({ kind: "stalled", reason: "run-failed", detail: "Runtime unavailable" });
   });
 
+  it("keeps a parent with open subtasks out of the inbox", () => {
+    expect(workState(facts({ openChildren: 3, hasAgent: false }))).toMatchObject({
+      kind: "scheduled",
+      reason: "subtasks-pending"
+    });
+    // Subtasks all settled: the parent answers for itself again.
+    expect(workState(facts({ openChildren: 0, hasAgent: false }))).toMatchObject({
+      kind: "waiting",
+      reason: "no-agent"
+    });
+  });
+
+  it("keeps waits only an agent can clear out of the inbox", () => {
+    // A parent blocked on its subagent is not the human's problem yet.
+    expect(
+      workState(facts({ item: item({ waits: [{ kind: "dependency", reason: "Waiting on subagent", resolvedAt: null }] as WorkItem["waits"] }) }))
+    ).toMatchObject({ kind: "scheduled", reason: "wait-active" });
+    // But a human wait alongside it still surfaces.
+    expect(
+      workState(
+        facts({
+          item: item({
+            waits: [
+              { kind: "dependency", reason: "Waiting on subagent", resolvedAt: null },
+              { kind: "human", reason: "Answer the question", resolvedAt: null }
+            ] as WorkItem["waits"]
+          })
+        })
+      )
+    ).toMatchObject({ kind: "waiting", reason: "wait-active", detail: "Answer the question" });
+  });
+
   it("puts a run in flight ahead of every complaint about the item", () => {
     // A running step is progress even when the last one failed and an agent looks unavailable.
     expect(

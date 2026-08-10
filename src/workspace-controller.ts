@@ -122,8 +122,8 @@ export function createWorkspaceController(host: MainHost) {
     return list.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt);
   }
 
-  function projectRuntime(item: WorkItem, runtime: WorkItemRuntimeState): WorkItem {
-    const process = processes.find(({ id }) => id === runtime.processId);
+  function projectRuntime(item: WorkItem, runtime: WorkItemRuntimeState, processList: Process[] = processes): WorkItem {
+    const process = processList.find(({ id }) => id === runtime.processId);
     return {
       ...item,
       processId: runtime.processId,
@@ -143,15 +143,15 @@ export function createWorkspaceController(host: MainHost) {
     };
   }
 
-  async function hydrateRuntime(workItems: WorkItem[]): Promise<WorkItem[]> {
+  async function hydrateRuntime(workItems: WorkItem[], processList: Process[] = processes): Promise<WorkItem[]> {
     return Promise.all(workItems.map(async (item) => {
       try {
         const runtime = await host.workflowRuntime.state(item.id);
         runtimeCache.set(item.id, runtime);
-        return projectRuntime(item, runtime);
+        return projectRuntime(item, runtime, processList);
       } catch {
         const cached = runtimeCache.get(item.id);
-        return cached ? projectRuntime(item, cached) : { ...item, waits: [], runtime: null };
+        return cached ? projectRuntime(item, cached, processList) : { ...item, waits: [], runtime: null };
       }
     }));
   }
@@ -179,6 +179,8 @@ export function createWorkspaceController(host: MainHost) {
       }
       if (undashboarded.length)
         teamBoards = await host.repository.listBoards(team.id);
+      // Runtime owns archive state, so counting raw rows would keep archived tasks in the badge.
+      workItems = await hydrateRuntime(workItems, teamProcesses);
       dashboardsByTeam.set(team.id, teamProcesses.flatMap((process) => {
         const board = teamBoards.find(({ processId }) => processId === process.id);
         if (!board)

@@ -199,6 +199,9 @@ export function createRunController(host: MainHost) {
               : "Choose a folder"
           }
           : {}),
+        openChildren: host.workspaceController.teamItems.filter(
+          (child) => child.parentId === item.id && !child.isTerminal && !child.archivedAt
+        ).length,
         ...(agent && eligibility && !eligibility.active ? { agentBlocked: eligibility.reason } : {}),
         // Interactive processes drive themselves from their renderer rather than a process run.
         hasAgent: interactive || Boolean(agent?.config.prompt.trim()),

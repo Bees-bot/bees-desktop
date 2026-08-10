@@ -22,6 +22,7 @@ export type WorkStateReason =
   | "step-failed"
   | "run-failed"
   | "human-step"
+  | "subtasks-pending"
   | "agent-unavailable"
   | "no-agent"
   | "process-stopped"
@@ -47,6 +48,8 @@ export interface WorkFacts {
   pendingApprovals: number;
   /** The next step only a person can take. Set for studio items, which never self-start. */
   humanStep?: string;
+  /** Open (non-terminal, non-archived) child items. A parent with any is waiting on them. */
+  openChildren?: number;
   /** Why the agent for this status cannot run here, when it cannot. */
   agentBlocked?: string;
   /** False when no agent would ever pick this status up — a human status by construction. */
@@ -100,15 +103,13 @@ const RULES: ReadonlyArray<(facts: WorkFacts) => WorkState | null> = [
   },
 
   ({ item }) => {
-    const wait = item.waits.find(({ resolvedAt }) => !resolvedAt);
-    return wait
-      ? state(
-          "waiting",
-          "wait-active",
-          wait.kind === "human" ? "Waiting on you" : "Waiting",
-          wait.reason
-        )
-      : null;
+    // Only waits a person can resolve belong in the inbox; dependency/execution/
+    // external-event/schedule waits clear themselves, so they read as scheduled.
+    const open = item.waits.filter(({ resolvedAt }) => !resolvedAt);
+    const human = open.find(({ kind }) => kind === "human" || kind === "manual");
+    if (human) return state("waiting", "wait-active", "Waiting on you", human.reason);
+    const wait = open[0];
+    return wait ? state("scheduled", "wait-active", "Waiting", wait.reason) : null;
   },
 
   ({ runs }) => {
@@ -123,6 +124,18 @@ const RULES: ReadonlyArray<(facts: WorkFacts) => WorkState | null> = [
         )
       : null;
   },
+
+  // Before every "a person owes this" rule below: a parent whose subtasks are still open is
+  // waiting on its agents, not on a human — it comes back on its own when they finish.
+  ({ openChildren }) =>
+    openChildren
+      ? state(
+          "scheduled",
+          "subtasks-pending",
+          "Waiting on subtasks",
+          `${openChildren} subtask${openChildren === 1 ? "" : "s"} still open`
+        )
+      : null,
 
   ({ humanStep }) =>
     humanStep ? state("waiting", "human-step", "Waiting on you", humanStep) : null,
