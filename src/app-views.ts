@@ -649,7 +649,9 @@ export function createMainViews(host: MainHost) {
   /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
    *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
    *  files and still-pending run outputs both appear: a pending output is badged, reads from its
-   *  run workspace, and edits save back there until approval publishes it to the team folder. */
+   *  run workspace, and edits save back there until approval publishes it to the team folder.
+   *  A published file a pending output will overwrite is hidden while that output is pending —
+   *  showing both invites editing the copy approval is about to replace. */
   async function boardItemFiles(item: WorkItem): Promise<string> {
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
     const pending = host.runs.executionOutputs.filter(
@@ -657,22 +659,31 @@ export function createMainViews(host: MainHost) {
     );
     if (!item.logicalFiles.length && !pending.length)
       return `<p class="text-sm text-base-content/55">No files referenced.</p>`;
+    const superseded = new Set(pending.map(({ logicalDestination }) => logicalDestination));
+    const visibleFiles = item.logicalFiles.filter((value) => {
+      try {
+        const reference = parseLogicalFileReference(value);
+        return reference.locationId !== null || !superseded.has(reference.path);
+      } catch {
+        return true;
+      }
+    });
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
-    const labels = displayFileReferences(item.logicalFiles, locations);
-    const references = [...item.logicalFiles, ...pending.map(({ id }) => `${PENDING_FILE_PREFIX}${id}`)];
+    const labels = displayFileReferences(visibleFiles, locations);
+    const references = [...visibleFiles, ...pending.map(({ id }) => `${PENDING_FILE_PREFIX}${id}`)];
     const selected = references.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
     const chip = (reference: string, label: string, badge: string): string =>
       `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(label)}${badge}</button>`;
     const list = `<div class="mb-4 flex flex-wrap gap-2">${[
-      ...item.logicalFiles.map((reference, index) => chip(reference, labels[index] ?? reference, "")),
+      ...visibleFiles.map((reference, index) => chip(reference, labels[index] ?? reference, "")),
       ...pending.map((output) =>
-        chip(`${PENDING_FILE_PREFIX}${output.id}`, output.logicalOutput, ` <span class="badge badge-warning badge-xs">awaiting approval</span>`))
+        chip(`${PENDING_FILE_PREFIX}${output.id}`, output.logicalDestination, ` <span class="badge badge-warning badge-xs">awaiting approval</span>`))
     ].join("")}</div>`;
     if (!selected)
       return `${list}<p class="text-sm text-base-content/55">Select a file to preview it.</p>`;
     const pendingOutput = pending.find(({ id }) => `${PENDING_FILE_PREFIX}${id}` === selected);
     const fileName = pendingOutput?.logicalOutput ?? selected;
-    const label = pendingOutput?.logicalOutput ?? labels[item.logicalFiles.indexOf(selected)] ?? selected;
+    const label = pendingOutput?.logicalDestination ?? labels[visibleFiles.indexOf(selected)] ?? selected;
     let content: string | null = null;
     try {
       const teamRoot = await host.workspaceController.requireTeamRoot();
@@ -691,9 +702,9 @@ export function createMainViews(host: MainHost) {
     }
     if (content === null)
       return `${list}<p class="text-sm text-base-content/55">${host.shell.escapeHtml(label)} does not exist yet.</p>`;
-    const note = pendingOutput
+    const note = `<p class="mb-2 font-mono text-xs text-base-content/70">${host.shell.escapeHtml(label)}</p>${pendingOutput
       ? `<p class="mb-2 text-sm text-base-content/55">Awaiting approval — approve it in the Approval tab to publish it to the team folder.</p>`
-      : "";
+      : ""}`;
     if (host.shell.boardFileEditing) {
       const markdown = /\.mdx?$/i.test(fileName);
       const preview = markdown
