@@ -931,7 +931,9 @@ fn ensure_knowledge_worker_blocking(
         &config_path,
         &serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?,
     )?;
-    let port = 18788;
+    // A free port like the other sidecars. On a fixed one an orphan keeps it and every later
+    // launch cannot bind.
+    let port = available_loopback_port()?;
     let health_url = format!("http://127.0.0.1:{port}/health");
     let url = format!("http://127.0.0.1:{port}/mcp");
     let log_path = knowledge_log_path(app)?;
@@ -2734,17 +2736,142 @@ fn cleanup_workspace(app: tauri::AppHandle, workspace_root: String) -> Result<()
     fs::remove_dir_all(workspace).map_err(|error| error.to_string())
 }
 
+/// Columns schema.sql declares, per table. Tracks paren depth to find each table body.
+fn declared_columns(schema: &str) -> Vec<(String, Vec<(String, String)>)> {
+    const MARKER: &str = "CREATE TABLE IF NOT EXISTS ";
+    let uncommented = schema
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut tables = Vec::new();
+    let mut rest = uncommented.as_str();
+    while let Some(marker) = rest.find(MARKER) {
+        rest = &rest[marker + MARKER.len()..];
+        let Some(open) = rest.find('(') else { break };
+        let table = rest[..open].trim().to_string();
+        let mut depth = 0usize;
+        let mut close = None;
+        for (offset, character) in rest[open..].char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        close = Some(open + offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else { break };
+        tables.push((table, split_columns(&rest[open + 1..close])));
+        rest = &rest[close..];
+    }
+    tables
+}
+
+/// Splits a table body on its top-level commas, dropping table-level constraints.
+fn split_columns(body: &str) -> Vec<(String, String)> {
+    let mut columns = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for character in body.chars() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                collect_column(&mut columns, &current);
+                current.clear();
+                continue;
+            }
+            _ => {}
+        }
+        current.push(character);
+    }
+    collect_column(&mut columns, &current);
+    columns
+}
+
+fn collect_column(columns: &mut Vec<(String, String)>, raw: &str) {
+    const CONSTRAINTS: [&str; 5] = ["PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"];
+    let definition = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let Some(name) = definition.split_whitespace().next() else {
+        return;
+    };
+    if CONSTRAINTS
+        .iter()
+        .any(|keyword| name.eq_ignore_ascii_case(keyword))
+    {
+        return;
+    }
+    columns.push((name.to_string(), definition));
+}
+
+/// CREATE TABLE IF NOT EXISTS does nothing to a table that exists, so a column added after a
+/// release never reaches an older database. Add it first, before the indexes and triggers.
+fn add_missing_columns(
+    connection: &Connection,
+    schema: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for (table, columns) in declared_columns(schema) {
+        let existing = connection
+            .prepare(&format!("PRAGMA table_info({table})"))?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        // New table; the batch below creates it.
+        if existing.is_empty() {
+            continue;
+        }
+        for (name, definition) in columns {
+            if existing.iter().any(|column| column == &name) {
+                continue;
+            }
+            // SQLite is the authority on what it can add: it refuses UNIQUE and PRIMARY KEY
+            // outright, and NOT NULL without a default once the table has rows. Stop on those
+            // rather than half-apply a schema.
+            connection
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {definition}"))
+                .map_err(|error| format!("{table}.{name} needs a hand-written migration: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
 fn initialize_database(app: &tauri::App) -> Result<Database, Box<dyn std::error::Error>> {
     let app_data = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data)?;
     let connection = Connection::open(app_data.join("bees.db"))?;
-    connection.execute_batch(include_str!("../schema.sql"))?;
+    let schema = include_str!("../schema.sql");
+    add_missing_columns(&connection, schema)?;
+    connection.execute_batch(schema)?;
     Ok(Database(Mutex::new(connection)))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+    // A second copy shares the database, models and ports, and its reap kills the running
+    // llama-server. Raise the existing window instead. Release only, so tauri dev still works.
+    #[cfg(all(desktop, not(debug_assertions)))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _directory| {
+            // Linux and Windows start a new process for a bees:// link, and that is the one
+            // being turned away here, so pass it on or the OAuth callback is lost.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.deep_link().handle_cli_arguments(argv.iter());
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -2843,6 +2970,58 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v0.1.1 shipped without stages.is_terminal and re-running the schema does not add it.
+    #[test]
+    fn an_older_database_gains_a_column_added_after_its_release() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch("CREATE TABLE IF NOT EXISTS stages (id TEXT PRIMARY KEY, name TEXT);")
+            .expect("the schema that shipped");
+        connection
+            .execute_batch("INSERT INTO stages (id, name) VALUES ('review', 'Review');")
+            .expect("a row the user already has");
+
+        let schema = "CREATE TABLE IF NOT EXISTS stages (\n  id TEXT PRIMARY KEY,\n  name TEXT,\n  -- added after the release\n  is_terminal INTEGER NOT NULL DEFAULT 0 CHECK (is_terminal IN (0, 1))\n);";
+        add_missing_columns(&connection, schema).expect("column added");
+        connection.execute_batch(schema).expect("schema reapplied");
+
+        let terminal: i64 = connection
+            .query_row("SELECT is_terminal FROM stages WHERE id = 'review'", [], |row| row.get(0))
+            .expect("the existing row keeps its place and takes the default");
+        assert_eq!(terminal, 0);
+
+        // Running it again must do nothing rather than fail on a duplicate column.
+        add_missing_columns(&connection, schema).expect("second run is a no-op");
+    }
+
+    /// ALTER TABLE cannot add these to a table with rows.
+    #[test]
+    fn a_column_needing_a_real_migration_is_refused() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch("CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY);")
+            .expect("existing table");
+
+        let schema = "CREATE TABLE IF NOT EXISTS teams (\n  id TEXT PRIMARY KEY,\n  slug TEXT UNIQUE\n);";
+        assert!(add_missing_columns(&connection, schema).is_err());
+    }
+
+    /// Constraints are not columns, and a table the batch has yet to create is left alone.
+    #[test]
+    fn table_constraints_and_absent_tables_are_skipped() {
+        let parsed = declared_columns(
+            "CREATE TABLE IF NOT EXISTS runs (\n  id TEXT PRIMARY KEY,\n  team_id TEXT NOT NULL,\n  state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'done')),\n  FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE\n);",
+        );
+        let (table, columns) = parsed.first().expect("one table");
+        assert_eq!(table, "runs");
+        let names = columns.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>();
+        assert_eq!(names, ["id", "team_id", "state"]);
+
+        let connection = Connection::open_in_memory().expect("database");
+        add_missing_columns(&connection, "CREATE TABLE IF NOT EXISTS runs (\n  id TEXT PRIMARY KEY\n);")
+            .expect("an absent table is the batch's job, not ours");
+    }
 
     #[test]
     fn standing_feedback_can_be_undone() {
@@ -3075,5 +3254,72 @@ mod tests {
         assert_eq!(server_override_from(args(&[]), None), "");
         // A trailing `--server` with nothing after it must not panic on the missing value.
         assert_eq!(server_override_from(args(&["--server"]), None), "");
+    }
+}
+
+#[cfg(test)]
+mod real_database_tests {
+    use super::*;
+
+    /// Real schema.sql against a copy of this machine's database, when there is one. Skipped
+    /// elsewhere. A fixture cannot catch schema.sql drifting past a database from an old release.
+    #[test]
+    fn upgrades_the_database_this_machine_already_has() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+        let live =
+            PathBuf::from(home).join("Library/Application Support/bot.bees.desktop/bees.db");
+        if !live.exists() {
+            return;
+        }
+
+        // A copy, so the real one is untouched.
+        let copy = std::env::temp_dir().join(format!(
+            "bees-upgrade-{}.db",
+            loopback_token().expect("random name")
+        ));
+        fs::copy(&live, &copy).expect("copy the live database");
+        let connection = Connection::open(&copy).expect("open the copy");
+
+        let stages_before: i64 = connection
+            .query_row("SELECT count(*) FROM stages", [], |row| row.get(0))
+            .unwrap_or(0);
+
+        let schema = include_str!("../schema.sql");
+        add_missing_columns(&connection, schema).expect("missing columns are addable");
+        connection.execute_batch(schema).expect("schema applies");
+
+        for (table, columns) in declared_columns(schema) {
+            let present = connection
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .expect("table info")
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("column names")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("column names");
+            if present.is_empty() {
+                continue;
+            }
+            for (name, _) in columns {
+                assert!(present.contains(&name), "{table}.{name} missing after upgrade");
+            }
+        }
+
+        let stages_after: i64 = connection
+            .query_row("SELECT count(*) FROM stages", [], |row| row.get(0))
+            .unwrap_or(0);
+        assert_eq!(stages_before, stages_after, "an upgrade must not lose rows");
+
+        // The query that fails on a v0.1.1 database has to work on the upgraded one.
+        connection
+            .prepare("SELECT id, position, is_terminal FROM stages WHERE archived_at IS NULL")
+            .expect("the approval path's query")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("rows");
+
+        let _ = fs::remove_file(&copy);
     }
 }
