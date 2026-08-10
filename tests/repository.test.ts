@@ -315,7 +315,7 @@ describe("local repository", () => {
       waiting!.id,
       review!.id,
       [{ key: "bad", title: "Bad", description: "Use an unapproved file", role: "goal-worker", effect: "read", inputs: ["private.md"] }]
-    )).rejects.toThrow("not approved on its parent");
+    )).rejects.toThrow(`Task 1 ("Bad") needs "private.md"`);
 
     const childIds = await repository.approveTaskPlan(
       output!.id,
@@ -376,6 +376,117 @@ describe("local repository", () => {
       [{ key: "build", title: "Build again", description: "Duplicate", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] }]
     )).resolves.toEqual([]);
     expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: plan!.id });
+  });
+
+  it("blocks task-plan approval until the run's other outputs are decided", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const [plan, work, waiting, review] = goals.stages;
+    const parentId = await repository.createWorkItem(goals.id, {
+      stageId: plan!.id,
+      title: "Audit the ORM"
+    });
+    const executionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan." },
+      workItemId: parentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(executionId, ["audit-orm-discovery", TASK_PLAN_OUTPUT]);
+    const outputs = await repository.listExecutionOutputs(executionId);
+    const fileOutput = outputs.find(({ logicalOutput }) => logicalOutput === "audit-orm-discovery")!;
+    const planOutput = outputs.find(({ logicalOutput }) => logicalOutput === TASK_PLAN_OUTPUT)!;
+    const tasks = [{
+      key: "fix",
+      title: "Fix",
+      description: "Act on the audit",
+      role: "goal-worker",
+      effect: "prepare" as const,
+      inputs: ["audit-orm-discovery"]
+    }];
+
+    await expect(repository.approveTaskPlan(
+      planOutput.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, tasks
+    )).rejects.toThrow("other outputs");
+
+    await repository.decideExecutionOutput(fileOutput.id, "approved");
+    const childIds = await repository.approveTaskPlan(
+      planOutput.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, tasks
+    );
+    expect(childIds).toHaveLength(1);
+    expect(await repository.getWorkItem(childIds[0]!)).toMatchObject({
+      logicalFiles: ["audit-orm-discovery"]
+    });
+    expect((await repository.getWorkItem(parentId))?.logicalFiles).toContain("audit-orm-discovery");
+  });
+
+  it("guides plans whose tasks depend on a sibling task's output", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const [plan, work, waiting, review] = goals.stages;
+    const parentId = await repository.createWorkItem(goals.id, {
+      stageId: plan!.id,
+      title: "Audit the ORM"
+    });
+    const executionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan." },
+      workItemId: parentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
+    const [planOutput] = await repository.listExecutionOutputs(executionId);
+    const discover = {
+      key: "audit-orm-discovery",
+      title: "Discover ORM usage",
+      description: "Map usage",
+      role: "goal-worker",
+      effect: "prepare" as const,
+      inputs: []
+    };
+    const report = {
+      key: "report",
+      title: "Compile audit report",
+      description: "Write it up",
+      role: "goal-worker",
+      effect: "prepare" as const,
+      inputs: ["audit-orm-discovery"]
+    };
+
+    await expect(repository.approveTaskPlan(
+      planOutput!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, [discover, report]
+    )).rejects.toThrow(`which task 1 ("Discover ORM usage") is expected to produce`);
+
+    const [discoverId] = await repository.approveTaskPlan(
+      planOutput!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, [discover], false
+    );
+    await expect(repository.approveTaskPlan(
+      planOutput!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, [report], false
+    )).rejects.toThrow(`produced by the task "Discover ORM usage", which has not finished yet`);
+
+    // The worker names its files itself — the dependency resolves to whatever was approved.
+    const childExecutionId = await repository.createExecution({
+      agentId: "goal-worker",
+      config: { prompt: "Work." },
+      workItemId: discoverId!,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(childExecutionId, ["discovery-notes.md"]);
+    const [discoverOutput] = await repository.listExecutionOutputs(childExecutionId);
+
+    await expect(repository.approveTaskPlan(
+      planOutput!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, [report], false
+    )).rejects.toThrow(`These subtasks have files waiting for your review: "Discover ORM usage" (discovery-notes.md)`);
+
+    await repository.decideExecutionOutput(discoverOutput!.id, "approved");
+    const [reportId] = await repository.approveTaskPlan(
+      planOutput!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id, [report]
+    );
+    expect(await repository.getWorkItem(reportId!)).toMatchObject({
+      logicalFiles: ["discovery-notes.md"]
+    });
   });
 
   it("validates checkpoint targets without changing workflow state", async () => {

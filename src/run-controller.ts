@@ -538,9 +538,13 @@ export function createRunController(host: MainHost) {
           // A task plan is the worker's own decomposition, not a deliverable a human authored —
           // spawn every proposed task automatically instead of waiting for manual selection.
           const settledExecution = execution;
-          const planOutput = settledExecution.status === "completed"
-            ? (await host.repository.listExecutionOutputs(settledExecution.id, "pending"))
-              .find(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, settledExecution))
+          const pendingOutputs = settledExecution.status === "completed"
+            ? await host.repository.listExecutionOutputs(settledExecution.id, "pending")
+            : [];
+          // A plan alongside pending file outputs waits for the human: its tasks may depend on
+          // files that are still undecided, and approveTaskPlan rejects that ordering.
+          const planOutput = pendingOutputs.length === 1
+            ? pendingOutputs.find(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, settledExecution))
             : undefined;
           if (planOutput) {
             const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);

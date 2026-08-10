@@ -236,3 +236,7 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
 @media (prefers-reduced-motion: reduce) {
   button, .card, .menu button { transition: none; }
 }
+
+/* Sidebar toggle icon: arrow points left when open, right when collapsed. */
+#app-drawer-open[aria-expanded="true"] .drawer-arrow-open { display: none; }
+#app-drawer-open[aria-expanded="false"] .drawer-arrow-close { display: none; }

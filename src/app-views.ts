@@ -488,7 +488,7 @@ export function createMainViews(host: MainHost) {
    * field editable in place. Field names match the approval dialog so both submit the same shape.
    * An already-approved task renders as a settled row — it exists as a work item now.
    */
-  function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean): string {
+  function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean, proposed: PlannedTask[] = []): string {
     if (approved) {
       return `<article class="rounded-box border border-success/30 bg-success/5 p-3">
         <div class="flex flex-wrap items-center gap-2">
@@ -525,13 +525,26 @@ export function createMainViews(host: MainHost) {
                 .join("")}</div>
             </div>`
           : ""}
+        ${task.inputs.some((input) => !item.logicalFiles.includes(input))
+          ? `<div><span class="label-text text-xs text-warning">Needs approval first</span>
+              <div class="mt-1 flex flex-wrap gap-3">${task.inputs
+                .filter((input) => !item.logicalFiles.includes(input))
+                .map((input) => {
+                  const producer = proposed.findIndex((other) => other !== task && other.key === input);
+                  const from = producer !== -1 ? ` (from task ${producer + 1})` : "";
+                  return `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-xs text-warning">${host.shell.escapeHtml(input)}${from}</span></label>`;
+                })
+                .join("")}</div>
+              <p class="mt-1 text-xs text-base-content/60">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
+            </div>`
+          : ""}
       </div>
     </article>`;
   }
 
   /** The whole proposed plan as one inline form: Approve All on top, one card per task with
    *  its own Approve button. The plan settles once nothing is left pending. */
-  function taskPlanApprovalForm(item: WorkItem, output: ExecutionOutput, proposed: PlannedTask[], busy: boolean): string {
+  function taskPlanApprovalForm(item: WorkItem, output: ExecutionOutput, proposed: PlannedTask[], busy: boolean, blocked = false, blockingTasks: string[] = []): string {
     const approved = new Set(host.workspaceController.teamItems
       .filter(({ processId, goal }) => processId === item.processId && goal?.key)
       .map(({ goal }) => goal!.key));
@@ -540,12 +553,20 @@ export function createMainViews(host: MainHost) {
       <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div class="text-xs font-bold uppercase tracking-wide text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
         <div class="flex gap-2">
-          <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy ? "disabled" : ""}>Approve all</button>
+          <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
           <button class="btn btn-error btn-outline btn-sm" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
         </div>
       </div>
+      ${blocked
+        ? `<p class="mb-3 text-xs font-semibold text-warning">Approve or reject this run's file outputs first — the plan's tasks may depend on them.</p>`
+        : ""}
+      ${blockingTasks.length
+        ? `<p class="mb-3 text-xs font-semibold text-warning">Blocked: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>`
+        : ""}
       <p class="mb-3 text-xs text-base-content/60">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
-      <div class="grid gap-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key))).join("")}</div>
+      <fieldset class="contents" ${blocked || blockingTasks.length ? "disabled" : ""}>
+        <div class="grid gap-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
+      </fieldset>
     </form>`;
   }
 
@@ -558,6 +579,12 @@ export function createMainViews(host: MainHost) {
         outputs: host.runs.executionOutputs.filter(({ executionId, status }) => executionId === run.id && status === "pending")
       }))
       .filter(({ outputs }) => outputs.length);
+    // Each subtask's files are reviewed on the subtask's own item; the parent only reports
+    // which subtasks still block its plan.
+    const blockingChildren = host.workspaceController.teamItems
+      .filter(({ parentId }) => parentId === item.id)
+      .filter((child) => host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" &&
+        host.runs.executions.some(({ id, workItemId }) => id === executionId && workItemId === child.id)));
     if (!pending.length)
       return `<p class="text-sm text-base-content/55">Nothing is waiting for approval on this item.</p>`;
     const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
@@ -572,7 +599,7 @@ export function createMainViews(host: MainHost) {
             .readTaskPlan(output, run, mapping.localPath)
             .catch(() => null);
           if (proposed) {
-            cards.push(taskPlanApprovalForm(item, output, proposed, busy));
+            cards.push(taskPlanApprovalForm(item, output, proposed, busy, outputs.length > 1, blockingChildren.map(({ title }) => title)));
             continue;
           }
         }
@@ -668,17 +695,23 @@ export function createMainViews(host: MainHost) {
       ? `<p class="mb-2 text-sm text-base-content/55">Awaiting approval — approve it in the Approval tab to publish it to the team folder.</p>`
       : "";
     if (host.shell.boardFileEditing) {
-      return `${list}${note}<form data-board-file-form class="grid gap-3">
+      const markdown = /\.mdx?$/i.test(fileName);
+      const preview = markdown
+        ? renderMarkdown(content)
+        : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`;
+      return `${list}${note}<form data-board-file-form class="grid gap-3" ${markdown ? "data-markdown" : ""}>
           <input type="hidden" name="reference" value="${host.shell.escapeHtml(selected)}">
-          <textarea name="contents" class="textarea textarea-bordered h-72 font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
+          <div class="grid grid-cols-2 gap-3">
+            <textarea name="contents" class="textarea textarea-bordered h-[60vh] w-full font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
+            <article data-board-file-preview class="markdown-viewer h-[60vh] overflow-auto rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${preview}</article>
+          </div>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Cancel</button>
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
           </div>
         </form>`;
     }
-    return `${list}${note}<div class="mb-2 flex justify-end"><button class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Edit</button></div>
-      <article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(fileName)
+    return `${list}${note}<article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(fileName)
         ? renderMarkdown(content)
         : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
   }
@@ -708,15 +741,18 @@ export function createMainViews(host: MainHost) {
           <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
-          <button class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Edit</button>
-          <button class="btn btn-ghost btn-square btn-sm" data-action="close-board-item" aria-label="Close">✕</button>
+          ${tab === "approval" || tab === "conversation"
+            ? ""
+            : `<button class="btn btn-ghost btn-sm"
+                data-action="${tab === "files" ? "toggle-board-file-edit" : "toggle-board-item-edit"}"
+                ${tab === "files" && !host.shell.boardFileRef ? "disabled" : ""}>Edit</button>`}
         </div>
       </div>
       <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
         ${tabButton("details", "Details")}
         ${tabButton("approval", `Approval${pendingCount ? ` <span class="badge badge-warning badge-xs">${pendingCount}</span>` : ""}`)}
         ${tabButton("conversation", `Conversation${runs.length ? ` (${runs.length})` : ""}`)}
-        ${tabButton("files", `Files${item.logicalFiles.length ? ` (${item.logicalFiles.length})` : ""}`)}
+        ${tabButton("files", `Files (${item.logicalFiles.length + pendingCount})`)}
       </div>
       ${body}
     </div>`;
@@ -2274,24 +2310,16 @@ export function createMainViews(host: MainHost) {
   function renderNewItem(): void {
     host.shell.setHeader("New work item", host.workspaceController.activeBoard?.name ?? host.session.currentTeam()?.name);
     const stage = host.workspaceController.activeProcess?.stages.find(({ id }) => id === host.shell.newItemStageId);
-    host.shell.swap(`<form class="grid max-w-3xl gap-4" data-new-item>
-        <label class="form-control">
-          <span class="label-text mb-1">Title</span>
-          <input class="input input-bordered" name="title" autofocus>
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">Description</span>
-          <textarea class="textarea textarea-bordered min-h-40" name="description"></textarea>
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">Owner</span>
-          <input class="input input-bordered" name="owner">
-        </label>
-        <div class="form-control">
-          <span class="label-text mb-1">Files</span>
-          ${filePickerHtml(host.shell.newItemSources)}
-        </div>
-        <div class="flex items-center gap-2">
+    host.shell.swap(`<form class="grid max-w-3xl grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-4" data-new-item>
+        <label class="label-text" for="new-item-title">Title</label>
+        <input class="input input-bordered w-full" id="new-item-title" name="title" autofocus>
+        <label class="label-text self-start pt-3" for="new-item-description">Description</label>
+        <textarea class="textarea textarea-bordered min-h-40 w-full" id="new-item-description" name="description"></textarea>
+        <label class="label-text" for="new-item-owner">Owner</label>
+        <input class="input input-bordered w-full" id="new-item-owner" name="owner">
+        <span class="label-text self-start pt-2">Files</span>
+        <div class="min-w-0">${filePickerHtml(host.shell.newItemSources)}</div>
+        <div class="col-start-2 flex items-center gap-2">
           <button class="btn btn-primary" type="submit">Create item</button>
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
           ${stage ? `<span class="text-sm text-base-content/50">Lands in ${host.shell.escapeHtml(stage.name)}</span>` : ""}

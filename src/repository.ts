@@ -1630,7 +1630,8 @@ export class LocalRepository {
   ): Promise<string[]> {
     if (!tasks.length) throw new Error("Select at least one task to approve");
     const pending = await this.database.query<Row>(
-      `SELECT w.process_id AS processId, w.logical_files_json AS logicalFilesJson
+      `SELECT w.process_id AS processId, w.logical_files_json AS logicalFilesJson,
+              o.execution_id AS executionId
        FROM execution_outputs o
        JOIN executions e ON e.id = o.execution_id
        JOIN work_items w ON w.id = e.work_item_id
@@ -1638,13 +1639,85 @@ export class LocalRepository {
       [outputId, parentId, sourceStageId]
     );
     if (!pending[0]) throw new Error("This task plan is no longer waiting for approval");
-    const parentFiles = new Set(parseJson<string[]>(pending[0].logicalFilesJson, []));
-    for (const [index, task] of tasks.entries()) {
-      const unavailable = task.inputs.find((input) => !parentFiles.has(input));
-      if (unavailable) {
-        throw new Error(`Task ${index + 1} input is not approved on its parent: ${unavailable}`);
-      }
+    // Child-task outputs count too: a plan approved one task at a time makes each task's
+    // approved files available to the later tasks that depend on them.
+    const itemOutputs = await this.database.query<Row>(
+      `SELECT o.id, o.execution_id AS executionId, e.work_item_id AS workItemId, o.status,
+              o.logical_output AS logicalOutput, o.logical_destination AS logicalDestination
+       FROM execution_outputs o
+       JOIN executions e ON e.id = o.execution_id
+       WHERE e.work_item_id = ? OR e.work_item_id IN (SELECT id FROM work_items WHERE parent_id = ?)`,
+      [parentId, parentId]
+    );
+    const executionId = stringValue(pending[0].executionId);
+    const pendingSiblings = itemOutputs.filter((output) =>
+      stringValue(output.executionId) === executionId &&
+      stringValue(output.id) !== outputId &&
+      stringValue(output.status) === "pending"
+    );
+    if (pendingSiblings.length) {
+      const names = pendingSiblings.map((output) => `"${stringValue(output.logicalOutput)}"`).join(", ");
+      throw new Error(`Approve or reject this run's other outputs first: ${names}`);
     }
+    // A planner references files by the name it wrote them under; approval may have renamed the
+    // destination, so an approved output makes both names valid inputs.
+    const approved = itemOutputs.filter((output) => stringValue(output.status) === "approved");
+    const parentFiles = new Set([
+      ...parseJson<string[]>(pending[0].logicalFilesJson, []),
+      ...approved.flatMap((output) => [stringValue(output.logicalOutput), stringValue(output.logicalDestination)])
+    ]);
+    const childItems = await this.database.query<Row>(
+      `SELECT id, title, json_extract(goal_json, '$.key') AS goalKey FROM work_items
+       WHERE parent_id = ? AND deleted_at IS NULL`,
+      [parentId]
+    );
+    // The parent stays blocked while any subtask has undecided files — each subtask is
+    // reviewed on its own item before more of the plan is released.
+    const childWaiting = itemOutputs.filter((output) =>
+      stringValue(output.workItemId) !== parentId && stringValue(output.status) === "pending");
+    if (childWaiting.length) {
+      const byChild = childItems
+        .filter((child) => childWaiting.some((output) => stringValue(output.workItemId) === stringValue(child.id)))
+        .map((child) => `"${stringValue(child.title)}" (${childWaiting
+          .filter((output) => stringValue(output.workItemId) === stringValue(child.id))
+          .map((output) => stringValue(output.logicalOutput)).join(", ")})`);
+      throw new Error(`These subtasks have files waiting for your review: ${byChild.join("; ")}. Open each subtask and approve or reject its files first.`);
+    }
+    // A planner may name a sibling task's key as an input. The key is not a filename — the
+    // dependency is satisfied by that task's approved files, whatever they are called.
+    const resolvedTasks = tasks.map((task, index) => {
+      const inputs = task.inputs.flatMap((input) => {
+        if (parentFiles.has(input)) return [input];
+        const label = `Task ${index + 1} ("${task.title}") needs "${input}"`;
+        const latest = itemOutputs.filter((output) => stringValue(output.logicalOutput) === input).at(-1);
+        if (stringValue(latest?.status) === "pending") {
+          throw new Error(`${label}, which is still waiting for review. Approve that file first, then approve this task.`);
+        }
+        if (stringValue(latest?.status) === "rejected") {
+          throw new Error(`${label}, but that file was rejected. Untick it on the task, or re-run the step to produce it again.`);
+        }
+        const producer = childItems.find((child) => stringValue(child.goalKey) === input);
+        if (producer) {
+          const outputs = itemOutputs.filter((output) => stringValue(output.workItemId) === stringValue(producer.id));
+          const waiting = outputs.filter((output) => stringValue(output.status) === "pending");
+          if (waiting.length) {
+            const names = waiting.map((output) => `"${stringValue(output.logicalOutput)}"`).join(", ");
+            throw new Error(`${label}, produced by the task "${stringValue(producer.title)}". Review and approve that task's pending files first: ${names}.`);
+          }
+          const files = outputs
+            .filter((output) => stringValue(output.status) === "approved")
+            .map((output) => stringValue(output.logicalDestination));
+          if (files.length) return files;
+          throw new Error(`${label}, produced by the task "${stringValue(producer.title)}", which has not finished yet. Wait for it to complete and approve its files, then approve this task.`);
+        }
+        const producerIndex = tasks.findIndex((other) => other !== task && other.key === input);
+        if (producerIndex !== -1) {
+          throw new Error(`${label}, which task ${producerIndex + 1} ("${tasks[producerIndex]!.title}") is expected to produce. Approve that task by itself first, and approve this one once its files are approved.`);
+        }
+        throw new Error(`${label}, which is not among this item's approved files. Approve the file that provides it first, or untick it on the task to run without it.`);
+      });
+      return { ...task, inputs: logicalFileReferences(inputs) };
+    });
     const validStages = await this.database.query<Row>(
       `SELECT s.id FROM stages s
        JOIN work_items w ON w.process_id = s.process_id
@@ -1666,7 +1739,7 @@ export class LocalRepository {
         )
       ).map((row) => stringValue(row.goalKey))
     );
-    const createdTasks = tasks.filter(({ key }) => !existingKeys.has(key));
+    const createdTasks = resolvedTasks.filter(({ key }) => !existingKeys.has(key));
 
     const timestamp = now();
     const ids = createdTasks.map(() => createId());
@@ -1698,9 +1771,9 @@ export class LocalRepository {
       {
         sql: `UPDATE work_items
               SET checkpoint_stage_id = stage_id, checkpoint_at = ?,
-                  sync_version = sync_version + 1, updated_at = ?
+                  logical_files_json = ?, sync_version = sync_version + 1, updated_at = ?
               WHERE id = ? AND deleted_at IS NULL`,
-        params: [timestamp, timestamp, parentId]
+        params: [timestamp, JSON.stringify(logicalFileReferences([...parentFiles])), timestamp, parentId]
       },
       ...(finalize
         ? [{

@@ -95,7 +95,9 @@ export const GOAL_WORKER_PROMPT = `Complete this task using the available tools 
 Write proposed deliverables under outputs/ so a human can approve consequential changes.
 If a human decision is required, write a short approval-request.md that states the decision,
 options, and your recommendation. You may instead write ${TASK_PLAN_OUTPUT} using the exact task
-schema from the run context when completion requires independently executable child tasks.
+schema from the run context when completion requires independently executable child tasks. A task
+plan must be the run's only output: if you write ${TASK_PLAN_OUTPUT}, write no other files under
+outputs/ in the same run — the run fails otherwise.
 Choose Review when the task is ready to be checked.
 
 When you tell the human what you did, describe the deliverable in plain language and say it is

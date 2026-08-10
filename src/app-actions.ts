@@ -743,9 +743,17 @@ export function createMainActions(host: MainHost) {
     }
     linkModelThinking();
     host.shell.dialog.showModal();
-    (host.shell.dialogFields.querySelector<HTMLElement>("[data-editor-step]:not([hidden])") ?? host.shell.dialogForm)
-      .querySelector<HTMLElement>('input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)')
-      ?.focus();
+    const focusFirstField = (): void => {
+      const field = (host.shell.dialogFields.querySelector<HTMLElement>("[data-editor-step]:not([hidden])") ?? host.shell.dialogForm)
+        .querySelector<HTMLElement>('input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)');
+      field?.focus();
+      if (field instanceof HTMLInputElement && field.type === "text")
+        field.select();
+    };
+    // WKWebView can drop a focus() issued while the dialog is still opening, leaving the
+    // cursor outside the first field — focus again on the next frame so it sticks.
+    focusFirstField();
+    requestAnimationFrame(focusFirstField);
     return new Promise((resolve) => {
       let settled = false;
       const cancelButton = host.shell.dialog.querySelector<HTMLButtonElement>("[data-dialog-cancel]");
@@ -1031,6 +1039,9 @@ export function createMainActions(host: MainHost) {
     await host.workspaceController.refresh();
   }
 
+  // Tab the user was on before opening the item edit form, so Cancel puts them back there.
+  let boardTabBeforeEdit: BoardItemTab = "details";
+
   document.addEventListener("click", async (event) => {
     // Table rows with data-action behave like buttons (e.g. the Inbox row opening its item), so a
     // click anywhere on the row works without every cell needing its own button.
@@ -1171,17 +1182,16 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      if (action === "close-board-item") {
-        host.shell.boardItemId = "";
-        host.shell.boardFileRef = "";
-        host.shell.boardFileEditing = false;
-        host.shell.boardItemEditing = false;
-        host.shell.render();
-        return;
-      }
       if (action === "toggle-board-item-edit") {
-        host.shell.boardTab = "details";
-        host.shell.boardItemEditing = !host.shell.boardItemEditing;
+        if (host.shell.boardItemEditing) {
+          host.shell.boardItemEditing = false;
+          host.shell.boardTab = boardTabBeforeEdit;
+        }
+        else {
+          boardTabBeforeEdit = host.shell.boardTab;
+          host.shell.boardTab = "details";
+          host.shell.boardItemEditing = true;
+        }
         host.shell.render();
         return;
       }
@@ -2302,6 +2312,17 @@ export function createMainActions(host: MainHost) {
     }
   });
 
+  // Live preview for the Files-tab editor: the right pane re-renders as the left one is typed in.
+  host.shell.app.addEventListener("input", (event) => {
+    const area = (event.target as Element).closest<HTMLTextAreaElement>('form[data-board-file-form] textarea[name="contents"]');
+    const preview = area?.form?.querySelector("[data-board-file-preview]");
+    if (!area || !preview)
+      return;
+    preview.innerHTML = area.form!.dataset.markdown !== undefined
+      ? renderMarkdown(area.value)
+      : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(area.value)}</pre>`;
+  });
+
   host.shell.app.addEventListener("submit", (event) => {
     const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
     if (newItemForm) {
@@ -2861,7 +2882,22 @@ export function createMainActions(host: MainHost) {
     host.views.renderAssistant();
   });
 
+  // Desktop starts with the sidebar docked open, mobile starts closed; the icon
+  // direction is driven by aria-expanded, so seed it to match.
+  host.shell.appDrawerOpen.setAttribute(
+    "aria-expanded",
+    String(window.matchMedia("(min-width: 1024px)").matches),
+  );
+
   host.shell.appDrawerOpen.addEventListener("click", () => {
+    // Desktop: the sidebar is docked via lg:drawer-open, so toggle that class to
+    // collapse/expand it. Mobile keeps the checkbox-driven overlay behavior.
+    if (window.matchMedia("(min-width: 1024px)").matches) {
+      const drawer = host.shell.appDrawer.closest(".drawer")!;
+      const open = drawer.classList.toggle("lg:drawer-open");
+      host.shell.appDrawerOpen.setAttribute("aria-expanded", String(open));
+      return;
+    }
     host.shell.appDrawer.checked = true;
     host.shell.appDrawerOpen.setAttribute("aria-expanded", "true");
     host.shell.appNavigation.querySelector<HTMLButtonElement>("button")?.focus();
