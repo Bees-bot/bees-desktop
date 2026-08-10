@@ -169,7 +169,12 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
   grid-auto-flow: column;
   grid-auto-columns: minmax(19rem, 1fr);
   gap: .75rem;
-  overflow-x: auto;
+  /* `scroll`, not `auto`: with system scrollbars set to "always show", a scrollbar that only
+     appears once the columns overflow grows this box after its siblings are placed, and WebKit
+     leaves the expanded card panel below it 15px too high — sitting on top of the scrollbar
+     until the next re-render reflows it. Always reserving the track keeps the height constant.
+     Costs nothing under overlay scrollbars, which is the macOS default. */
+  overflow-x: scroll;
   padding: .1rem .1rem 1rem;
   scroll-snap-type: x proximity;
 }

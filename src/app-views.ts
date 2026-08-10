@@ -744,7 +744,7 @@ export function createMainViews(host: MainHost) {
         : tab === "approval"
           ? await boardItemApprovals(item, runs)
           : await boardItemDetails(item, runs);
-    return `<div class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
+    return `<div data-scroll-anchor class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>

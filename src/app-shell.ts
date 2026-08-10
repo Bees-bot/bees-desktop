@@ -225,8 +225,66 @@ export function createAppShell(host: MainHost) {
 
   applyTheme();
 
+  let lastContent = "";
+  let lastRenderKey = "";
+
   function swap(content: string): void {
-    app.innerHTML = content;
+    // Re-renders arrive constantly (clicks, window focus, the 30s background sync). Replacing
+    // the DOM wholesale drops every scroll position — the page clamps while empty and the
+    // board's horizontal scroll resets, so the open card panel visibly jumps. Skip identical
+    // content, and carry scroll positions across when it did change.
+    // Scroll carry-over is only valid within the same view (and same board): restored by
+    // element index, a stale offset from the previous view lands on whatever now sits at that
+    // index and renders the new view half-scrolled.
+    const renderKey = `${view}:${view === "board" ? host.workspaceController.activeBoard?.id ?? "" : ""}`;
+    const sameView = renderKey === lastRenderKey;
+    lastRenderKey = renderKey;
+    if (content !== lastContent) {
+      lastContent = content;
+      const page = document.scrollingElement!;
+      const pageTop = page.scrollTop;
+      if (!sameView) {
+        app.innerHTML = content;
+        page.scrollTop = 0;
+        app.setAttribute("aria-busy", "false");
+        return;
+      }
+      // When the open card panel is on screen, keep it stationary across the swap:
+      // late-arriving data (sync, run states) grows the content above it, which otherwise
+      // shoves the panel the user is reading up or down on every render.
+      const anchorBefore = app.querySelector("[data-scroll-anchor]")?.getBoundingClientRect() ?? null;
+      const anchorOnScreen = anchorBefore !== null && anchorBefore.top < window.innerHeight && anchorBefore.bottom > 0;
+      // Matched by tag+class ordinal rather than raw DOM index, so an element inserted or
+      // removed elsewhere (an alert, a badge) does not shift every scroll onto the wrong node.
+      const keyOf = (el: Element): string => `${el.tagName}|${el.className}`;
+      const counts = new Map<string, number>();
+      const scrolled: { key: string; nth: number; top: number; left: number }[] = [];
+      for (const el of app.querySelectorAll<HTMLElement>("*")) {
+        const key = keyOf(el);
+        const nth = counts.get(key) ?? 0;
+        counts.set(key, nth + 1);
+        if (el.scrollTop || el.scrollLeft)
+          scrolled.push({ key, nth, top: el.scrollTop, left: el.scrollLeft });
+      }
+      app.innerHTML = content;
+      if (scrolled.length) {
+        const seen = new Map<string, number>();
+        for (const el of app.querySelectorAll<HTMLElement>("*")) {
+          const key = keyOf(el);
+          const nth = seen.get(key) ?? 0;
+          seen.set(key, nth + 1);
+          const match = scrolled.find((entry) => entry.key === key && entry.nth === nth);
+          if (match) {
+            el.scrollTop = match.top;
+            el.scrollLeft = match.left;
+          }
+        }
+      }
+      page.scrollTop = pageTop;
+      const anchorAfter = anchorOnScreen ? app.querySelector("[data-scroll-anchor]")?.getBoundingClientRect() : null;
+      if (anchorBefore && anchorAfter)
+        page.scrollTop = pageTop + (anchorAfter.top - anchorBefore.top);
+    }
     app.setAttribute("aria-busy", "false");
   }
 
