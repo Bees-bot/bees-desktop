@@ -449,13 +449,21 @@ export function createRunController(host: MainHost) {
     const item = await host.repository.getWorkItem(itemId);
     if (!item) throw new Error("The completed work item is unavailable");
     stopClaimHeartbeat(itemId);
-    await host.workflowRuntime.command(itemId, {
-      type: "complete",
-      machineId: runnerId,
-      claimToken: claim.token,
-      executionId: executionId ?? claim.executionId ?? crypto.randomUUID(),
-      targetStageId: targetStageId ?? item.stageId
-    });
+    const target = targetStageId ?? item.stageId;
+    // A run whose outputs await approval keeps its claim, but the lease is renewed from memory:
+    // quit the app while those outputs sit in the approvals tab and it expires. The decision still
+    // has to land hours later, so a claim the runtime already dropped moves the item anyway —
+    // otherwise `complete` is rejected and the item sits at this status for good.
+    const live = await host.workflowRuntime.state(itemId).catch(() => null);
+    await host.workflowRuntime.command(itemId, live?.claim?.token === claim.token
+      ? {
+          type: "complete",
+          machineId: runnerId,
+          claimToken: claim.token,
+          executionId: executionId ?? claim.executionId ?? crypto.randomUUID(),
+          targetStageId: target
+        }
+      : { type: "move", targetStageId: target });
     await host.repository.setSetting(claimSetting(itemId), null);
     if (host.session.orgIsConnected()) {
       await syncService().synchronize(

@@ -1,6 +1,6 @@
 use crate::process::{available_loopback_port, Sidecar};
 use getrandom::fill;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fmt::Write as _,
     fs::{self, File, OpenOptions},
@@ -11,10 +11,15 @@ use std::{
     thread,
     time::Duration,
 };
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::Manager;
 
 struct ManagedWorkflowRuntime {
-    temporal: Sidecar,
+    /// `None` when this app adopted a Temporal server that another app instance — or a previous
+    /// run killed before `Drop` could reap it — left serving the same database. Dropping a handle
+    /// we do not own would pull the server out from under its owner.
+    temporal: Option<Sidecar>,
+    grpc_port: u16,
     worker: Sidecar,
     base_url: String,
     token: String,
@@ -147,11 +152,51 @@ fn wait_for_http(child: &mut Sidecar, base_url: &str, log: &Path) -> Result<(), 
     ))
 }
 
+/// Where a running Temporal server records itself, so the next app instance finds it instead of
+/// starting a second one.
+#[derive(Serialize, Deserialize)]
+struct TemporalEndpoint {
+    pid: u32,
+    port: u16,
+}
+
+fn listening(port: u16) -> bool {
+    TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(500),
+    )
+    .is_ok()
+}
+
+/// The port of the Temporal server already serving this database, if one still runs.
+///
+/// One server per `temporal.db` is the rule rather than an optimisation: several servers over one
+/// SQLite file is a split brain, and a hard-killed app (or a second window) leaves its server
+/// behind, so "did I start it?" is the wrong question to ask.
+fn running_temporal(state: &Path) -> Option<u16> {
+    let endpoint: TemporalEndpoint =
+        serde_json::from_slice(&fs::read(state.join("runtime.json")).ok()?).ok()?;
+    let pid = Pid::from_u32(endpoint.pid);
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    let database = state.join("temporal.db");
+    // A recycled PID belongs to something else entirely: only a process still holding our own
+    // database file on its command line is the server we wrote down.
+    let ours = system
+        .process(pid)
+        .is_some_and(|process| process.cmd().iter().any(|arg| Path::new(arg) == database));
+    (ours && listening(endpoint.port)).then_some(endpoint.port)
+}
+
 fn ensure_blocking(app: &tauri::AppHandle) -> Result<WorkflowRuntimeInfo, String> {
     let manager = app.state::<WorkflowRuntimeManager>();
     let mut managed = manager.0.lock().map_err(|error| error.to_string())?;
     if let Some(runtime) = managed.as_mut() {
-        if runtime.temporal.alive()? && runtime.worker.alive()? {
+        let temporal_alive = match runtime.temporal.as_mut() {
+            Some(sidecar) => sidecar.alive()?,
+            None => listening(runtime.grpc_port)
+        };
+        if temporal_alive && runtime.worker.alive()? {
             return Ok(WorkflowRuntimeInfo {
                 base_url: runtime.base_url.clone(),
                 token: runtime.token.clone(),
@@ -168,7 +213,11 @@ fn ensure_blocking(app: &tauri::AppHandle) -> Result<WorkflowRuntimeInfo, String
     fs::create_dir_all(&state).map_err(|error| error.to_string())?;
     let temporal_log = app_data.join("logs").join("temporal.log");
     let worker_log = app_data.join("logs").join("workflow-worker.log");
-    let grpc_port = available_loopback_port()?;
+    let adopted = running_temporal(&state);
+    let grpc_port = match adopted {
+        Some(port) => port,
+        None => available_loopback_port()?
+    };
     let gateway_port = loop {
         let port = available_loopback_port()?;
         if port != grpc_port {
@@ -176,40 +225,57 @@ fn ensure_blocking(app: &tauri::AppHandle) -> Result<WorkflowRuntimeInfo, String
         }
     };
 
-    let temporal_stdout = log_file(&temporal_log)?;
-    let temporal_stderr = temporal_stdout
-        .try_clone()
-        .map_err(|error| error.to_string())?;
-    let mut temporal = Sidecar::new(
-        Command::new(temporal_binary)
-            .args([
-                "server",
-                "start-dev",
-                "--headless",
-                "--ip",
-                "127.0.0.1",
-                "--port",
-                &grpc_port.to_string(),
-                "--db-filename",
-            ])
-            .arg(state.join("temporal.db"))
-            .args([
-                "--sqlite-pragma",
-                "journal_mode=WAL",
-                "--sqlite-pragma",
-                "synchronous=FULL",
-                "--sqlite-pragma",
-                "busy_timeout=5000",
-                "--disable-config-file",
-                "--disable-config-env",
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(temporal_stdout))
-            .stderr(Stdio::from(temporal_stderr))
-            .spawn()
-            .map_err(|error| format!("The bundled Temporal service could not start: {error}"))?,
-    );
-    wait_for_socket(&mut temporal, grpc_port, &temporal_log)?;
+    let temporal = match adopted {
+        Some(_) => None,
+        None => {
+            let temporal_stdout = log_file(&temporal_log)?;
+            let temporal_stderr = temporal_stdout
+                .try_clone()
+                .map_err(|error| error.to_string())?;
+            let mut temporal = Sidecar::new(
+                Command::new(temporal_binary)
+                    .args([
+                        "server",
+                        "start-dev",
+                        "--headless",
+                        "--ip",
+                        "127.0.0.1",
+                        "--port",
+                        &grpc_port.to_string(),
+                        "--db-filename",
+                    ])
+                    .arg(state.join("temporal.db"))
+                    .args([
+                        "--sqlite-pragma",
+                        "journal_mode=WAL",
+                        "--sqlite-pragma",
+                        "synchronous=FULL",
+                        "--sqlite-pragma",
+                        "busy_timeout=5000",
+                        "--disable-config-file",
+                        "--disable-config-env",
+                    ])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::from(temporal_stdout))
+                    .stderr(Stdio::from(temporal_stderr))
+                    .spawn()
+                    .map_err(|error| {
+                        format!("The bundled Temporal service could not start: {error}")
+                    })?,
+            );
+            wait_for_socket(&mut temporal, grpc_port, &temporal_log)?;
+            let endpoint = TemporalEndpoint {
+                pid: temporal.child().id(),
+                port: grpc_port
+            };
+            fs::write(
+                state.join("runtime.json"),
+                serde_json::to_vec(&endpoint).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            Some(temporal)
+        }
+    };
 
     let token = loopback_token()?;
     let base_url = format!("http://127.0.0.1:{gateway_port}");
@@ -236,6 +302,7 @@ fn ensure_blocking(app: &tauri::AppHandle) -> Result<WorkflowRuntimeInfo, String
 
     *managed = Some(ManagedWorkflowRuntime {
         temporal,
+        grpc_port,
         worker,
         base_url: base_url.clone(),
         token: token.clone(),
