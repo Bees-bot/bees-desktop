@@ -81,6 +81,7 @@ import {
 } from "./local-models.js";
 import type { KnowledgeRuntimeInfo, MainHost, OrgTab, PrefsTab, TeamTab } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
+import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
   parseTaskPlan,
   type PlannedTask
@@ -959,9 +960,19 @@ export function createMainActions(host: MainHost) {
     const reference = String(data.get("reference") ?? "");
     if (!reference)
       return;
-    const teamRoot = await host.workspaceController.requireTeamRoot();
-    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
-    await host.workspaces.writeLogicalFile(reference, teamRoot, locations, String(data.get("contents") ?? ""));
+    const contents = String(data.get("contents") ?? "");
+    if (reference.startsWith(PENDING_FILE_PREFIX)) {
+      const output = host.runs.executionOutputs.find(({ id }) => id === reference.slice(PENDING_FILE_PREFIX.length));
+      const execution = output ? await host.repository.getExecution(output.executionId) : null;
+      if (!output || !execution?.workspaceRef)
+        throw new Error("The run workspace holding this output is no longer available");
+      await host.workspaces.writeOutput(execution.workspaceRef, output.logicalOutput, contents);
+    }
+    else {
+      const teamRoot = await host.workspaceController.requireTeamRoot();
+      const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
+      await host.workspaces.writeLogicalFile(reference, teamRoot, locations, contents);
+    }
     host.shell.boardFileEditing = false;
     host.shell.render();
   }

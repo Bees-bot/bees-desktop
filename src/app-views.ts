@@ -64,6 +64,7 @@ import {
   when
 } from "./launch-views.js";
 import { renderMarkdown } from "./markdown.js";
+import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
   modelRef,
   parseModelRef,
@@ -619,30 +620,55 @@ export function createMainViews(host: MainHost) {
   }
 
   /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
-   *  files and toggled into a plain-text editor that saves back to disk. */
+   *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
+   *  files and still-pending run outputs both appear: a pending output is badged, reads from its
+   *  run workspace, and edits save back there until approval publishes it to the team folder. */
   async function boardItemFiles(item: WorkItem): Promise<string> {
-    if (!item.logicalFiles.length)
+    const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
+    const pending = host.runs.executionOutputs.filter(
+      ({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)
+    );
+    if (!item.logicalFiles.length && !pending.length)
       return `<p class="text-sm text-base-content/55">No files referenced.</p>`;
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const labels = displayFileReferences(item.logicalFiles, locations);
-    const selected = item.logicalFiles.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
-    const list = `<div class="mb-4 flex flex-wrap gap-2">${item.logicalFiles
-      .map((reference, index) => `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(labels[index] ?? reference)}</button>`)
-      .join("")}</div>`;
+    const references = [...item.logicalFiles, ...pending.map(({ id }) => `${PENDING_FILE_PREFIX}${id}`)];
+    const selected = references.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
+    const chip = (reference: string, label: string, badge: string): string =>
+      `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(label)}${badge}</button>`;
+    const list = `<div class="mb-4 flex flex-wrap gap-2">${[
+      ...item.logicalFiles.map((reference, index) => chip(reference, labels[index] ?? reference, "")),
+      ...pending.map((output) =>
+        chip(`${PENDING_FILE_PREFIX}${output.id}`, output.logicalOutput, ` <span class="badge badge-warning badge-xs">awaiting approval</span>`))
+    ].join("")}</div>`;
     if (!selected)
       return `${list}<p class="text-sm text-base-content/55">Select a file to preview it.</p>`;
-    const label = labels[item.logicalFiles.indexOf(selected)] ?? selected;
+    const pendingOutput = pending.find(({ id }) => `${PENDING_FILE_PREFIX}${id}` === selected);
+    const fileName = pendingOutput?.logicalOutput ?? selected;
+    const label = pendingOutput?.logicalOutput ?? labels[item.logicalFiles.indexOf(selected)] ?? selected;
     let content: string | null = null;
     try {
-      content = await host.workspaces.readLogicalFile(selected, await host.workspaceController.requireTeamRoot(), locations);
+      const teamRoot = await host.workspaceController.requireTeamRoot();
+      if (pendingOutput) {
+        const workspaceRef = runs.find(({ id }) => id === pendingOutput.executionId)?.workspaceRef;
+        if (!workspaceRef)
+          return `${list}<div class="alert alert-error text-sm">The run workspace holding this output is no longer available.</div>`;
+        content = await host.workspaces.readOutput(workspaceRef, pendingOutput.logicalOutput, teamRoot);
+      }
+      else {
+        content = await host.workspaces.readLogicalFile(selected, teamRoot, locations);
+      }
     }
     catch (error) {
       return `${list}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
     }
     if (content === null)
       return `${list}<p class="text-sm text-base-content/55">${host.shell.escapeHtml(label)} does not exist yet.</p>`;
+    const note = pendingOutput
+      ? `<p class="mb-2 text-sm text-base-content/55">Awaiting approval — approve it in the Approval tab to publish it to the team folder.</p>`
+      : "";
     if (host.shell.boardFileEditing) {
-      return `${list}<form data-board-file-form class="grid gap-3">
+      return `${list}${note}<form data-board-file-form class="grid gap-3">
           <input type="hidden" name="reference" value="${host.shell.escapeHtml(selected)}">
           <textarea name="contents" class="textarea textarea-bordered h-72 font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
           <div class="flex justify-end gap-2">
@@ -651,8 +677,8 @@ export function createMainViews(host: MainHost) {
           </div>
         </form>`;
     }
-    return `${list}<div class="mb-2 flex justify-end"><button class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Edit</button></div>
-      <article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(selected)
+    return `${list}${note}<div class="mb-2 flex justify-end"><button class="btn btn-ghost btn-sm" data-action="toggle-board-file-edit">Edit</button></div>
+      <article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(fileName)
         ? renderMarkdown(content)
         : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
   }

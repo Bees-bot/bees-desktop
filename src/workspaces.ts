@@ -49,6 +49,12 @@ export const STATUS_OUTPUT = ".status";
 /** Where a Software Project run finds its approved inputs, relative to the worktree root. */
 export const PROJECT_INPUT_PREFIX = ".bees/inputs";
 
+/**
+ * Marks a Files-tab reference as a still-pending run output (`pending:<outputId>`) rather than
+ * a published team-folder file, so reads and saves route to the run workspace instead.
+ */
+export const PENDING_FILE_PREFIX = "pending:";
+
 export interface OutputPreview {
   before: string | null;
   after: string | null;
