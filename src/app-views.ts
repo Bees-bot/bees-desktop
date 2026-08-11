@@ -22,7 +22,8 @@ import {
   type CliToolPath
 } from "./cli-tools.js";
 import {
-  listMcpConnections
+  listMcpConnections,
+  toolPickableConnections
 } from "./connections.js";
 import {
   conversationToSnapshotV1,
@@ -2310,6 +2311,20 @@ export function createMainViews(host: MainHost) {
         hint: "Remote services receive relevant prompts and tool arguments. Plugin servers are optional and isolated; manage other connections and allowlists in Preferences → MCP servers.",
         step: "capabilities"
       },
+      // A connection can publish dozens of tools, and every one of them is reach this agent
+      // gets. Narrowing happens the next time the agent is edited, once its tools are known.
+      ...toolPickableConnections(host.workspaceController.mcpConnections, config)
+        .map((connection): EditorField => ({
+          name: `mcpTools:${connection.id}`,
+          label: `${connection.name} tools`,
+          type: "checkboxes",
+          options: connection.tools
+            .filter(({ name }) => connection.allowedTools.includes(name))
+            .map(({ name, description }) => ({ label: name, value: name, description })),
+          checked: config?.mcpToolRefs?.[connection.id] ?? connection.allowedTools,
+          hint: "Only the ticked tools reach this agent. The connection's own allowlist still applies on top.",
+          step: "capabilities"
+        })),
       {
         name: "delegates",
         label: "Helpers",
@@ -2332,6 +2347,9 @@ export function createMainViews(host: MainHost) {
       }
     ];
   }
+
+  /** Choices past this many get a filter box and a scroll ceiling instead of a wall of cards. */
+  const FILTER_CHOICES_FROM = 12;
 
   function checkboxOptions(name: string, options: EditorOption[], checked: string[]): string {
     if (!options.length)
@@ -2365,7 +2383,13 @@ export function createMainViews(host: MainHost) {
         .join("")}</div>`;
     }
     if (type === "checkboxes") {
-      control = `<div data-editor-field="${host.shell.escapeHtml(name)}" class="grid gap-2">${checkboxOptions(name, options, checked)}</div>`;
+      // A plugin collection can install well over a hundred skills, and a single MCP server
+      // can publish dozens of tools. Past a screenful, the list needs a way in and a ceiling.
+      const long = options.length > FILTER_CHOICES_FROM;
+      const filter = long
+        ? `<input class="input input-bordered input-sm w-full" type="search" data-editor-filter="${host.shell.escapeHtml(name)}" placeholder="Filter ${options.length} choices" aria-label="Filter ${host.shell.escapeHtml(label)}">`
+        : "";
+      control = `${filter}<div data-editor-field="${host.shell.escapeHtml(name)}" class="grid gap-2${long ? " max-h-80 overflow-y-auto" : ""}">${checkboxOptions(name, options, checked)}</div>`;
     }
     if (type === "color") {
       control = `<input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value || "#4f46e5")}">`;

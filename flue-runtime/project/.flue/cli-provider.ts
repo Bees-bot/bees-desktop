@@ -1,6 +1,7 @@
-// Agent runs backed by the Claude Code and Codex CLIs the user already has installed.
+// Agent runs backed by the Claude Code, Codex and opencode CLIs the user already has
+// installed.
 //
-// Both CLIs own their own login and their own agent loop, so they cannot be driven as
+// Each CLI owns its own login and its own agent loop, so they cannot be driven as
 // plain chat models. This shim exposes each one as an OpenAI-completions endpoint that
 // Flue's provider registration points at: one request in, one CLI process out, the CLI's
 // final message returned as a single assistant chunk. The CLI does its own tool calls
@@ -17,7 +18,7 @@ import { promisify } from "node:util";
 import { Hono } from "hono";
 import { instancePointer } from "./state.ts";
 
-export const CLI_PROVIDERS = ["claude-cli", "codex-cli"] as const;
+export const CLI_PROVIDERS = ["claude-cli", "codex-cli", "opencode-cli"] as const;
 export type CliProvider = (typeof CLI_PROVIDERS)[number];
 
 /** Minutes a single CLI turn may take before it is killed. */
@@ -329,6 +330,77 @@ const CLIS: Record<CliProvider, CliSpec> = {
       }
       if (!text && failure) throw new Error(codexMessage(failure));
       return { text: text || stdout.trim(), reasoning: reasoning.join("\n\n") };
+    }
+  },
+  "opencode-cli": {
+    command: () => process.env.BEES_OPENCODE_CLI || "opencode",
+    // opencode has no OS-level sandbox of its own — its permission rules are the whole
+    // boundary, and `bash` runs unconfined in the run's workspace. That is weaker than the
+    // other two CLIs, which hand their tool commands to seatbelt. `OPENCODE_PERMISSION` is
+    // merged last, after the user's global config and the workspace's own `opencode.json`,
+    // so these denials are the one part of the posture a run cannot talk its way out of.
+    //
+    // ponytail: unconfined bash, accepted — the CLI runs as the user who launched Bees and
+    // can reach anything they can. Wrap the spawn in `sandbox-exec` (macOS) if a run ever
+    // needs to be untrusted rather than merely unattended.
+    env: {
+      OPENCODE_PERMISSION: JSON.stringify({
+        external_directory: "deny",
+        webfetch: "deny",
+        websearch: "deny"
+      }),
+      // A run can write `opencode.json` into its own workspace; without this it would be
+      // read back on the next turn and merged in ahead of everything but the denials above.
+      OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+      OPENCODE_DISABLE_AUTOUPDATE: "true"
+    },
+    // `--auto` approves anything not explicitly denied: nobody is watching, and the default
+    // is to auto-reject, which would settle the run with no output. `--thinking` is what
+    // makes opencode emit `reasoning` events at all under `--format json`. No system-prompt
+    // flag, so it rides in on stdin, which is also where the prompt goes — `opencode run`
+    // with no message argument reads the piped text as the message.
+    args: (model, _system, effort) => [
+      "run",
+      "--format",
+      "json",
+      "--auto",
+      "--thinking",
+      ...(model ? ["--model", model] : []),
+      // Reasoning effort is per-model in opencode, so this is only sent when the model map
+      // in models.ts names a variant the model actually declares.
+      ...(effort ? ["--variant", effort] : [])
+    ],
+    systemOnStdin: true,
+    parse: (stdout) => {
+      // JSONL, one event per line. A turn emits a `text` part per segment the assistant
+      // writes around its tool calls, so they are joined rather than overwritten — unlike
+      // codex, where the last `agent_message` is the whole answer.
+      const text: string[] = [];
+      const reasoning: string[] = [];
+      let failure = "";
+      for (const line of stdout.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) continue;
+        let event: {
+          type?: string;
+          part?: { text?: string };
+          error?: { name?: string; data?: { message?: string } };
+        };
+        try {
+          event = JSON.parse(trimmed) as typeof event;
+        } catch {
+          continue;
+        }
+        const thought = event.part?.text?.trim();
+        if (event.type === "text" && thought) text.push(thought);
+        if (event.type === "reasoning" && thought) reasoning.push(thought);
+        // Failures arrive as an event and leave stderr empty, same as codex.
+        if (event.type === "error") {
+          failure = event.error?.data?.message ?? event.error?.name ?? failure;
+        }
+      }
+      if (!text.length && failure) throw new Error(failure);
+      return { text: text.join("\n\n") || stdout.trim(), reasoning: reasoning.join("\n\n") };
     }
   }
 };

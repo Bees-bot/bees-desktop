@@ -292,4 +292,78 @@ describe("CLI-backed providers", () => {
     );
     expect(chunks[1].choices[0].delta.content).toBe("all green");
   });
+
+  // opencode has no sandbox flag of its own, so the denials it is launched with are the
+  // whole boundary — and it writes one `text` event per segment rather than one final answer.
+  it("locks opencode down and joins the segments it answers in", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-cli-"));
+    const state = mkdtempSync(join(tmpdir(), "bees-state-"));
+    mkdirSync(join(state, "instances"), { recursive: true });
+    writeFileSync(join(state, "instances", "run-4.json"), JSON.stringify({ workspace: root }));
+    const stub = join(root, "argv-opencode");
+    writeFileSync(
+      stub,
+      `#!${process.execPath}\nprocess.stdin.resume(); process.stdin.on("end", () => {\n  const launch = JSON.stringify({ args: process.argv.slice(2), permission: process.env.OPENCODE_PERMISSION ?? null, project: process.env.OPENCODE_DISABLE_PROJECT_CONFIG ?? null, secret: process.env.RUNNER_SECRET_TOKEN ?? null });\n  console.log(JSON.stringify({ type: "reasoning", part: { text: "read the file first" } }));\n  console.log(JSON.stringify({ type: "text", part: { text: launch } }));\n  console.log(JSON.stringify({ type: "text", part: { text: "and done" } }));\n});\n`
+    );
+    chmodSync(stub, 0o755);
+    process.env.BEES_FLUE_ROOT = root;
+    process.env.BEES_STATE_DIR = state;
+    process.env.BEES_OPENCODE_CLI = stub;
+    process.env.RUNNER_SECRET_TOKEN = "must-not-leak";
+
+    const response = await cliProviderRoutes.request("/cli/opencode-cli/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "default@run-4", messages: [{ role: "user", content: "hi" }] })
+    });
+    const chunks = (await response.text())
+      .split("\n\n")
+      .filter((line) => line.startsWith("data: {"))
+      .map((line) => JSON.parse(line.replace("data: ", "")));
+    expect(chunks[0].choices[0].delta.reasoning_content).toBe("read the file first");
+    const [first, second] = (chunks[1].choices[0].delta.content as string).split("\n\n");
+    expect(second).toBe("and done");
+    const launch = JSON.parse(first!) as {
+      args: string[];
+      permission: string | null;
+      project: string | null;
+      secret: string | null;
+    };
+    // Without --auto the CLI auto-rejects its own tools and the run settles with no output.
+    expect(launch.args).toEqual(["run", "--format", "json", "--auto", "--thinking"]);
+    expect(JSON.parse(launch.permission!)).toEqual({
+      external_directory: "deny",
+      webfetch: "deny",
+      websearch: "deny"
+    });
+    expect(launch.project).toBe("true");
+    expect(launch.secret).toBeNull();
+    delete process.env.RUNNER_SECRET_TOKEN;
+  });
+
+  it("surfaces an opencode session error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-cli-"));
+    const state = mkdtempSync(join(tmpdir(), "bees-state-"));
+    mkdirSync(join(state, "instances"), { recursive: true });
+    writeFileSync(join(state, "instances", "run-5.json"), JSON.stringify({ workspace: root }));
+    const stub = join(root, "failing-opencode");
+    const failure = JSON.stringify({
+      type: "error",
+      error: { name: "ProviderAuthError", data: { message: "No credentials for anthropic." } }
+    });
+    writeFileSync(stub, `#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '${failure}'\nexit 1\n`);
+    chmodSync(stub, 0o755);
+    process.env.BEES_FLUE_ROOT = root;
+    process.env.BEES_STATE_DIR = state;
+    process.env.BEES_OPENCODE_CLI = stub;
+
+    const response = await cliProviderRoutes.request("/cli/opencode-cli/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "default@run-5", messages: [{ role: "user", content: "hi" }] })
+    });
+
+    expect(response.status).toBe(502);
+    expect((await response.json()).error.message).toContain("No credentials for anthropic.");
+  });
 });

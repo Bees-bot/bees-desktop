@@ -1432,7 +1432,7 @@ struct CliTool {
     install: &'static str,
 }
 
-const CLI_TOOLS: [CliTool; 2] = [
+const CLI_TOOLS: [CliTool; 3] = [
     CliTool {
         id: "claude",
         variable: "BEES_CLAUDE_CLI",
@@ -1445,6 +1445,12 @@ const CLI_TOOLS: [CliTool; 2] = [
         // The ChatGPT desktop app bundles the CLI; the standalone one comes from npm.
         default_path: "/Applications/ChatGPT.app/Contents/Resources/codex",
         install: "npm install -g @openai/codex",
+    },
+    CliTool {
+        id: "opencode",
+        variable: "BEES_OPENCODE_CLI",
+        default_path: "~/.opencode/bin/opencode",
+        install: "curl -fsSL https://opencode.ai/install | bash",
     },
 ];
 
@@ -1489,6 +1495,7 @@ fn cli_account(id: &str, home: Option<&Path>) -> CliAccount {
     match id {
         "claude" => claude_account(home),
         "codex" => codex_account(home),
+        "opencode" => opencode_account(home),
         _ => None,
     }
     .unwrap_or_default()
@@ -1533,6 +1540,18 @@ fn codex_account(home: &Path) -> Option<CliAccount> {
         plan: plan.or_else(|| Some("Signed in".into())),
         email: claims.get("email").and_then(JsonValue::as_str).map(str::to_string),
     })
+}
+
+/// `~/.local/share/opencode/auth.json` is a map of provider id to that provider's login, so
+/// its keys are the only thing there is to name back: opencode fronts several providers at
+/// once and has no single account or plan behind them.
+fn opencode_account(home: &Path) -> Option<CliAccount> {
+    let file = read_json_file(home.join(".local").join("share").join("opencode").join("auth.json"))?;
+    let providers: Vec<&str> = file.as_object()?.keys().map(String::as_str).collect();
+    if providers.is_empty() {
+        return None;
+    }
+    Some(CliAccount { plan: Some("Signed in".into()), email: Some(providers.join(", ")) })
 }
 
 fn cli_disabled_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -3814,6 +3833,7 @@ mod tests {
         // Nothing written yet: no account, which is what "not signed in" looks like.
         assert!(cli_account("claude", Some(&home)).plan.is_none());
         assert!(cli_account("codex", Some(&home)).plan.is_none());
+        assert!(cli_account("opencode", Some(&home)).plan.is_none());
 
         fs::write(
             home.join(".claude.json"),
@@ -3844,6 +3864,18 @@ mod tests {
         )
         .expect("codex key");
         assert_eq!(cli_account("codex", Some(&home)).plan.as_deref(), Some("API key"));
+
+        // opencode holds one login per provider, so the providers are what gets named back.
+        let opencode = home.join(".local").join("share").join("opencode");
+        fs::create_dir_all(&opencode).expect("opencode home");
+        fs::write(
+            opencode.join("auth.json"),
+            r#"{"opencode":{"type":"api","key":"sk-test"},"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":0}}"#,
+        )
+        .expect("opencode config");
+        let opencode = cli_account("opencode", Some(&home));
+        assert_eq!(opencode.plan.as_deref(), Some("Signed in"));
+        assert_eq!(opencode.email.as_deref(), Some("anthropic, opencode"));
 
         fs::remove_dir_all(&home).ok();
     }

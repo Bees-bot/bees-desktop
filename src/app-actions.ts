@@ -50,6 +50,7 @@ import {
   newMcpConnection,
   removeMcpConnection,
   saveMcpConnection,
+  toolPickableConnections,
   withMcpHealth
 } from "./connections.js";
 import {
@@ -431,11 +432,19 @@ export function createMainActions(host: MainHost) {
         skillRefs,
         toolRefs,
         mcpConnectionRefs,
-        mcpToolRefs: Object.fromEntries(host.workspaceController.mcpConnections.filter(({ id }) => mcpConnectionRefs.includes(id))
-          .map(({ id, allowedTools }) => {
-            const previous = agent.config.mcpToolRefs?.[id];
-            return [id, (previous ?? allowedTools).filter((name) => allowedTools.includes(name))];
-          })),
+        mcpToolRefs: Object.fromEntries((() => {
+          // The same predicate the form used, so an unticked picker reads as "none of these"
+          // while a connection that had no picker keeps whatever it already carried.
+          const asked = new Set(toolPickableConnections(host.workspaceController.mcpConnections, agent.config)
+            .map(({ id }) => id));
+          return host.workspaceController.mcpConnections.filter(({ id }) => mcpConnectionRefs.includes(id))
+            .map(({ id, allowedTools }) => {
+              const chosen = asked.has(id)
+                ? data.getAll(`mcpTools:${id}`).map(String)
+                : agent.config.mcpToolRefs?.[id] ?? allowedTools;
+              return [id, chosen.filter((name) => allowedTools.includes(name))];
+            });
+        })()),
         delegateRefs: data.getAll("delegates").map(String),
         grants: [
           ...(toolRefs.includes(BROWSER_TOOL_REF) && data.get("browserAccess") === "write"
@@ -814,6 +823,18 @@ export function createMainActions(host: MainHost) {
     };
     for (const button of host.shell.dialogFields.querySelectorAll<HTMLButtonElement>("[data-editor-step-button]")) {
       button.addEventListener("click", () => showStep(button.dataset.editorStepButton ?? ""));
+    }
+    // Filtering only hides choices. A checked box that scrolls out of view still submits, so
+    // narrowing a long list never silently drops what the agent already had.
+    for (const filter of host.shell.dialogFields.querySelectorAll<HTMLInputElement>("[data-editor-filter]")) {
+      const list = host.shell.dialogFields
+        .querySelector<HTMLElement>(`[data-editor-field="${filter.dataset.editorFilter}"]`);
+      filter.addEventListener("input", () => {
+        const needle = filter.value.trim().toLowerCase();
+        for (const choice of list?.querySelectorAll<HTMLElement>(":scope > label") ?? []) {
+          choice.hidden = needle.length > 0 && !(choice.textContent ?? "").toLowerCase().includes(needle);
+        }
+      });
     }
     linkModelThinking();
     host.shell.dialog.showModal();

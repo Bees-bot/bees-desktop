@@ -87,6 +87,19 @@ export function withMcpHealth(
   };
 }
 
+/**
+ * Connections the agent editor can offer a per-agent tool subset for: ones this agent already
+ * uses, whose tools Bees has discovered. A connection added in the same edit has no picker
+ * yet and keeps the whole allowlist, so both the form and the save must agree on this list.
+ */
+export function toolPickableConnections(
+  connections: McpConnection[],
+  config: AgentConfig | undefined
+): McpConnection[] {
+  const selected = new Set(config?.mcpConnectionRefs ?? []);
+  return connections.filter(({ id, tools }) => selected.has(id) && tools.length > 0);
+}
+
 /** Freeze one agent's narrower allowlist without widening the connection owner's policy. */
 export function mcpConnectionForAgent(
   connection: McpConnection,

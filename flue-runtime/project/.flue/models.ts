@@ -80,6 +80,26 @@ const CLI_MODELS: Record<CliProvider, { contextWindow: number; maxTokens: number
       xhigh: "xhigh",
       max: "xhigh"
     }
+  },
+  // opencode fronts many models at once and each one carries its own window, so this is the
+  // floor across the curated list rather than any one model's ceiling.
+  //
+  // Its reasoning knob (`run --variant`) takes names the *model* declares, not a fixed
+  // scale, so there is nothing to map a thinkingLevel onto that holds across models: `null`
+  // sends no effort at all and leaves the model on its own default. Name the variants here
+  // if Bees ever pins opencode to one model.
+  "opencode-cli": {
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+    thinking: {
+      off: null,
+      minimal: null,
+      low: null,
+      medium: null,
+      high: null,
+      xhigh: null,
+      max: null
+    }
   }
 };
 

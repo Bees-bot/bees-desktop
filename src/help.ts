@@ -78,12 +78,12 @@ curation), **Browser**, **Archived**, and **Danger**.
 An agent cannot run without a model it can reach. Do this before building a
 process — most "nothing happens when I press Run" comes from skipping it.
 
-**Option A — an agent CLI you already pay for.** Install Claude Code or the
-Codex CLI, sign it in from your terminal, and it appears under
-**Preferences → AI Subscriptions** as \`claude-cli\` or \`codex-cli\`. It bills your
-existing subscription, so frontier models cost you nothing new. Installing both
-unlocks the multi-vendor workflows, where one vendor proposes and the other
-critiques.
+**Option A — an agent CLI you already pay for.** Install Claude Code, the
+Codex CLI or opencode, sign it in from your terminal, and it appears under
+**Preferences → AI Subscriptions** as \`claude-cli\`, \`codex-cli\` or
+\`opencode-cli\`. It bills your existing subscription, so frontier models cost you
+nothing new. Installing more than one unlocks the multi-vendor workflows, where
+one vendor proposes and the other critiques.
 
 **Option B — an on-device model.** **Preferences → Local AI**, select
 **Download**, then **Run**. Nothing leaves the machine and there is no bill.

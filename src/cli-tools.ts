@@ -1,7 +1,7 @@
-// Agent CLIs installed on this computer (Claude Code, Codex). They sign in themselves
-// and run their own agent loop, so Bees never holds a credential for them — a run reaches
-// one through the `claude-cli` / `codex-cli` providers the Flue app registers, which loop
-// back into the runtime and spawn the CLI in the run's workspace.
+// Agent CLIs installed on this computer (Claude Code, Codex, opencode). They sign in
+// themselves and run their own agent loop, so Bees never holds a credential for them — a run
+// reaches one through the `claude-cli` / `codex-cli` / `opencode-cli` providers the Flue app
+// registers, which loop back into the runtime and spawn the CLI in the run's workspace.
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -31,6 +31,15 @@ export const CLI_TOOLS: CliTool[] = [
     label: "Codex (ChatGPT)",
     exampleModel: "codex-cli/default",
     installUrl: "https://developers.openai.com/codex"
+  },
+  {
+    id: "opencode",
+    provider: "opencode-cli",
+    // Signed in against whatever provider the user connected it to — their own API keys, or
+    // the opencode Go subscription.
+    label: "opencode",
+    exampleModel: "opencode-cli/default",
+    installUrl: "https://opencode.ai/go"
   }
 ];
 
