@@ -628,6 +628,9 @@ export interface MachineModelAvailability {
   cliProviders: readonly string[];
 }
 
+/** The one ineligibility the user chose, so callers can tell it from a real problem. */
+export const DISABLED_ON_THIS_MACHINE = "Disabled on this machine";
+
 export interface EffectiveAgentEligibility {
   active: boolean;
   reason: string;
@@ -646,7 +649,7 @@ export function effectiveAgentEligibility(
   catalog: ModelOption[] = []
 ): EffectiveAgentEligibility {
   const model = resolveModelChoice(agent.config, activeModel, catalog);
-  if (!enabledOnMachine) return { active: false, reason: "Disabled on this machine", model };
+  if (!enabledOnMachine) return { active: false, reason: DISABLED_ON_THIS_MACHINE, model };
 
   if (model.provider === LOCAL_PROVIDER) {
     const running =

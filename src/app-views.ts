@@ -14,7 +14,8 @@ import {
   modelLabel,
   preferredModelChoice,
   sameChoice,
-  type ResolvedAction
+  type ResolvedAction,
+  DISABLED_ON_THIS_MACHINE
 } from "./assistant.js";
 import {
   CLI_TOOLS,
@@ -803,11 +804,14 @@ export function createMainViews(host: MainHost) {
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
     if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
       return;
-    // The eligibility reason is otherwise only a tooltip in the process editor.
-    const blockedAgents = [...new Set(processAgents(host.workspaceController.activeProcess)
-      .map((agent) => host.workspaceController.eligibilityForAgent(agent))
-      .filter(({ active }) => !active)
-      .map(({ reason }) => reason))];
+    // The eligibility reason is otherwise only a tooltip in the process editor. An agent the user
+    // switched off is not a problem to report, and a stopped process already says why nothing runs.
+    const blockedAgents = running
+      ? processAgents(host.workspaceController.activeProcess)
+        .map((agent) => ({ agent, ...host.workspaceController.eligibilityForAgent(agent) }))
+        .filter(({ active, reason }) => !active && reason !== DISABLED_ON_THIS_MACHINE)
+        .map(({ agent, reason }) => `${agent.name}: ${reason}`)
+      : [];
     host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
           <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
@@ -834,7 +838,7 @@ export function createMainViews(host: MainHost) {
         ? ""
         : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
       ${blockedAgents.length
-        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>Agents on this board cannot run: ${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
+        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
         : ""}
       <div class="kanban">${stages
         .map((stage) => {

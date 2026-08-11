@@ -557,16 +557,27 @@ export function createMainActions(host: MainHost) {
     return download;
   }
 
+  /** Which start attempt per model is the live one, so an overtaken one stays out of the way. */
+  const localModelStartAttempt = new Map<string, number>();
+
   // Boot can take up to a minute, so it is not awaited either — the row shows "Starting…" until the
   // runtime answers, and the user is free to leave Preferences meanwhile.
   function runLocalModel(modelId: string): void {
     if (host.assistant.localModelStarting.has(modelId))
       return;
     host.assistant.localModelStarting.add(modelId);
+    // Turning Run off and on again while the download is still going starts a second attempt, and
+    // both share the one download. Without a mark of whose attempt this is, the first to finish
+    // tidies up after the second and clears the intent the second just saved.
+    const attempt = (localModelStartAttempt.get(modelId) ?? 0) + 1;
+    localModelStartAttempt.set(modelId, attempt);
+    const mine = (): boolean => localModelStartAttempt.get(modelId) === attempt;
     void host.localModels.wantRun(modelId)
       .then(() => downloadLocalModel(modelId))
       .then(async (downloaded) => {
-        if (!downloaded || !host.assistant.localModelStarting.has(modelId)) {
+        if (!mine())
+          return;
+        if (!downloaded) {
           // wantRun ran before the download, so a cancelled one has to take the intent with it.
           if (host.localModels.wantedRunId === modelId)
             await host.localModels.wantRun(null);
@@ -576,15 +587,25 @@ export function createMainActions(host: MainHost) {
           await host.flueProjectPort.restart();
       })
       .catch(async (error) => {
+        if (!mine())
+          return;
         if (host.localModels.wantedRunId === modelId)
           await host.localModels.wantRun(null);
         host.shell.showNotice(errorText(error), "error");
       })
       .finally(() => {
+        if (!mine())
+          return;
         host.assistant.localModelStarting.delete(modelId);
         host.assistant.localModelProgress.delete(modelId);
         void refreshLocalModelRows();
       });
+  }
+
+  /** Ends the in-flight start so its result cannot undo whatever the user asked for next. */
+  function cancelLocalModelStart(modelId: string): void {
+    localModelStartAttempt.set(modelId, (localModelStartAttempt.get(modelId) ?? 0) + 1);
+    host.assistant.localModelStarting.delete(modelId);
   }
 
   /** Stops a running model, or cancels its download when that is what the toggle turned off. */
@@ -2791,7 +2812,7 @@ export function createMainActions(host: MainHost) {
       else {
         // Drops a start still waiting on its download without cancelling that download — the
         // Download toggle owns it. Otherwise this stops the model that is serving.
-        host.assistant.localModelStarting.delete(modelId);
+        cancelLocalModelStart(modelId);
         if (host.localModels.wantedRunId === modelId) {
           void host.localModels.wantRun(null).then(refreshLocalModelRows);
         }

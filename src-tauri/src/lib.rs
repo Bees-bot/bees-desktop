@@ -3560,12 +3560,21 @@ fn add_missing_columns(
 }
 
 /// listProcesses joins process_definitions, so a workflow made before that table existed drops out
-/// of the join and the team looks empty. Give those the definition a hand-made workflow gets today.
+/// of the join and the team looks empty. Rebuild the row it is missing.
+///
+/// Before definitions existed, a bundled workflow carried its identity as a `module:<id>` tag, and
+/// those tags are still there. Keep it: a Goals or Code workflow that comes back as hand-made loses
+/// the renderer and the capabilities its module declares, and an interactive one starts reading as
+/// automatic, which is the difference between agents waiting and agents running on their own.
 fn backfill_process_definitions(connection: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     connection.execute(
         r#"INSERT INTO process_definitions (process_id, definition_json)
-           SELECT id, ?1 FROM processes
-           WHERE id NOT IN (SELECT process_id FROM process_definitions)"#,
+           SELECT p.id, json_set(?1, '$.moduleId',
+                    (SELECT substr(t.tag, 8) FROM tags t
+                      WHERE t.entity = 'process' AND t.entity_id = p.id AND t.tag LIKE 'module:%'
+                      LIMIT 1))
+             FROM processes p
+            WHERE NOT EXISTS (SELECT 1 FROM process_definitions d WHERE d.process_id = p.id)"#,
         [r#"{"moduleId":null,"version":1,"automation":"automatic","renderer":"default","stateIds":{},"capabilities":[],"roleBindings":[]}"#],
     )?;
     Ok(())
@@ -3773,9 +3782,11 @@ mod tests {
             .execute_batch(
                 "CREATE TABLE processes (id TEXT PRIMARY KEY, name TEXT);\
                  CREATE TABLE process_definitions (process_id TEXT PRIMARY KEY, definition_json TEXT NOT NULL);\
-                 INSERT INTO processes (id, name) VALUES ('bidding', 'Bidding');",
+                 CREATE TABLE tags (entity TEXT NOT NULL, entity_id TEXT NOT NULL, tag TEXT NOT NULL);\
+                 INSERT INTO processes (id, name) VALUES ('bidding', 'Bidding'), ('goals', 'Goals');\
+                 INSERT INTO tags (entity, entity_id, tag) VALUES ('process', 'goals', 'module:goals');",
             )
-            .expect("a workflow from before the table existed");
+            .expect("a hand-made workflow and a bundled one, both from before the table existed");
 
         backfill_process_definitions(&connection).expect("backfill");
 
@@ -3786,7 +3797,20 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("the join that lists workflows");
-        assert_eq!(listed, 1);
+        assert_eq!(listed, 2);
+
+        let module = |id: &str| -> Option<String> {
+            connection
+                .query_row(
+                    "SELECT json_extract(definition_json, '$.moduleId') FROM process_definitions WHERE process_id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .expect("the definition just written")
+        };
+        // The tag is the only thing left that says this one came from the library.
+        assert_eq!(module("goals").as_deref(), Some("goals"));
+        assert_eq!(module("bidding"), None);
 
         backfill_process_definitions(&connection).expect("second run is a no-op");
     }
@@ -4185,6 +4209,18 @@ mod real_database_tests {
         let schema = include_str!("../schema.sql");
         add_missing_columns(&connection, schema).expect("missing columns are addable");
         connection.execute_batch(schema).expect("schema applies");
+        backfill_process_definitions(&connection).expect("definitions are backfilled");
+
+        // Every workflow has to survive the join that lists them, or the team reads as empty.
+        let orphans: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM processes p
+                  WHERE NOT EXISTS (SELECT 1 FROM process_definitions d WHERE d.process_id = p.id)",
+                [],
+                |row| row.get(0),
+            )
+            .expect("orphan count");
+        assert_eq!(orphans, 0, "a workflow with no definition disappears from the app");
 
         for (table, columns) in declared_columns(schema) {
             let present = connection
