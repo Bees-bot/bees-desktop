@@ -1871,7 +1871,7 @@ export function createMainViews(host: MainHost) {
     const models = await host.localModels.list();
     return `<div class="space-y-5">
       <section>
-        <h2 class="font-bold">Local models</h2>
+        <h2 class="font-bold">Local AI</h2>
         <p class="mt-1 text-sm text-base-content/60">Turn on Download to fetch a model, then Run to serve it. Run as many as this computer's memory can hold. Models and chats stay on this device.</p>
         <div class="mt-3 flex flex-wrap gap-2">
           <input class="input input-bordered input-sm min-w-64 flex-1" data-local-model-source
@@ -1930,7 +1930,7 @@ export function createMainViews(host: MainHost) {
     }).join("");
     return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="border-b border-base-300 p-5">
-        <h2 class="font-bold">Command-line agents</h2>
+        <h2 class="font-bold">AI Subscriptions</h2>
         <p class="mt-1 text-sm text-base-content/60">Runs pointed at these use the CLI on this computer, signed in with your own account. The CLI works in the run's workspace folder and bills whatever plan it is logged into.</p>
       </header>
       <ul class="divide-y divide-base-200 p-2">${rows}</ul>
@@ -1966,7 +1966,6 @@ export function createMainViews(host: MainHost) {
         <header class="border-b border-base-300 p-5"><h2 class="font-bold">Active connections</h2></header>
         <ul class="divide-y divide-base-200 p-2">${list}</ul>
       </section>
-      ${await cliToolsSection()}
     </div>`;
   }
 
@@ -2166,8 +2165,9 @@ export function createMainViews(host: MainHost) {
   async function renderPreferences(): Promise<void> {
     host.shell.setHeader("Preferences", host.session.currentUser()?.email ?? "Local");
     await renderTabs<PrefsTab>("prefs-tab", [
-      { id: "local-models", label: "Local models", content: prefsLocalModelsContent },
-      { id: "remote-models", label: "Remote models", content: prefsRemoteModelsContent },
+      { id: "local-models", label: "Local AI", content: prefsLocalModelsContent },
+      { id: "ai-subscriptions", label: "AI Subscriptions", content: cliToolsSection },
+      { id: "remote-models", label: "AI APIs", content: prefsRemoteModelsContent },
       { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
       { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
       { id: "orgs", label: "Orgs", content: prefsOrgsContent },

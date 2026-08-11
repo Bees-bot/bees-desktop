@@ -1898,7 +1898,7 @@ export function createMainActions(host: MainHost) {
         // to come back up before the change reaches runs.
         await host.flueProjectPort.restart();
         await host.workspaceController.refresh();
-        host.shell.showNotice(enabled ? "Command-line agent switched on" : "Command-line agent switched off", "success");
+        host.shell.showNotice(enabled ? "AI subscription switched on" : "AI subscription switched off", "success");
         return;
       }
       if (action === "pick-cli-tool" || action === "clear-cli-tool") {
@@ -1910,7 +1910,7 @@ export function createMainActions(host: MainHost) {
         // The path reaches the CLI providers as an environment variable set at launch.
         await host.flueProjectPort.restart();
         await host.workspaceController.refresh();
-        host.shell.showNotice(picked ? "Command-line agent updated" : "Back to the detected CLI", "success");
+        host.shell.showNotice(picked ? "AI subscription updated" : "Back to the detected CLI", "success");
         return;
       }
       if (action === "browse-local-model") {

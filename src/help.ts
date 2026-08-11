@@ -36,8 +36,9 @@ sidebar. These settings belong to this computer and this person. They are never
 synchronized, and they apply across every organization and team you are signed
 into. Credentials never leave the machine.
 
-- **Local models** — on-device models. Download one, then Run it. No network, no per-token cost.
-- **Remote models** — API keys for hosted providers, and agent CLIs detected on this computer.
+- **Local AI** — on-device models. Download one, then Run it. No network, no per-token cost.
+- **AI Subscriptions** — agent CLIs detected on this computer, billed to the plan each is signed into.
+- **AI APIs** — API keys for hosted providers.
 - **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
 - **Orgs** — create a local or connected organization, and accept invitations.
@@ -79,17 +80,17 @@ process — most "nothing happens when I press Run" comes from skipping it.
 
 **Option A — an agent CLI you already pay for.** Install Claude Code or the
 Codex CLI, sign it in from your terminal, and it appears under
-**Preferences → Remote models** as \`claude-cli\` or \`codex-cli\`. It bills your
+**Preferences → AI Subscriptions** as \`claude-cli\` or \`codex-cli\`. It bills your
 existing subscription, so frontier models cost you nothing new. Installing both
 unlocks the multi-vendor workflows, where one vendor proposes and the other
 critiques.
 
-**Option B — an on-device model.** **Preferences → Local models**, select
+**Option B — an on-device model.** **Preferences → Local AI**, select
 **Download**, then **Run**. Nothing leaves the machine and there is no bill.
 Small models are weaker at long instructions, so use them where privacy or
 volume matters most.
 
-**Option C — a provider API key.** **Preferences → Remote models**, add a key.
+**Option C — a provider API key.** **Preferences → AI APIs**, add a key.
 
 Every model picker lists exactly what this computer can run right now. An agent
 naming a model this machine cannot reach is not eligible to run here, which is

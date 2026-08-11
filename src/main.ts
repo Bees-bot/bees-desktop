@@ -89,6 +89,7 @@ import { WorkflowRuntimeClient } from "./workflow-runtime.js";
 export type PrefsTab =
   | "theme"
   | "local-models"
+  | "ai-subscriptions"
   | "remote-models"
   | "mcp-servers"
   | "signins"
