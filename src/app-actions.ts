@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   firstTriggerConflict,
@@ -626,7 +627,7 @@ export function createMainActions(host: MainHost) {
 
   async function discoverMcpConnection(connection: McpConnection): Promise<McpConnection> {
     const { baseUrl, token } = await host.ensureFlueRuntime();
-    const response = await fetch(`${baseUrl}/connections/discover`, {
+    const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify(connection)
@@ -2472,7 +2473,7 @@ export function createMainActions(host: MainHost) {
           return;
         }
         const { baseUrl, token } = await host.ensureFlueRuntime();
-        const response = await fetch(`${baseUrl}/browser/open`, {
+        const response = await tauriFetch(`${baseUrl}/browser/open`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ profileKey: mapping.localPath, url: "about:blank" })
