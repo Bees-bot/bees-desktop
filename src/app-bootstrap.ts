@@ -93,9 +93,7 @@ export function createAppBootstrap(host: MainHost) {
           void host.views.renderPreferences();
         }
       });
-      // A Run left on outlives the app, the llama-server it asked for does not: startup reaps every
-      // orphan, so a model switched on yesterday is down today. Act on the intent instead of letting
-      // the row claim it is starting when nothing is. A failure clears it and says why.
+      // Startup reaps orphaned servers, so a model left switched on is down until someone asks again.
       const wantedModelId = host.localModels.wantedRunId;
       if (wantedModelId)
         host.actions.runLocalModel(wantedModelId);

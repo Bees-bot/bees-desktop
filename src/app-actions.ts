@@ -566,8 +566,7 @@ export function createMainActions(host: MainHost) {
       .then(() => downloadLocalModel(modelId))
       .then(async (downloaded) => {
         if (!downloaded || !host.assistant.localModelStarting.has(modelId)) {
-          // The intent was persisted before the download. A download that failed or was cancelled,
-          // or a Run switched back off, has to take it with them or the row reads as wanted forever.
+          // wantRun ran before the download, so a cancelled one has to take the intent with it.
           if (host.localModels.wantedRunId === modelId)
             await host.localModels.wantRun(null);
           return;

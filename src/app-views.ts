@@ -803,8 +803,7 @@ export function createMainViews(host: MainHost) {
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
     if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
       return;
-    // Why work sits still. Each agent already knows, but only as a tooltip on a badge in the process
-    // editor, nowhere near the board the user is looking at.
+    // The eligibility reason is otherwise only a tooltip in the process editor.
     const blockedAgents = [...new Set(processAgents(host.workspaceController.activeProcess)
       .map((agent) => host.workspaceController.eligibilityForAgent(agent))
       .filter(({ active }) => !active)
@@ -1834,10 +1833,8 @@ export function createMainViews(host: MainHost) {
     const downloadedBytes = event?.downloadedBytes ?? model.runtime.downloadedBytes;
     const totalBytes = event?.totalBytes ?? model.runtime.totalBytes;
     const id = host.shell.escapeHtml(model.id);
-    // "Starting" means a start is in flight, never bare persisted intent. The wanted flag survives
-    // a restart, and a row that calls that "Starting…" also draws Run as already on, so the change
-    // event that starts a model cannot fire and there is no way to ask again. During a download the
-    // flag is the honest label, and app-bootstrap turns it into a start when the bytes land.
+    // Persisted intent is not a start. It survives a restart, and it draws Run as already on, so
+    // the change event that starts a model can never fire.
     const starting = (host.assistant.localModelStarting.has(model.id) ||
       (host.localModels.wantedRunId === model.id && state === "downloading")) &&
       state !== "running";

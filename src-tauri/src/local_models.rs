@@ -982,8 +982,7 @@ fn start_local_model_blocking(
         }
         thread::sleep(Duration::from_millis(250));
     }
-    // Alive but not answering, and the child is about to be dropped and killed, so the tail it
-    // printed is the only account of what it was doing. Say that instead of a bare timeout.
+    // The child is about to be dropped and killed, so its tail is the only account of the stall.
     Err(startup_failure_message(
         &log.lock()
             .map(|log| log.iter().cloned().collect::<Vec<String>>())
