@@ -55,6 +55,9 @@ jobs:
       # not need.
       - run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      # Covers the database upgrade and model sizing, which the TS suite cannot reach.
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
   secrets:
     name: Scan for secrets
     runs-on: ubuntu-22.04

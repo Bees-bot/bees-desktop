@@ -76,9 +76,10 @@ const temporalAssets = {
 // b10153 is the first release with the `nanbeige` architecture the seeded model uses.
 const llamaRelease = "b10164";
 const macTarget = target.endsWith("-apple-darwin");
+// Keyed by target like bees-node and temporal, or both macOS arches share one marker.
 const llamaRuntimeRevision = macTarget
-  ? `${llamaRelease}-macos13-static-1`
-  : `${llamaRelease}-1`;
+  ? `${llamaRelease}-macos13-static-1-${target}`
+  : `${llamaRelease}-1-${target}`;
 const llamaSource = [
   `llama.cpp-${llamaRelease}.tar.gz`,
   "1d38f33c3b9fa8cd9af2ed37b7d3b60c7ba074d245a82e37c0bf3be2f6e94c66"

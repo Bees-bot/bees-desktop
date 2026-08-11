@@ -547,6 +547,11 @@ fn finalize_download(part: &Path, target: &Path, spec: &ModelSpec) -> Result<(),
             return Err("The downloaded model failed its SHA-256 integrity check".into());
         }
     }
+    // Replace only once a verified file exists, so an interrupted download leaves the old one
+    // alone. Windows rename needs the destination clear.
+    if target.exists() {
+        fs::remove_file(target).map_err(|error| error.to_string())?;
+    }
     fs::rename(part, target).map_err(|error| error.to_string())
 }
 
@@ -554,9 +559,6 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     let target = model_path(app, spec)?;
     if is_complete(&target, spec.bytes) {
         return Ok(());
-    }
-    if target.exists() {
-        fs::remove_file(&target).map_err(|error| error.to_string())?;
     }
     let directory = target
         .parent()
@@ -620,6 +622,15 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
             "Unexpected model download size: expected {} bytes, got {total}",
             spec.bytes
         ));
+    }
+    // No size from the host, none pinned, no checksum: a cut connection looks the same as a
+    // finished download. Say so instead of guessing.
+    if total == 0 && spec.sha256.is_none() {
+        return Err(
+            "This host does not report a file size, so Bees cannot tell a finished download from \
+             an interrupted one. Download the file yourself and add it from disk instead."
+                .into(),
+        );
     }
 
     let mut bytes = offset;
@@ -1077,8 +1088,11 @@ mod tests {
     /// models cost different amounts per token. A single machine-wide number cannot do this.
     #[test]
     fn window_follows_the_model_not_just_the_machine() {
-        let small = context_size_for_model(Some(seeded_3b()), 3 * GIB, 64 * GIB, None);
-        let large = context_size_for_model(Some(large_70b()), 40 * GIB, 64 * GIB, None);
+        // MEMORY_SHARE lends a third of RAM, and 40 GB does not fit in a third of 64 GB, so that
+        // machine has no window to divide. Needs one that holds both models.
+        let workstation = 192 * GIB;
+        let small = context_size_for_model(Some(seeded_3b()), 3 * GIB, workstation, None);
+        let large = context_size_for_model(Some(large_70b()), 40 * GIB, workstation, None);
         assert!(small > large, "3B got {small}, 70B got {large}");
         // The 70B is still given a usable window rather than being squeezed to the floor.
         assert!(large > MIN_CONTEXT, "got {large}");

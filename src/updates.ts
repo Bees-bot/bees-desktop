@@ -5,9 +5,23 @@
 // data (see local-models.ts) and are not bundled, so replacing the app never re-downloads
 // them.
 
+import { resourceDir } from "@tauri-apps/api/path";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+
+/**
+ * A still-quarantined app runs from a read-only copy under AppTranslocation, so replacing the
+ * bundle fails. The updater only escalates on a permission error, not a read-only volume.
+ */
+async function runningFromReadOnlyCopy(): Promise<boolean> {
+  try {
+    return (await resourceDir()).includes("/AppTranslocation/");
+  } catch {
+    // If the path cannot be read, try the install anyway.
+    return false;
+  }
+}
 
 /**
  * Checks once, asks, installs, restarts. An unreachable endpoint or a signature that does
@@ -26,6 +40,13 @@ export async function checkForUpdate(): Promise<void> {
     return;
   }
   if (!update) return;
+
+  // Say it up front, rather than failing later on a filesystem error that names nothing.
+  if (await runningFromReadOnlyCopy()) {
+    throw new Error(
+      `Bees ${update.version} is available, but this copy is running from a read-only location and cannot replace itself. Move Bees to your Applications folder in Finder, open it from there, and check again.`
+    );
+  }
 
   const notes = update.body?.trim();
   const accepted = await ask(

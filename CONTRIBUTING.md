@@ -77,6 +77,10 @@ We'd rather say no clearly than leave your PR sitting for six months.
   and a note in each PR saying which others go with it
 - We'll reply within 3 working days. If we haven't, chase us, we've dropped it.
 - Small PRs get merged faster, because they're easier to read
+- Contributors get named in the release notes. There's no separate thank-you ritual,
+  because that's the thing that quietly stops happening in a busy week
+- Office hours every second week, not every week. Weekly is the promise everyone breaks,
+  and a missed public promise costs more than one never made
 
 ## Code style
 
