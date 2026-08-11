@@ -2540,6 +2540,344 @@ fn remove_registry(app: tauri::AppHandle, registry_id: String) -> Result<(), Str
     Ok(())
 }
 
+// Public collections publish Agent Plugins through a Claude Code marketplace manifest, which
+// names each plugin and where its files live. Bees stages only the portable Agent Plugins
+// 1.0.0 core out of an entry — `skills/` and `mcp.json` — so a repository carrying a client's
+// agents, commands, and hooks still installs as the small package the specification describes.
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CatalogEntry {
+    name: String,
+    description: String,
+    /// Repository-relative directory holding this plugin's own files. Empty is the root.
+    source: String,
+    /// Repository-relative skill directories, listed by the manifest or found in the tree.
+    skills: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpRegistryServer {
+    name: String,
+    title: String,
+    description: String,
+    url: String,
+    transport: String,
+}
+
+fn catalog_client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(timeout)
+        // The GitHub API answers 403 without one.
+        .user_agent("bees-desktop")
+        .build()
+        .map_err(|error| error.to_string())
+}
+
+fn fetch_json(url: &str) -> Result<JsonValue, String> {
+    let response = catalog_client(Duration::from_secs(30))?
+        .get(url)
+        .send()
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("{url} answered {}", response.status()));
+    }
+    response.json().map_err(|error| error.to_string())
+}
+
+fn github_repo(value: &str) -> Result<String, String> {
+    let segments = value.split('/').collect::<Vec<_>>();
+    let usable = |segment: &&str| {
+        (1..=100).contains(&segment.len())
+            && !segment.starts_with('.')
+            && segment.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+    };
+    if segments.len() != 2 || !segments.iter().all(usable) {
+        return Err(format!("{value} is not an owner/name GitHub repository"));
+    }
+    Ok(segments.join("/"))
+}
+
+/// A repository-relative path with no traversal, drive root, or Windows separator. An empty
+/// result is the repository root, which marketplace entries write as `./`.
+fn repo_relative(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_start_matches("./").trim_matches('/');
+    if trimmed.is_empty() {
+        return Some(String::new());
+    }
+    let safe = !trimmed.contains('\\')
+        && trimmed
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..");
+    safe.then(|| trimmed.to_string())
+}
+
+fn repo_join(base: &str, suffix: &str) -> String {
+    if base.is_empty() {
+        suffix.to_string()
+    } else {
+        format!("{base}/{suffix}")
+    }
+}
+
+/// Marketplace entries take two shapes: one names its skills outright and keeps them at the
+/// repository root, the other points at a self-contained directory. `skill_directories` holds
+/// every directory in the repository that has a `SKILL.md`, which settles both.
+fn catalog_entries(marketplace: &JsonValue, skill_directories: &BTreeSet<String>) -> Vec<CatalogEntry> {
+    let Some(plugins) = marketplace.get("plugins").and_then(JsonValue::as_array) else {
+        return Vec::new();
+    };
+    plugins
+        .iter()
+        .filter_map(|entry| {
+            let name = entry.get("name").and_then(JsonValue::as_str)?;
+            // A marketplace may point an entry at some other repository, which arrives as an
+            // object rather than a path. Bees installs from the repository it was given.
+            let source = repo_relative(entry.get("source").and_then(JsonValue::as_str)?)?;
+            let skills = match entry.get("skills").and_then(JsonValue::as_array) {
+                Some(listed) => listed
+                    .iter()
+                    .filter_map(JsonValue::as_str)
+                    .filter_map(repo_relative)
+                    .filter(|path| skill_directories.contains(path))
+                    .collect(),
+                None => {
+                    let prefix = repo_join(&source, "skills/");
+                    skill_directories
+                        .iter()
+                        .filter(|path| {
+                            path.strip_prefix(&prefix)
+                                .is_some_and(|skill| !skill.contains('/'))
+                        })
+                        .cloned()
+                        .collect()
+                }
+            };
+            Some(CatalogEntry {
+                name: name.to_string(),
+                description: entry
+                    .get("description")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                source,
+                skills,
+            })
+        })
+        .collect()
+}
+
+fn plugin_catalog_blocking(repo: &str) -> Result<Vec<CatalogEntry>, String> {
+    let repo = github_repo(repo)?;
+    let marketplace = fetch_json(&format!(
+        "https://raw.githubusercontent.com/{repo}/HEAD/.claude-plugin/marketplace.json"
+    ))?;
+    // One recursive tree read answers "which skills does this ship" for every entry at once.
+    let tree = fetch_json(&format!(
+        "https://api.github.com/repos/{repo}/git/trees/HEAD?recursive=1"
+    ))?;
+    let skill_directories = tree
+        .get("tree")
+        .and_then(JsonValue::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("path").and_then(JsonValue::as_str))
+                .filter_map(|path| path.strip_suffix("/SKILL.md"))
+                .map(str::to_string)
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    Ok(catalog_entries(&marketplace, &skill_directories))
+}
+
+fn download_repository(repo: &str, into: &Path) -> Result<PathBuf, String> {
+    let bytes = catalog_client(Duration::from_secs(180))?
+        .get(format!("https://codeload.github.com/{repo}/tar.gz/HEAD"))
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.bytes())
+        .map_err(|error| format!("{repo} could not be downloaded: {error}"))?;
+    let archive = into.join("source.tar.gz");
+    fs::write(&archive, &bytes).map_err(|error| error.to_string())?;
+    // Every desktop Bees supports ships tar; unpacking in-process would cost two crates.
+    let output = Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(into)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("tar could not start: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tar could not read the {repo} archive: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    fs::remove_file(&archive).ok();
+    // codeload names the single extracted directory `{repository}-{ref}`.
+    fs::read_dir(into)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .find(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .ok_or_else(|| format!("the {repo} archive held no directory"))
+}
+
+/// Resolve a repository-relative path inside the extracted archive. The paths arrive from the
+/// window, so containment is checked here rather than assumed.
+fn contained_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative =
+        repo_relative(relative).ok_or_else(|| format!("{relative} is not a repository path"))?;
+    let candidate = root.join(&relative);
+    let Ok(resolved) = fs::canonicalize(&candidate) else {
+        // Nothing is there to copy. Callers test existence; an absent path cannot escape.
+        return Ok(candidate);
+    };
+    if !resolved.starts_with(root) {
+        return Err(format!("{relative} escapes the downloaded repository"));
+    }
+    Ok(resolved)
+}
+
+fn stage_catalog_plugin(root: &Path, entry: &CatalogEntry, staging: &Path) -> Result<(), String> {
+    let root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    if !valid_plugin_name(&entry.name) {
+        return Err(format!(
+            "{} does not satisfy Agent Plugins 1.0.0 naming rules",
+            entry.name
+        ));
+    }
+    fs::create_dir_all(staging).map_err(|error| error.to_string())?;
+    let mut manifest = Map::new();
+    manifest.insert(
+        "$schema".into(),
+        JsonValue::String(AGENT_PLUGIN_SCHEMA.into()),
+    );
+    manifest.insert("name".into(), JsonValue::String(entry.name.clone()));
+    if !entry.description.is_empty() {
+        manifest.insert(
+            "description".into(),
+            JsonValue::String(entry.description.clone()),
+        );
+    }
+    fs::write(
+        staging.join("plugin.json"),
+        serde_json::to_vec_pretty(&JsonValue::Object(manifest)).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    for skill in &entry.skills {
+        let source = contained_path(&root, skill)?;
+        let Some(directory) = source.file_name() else {
+            continue;
+        };
+        if source.is_dir() {
+            copy_tree(&source, &staging.join("skills").join(directory), true)?;
+        }
+    }
+    let mcp = contained_path(&root, &repo_join(&entry.source, "mcp.json"))?;
+    if mcp.is_file() {
+        fs::copy(&mcp, staging.join("mcp.json")).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn plugin_catalog(repo: String) -> Result<Vec<CatalogEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || plugin_catalog_blocking(&repo))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn install_catalog_plugin(
+    app: tauri::AppHandle,
+    registry_id: String,
+    repo: String,
+    entry: CatalogEntry,
+) -> Result<RawAgentPluginPackage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = github_repo(&repo)?;
+        let workspace = std::env::temp_dir().join(format!("bees-catalog-{}", loopback_token()?));
+        fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
+        let installed = (|| {
+            let root = download_repository(&repo, &workspace)?;
+            let staging = workspace.join("plugin");
+            stage_catalog_plugin(&root, &entry, &staging)?;
+            install_agent_plugin_from(&app, &registry_id, &staging)
+        })();
+        fs::remove_dir_all(&workspace).ok();
+        installed
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn search_mcp_registry_blocking(query: &str) -> Result<Vec<McpRegistryServer>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("Say what the server should do, for example \"salesforce\".".into());
+    }
+    // `version=latest` collapses the one-row-per-published-version the registry returns.
+    let url = reqwest::Url::parse_with_params(
+        "https://registry.modelcontextprotocol.io/v0/servers",
+        &[("search", query), ("version", "latest"), ("limit", "50")],
+    )
+    .map_err(|error| error.to_string())?;
+    let page = fetch_json(url.as_str())?;
+    let servers = page
+        .get("servers")
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(servers
+        .iter()
+        .filter_map(|found| {
+            let server = found.get("server")?;
+            let name = server.get("name").and_then(JsonValue::as_str)?;
+            // Bees connects to hosted endpoints. An entry shipping only a local package has
+            // no URL to connect to, and Bees runs no stdio MCP servers.
+            let remote = server
+                .get("remotes")
+                .and_then(JsonValue::as_array)?
+                .iter()
+                .find(|remote| {
+                    matches!(
+                        remote.get("type").and_then(JsonValue::as_str),
+                        Some("streamable-http" | "sse")
+                    )
+                })?;
+            Some(McpRegistryServer {
+                title: server
+                    .get("title")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or(name)
+                    .to_string(),
+                name: name.to_string(),
+                description: server
+                    .get("description")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                url: remote.get("url").and_then(JsonValue::as_str)?.to_string(),
+                transport: remote.get("type").and_then(JsonValue::as_str)?.to_string(),
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn search_mcp_registry(query: String) -> Result<Vec<McpRegistryServer>, String> {
+    tauri::async_runtime::spawn_blocking(move || search_mcp_registry_blocking(&query))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 fn validate_directory(path: String) -> Result<String, String> {
     canonical_directory(&path).map(|path| path.to_string_lossy().into_owned())
@@ -3293,6 +3631,9 @@ pub fn run() {
             purge_flue_execution_state,
             install_agent_plugin,
             install_bundled_agent_plugin,
+            plugin_catalog,
+            install_catalog_plugin,
+            search_mcp_registry,
             remove_registry,
             local_model_status,
             ensure_local_model,
@@ -3334,6 +3675,39 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two marketplace shapes in the wild: an entry that lists its skills and keeps them at
+    /// the repository root, and one that points at a self-contained plugin directory.
+    #[test]
+    fn a_catalog_reads_both_marketplace_shapes_and_keeps_traversal_out() {
+        let directories = ["skills/xlsx", "skills/docx", "plugins/debug/skills/tracing"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>();
+        let marketplace = serde_json::json!({
+            "plugins": [
+                { "name": "documents", "source": "./", "skills": ["./skills/xlsx", "./skills/docx"] },
+                { "name": "debug", "source": "./plugins/debug" },
+                { "name": "agents-only", "source": "./plugins/agents-only" },
+                { "name": "escaping", "source": "./", "skills": ["../../etc/passwd"] },
+                { "name": "elsewhere", "source": { "repo": "other/repo" } }
+            ]
+        });
+        let entries = catalog_entries(&marketplace, &directories);
+        // The entry pointing at another repository is not installable from this one.
+        assert_eq!(entries.len(), 4);
+        // A listed entry keeps the order its publisher wrote; a derived one is tree order.
+        assert_eq!(entries[0].skills, ["skills/xlsx", "skills/docx"]);
+        assert_eq!(entries[1].skills, ["plugins/debug/skills/tracing"]);
+        // Nothing to install, so the window can grey it out instead of staging an empty plugin.
+        assert!(entries[2].skills.is_empty());
+        assert!(entries[3].skills.is_empty());
+        assert_eq!(repo_relative("../secrets"), None);
+        assert_eq!(repo_relative("skills/../../etc"), None);
+        assert_eq!(repo_relative("./"), Some(String::new()));
+        assert!(github_repo("owner/name/extra").is_err());
+        assert!(github_repo("owner/../name").is_err());
+    }
 
     /// v0.1.1 shipped without stages.is_terminal and re-running the schema does not add it.
     #[test]

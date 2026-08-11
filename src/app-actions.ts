@@ -17,6 +17,15 @@ import {
 import type { EditorField, FileSource } from "./app-views.js";
 import { executeBeesUiCommand, snapshotBeesUi } from "./assistant-ui.js";
 import {
+  PLUGIN_CATALOG,
+  catalogSourcePath,
+  installCatalogPlugin,
+  parseCatalogSourcePath,
+  pluginCatalog,
+  searchMcpRegistry,
+  type McpRegistryServer
+} from "./catalog.js";
+import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
   AUTO_PROVIDER,
@@ -650,12 +659,13 @@ export function createMainActions(host: MainHost) {
     return saved;
   }
 
-  async function addApiKeyMcp(): Promise<void> {
-    const data = await edit("Add MCP connection", [
-      { name: "name", label: "Name", placeholder: "Linear" },
-      { name: "url", label: "HTTPS endpoint", placeholder: "https://example.com/mcp" },
-      { name: "token", label: "API key / bearer token", type: "password" },
-      { name: "transport", label: "Transport", type: "toggle", value: "streamable-http", options: [{ label: "Streamable HTTP", value: "streamable-http" }, { label: "Legacy SSE", value: "sse" }] },
+  /** `found` prefills the form from a registry search; typing the endpoint by hand still works. */
+  async function addApiKeyMcp(found?: McpRegistryServer): Promise<void> {
+    const data = await edit(found ? `Connect ${found.title}` : "Add MCP connection", [
+      { name: "name", label: "Name", placeholder: "Linear", value: found?.title ?? "" },
+      { name: "url", label: "HTTPS endpoint", placeholder: "https://example.com/mcp", value: found?.url ?? "" },
+      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in the operating-system vault." : "" },
+      { name: "transport", label: "Transport", type: "toggle", value: found?.transport ?? "streamable-http", options: [{ label: "Streamable HTTP", value: "streamable-http" }, { label: "Legacy SSE", value: "sse" }] },
       { name: "offline", label: "When unavailable", type: "toggle", value: "required", options: [{ label: "Fail the run", value: "required" }, { label: "Continue without it", value: "optional" }] }
     ]);
     if (!data)
@@ -726,6 +736,20 @@ export function createMainActions(host: MainHost) {
     }
     await discoverMcpConnection(connection);
     await host.workspaceController.refresh();
+  }
+
+  /**
+   * A collection is a moving target, so refreshing re-reads the marketplace rather than
+   * trusting the paths recorded at install. An entry the publisher dropped says so plainly.
+   */
+  async function refreshCatalogRegistry(
+    registryId: string,
+    { repo, entry }: { repo: string; entry: string }
+  ) {
+    const found = (await pluginCatalog(repo)).find(({ name }) => name === entry);
+    if (!found)
+      throw new Error(`${repo} no longer publishes ${entry}`);
+    return installCatalogPlugin(registryId, repo, found);
   }
 
   function readFileAsDataUrl(file: File): Promise<string> {
@@ -1792,6 +1816,37 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice(warning ?? "Connection removed", warning ? "error" : "success");
         return;
       }
+      if (action === "find-mcp") {
+        const asked = await edit("Find an MCP server", [{
+          name: "query",
+          label: "What should the server do?",
+          placeholder: "salesforce",
+          hint: "Searches the public MCP registry. Only servers with a hosted HTTPS endpoint are listed, because Bees runs no local MCP servers."
+        }], "Search");
+        if (!asked)
+          return;
+        const found = await searchMcpRegistry(String(asked.get("query") ?? ""));
+        if (!found.length) {
+          host.shell.showNotice("No hosted MCP server matched that search.", "info");
+          return;
+        }
+        const picked = await edit("Hosted MCP servers", [{
+          name: "server",
+          label: "Server",
+          type: "select",
+          options: found.map((server) => ({
+            value: server.name,
+            label: `${server.title} · ${server.url}${server.description ? ` — ${server.description}` : ""}`
+          })),
+          hint: "Anyone may publish to the registry, and an agent's tool calls go to whoever runs the server. Check the publisher before connecting."
+        }], "Continue");
+        if (!picked)
+          return;
+        const server = found.find(({ name }) => name === String(picked.get("server")));
+        if (server)
+          await addApiKeyMcp(server);
+        return;
+      }
       if (action === "add-mcp-api") {
         await addApiKeyMcp();
         return;
@@ -2324,6 +2379,55 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice(`Skill written to ${path}`, "success");
         return;
       }
+      if (action === "browse-catalog") {
+        const source = await edit("Browse plugin collections", [{
+          name: "repo",
+          label: "Collection",
+          type: "select",
+          options: PLUGIN_CATALOG.map(({ repo, label, note }) => ({ value: repo, label: `${label} — ${note}` })),
+          hint: "Collections are read live from GitHub. Refreshing an installed plugin later takes whatever it says then."
+        }], "Browse");
+        if (!source)
+          return;
+        const repo = String(source.get("repo") ?? "");
+        // A plugin with no skills carries only agents, commands, or hooks, which are each
+        // client's own business under Agent Plugins 1.0.0. Installing one would load nothing.
+        const entries = (await pluginCatalog(repo)).filter(({ skills }) => skills.length);
+        if (!entries.length) {
+          host.shell.showNotice(`${repo} publishes no skills Bees can load.`, "info");
+          return;
+        }
+        const picked = await edit(`Install from ${repo}`, [{
+          name: "entry",
+          label: "Plugin",
+          type: "select",
+          options: entries.map(({ name, description, skills }) => ({
+            value: name,
+            label: `${name} · ${skills.length} skill(s)${description ? ` — ${description}` : ""}`
+          })),
+          hint: "Bees loads skills and remote MCP servers. Agents, commands, and hooks are client-specific and are left behind."
+        }], "Install");
+        if (!picked)
+          return;
+        const entry = entries.find(({ name }) => name === String(picked.get("entry")));
+        if (!entry)
+          return;
+        const id = crypto.randomUUID();
+        const plugin = await installCatalogPlugin(id, repo, entry);
+        await host.repository.saveRegistry({
+          id,
+          teamId: host.workspaceController.workspace.teamId,
+          name: plugin.manifest.name,
+          sourcePath: catalogSourcePath(repo, entry.name),
+          plugin
+        });
+        await host.workspaceController.refresh();
+        host.shell.showNotice(
+          `Installed ${plugin.manifest.name}: ${plugin.skills.length} skill(s), ${plugin.mcpServers.length} MCP server(s)${plugin.issues.length ? `, ${plugin.issues.length} warning(s)` : ""}`,
+          plugin.issues.length ? "info" : "success"
+        );
+        return;
+      }
       if (action === "add-registry") {
         const selected = await open({ directory: true, multiple: false, recursive: true });
         if (typeof selected !== "string")
@@ -2367,9 +2471,12 @@ export function createMainActions(host: MainHost) {
         const registry = host.workspaceController.registries.find(({ id }) => id === button.dataset.id);
         if (!registry)
           return;
-        const plugin = registry.sourcePath.startsWith("bundled://")
-          ? await host.registryFiles.copyBundled(registry.id)
-          : await host.registryFiles.copy(registry.id, registry.sourcePath);
+        const catalog = parseCatalogSourcePath(registry.sourcePath);
+        const plugin = catalog
+          ? await refreshCatalogRegistry(registry.id, catalog)
+          : registry.sourcePath.startsWith("bundled://")
+            ? await host.registryFiles.copyBundled(registry.id)
+            : await host.registryFiles.copy(registry.id, registry.sourcePath);
         await host.repository.saveRegistry({ ...registry, name: plugin.manifest.name, plugin });
         await host.workspaceController.refresh();
         host.shell.showNotice(

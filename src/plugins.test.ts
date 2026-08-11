@@ -36,6 +36,27 @@ describe("Agent Plugins 1.0.0", () => {
     expect(plugin.issues).toEqual([]);
   });
 
+  it("keeps a skill carrying frontmatter Bees does not read", () => {
+    const skill = (directory: string, extra: string) => ({
+      directory,
+      path: `skills/${directory}/SKILL.md`,
+      contents: `---\nname: ${directory}\ndescription: Describe the ${directory} procedure this team follows.\n${extra}---\n\nFollow the procedure.`
+    });
+    const plugin = parseAgentPlugin({
+      manifest,
+      skills: [skill("versioned", "version: 2.1.0\n"), skill("annotated", "author: acme\nstatus: draft\n")],
+      mcp: null,
+      issues: [],
+      fileCount: 2
+    });
+
+    expect(plugin.skills.map(({ name }) => name)).toEqual(["versioned", "annotated"]);
+    // `version` is common enough to pass quietly; anything else is reported but kept.
+    expect(plugin.issues).toEqual([
+      "skills/annotated/SKILL.md: ignored unknown frontmatter field(s): author, status."
+    ]);
+  });
+
   it("accepts the Agent Skills description boundary and isolates an overflow", () => {
     const plugin = parseAgentPlugin({
       manifest,

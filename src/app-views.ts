@@ -1515,6 +1515,7 @@ export function createMainViews(host: MainHost) {
                 <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-base-content/55">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
                 <div class="flex gap-2">
                   <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
+                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="browse-catalog">Browse collections</button>
                   <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
                 </div>
               </div>
@@ -1984,7 +1985,7 @@ export function createMainViews(host: MainHost) {
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">MCP servers</h2>
         <p class="text-sm text-base-content/60">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
-        <div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button></div>
+        <div class="flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button></div>
       </div></section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${list}</ul></section>
     </div>`;

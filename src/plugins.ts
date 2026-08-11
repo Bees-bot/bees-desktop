@@ -25,7 +25,9 @@ export interface RawAgentPluginPackage {
   fileCount: number;
 }
 
-const skillFields = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
+// `version` is not an Agent Skills field, but published skills carry it often enough that
+// warning about it would be noise rather than news.
+const skillFields = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools", "version"]);
 const clientHeaders = new Set([
   "accept",
   "authorization",
@@ -43,7 +45,7 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function skill(raw: RawAgentPluginSkill): AgentPluginSkill {
+function skill(raw: RawAgentPluginSkill, issues: string[]): AgentPluginSkill {
   const match = raw.contents.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
   if (!match) throw new Error("SKILL.md must contain closed YAML frontmatter");
   const [, frontmatterText = "", body = ""] = match;
@@ -52,8 +54,13 @@ function skill(raw: RawAgentPluginSkill): AgentPluginSkill {
   if (firstError) throw new Error(`invalid YAML: ${firstError.message}`);
   const frontmatter = record(document.toJS());
   if (!frontmatter) throw new Error("frontmatter must be a YAML mapping");
+  // A field Bees does not read is not a reason to drop the skill. Published skills carry
+  // authoring metadata the Agent Skills specification does not define, and refusing them
+  // loses working instructions over a line Bees would have ignored anyway.
   const unknown = Object.keys(frontmatter).filter((key) => !skillFields.has(key));
-  if (unknown.length) throw new Error(`unexpected frontmatter field(s): ${unknown.join(", ")}`);
+  if (unknown.length) {
+    issues.push(`${raw.path}: ignored unknown frontmatter field(s): ${unknown.join(", ")}.`);
+  }
 
   const name = frontmatter.name;
   const description = frontmatter.description;
@@ -174,7 +181,7 @@ export function parseAgentPlugin(raw: RawAgentPluginPackage): AgentPluginPackage
   const issues = [...raw.issues];
   const skills = raw.skills.flatMap((entry) => {
     try {
-      return [skill(entry)];
+      return [skill(entry, issues)];
     } catch (error) {
       issues.push(`${entry.path}: ${error instanceof Error ? error.message : String(error)}; skill was skipped.`);
       return [];
