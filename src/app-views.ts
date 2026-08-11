@@ -1819,11 +1819,11 @@ export function createMainViews(host: MainHost) {
   }
 
   /** Download and Run are toggles: flipping one leaves the work running while the user moves on. */
-  function localModelToggle(id: string, kind: "download" | "run", on: boolean, disabled: boolean, downloaded = false): string {
+  function localModelToggle(id: string, kind: "download" | "run", on: boolean, disabled: boolean): string {
     const label = kind === "download" ? "Download" : "Run";
     return `<label class="flex cursor-pointer items-center gap-1.5 text-xs ${disabled ? "opacity-50" : ""}">
       <input type="checkbox" class="toggle toggle-xs toggle-primary" data-model-toggle="${kind}" data-model="${id}"
-        ${downloaded ? `data-model-downloaded="1"` : ""} ${on ? "checked" : ""} ${disabled ? "disabled" : ""}>${label}
+        ${on ? "checked" : ""} ${disabled ? "disabled" : ""}>${label}
     </label>`;
   }
 
@@ -1843,9 +1843,9 @@ export function createMainViews(host: MainHost) {
       : localModelStatusLabel(state, downloadedBytes, totalBytes, event?.error);
     const downloaded = state === "ready" || state === "running";
     // Run implies Download: turning it on downloads first when the file isn't here yet, so both
-    // toggles read as on. Flipping Download back off deletes the file and keeps the row — Delete is
-    // for dropping the row too. A model picked off this computer has nothing to download at all.
-    const action = localModelToggle(id, "download", downloaded || state === "downloading" || starting, !!model.localPath, downloaded) + localModelToggle(id, "run", state === "running" || starting, false);
+    // toggles read as on. Completed downloads cannot be toggled off: Delete is the one destructive
+    // action. A model picked off this computer has nothing to download at all.
+    const action = localModelToggle(id, "download", downloaded || state === "downloading" || starting, !!model.localPath || downloaded) + localModelToggle(id, "run", state === "running" || starting, false);
     const source = model.localPath
       ? `<span class="truncate">${host.shell.escapeHtml(model.localPath)}</span>`
       : `<button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(model.sourceUrl ?? model.url ?? "")}">${host.shell.escapeHtml(model.sourceUrl ? "Hugging Face" : "Download link")}</button>`;
