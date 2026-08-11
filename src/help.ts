@@ -38,7 +38,7 @@ into. Credentials never leave the machine.
 
 - **Local models** — on-device models. Download one, then Run it. No network, no per-token cost.
 - **Remote models** — API keys for hosted providers, and agent CLIs detected on this computer.
-- **MCP servers** — remote MCP connections, each with its own tool allowlist.
+- **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
 - **Orgs** — create a local or connected organization, and accept invitations.
 - **Root Folder** — the folder every organization and team folder is created under.
@@ -69,8 +69,8 @@ workflows, new-task, and settings buttons. Under each team, the left menu lists
 that team's top-level tasks — opening one shows the board for that task's own
 run of its workflow.
 
-Team settings: **Members**, **Folder**, **Integrations** (skills, trusted local
-tools, skill curation), **Browser**, **Archived**, and **Danger**.
+Team settings: **Members**, **Folder**, **Integrations** (Agent Plugins and skill
+curation), **Browser**, **Archived**, and **Danger**.
 
 ## 5. Turn on at least one model
 
@@ -111,11 +111,20 @@ The workspace root is set at **Preferences → Root Folder** and defaults to
   <organization name>/
     <team name>/          the team folder
       agents/             one JSON file per agent
-      skills/
-        <slug>/SKILL.md   a reusable written rule
-        .archive/         retired skills, never deleted
+      plugins/team-skills/
+        plugin.json       Agent Plugins 1.0.0 manifest
+        skills/
+          <slug>/SKILL.md a reusable Agent Skill
+          .archive/       retired skills, never deleted
       ...                 approved outputs and your own documents
 \`\`\`
+
+Install portable packages under **Team settings → Integrations → Install
+plugin**. A package has a root \`plugin.json\`, optional
+\`skills/<name>/SKILL.md\`, and optional \`mcp.json\`. Bees validates the
+manifest first, copies the package into app data, and makes its supported
+skills and remote MCP servers available in the agent editor. Streamable HTTP
+and legacy SSE servers are supported; stdio entries are skipped.
 
 **Overriding a team folder.** A team folder defaults to
 \`<organization folder>/<team name>\`. When the real folder is elsewhere on this

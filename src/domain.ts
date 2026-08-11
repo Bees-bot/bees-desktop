@@ -416,10 +416,45 @@ export interface Registry {
   teamId: string;
   name: string;
   sourcePath: string;
-  files: string[];
+  plugin: AgentPluginPackage;
   copiedAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AgentPluginManifest {
+  $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  name: string;
+  version?: string;
+  description?: string;
+  author?: { name?: string; email?: string; url?: string };
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  keywords?: string[];
+  extensions?: Record<string, Record<string, unknown>>;
+}
+
+export interface AgentPluginSkill {
+  path: string;
+  name: string;
+  description: string;
+  instructions: string;
+}
+
+export interface AgentPluginMcpServer {
+  name: string;
+  transport: "streamable-http" | "sse";
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface AgentPluginPackage {
+  manifest: AgentPluginManifest;
+  skills: AgentPluginSkill[];
+  mcpServers: AgentPluginMcpServer[];
+  issues: string[];
+  fileCount: number;
 }
 
 export interface Capability {
@@ -428,6 +463,8 @@ export interface Capability {
   path: string;
   name: string;
   kind: CapabilityKind;
+  description?: string;
+  instructions?: string;
 }
 
 export interface SkillSnapshot {
@@ -450,8 +487,12 @@ export interface McpConnection {
   name: string;
   url: string;
   transport: "streamable-http" | "sse";
-  authType: "api-key" | "oauth";
+  authType: "none" | "api-key" | "oauth";
   secretRef: string;
+  headers?: Record<string, string>;
+  /** Plugin MCP servers expose their tool catalog at connection time. */
+  allTools?: boolean;
+  pluginId?: string;
   optional: boolean;
   tools: McpTool[];
   allowedTools: string[];
@@ -473,8 +514,9 @@ export interface BeesRunMcpConnection {
   name: string;
   url: string;
   transport: "streamable-http" | "sse";
-  secretRef: string;
-  tools: string[];
+  secretRef?: string;
+  headers?: Record<string, string>;
+  tools?: string[];
   optional: boolean;
 }
 

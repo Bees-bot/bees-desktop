@@ -1,40 +1,17 @@
 import type { AgentConfig, Capability, CapabilityKind, Registry } from "./domain.js";
 import type { FlueProjectPort } from "./flue-project.js";
-
-function capabilityKind(path: string): CapabilityKind | null {
-  const normalized = `/${path.toLowerCase().replaceAll("\\", "/")}`;
-  // Dot folders are the copy's own business, not the team's: `.archive` holds retired skills,
-  // and a registry copied from a working folder brings `.git` along with it.
-  if (normalized.includes("/.")) return null;
-  if (normalized.endsWith("/skill.md")) return "skill";
-  if (
-    (normalized.includes("/tools/") || normalized.includes("/actions/")) &&
-    /\.(?:mjs|js|ts)$/.test(normalized)
-  ) {
-    return "tool";
-  }
-  return null;
-}
+import { parseAgentPlugin } from "./plugins.js";
 
 export function registryCapabilities(registries: Registry[]): Capability[] {
-  return registries.flatMap((registry) =>
-    registry.files.flatMap((path) => {
-      const kind = capabilityKind(path);
-      if (!kind) return [];
-      const segments = path.replaceAll("\\", "/").split("/");
-      const fallback = segments.at(-2) ?? segments.at(-1) ?? path;
-      const name = kind === "skill" ? fallback : (segments.at(-1) ?? path).replace(/\.[^.]+$/, "");
-      return [
-        {
-          ref: `${registry.id}:${path}`,
-          registryId: registry.id,
-          path,
-          name,
-          kind
-        }
-      ];
-    })
-  );
+  return registries.flatMap((registry) => registry.plugin.skills.map((skill) => ({
+    ref: `${registry.id}:${skill.path}`,
+    registryId: registry.id,
+    path: skill.path,
+    name: skill.name,
+    kind: "skill" as const,
+    description: skill.description,
+    instructions: skill.instructions
+  })));
 }
 
 export function selectedCapabilities(registries: Registry[], refs: string[]): Capability[] {
@@ -56,16 +33,12 @@ export function selectedAgentCapabilities(registries: Registry[], config: AgentC
 export class RegistryFiles {
   constructor(private readonly port: FlueProjectPort) {}
 
-  copy(registryId: string, sourcePath: string): Promise<string[]> {
-    return this.port.copyRegistry(registryId, sourcePath);
+  async copy(registryId: string, sourcePath: string): Promise<Registry["plugin"]> {
+    return parseAgentPlugin(await this.port.copyRegistry(registryId, sourcePath));
   }
 
-  copyBundled(registryId: string): Promise<string[]> {
-    return this.port.copyBundledRegistry(registryId);
-  }
-
-  inventory(registryId: string): Promise<string[]> {
-    return this.port.inventoryRegistry(registryId);
+  async copyBundled(registryId: string): Promise<Registry["plugin"]> {
+    return parseAgentPlugin(await this.port.copyBundledRegistry(registryId));
   }
 
   remove(registryId: string): Promise<void> {

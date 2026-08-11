@@ -1333,14 +1333,14 @@ export function createMainActions(host: MainHost) {
       if (action === "archive-skill") {
         const name = button.dataset.name ?? "this skill";
         // A move, not a delete — so one confirmation is enough and the undo is a drag in Finder.
-        if (!(await edit(`Retire "${name}"? Its folder moves to skills/.archive.`, [], "Retire"))) {
+        if (!(await edit(`Retire "${name}"? Its folder moves to the team plugin's skills/.archive.`, [], "Retire"))) {
           return;
         }
         const teamRoot = await host.workspaceController.requireTeamRoot();
         await host.agentFiles.archiveSkill(teamRoot, button.dataset.slug!);
         await host.workspaceController.ensureTeamSkillsRegistry(teamRoot);
         await host.workspaceController.refresh();
-        host.shell.showNotice(`Retired "${name}" to skills/.archive`, "success");
+        host.shell.showNotice(`Retired "${name}" to the team plugin's skills/.archive`, "success");
         return;
       }
       if (action === "curate-skills") {
@@ -2328,26 +2328,20 @@ export function createMainActions(host: MainHost) {
         const selected = await open({ directory: true, multiple: false, recursive: true });
         if (typeof selected !== "string")
           return;
-        const data = await edit("Add skills and tools folder", [
-          {
-            name: "name",
-            label: "Folder name",
-            value: selected.split(/[\\/]/).filter(Boolean).at(-1) ?? "Skills and tools"
-          }
-        ], "Copy");
-        if (!data)
-          return;
         const id = crypto.randomUUID();
-        const files = await host.registryFiles.copy(id, selected);
+        const plugin = await host.registryFiles.copy(id, selected);
         await host.repository.saveRegistry({
           id,
           teamId: host.workspaceController.workspace.teamId,
-          name: String(data.get("name") ?? ""),
+          name: plugin.manifest.name,
           sourcePath: selected,
-          files
+          plugin
         });
         await host.workspaceController.refresh();
-        host.shell.showNotice(`Copied ${files.length} file(s)`, "success");
+        host.shell.showNotice(
+          `Installed ${plugin.manifest.name}: ${plugin.skills.length} skill(s), ${plugin.mcpServers.length} MCP server(s)${plugin.issues.length ? `, ${plugin.issues.length} warning(s)` : ""}`,
+          plugin.issues.length ? "info" : "success"
+        );
         return;
       }
       if (action === "connect-site") {
@@ -2373,12 +2367,15 @@ export function createMainActions(host: MainHost) {
         const registry = host.workspaceController.registries.find(({ id }) => id === button.dataset.id);
         if (!registry)
           return;
-        const files = registry.sourcePath.startsWith("bundled://")
+        const plugin = registry.sourcePath.startsWith("bundled://")
           ? await host.registryFiles.copyBundled(registry.id)
           : await host.registryFiles.copy(registry.id, registry.sourcePath);
-        await host.repository.saveRegistry({ ...registry, files });
+        await host.repository.saveRegistry({ ...registry, name: plugin.manifest.name, plugin });
         await host.workspaceController.refresh();
-        host.shell.showNotice("Skills and tools refreshed from disk", "success");
+        host.shell.showNotice(
+          `Refreshed ${plugin.manifest.name}${plugin.issues.length ? ` with ${plugin.issues.length} warning(s)` : ""}`,
+          plugin.issues.length ? "info" : "success"
+        );
         return;
       }
       if (action === "remove-registry") {

@@ -3,15 +3,16 @@
 // distribute with it and never touch the coordination API — one channel, not two.
 
 import { invoke } from "@tauri-apps/api/core";
+import { stringify } from "yaml";
 import { createId, now, requiredText, type Agent, type AgentConfig } from "./domain.js";
 
 export interface AgentFilePort {
   list(teamRoot: string): Promise<string[]>;
   write(teamRoot: string, agentId: string, contents: string): Promise<void>;
   remove(teamRoot: string, agentId: string): Promise<void>;
-  /** Writes <teamRoot>/skills/<slug>/SKILL.md and returns the path relative to the folder. */
+  /** Writes a skill inside <teamRoot>/plugins/team-skills and returns its team-relative path. */
   writeSkill(teamRoot: string, slug: string, contents: string): Promise<string>;
-  /** Moves <teamRoot>/skills/<slug> under skills/.archive, recoverable by moving it back. */
+  /** Moves a team-plugin skill under skills/.archive, recoverable by moving it back. */
   archiveSkill(teamRoot: string, slug: string): Promise<string>;
 }
 
@@ -44,14 +45,18 @@ export function skillSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
+    .slice(0, 64)
+    .replace(/-+$/g, "");
   if (!slug) throw new Error("Skill name must contain letters or numbers");
   return slug;
 }
 
 /** A SKILL.md the runtime will accept: frontmatter Flue reads, then the procedure itself. */
 export function skillFile(name: string, description: string, body: string): string {
-  return `---\nname: ${skillSlug(name)}\ndescription: ${description.replace(/\n/g, " ").trim()}\n---\n\n${body.trim()}\n`;
+  return `---\n${stringify({
+    name: skillSlug(name),
+    description: description.replace(/\n/g, " ").trim()
+  }).trimEnd()}\n---\n\n${body.trim()}\n`;
 }
 
 function parseAgent(contents: string): Agent | null {

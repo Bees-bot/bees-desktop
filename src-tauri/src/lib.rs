@@ -59,6 +59,26 @@ struct RegistryCapabilityFile {
     path: String,
     kind: String,
     name: String,
+    description: Option<String>,
+    instructions: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAgentPluginSkill {
+    directory: String,
+    path: String,
+    contents: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAgentPluginPackage {
+    manifest: JsonValue,
+    skills: Vec<RawAgentPluginSkill>,
+    mcp: JsonValue,
+    issues: Vec<String>,
+    file_count: usize,
 }
 
 #[derive(Serialize)]
@@ -2059,39 +2079,11 @@ fn write_atomic(path: &Path, content: &[u8]) -> Result<(), String> {
     fs::rename(temporary, path).map_err(|error| error.to_string())
 }
 
-fn skill_frontmatter(contents: &str, fallback: &str) -> (String, String, String) {
-    let Some(rest) = contents.strip_prefix("---\n") else {
-        return (
-            fallback.to_string(),
-            fallback.to_string(),
-            contents.to_string(),
-        );
-    };
-    let Some((frontmatter, body)) = rest.split_once("\n---\n") else {
-        return (
-            fallback.to_string(),
-            fallback.to_string(),
-            contents.to_string(),
-        );
-    };
-    let value = |key: &str| {
-        frontmatter.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            (name.trim() == key).then(|| value.trim().trim_matches(['\'', '"']).to_string())
-        })
-    };
-    let name = value("name")
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| fallback.into());
-    let description = value("description")
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| name.clone());
-    (name, description, body.to_string())
-}
-
 fn snapshot_skill(
     capability_ref: String,
-    fallback_name: String,
+    name: String,
+    description: String,
+    instructions: String,
     directory: &Path,
 ) -> Result<SkillSnapshot, String> {
     let skill_md =
@@ -2099,7 +2091,6 @@ fn snapshot_skill(
     if skill_md.len() > 1_000_000 {
         return Err("SKILL.md must be 1 MB or smaller".into());
     }
-    let (name, description, instructions) = skill_frontmatter(&skill_md, &fallback_name);
     let mut paths = Vec::new();
     collect_relative_files(directory, directory, &mut paths)?;
     if paths.len() > 101 {
@@ -2207,6 +2198,12 @@ fn bind_flue_workspace(
                 skill_snapshots.push(snapshot_skill(
                     capability.capability_ref,
                     capability.name,
+                    capability
+                        .description
+                        .ok_or_else(|| "selected skill has no validated description".to_string())?,
+                    capability
+                        .instructions
+                        .ok_or_else(|| "selected skill has no validated instructions".to_string())?,
                     destination_directory,
                 )?);
             } else if capability.kind == "tool" && source.is_file() {
@@ -2286,54 +2283,250 @@ fn bundled_default_registry(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(registry)
 }
 
-#[tauri::command]
-fn copy_registry(
-    app: tauri::AppHandle,
-    registry_id: String,
-    source_path: String,
-) -> Result<Vec<String>, String> {
-    let source = canonical_directory(&source_path)?;
-    let destination = registry_root(&app, &registry_id)?;
+const AGENT_PLUGIN_SCHEMA: &str =
+    "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+
+fn valid_plugin_name(value: &str) -> bool {
+    let count = value.chars().count();
+    let mut characters = value.chars();
+    let first = characters.next();
+    let last = value.chars().last();
+    (1..=64).contains(&count)
+        && first.is_some_and(|character| character.is_ascii_alphanumeric())
+        && last.is_some_and(|character| character.is_ascii_alphanumeric())
+        && !value.contains("--")
+        && !value.contains("..")
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '-'
+                || character == '.'
+        })
+}
+
+/// Validate from Bees' bundled 1.0.0 rules. Loading a package never fetches its `$schema` URL.
+fn agent_plugin_manifest(root: &Path) -> Result<(JsonValue, Vec<String>), String> {
+    let root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    let path = fs::canonicalize(root.join("plugin.json"))
+        .map_err(|_| "Agent Plugin root must contain plugin.json".to_string())?;
+    if !path.starts_with(&root) || !path.is_file() {
+        return Err("plugin.json must be a regular file inside the plugin root".into());
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.len() > 1_000_000 {
+        return Err("plugin.json must be 1 MB or smaller".into());
+    }
+    let value: JsonValue =
+        serde_json::from_slice(&bytes).map_err(|error| format!("plugin.json is invalid JSON: {error}"))?;
+    let mut manifest = value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "plugin.json must contain a JSON object".to_string())?;
+    let known = [
+        "$schema",
+        "name",
+        "version",
+        "description",
+        "author",
+        "homepage",
+        "repository",
+        "license",
+        "keywords",
+        "extensions",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let unknown = manifest
+        .keys()
+        .filter(|key| !known.contains(key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut issues = unknown
+        .iter()
+        .map(|field| format!("plugin.json: unknown field {field} was ignored."))
+        .collect::<Vec<_>>();
+    for field in unknown {
+        manifest.remove(&field);
+    }
+    if manifest.get("$schema").and_then(JsonValue::as_str) != Some(AGENT_PLUGIN_SCHEMA) {
+        return Err("plugin.json targets an unsupported Agent Plugins schema".into());
+    }
+    let name = manifest
+        .get("name")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| "plugin.json name must be a string".to_string())?;
+    if !valid_plugin_name(name) {
+        return Err("plugin.json name does not satisfy Agent Plugins 1.0.0 naming rules".into());
+    }
+    for field in [
+        "version",
+        "description",
+        "homepage",
+        "repository",
+        "license",
+    ] {
+        if manifest.get(field).is_some_and(|value| !value.is_string()) {
+            return Err(format!("plugin.json {field} must be a string"));
+        }
+    }
+    if let Some(author) = manifest.get("author") {
+        let author = author
+            .as_object()
+            .ok_or_else(|| "plugin.json author must be an object".to_string())?;
+        if author.keys().any(|key| !["name", "email", "url"].contains(&key.as_str()))
+            || author.values().any(|value| !value.is_string())
+        {
+            return Err("plugin.json author may contain only string name, email, and url fields".into());
+        }
+    }
+    if manifest.get("keywords").is_some_and(|value| {
+        !value
+            .as_array()
+            .is_some_and(|keywords| keywords.iter().all(JsonValue::is_string))
+    }) {
+        return Err("plugin.json keywords must be an array of strings".into());
+    }
+    if let Some(extensions) = manifest.remove("extensions") {
+        if !extensions.is_object() {
+            issues.push("plugin.json: non-object extensions field was ignored.".into());
+        }
+        // Bees implements no client extension namespaces. Values are deliberately not validated.
+    }
+    Ok((JsonValue::Object(manifest), issues))
+}
+
+fn discover_agent_plugin(root: &Path) -> Result<RawAgentPluginPackage, String> {
+    let root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    let (manifest, mut issues) = agent_plugin_manifest(&root)?;
+    let mut files = Vec::new();
+    collect_relative_files(&root, &root, &mut files)?;
+    let skills_path = root.join("skills");
+    let mut skills = Vec::new();
+    if skills_path.exists() {
+        let resolved = fs::canonicalize(&skills_path).map_err(|error| error.to_string())?;
+        if !resolved.starts_with(&root) || !resolved.is_dir() {
+            issues.push("skills/: fixed location is not a directory inside the plugin root; skills were disabled.".into());
+        } else {
+            for entry in fs::read_dir(&resolved).map_err(|error| error.to_string())? {
+                let entry = entry.map_err(|error| error.to_string())?;
+                if !entry.file_type().map_err(|error| error.to_string())?.is_dir() {
+                    continue;
+                }
+                let file_name = entry.file_name();
+                let display_name = file_name.to_string_lossy().into_owned();
+                let Ok(directory) = file_name.into_string() else {
+                    issues.push(format!(
+                        "skills/{display_name}/SKILL.md has a non-UTF-8 parent directory; skill was skipped."
+                    ));
+                    continue;
+                };
+                let skill_path = entry.path().join("SKILL.md");
+                let Ok(metadata) = fs::symlink_metadata(&skill_path) else {
+                    continue;
+                };
+                if !metadata.file_type().is_file() {
+                    continue;
+                }
+                let resolved_skill = fs::canonicalize(&skill_path).map_err(|error| error.to_string())?;
+                if !resolved_skill.starts_with(&root) {
+                    issues.push(format!(
+                        "skills/{}/SKILL.md escapes the plugin root; skill was skipped.",
+                        display_name
+                    ));
+                    continue;
+                }
+                let bytes = fs::read(&resolved_skill).map_err(|error| error.to_string())?;
+                if bytes.len() > 1_000_000 {
+                    issues.push(format!(
+                        "skills/{}/SKILL.md exceeds 1 MB; skill was skipped.",
+                        display_name
+                    ));
+                    continue;
+                }
+                let Ok(contents) = String::from_utf8(bytes) else {
+                    issues.push(format!(
+                        "skills/{}/SKILL.md is not UTF-8; skill was skipped.",
+                        display_name
+                    ));
+                    continue;
+                };
+                skills.push(RawAgentPluginSkill {
+                    path: format!("skills/{directory}/SKILL.md"),
+                    directory,
+                    contents,
+                });
+            }
+        }
+    }
+    skills.sort_by(|left, right| left.path.cmp(&right.path));
+    let mcp_path = root.join("mcp.json");
+    let mcp = if mcp_path.exists() {
+        let resolved = fs::canonicalize(&mcp_path).map_err(|error| error.to_string())?;
+        if !resolved.starts_with(&root) || !resolved.is_file() {
+            issues.push("mcp.json: fixed location is not a regular file inside the plugin root; MCP was disabled.".into());
+            JsonValue::Null
+        } else {
+            let bytes = fs::read(resolved).map_err(|error| error.to_string())?;
+            if bytes.len() > 1_000_000 {
+                issues.push("mcp.json exceeds 1 MB; MCP was disabled.".into());
+                JsonValue::Null
+            } else {
+                serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                    issues.push(format!("mcp.json is invalid JSON ({error}); MCP was disabled."));
+                    JsonValue::Null
+                })
+            }
+        }
+    } else {
+        JsonValue::Null
+    };
+    Ok(RawAgentPluginPackage {
+        manifest,
+        skills,
+        mcp,
+        issues,
+        file_count: files.len(),
+    })
+}
+
+fn install_agent_plugin_from(
+    app: &tauri::AppHandle,
+    registry_id: &str,
+    source: &Path,
+) -> Result<RawAgentPluginPackage, String> {
+    // Manifest-first on the selected package, before component discovery or copying.
+    agent_plugin_manifest(source)?;
+    let destination = registry_root(app, registry_id)?;
     let temporary = destination.with_extension("tmp");
     if temporary.exists() {
         fs::remove_dir_all(&temporary).map_err(|error| error.to_string())?;
     }
-    copy_tree(&source, &temporary, true)?;
+    copy_tree(source, &temporary, true)?;
+    // Validate the immutable installed copy too, closing the source-validation/copy race.
+    let package = discover_agent_plugin(&temporary)?;
     if destination.exists() {
         fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
     }
     fs::rename(&temporary, &destination).map_err(|error| error.to_string())?;
-    let mut files = Vec::new();
-    collect_relative_files(&destination, &destination, &mut files)?;
-    files.sort();
-    Ok(files)
+    Ok(package)
 }
 
 #[tauri::command]
-fn copy_bundled_registry(
+fn install_agent_plugin(
     app: tauri::AppHandle,
     registry_id: String,
-) -> Result<Vec<String>, String> {
-    let source = bundled_default_registry(&app)?;
-    let destination = registry_root(&app, &registry_id)?;
-    if destination.exists() {
-        fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
-    }
-    copy_tree(&source, &destination, true)?;
-    let mut files = Vec::new();
-    collect_relative_files(&destination, &destination, &mut files)?;
-    files.sort();
-    Ok(files)
+    source_path: String,
+) -> Result<RawAgentPluginPackage, String> {
+    let source = canonical_directory(&source_path)?;
+    install_agent_plugin_from(&app, &registry_id, &source)
 }
 
 #[tauri::command]
-fn inventory_registry(app: tauri::AppHandle, registry_id: String) -> Result<Vec<String>, String> {
-    let root = registry_root(&app, &registry_id)?;
-    let root = canonical_directory(&root.to_string_lossy())?;
-    let mut files = Vec::new();
-    collect_relative_files(&root, &root, &mut files)?;
-    files.sort();
-    Ok(files)
+fn install_bundled_agent_plugin(
+    app: tauri::AppHandle,
+    registry_id: String,
+) -> Result<RawAgentPluginPackage, String> {
+    install_agent_plugin_from(&app, &registry_id, &bundled_default_registry(&app)?)
 }
 
 #[tauri::command]
@@ -2486,18 +2679,58 @@ fn write_agent_file(team_root: String, agent_id: String, contents: String) -> Re
     write_atomic(&agent_file(&team_root, &agent_id)?, contents.as_bytes())
 }
 
-/// Skills are SKILL.md files in <teamRoot>/skills/<slug>, so an evolved skill rides the same
-/// team-folder sync as agents and keeps whatever history that folder already has.
+fn team_skills_plugin_root(team_root: &str) -> Result<PathBuf, String> {
+    let team = canonical_directory(team_root)?;
+    let plugin = team.join("plugins").join("team-skills");
+    fs::create_dir_all(plugin.join("skills")).map_err(|error| error.to_string())?;
+    let plugin = fs::canonicalize(plugin).map_err(|error| error.to_string())?;
+    if !plugin.starts_with(&team) {
+        return Err("team skills plugin escapes the team folder".into());
+    }
+    let manifest = plugin.join("plugin.json");
+    if !manifest.exists() {
+        write_atomic(
+            &manifest,
+            br#"{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "team-skills",
+  "description": "Reusable skills created by this Bees team"
+}
+"#,
+        )?;
+    }
+    Ok(plugin)
+}
+
+fn valid_skill_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && !value.contains("--")
+        && value
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-')
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+}
+
+#[tauri::command]
+fn ensure_team_skills_plugin(team_root: String) -> Result<String, String> {
+    team_skills_plugin_root(&team_root).map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Skills written by Bees live inside a standard team-owned Agent Plugin package.
 #[tauri::command]
 fn write_team_skill(team_root: String, slug: String, contents: String) -> Result<String, String> {
     if contents.is_empty() || contents.len() > 1_000_000 {
         return Err("skill file must be between 1 byte and 1 MB".into());
     }
-    let slug = safe_identifier(&slug, "skill name")?;
-    let directory = canonical_directory(&team_root)?.join("skills").join(&slug);
+    if !valid_skill_name(&slug) {
+        return Err("skill name does not satisfy the Agent Skills naming rules".into());
+    }
+    let directory = team_skills_plugin_root(&team_root)?.join("skills").join(&slug);
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     write_atomic(&directory.join("SKILL.md"), contents.as_bytes())?;
-    Ok(format!("skills/{slug}/SKILL.md"))
+    Ok(format!("plugins/team-skills/skills/{slug}/SKILL.md"))
 }
 
 #[tauri::command]
@@ -2507,12 +2740,14 @@ fn update_team_skill_rule(
     reason: String,
     remove: Option<bool>,
 ) -> Result<(), String> {
-    let slug = safe_identifier(&slug, "skill name")?;
+    if !valid_skill_name(&slug) {
+        return Err("skill name does not satisfy the Agent Skills naming rules".into());
+    }
     let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
     if reason.is_empty() {
         return Err("feedback reason must not be empty".into());
     }
-    let directory = canonical_directory(&team_root)?.join("skills").join(&slug);
+    let directory = team_skills_plugin_root(&team_root)?.join("skills").join(&slug);
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let path = directory.join("SKILL.md");
     let line = format!("- {reason}\n");
@@ -2536,13 +2771,15 @@ fn update_team_skill_rule(
     write_atomic(&path, contents.as_bytes())
 }
 
-/// Retires a skill by moving <teamRoot>/skills/<slug> under skills/.archive/<slug>. A move, not
+/// Retires a skill by moving it under the team plugin's skills/.archive/<slug>. A move, not
 /// a delete: the curator proposes retirement from usage alone, so the recovery for a wrong call
 /// has to be dragging one folder back. An existing archived copy is replaced.
 #[tauri::command]
 fn archive_team_skill(team_root: String, slug: String) -> Result<String, String> {
-    let slug = safe_identifier(&slug, "skill name")?;
-    let skills = canonical_directory(&team_root)?.join("skills");
+    if !valid_skill_name(&slug) {
+        return Err("skill name does not satisfy the Agent Skills naming rules".into());
+    }
+    let skills = team_skills_plugin_root(&team_root)?.join("skills");
     let source = skills.join(&slug);
     if !source.is_dir() {
         return Err(format!("skill folder not found: {slug}"));
@@ -2554,7 +2791,7 @@ fn archive_team_skill(team_root: String, slug: String) -> Result<String, String>
         fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
     }
     fs::rename(&source, &destination).map_err(|error| error.to_string())?;
-    Ok(format!("skills/.archive/{slug}"))
+    Ok(format!("plugins/team-skills/skills/.archive/{slug}"))
 }
 
 #[tauri::command]
@@ -2911,6 +3148,7 @@ pub fn run() {
             write_location_file,
             list_agent_files,
             write_agent_file,
+            ensure_team_skills_plugin,
             write_team_skill,
             update_team_skill_rule,
             archive_team_skill,
@@ -2926,9 +3164,8 @@ pub fn run() {
             cleanup_workspace,
             bind_flue_workspace,
             purge_flue_execution_state,
-            copy_registry,
-            copy_bundled_registry,
-            inventory_registry,
+            install_agent_plugin,
+            install_bundled_agent_plugin,
             remove_registry,
             local_model_status,
             ensure_local_model,
@@ -2970,6 +3207,48 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_plugin_manifest_is_closed_but_unknown_fields_are_non_fatal() {
+        let root = std::env::temp_dir().join(format!(
+            "bees-agent-plugin-{}",
+            loopback_token().expect("random name")
+        ));
+        fs::create_dir_all(root.join("skills").join("summarize")).expect("plugin root");
+        fs::write(
+            root.join("plugin.json"),
+            r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools","unknown":true,"extensions":"ignored"}"#,
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("skills/summarize/SKILL.md"),
+            "---\nname: summarize\ndescription: Summarize things\n---\n\nDo it.\n",
+        )
+        .expect("skill");
+
+        let package = discover_agent_plugin(&root).expect("valid plugin");
+        assert_eq!(package.skills.len(), 1);
+        assert_eq!(package.issues.len(), 2);
+        assert!(package.manifest.get("unknown").is_none());
+        assert!(package.manifest.get("extensions").is_none());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn agent_plugin_manifest_rejects_fatal_schema_violations() {
+        let root = std::env::temp_dir().join(format!(
+            "bees-invalid-agent-plugin-{}",
+            loopback_token().expect("random name")
+        ));
+        fs::create_dir_all(&root).expect("plugin root");
+        fs::write(
+            root.join("plugin.json"),
+            r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"Invalid--Name"}"#,
+        )
+        .expect("manifest");
+        assert!(agent_plugin_manifest(&root).is_err());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 
     #[test]
     fn cli_accounts_come_from_the_files_the_clis_write() {
@@ -3031,7 +3310,7 @@ mod tests {
             None,
         )
         .expect("append rule");
-        let path = root.join("skills/review-work/SKILL.md");
+        let path = root.join("plugins/team-skills/skills/review-work/SKILL.md");
         assert!(fs::read_to_string(&path)
             .unwrap()
             .contains("- Use fewer words\n"));

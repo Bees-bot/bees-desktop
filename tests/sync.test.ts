@@ -201,9 +201,18 @@ describe("metadata synchronization", () => {
     });
     await repository.saveRegistry({
       teamId: local.teamId,
-      name: "Private tools",
-      sourcePath: "/Users/alice/private-tools",
-      files: ["secret-tool.ts"]
+      name: "Private plugin",
+      sourcePath: "/Users/alice/private-plugin",
+      plugin: {
+        manifest: {
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "private-plugin"
+        },
+        skills: [],
+        mcpServers: [],
+        issues: [],
+        fileCount: 1
+      }
     });
 
     const projection = await repository.coordinationProjection(local.teamId);

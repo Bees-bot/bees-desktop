@@ -833,6 +833,16 @@ export function createRunController(host: MainHost) {
     }
     const mcpConnections = [];
     for (const connection of composition.mcpConnections) {
+      if (connection.allTools) {
+        if (await toolAllowed({
+          id: `${connection.id}:*`,
+          kind: "mcp",
+          connectionId: connection.id,
+          name: "*",
+          effect: "write"
+        })) mcpConnections.push(connection);
+        continue;
+      }
       const allowedTools = [];
       for (const name of connection.allowedTools) {
         const tool = connection.tools.find((candidate) => candidate.name === name);
@@ -985,9 +995,11 @@ export function createRunController(host: MainHost) {
       return;
     const editor = await ensureSkillEditorAgent(mapping.localPath);
     const slug = skillSlug(`${stage.name}-${host.workspaceController.activeProcess?.name ?? "process"}`);
-    const destination = `skills/${slug}/SKILL.md`;
-    const current = host.workspaceController.registries.some((registry) => registry.sourcePath === `${mapping.localPath}/skills` &&
-      registry.files.includes(`${slug}/SKILL.md`));
+    await invoke("ensure_team_skills_plugin", { teamRoot: mapping.localPath });
+    await host.workspaceController.ensureTeamSkillsRegistry(mapping.localPath);
+    const destination = `plugins/team-skills/skills/${slug}/SKILL.md`;
+    const current = host.workspaceController.registries.some((registry) => registry.sourcePath === `${mapping.localPath}/plugins/team-skills` &&
+      registry.plugin.skills.some(({ path }) => path === `skills/${slug}/SKILL.md`));
     const proposalAgent = { ...editor, config: { ...editor.config, proposalStageId: stage.id } };
     await host.session.ensureKnowledgeConnection();
     const composition = runComposition(proposalAgent);
@@ -1016,8 +1028,8 @@ export function createRunController(host: MainHost) {
     const slug = skillSlug(`${stage.name}-${host.workspaceController.activeProcess?.name ?? "process"}`);
     await invoke("update_team_skill_rule", { teamRoot: mapping.localPath, slug, reason });
     await host.workspaceController.ensureTeamSkillsRegistry(mapping.localPath);
-    const registry = (await host.repository.listRegistries(host.workspaceController.workspace.teamId)).find(({ sourcePath }) => sourcePath === `${mapping.localPath}/skills`)!;
-    const ref = `${registry.id}:${slug}/SKILL.md`;
+    const registry = (await host.repository.listRegistries(host.workspaceController.workspace.teamId)).find(({ sourcePath }) => sourcePath === `${mapping.localPath}/plugins/team-skills`)!;
+    const ref = `${registry.id}:skills/${slug}/SKILL.md`;
     if (!agent.config.skillRefs?.includes(ref)) {
       await host.actions.writeAgent({ ...agent, config: { ...agent.config, skillRefs: [...(agent.config.skillRefs ?? []), ref] } });
     }

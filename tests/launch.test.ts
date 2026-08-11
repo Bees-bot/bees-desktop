@@ -47,21 +47,32 @@ describe("lean launch modules", () => {
     expect(v.safeParse(beesRunInitialDataSchema, { ...data, credential: "must-not-pass" }).success).toBe(false);
   });
 
-  it("inventories copied capability files without compatibility logic", () => {
+  it("discovers only validated skills from an Agent Plugin", () => {
     const registry = {
       id: "registry",
       teamId: "team",
       name: "Local",
       sourcePath: "/registry",
-      files: ["writer/SKILL.md", "tools/publish.ts", "mcp/files.mjs", "README.md"],
+      plugin: {
+        manifest: {
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "local"
+        },
+        skills: [{
+          path: "skills/writer/SKILL.md",
+          name: "writer",
+          description: "Writes",
+          instructions: "Write."
+        }],
+        mcpServers: [],
+        issues: [],
+        fileCount: 2
+      },
       copiedAt: "",
       createdAt: "",
       updatedAt: ""
     } satisfies Registry;
-    expect(registryCapabilities([registry]).map(({ kind, name }) => [kind, name])).toEqual([
-      ["skill", "writer"],
-      ["tool", "publish"]
-    ]);
+    expect(registryCapabilities([registry]).map(({ kind, name }) => [kind, name])).toEqual([["skill", "writer"]]);
   });
 
   it("exports a content-free receipt", () => {

@@ -6,7 +6,10 @@ const key = (teamId: string): string => `mcp_connections:${teamId}`;
 
 function secureMcpUrl(value: string): string {
   const url = new URL(requiredText(value, "MCP URL", 2_048));
-  if (url.protocol !== "https:" && !["127.0.0.1", "localhost"].includes(url.hostname)) {
+  const host = url.hostname.toLowerCase();
+  const loopback = host === "localhost" || host === "[::1]" || host === "::1" ||
+    /^127(?:\.[0-9]{1,3}){3}$/.test(host);
+  if (url.protocol !== "https:" && !loopback) {
     throw new Error("Remote MCP connections must use HTTPS");
   }
   return url.toString();
@@ -89,6 +92,7 @@ export function mcpConnectionForAgent(
   connection: McpConnection,
   config: AgentConfig
 ): McpConnection {
+  if (connection.allTools) return { ...connection, url: secureMcpUrl(connection.url) };
   const selected = config.mcpToolRefs?.[connection.id] ?? connection.allowedTools;
   return {
     ...connection,

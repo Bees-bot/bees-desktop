@@ -1487,7 +1487,7 @@ export function createMainViews(host: MainHost) {
       : "";
     return `<div class="py-4">
       <div class="flex items-center justify-between gap-4">
-        <div><h3 class="text-sm font-bold">Skill curation</h3><p class="text-xs text-base-content/55">Bees scores no run, so a skill is judged only by whether anything reaches for it. Retiring one moves its folder to <code>skills/.archive</code>; nothing is deleted and nothing is written until you apply it.</p></div>
+        <div><h3 class="text-sm font-bold">Skill curation</h3><p class="text-xs text-base-content/55">Bees scores no run, so a skill is judged only by whether anything reaches for it. Retiring one moves its folder under the team plugin's <code>skills/.archive</code>; nothing is deleted and nothing is written until you apply it.</p></div>
         <button class="btn btn-ghost btn-sm border border-base-300" data-action="curate-skills" ${host.assistant.curatorBusy ? "disabled" : ""}>${host.assistant.curatorBusy ? "Reading…" : "Tidy skills"}</button>
       </div>
       <div class="mt-3 grid gap-2">${host.assistant.skillReviews.length
@@ -1512,22 +1512,21 @@ export function createMainViews(host: MainHost) {
           <div class="mt-2 divide-y divide-base-300">
             <div class="py-4">
               <div class="flex items-center justify-between gap-4">
-                <div><h3 class="text-sm font-bold">Skills and tools</h3><p class="text-xs text-base-content/55">Trusted folders copied to Bees app-data and inventoried by filename. JavaScript and TypeScript tools run as trusted local code outside the file sandbox. Remote MCP services are added under Preferences → MCP servers.</p></div>
+                <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-base-content/55">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
                 <div class="flex gap-2">
                   <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
-                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Add folder</button>
+                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
                 </div>
               </div>
               <div class="mt-3 grid gap-2">${host.workspaceController.registries.length
         ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
                           <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
-                            <div class="text-xs text-base-content/50">${registry.files.length} copied file(s) · ${registryCapabilities([
-          registry
-        ]).length} capability item(s)</div></div>
+                            <div class="text-xs text-base-content/50">${registry.plugin.manifest.version ? `v${host.shell.escapeHtml(registry.plugin.manifest.version)} · ` : ""}${registry.plugin.skills.length} skill(s) · ${registry.plugin.mcpServers.length} MCP server(s) · ${registry.plugin.fileCount} copied file(s)${registry.plugin.issues.length ? ` · ${registry.plugin.issues.length} warning(s)` : ""}</div>
+                            ${registry.plugin.issues.length ? `<div class="mt-1 text-xs text-warning">${registry.plugin.issues.map((issue) => host.shell.escapeHtml(issue)).join("<br>")}</div>` : ""}</div>
                           <div class="flex gap-2"><button class="btn btn-ghost btn-xs" data-action="refresh-registry" data-id="${registry.id}">Refresh</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-registry" data-id="${registry.id}">Remove</button></div>
                         </div>`)
           .join("")
-        : `<p class="text-xs text-base-content/45">No skills or tools folders added.</p>`}</div>
+        : `<p class="text-xs text-base-content/45">No Agent Plugins installed.</p>`}</div>
             </div>
             ${skillCurationContent()}
           </div>
@@ -2199,7 +2198,6 @@ export function createMainViews(host: MainHost) {
       value: autoRef
     });
     const capabilities = registryCapabilities(host.workspaceController.registries);
-    const customTools = capabilities.filter(({ kind }) => kind === "tool");
     const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
     const selectedGrants = config?.grants ?? [];
     return [
@@ -2274,11 +2272,6 @@ export function createMainViews(host: MainHost) {
             value: BROWSER_TOOL_REF,
             description: "Opens websites in the team browser profile. Choose read or write access below."
           },
-          ...customTools.map(({ ref, name, path, registryId }) => ({
-            label: name,
-            value: ref,
-            description: `Trusted local code · ${host.workspaceController.registries.find(({ id }) => id === registryId)?.name ?? "Tool folder"} · ${path}`
-          }))
         ],
         checked: selectedTools,
         hint: "Selecting a local tool authorizes its trusted code to run on this machine.",
@@ -2309,11 +2302,11 @@ export function createMainViews(host: MainHost) {
           return {
             label: `${connection.name}${connection.lastError ? " · Offline" : ""}`,
             value: connection.id,
-            description: `${connection.url} · ${connection.optional ? "Optional when offline" : "Required; submission fails when unavailable"}${tools.length ? ` · Tools: ${tools.join("; ")}${more ? `; +${more} more` : ""}` : " · No tools allowed"}`
+            description: `${connection.url} · ${connection.pluginId ? "Provided by an Agent Plugin; its tools are discovered when the run starts" : connection.optional ? "Optional when offline" : "Required; submission fails when unavailable"}${tools.length ? ` · Tools: ${tools.join("; ")}${more ? `; +${more} more` : ""}` : connection.allTools ? "" : " · No tools allowed"}`
           };
         }),
         checked: config?.mcpConnectionRefs ?? [],
-        hint: "Remote services receive relevant prompts and tool arguments. Manage connections and their tool allowlists in Preferences → MCP servers.",
+        hint: "Remote services receive relevant prompts and tool arguments. Plugin servers are optional and isolated; manage other connections and allowlists in Preferences → MCP servers.",
         step: "capabilities"
       },
       {

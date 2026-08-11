@@ -202,13 +202,13 @@ export function applicableCuratorActions(
 // ---- Applying ----
 
 export interface CuratorApplyContext {
-  /** Writes <teamRoot>/skills/<slug>/SKILL.md, as the New skill button already does. */
+  /** Writes a standard skill inside the team's Agent Plugin, as New skill already does. */
   saveSkill(name: string, description: string, body: string): Promise<void>;
-  /** Moves <teamRoot>/skills/<slug> under skills/.archive — recoverable, never deleted. */
+  /** Moves a team-plugin skill under skills/.archive — recoverable, never deleted. */
   archiveSkill(slug: string): Promise<void>;
 }
 
-/** The folder a registry capability came from: `skills/<slug>/SKILL.md` under the team folder. */
+/** The fixed Agent Plugins skill folder from `skills/<slug>/SKILL.md`. */
 export function skillSlugOf(capability: Capability): string {
   const segments = capability.path.replaceAll("\\", "/").split("/").filter(Boolean);
   return segments.at(-2) ?? capability.name;

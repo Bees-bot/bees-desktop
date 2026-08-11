@@ -343,13 +343,36 @@ function outputRow(row: Row): ExecutionOutput {
   };
 }
 
+function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] {
+  const invalid: Registry["plugin"] = {
+    manifest: {
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: "invalid-plugin"
+    },
+    skills: [],
+    mcpServers: [],
+    issues: ["Reinstall this plugin: its saved package data is invalid."],
+    fileCount: 0
+  };
+  const candidate = parseJson<unknown>(value, null);
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return invalid;
+  const plugin = candidate as Partial<Registry["plugin"]>;
+  if (
+    !plugin.manifest || typeof plugin.manifest !== "object" ||
+    typeof plugin.manifest.$schema !== "string" || typeof plugin.manifest.name !== "string" ||
+    !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers) ||
+    !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
+  ) return invalid;
+  return plugin as Registry["plugin"];
+}
+
 function registryRow(row: Row): Registry {
   return {
     id: stringValue(row.id),
     teamId: stringValue(row.teamId),
     name: stringValue(row.name),
     sourcePath: stringValue(row.sourcePath),
-    files: parseJson<string[]>(row.filesJson, []),
+    plugin: storedPlugin(row.filesJson),
     copiedAt: stringValue(row.copiedAt),
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt)
@@ -1909,7 +1932,7 @@ export class LocalRepository {
     teamId: string;
     name: string;
     sourcePath: string;
-    files: string[];
+    plugin: Registry["plugin"];
   }): Promise<string> {
     const id = input.id ?? createId();
     const timestamp = now();
@@ -1926,7 +1949,7 @@ export class LocalRepository {
         input.teamId,
         requiredText(input.name, "Registry name", 120),
         requiredText(input.sourcePath, "Registry source", 1_024),
-        JSON.stringify(input.files),
+        JSON.stringify(input.plugin),
         timestamp,
         timestamp,
         timestamp

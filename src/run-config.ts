@@ -99,10 +99,13 @@ export function buildBeesRunInitialData(input: {
       name: connection.name,
       url: connection.url,
       transport: connection.transport,
-      secretRef: connection.secretRef,
-      tools: connection.allowedTools.filter((name) => {
-        const tool = connection.tools.find((candidate) => candidate.name === name);
-        return tool?.readOnly || granted(input.agent, `mcp:${connection.id}`);
+      ...(connection.secretRef ? { secretRef: connection.secretRef } : {}),
+      ...(connection.headers ? { headers: connection.headers } : {}),
+      ...(connection.allTools ? {} : {
+        tools: connection.allowedTools.filter((name) => {
+          const tool = connection.tools.find((candidate) => candidate.name === name);
+          return tool?.readOnly || granted(input.agent, `mcp:${connection.id}`);
+        })
       }),
       optional: connection.optional
     })),

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Capability, SkillSnapshot } from "./domain.js";
+import type { RawAgentPluginPackage } from "./plugins.js";
 import { BEES_RUN_AGENT } from "./run-config.js";
 
 export interface FlueProjectPort {
@@ -13,9 +14,8 @@ export interface FlueProjectPort {
   ): Promise<SkillSnapshot[]>;
   purgeExecution(executionId: string): Promise<void>;
   restart(): Promise<void>;
-  copyRegistry(registryId: string, sourcePath: string): Promise<string[]>;
-  copyBundledRegistry(registryId: string): Promise<string[]>;
-  inventoryRegistry(registryId: string): Promise<string[]>;
+  copyRegistry(registryId: string, sourcePath: string): Promise<RawAgentPluginPackage>;
+  copyBundledRegistry(registryId: string): Promise<RawAgentPluginPackage>;
   removeRegistry(registryId: string): Promise<void>;
 }
 
@@ -46,16 +46,12 @@ export class TauriFlueProjectPort implements FlueProjectPort {
     return invoke("restart_flue_runtime");
   }
 
-  copyRegistry(registryId: string, sourcePath: string): Promise<string[]> {
-    return invoke("copy_registry", { registryId, sourcePath });
+  copyRegistry(registryId: string, sourcePath: string): Promise<RawAgentPluginPackage> {
+    return invoke("install_agent_plugin", { registryId, sourcePath });
   }
 
-  copyBundledRegistry(registryId: string): Promise<string[]> {
-    return invoke("copy_bundled_registry", { registryId });
-  }
-
-  inventoryRegistry(registryId: string): Promise<string[]> {
-    return invoke("inventory_registry", { registryId });
+  copyBundledRegistry(registryId: string): Promise<RawAgentPluginPackage> {
+    return invoke("install_bundled_agent_plugin", { registryId });
   }
 
   removeRegistry(registryId: string): Promise<void> {

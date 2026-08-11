@@ -21,6 +21,7 @@ import { compactionFor, declareModel } from "../models.ts";
 import { beesWorkspace } from "../sandboxes/bees-workspace.ts";
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(1_000_000));
+const skillInstructions = v.pipe(v.string(), v.maxLength(1_000_000));
 const fileSchema = v.strictObject({
   encoding: v.picklist(["utf8", "base64"]),
   content: v.string()
@@ -35,9 +36,9 @@ const skillFilesSchema = v.pipe(
   )
 );
 const skillSchema = v.strictObject({
-  name: v.pipe(v.string(), v.minLength(1), v.maxLength(120)),
-  description: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),
-  instructions: text,
+  name: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
+  description: v.pipe(v.string(), v.minLength(1), v.maxLength(1_024)),
+  instructions: skillInstructions,
   files: skillFilesSchema
 });
 const thinkingSchema = v.picklist(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -56,8 +57,9 @@ const mcpSchema = v.strictObject({
   name: v.pipe(v.string(), v.minLength(1), v.maxLength(80)),
   url: v.pipe(v.string(), v.url()),
   transport: v.picklist(["streamable-http", "sse"]),
-  secretRef: v.pipe(v.string(), v.minLength(1), v.maxLength(120)),
-  tools: v.pipe(v.array(v.string()), v.maxLength(256)),
+  secretRef: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(120))),
+  headers: v.optional(v.record(v.string(), v.string())),
+  tools: v.optional(v.pipe(v.array(v.string()), v.maxLength(256))),
   optional: v.boolean()
 });
 
@@ -110,6 +112,8 @@ function mcpName(name: string, id: string): string {
   return `${name}-${id.slice(0, 8)}`.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
 }
 
+const noRedirectFetch: typeof fetch = (input, init) => fetch(input, { ...init, redirect: "manual" });
+
 export function BeesRun({ id }: AgentProps): string {
   const data = useInitialData<RunData>();
   const compaction = compactionFor(data.model);
@@ -154,17 +158,25 @@ export function BeesRun({ id }: AgentProps): string {
     });
   }
   for (const connection of data.mcpConnections) {
-    if (!connection.tools.length) continue;
+    if (connection.tools?.length === 0) continue;
     useMcpConnection({
       name: mcpName(connection.name, connection.id),
       url: connection.url,
       transport: connection.transport,
-      auth: () => connectionSecret(connection.secretRef, {
-        teamId: data.teamId,
-        connectionId: connection.id,
-        executionId: data.executionId
-      }),
-      tools: connection.tools,
+      ...(connection.secretRef ? {
+        auth: () => connectionSecret(connection.secretRef!, {
+          teamId: data.teamId,
+          connectionId: connection.id,
+          executionId: data.executionId
+        })
+      } : {}),
+      ...(connection.headers ? { headers: connection.headers } : {}),
+      // Never allow package headers to follow a redirect to another origin. Failing the
+      // connection is the portable safe behavior; the custom fetch also covers the legacy
+      // SSE handshake, whose SDK path does not apply requestInit to its initial GET.
+      requestInit: { redirect: "manual" },
+      fetch: noRedirectFetch,
+      ...(connection.tools ? { tools: connection.tools } : {}),
       optional: connection.optional
     });
   }

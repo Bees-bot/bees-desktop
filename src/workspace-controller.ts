@@ -40,6 +40,7 @@ import {
   capabilityRefsFor,
   registryCapabilities
 } from "./registries.js";
+import { pluginMcpConnections } from "./plugins.js";
 import { type View } from "./views.js";
 
 export function createWorkspaceController(host: MainHost) {
@@ -247,6 +248,7 @@ export function createWorkspaceController(host: MainHost) {
       );
       host.session.knowledgeConnection = mcpConnections.find(isKnowledgeConnection) ?? null;
       mcpConnections = mcpConnections.filter((connection) => !isKnowledgeConnection(connection));
+      mcpConnections.push(...pluginMcpConnections(registries, workspace.teamId));
       host.assistant.skillReviews = reviewSkills({
         capabilities: registryCapabilities(registries),
         usage: await host.repository.listSkillUsage(workspace.teamId),
@@ -285,19 +287,19 @@ export function createWorkspaceController(host: MainHost) {
     if (!workspace.teamId)
       return;
     const key = `default_registry_version_${workspace.teamId}`;
-    if ((await host.repository.getSetting(key, 0)) >= 2)
+    if ((await host.repository.getSetting(key, 0)) >= 3)
       return;
     const existing = registries.find(({ sourcePath }) => sourcePath === "bundled://bees-default");
     const id = existing?.id ?? crypto.randomUUID();
-    const files = await host.registryFiles.copyBundled(id);
+    const plugin = await host.registryFiles.copyBundled(id);
     await host.repository.saveRegistry({
       id,
       teamId: workspace.teamId,
-      name: existing?.name ?? "Bees defaults",
+      name: plugin.manifest.name,
       sourcePath: "bundled://bees-default",
-      files
+      plugin
     });
-    await host.repository.setSetting(key, 2);
+    await host.repository.setSetting(key, 3);
     await refresh();
   }
 
@@ -369,24 +371,24 @@ export function createWorkspaceController(host: MainHost) {
   }
 
   /**
-   * The one registry Bees writes to. Its source is <teamRoot>/skills, so skills the team writes —
+   * The one plugin Bees writes to. Its source is <teamRoot>/plugins/team-skills, so skills the team writes —
    * by hand or from an approved proposal — sync and version with the team folder, and Refresh
    * re-copies from that folder instead of overwriting it from somewhere else.
    */
   async function ensureTeamSkillsRegistry(teamRoot: string): Promise<void> {
-    const sourcePath = `${teamRoot}/skills`;
+    const sourcePath = `${teamRoot}/plugins/team-skills`;
     const existing = registries.find((registry) => registry.sourcePath === sourcePath);
     const id = existing?.id ?? crypto.randomUUID();
     // No skills folder yet: nothing to register until the first skill is written.
-    const files = await host.registryFiles.copy(id, sourcePath).catch(() => null);
-    if (!files)
+    const plugin = await host.registryFiles.copy(id, sourcePath).catch(() => null);
+    if (!plugin)
       return;
     await host.repository.saveRegistry({
       id,
       teamId: workspace.teamId,
-      name: existing?.name ?? "Team skills",
+      name: plugin.manifest.name,
       sourcePath,
-      files
+      plugin
     });
   }
 
