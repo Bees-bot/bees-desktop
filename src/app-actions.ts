@@ -124,14 +124,16 @@ export function createMainActions(host: MainHost) {
    * before anything is written: agent by agent, swapping two agents' statuses would be rejected
    * because the first write leaves the second one's old status still taken.
    */
-  async function saveProcessAgents(form: HTMLFormElement, notify = true): Promise<void> {
+  async function saveProcessAgents(form: HTMLFormElement, notify = true, excludedAgentId = ""): Promise<void> {
     const edits = [...form.querySelectorAll<HTMLElement>("[data-agent-pane]")]
       .map((pane) => host.workspaceController.agents.find(({ id }) => id === pane.dataset.agentPane))
-      .filter((agent): agent is Agent => Boolean(agent))
+      .filter((agent): agent is Agent => agent !== undefined && agent.id !== excludedAgentId)
       .map((agent) => ({ agent, data: host.shell.scopedFormData(form, agent.id) }));
     if (!edits.length)
       return;
     const edited = new Set(edits.map(({ agent }) => agent.id));
+    const processStageIds = new Set(host.workspaceController.processes
+      .find(({ id }) => id === host.shell.configProcessId)?.stages.map(({ id }) => id) ?? []);
     const assignment = (name: string, triggerStageId: string | null) => {
       const context = host.views.triggerContext(triggerStageId);
       return {
@@ -143,7 +145,8 @@ export function createMainActions(host: MainHost) {
       };
     };
     const conflict = firstTriggerConflict([
-      ...host.workspaceController.agents.filter(({ id }) => !edited.has(id))
+      ...host.workspaceController.agents.filter(({ id, triggerStageId }) =>
+        id !== excludedAgentId && !edited.has(id) && processStageIds.has(triggerStageId ?? ""))
         .map(({ name, triggerStageId }) => assignment(name, triggerStageId)),
       ...edits.map(({ agent, data }) => assignment(String(data.get("name") ?? "") || agent.name, String(data.get("trigger") ?? "") || null))
     ]);
@@ -164,10 +167,10 @@ export function createMainActions(host: MainHost) {
   }
 
   /** Writes the open edits before an action that re-renders the screen, so no typing is lost. */
-  async function commitProcessAgentEdits(): Promise<void> {
+  async function commitProcessAgentEdits(excludedAgentId = ""): Promise<void> {
     const form = host.shell.app.querySelector<HTMLFormElement>("form[data-process-agents]");
     if (form)
-      await saveProcessAgents(form, false);
+      await saveProcessAgents(form, false, excludedAgentId);
   }
 
   /**
@@ -1370,8 +1373,13 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "add-process-agent") {
+        const triggerStageId = button.dataset.stage!;
+        const context = host.views.triggerContext(triggerStageId);
+        if (context && !processEngine.allowsMultipleAgents(context.process, triggerStageId) &&
+          host.workspaceController.agents.some((agent) => agent.triggerStageId === triggerStageId))
+          throw new Error(`${context.stageName} already has an agent`);
         await commitProcessAgentEdits();
-        const created = newAgent({ name: "New agent", purpose: "Handles work in this status", triggerStageId: button.dataset.stage! });
+        const created = newAgent({ name: "New agent", purpose: "Handles work in this status", triggerStageId });
         await writeAgent(created);
         host.shell.configAgentId = created.id;
         await host.workspaceController.refresh();
@@ -2325,10 +2333,10 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "delete-agent") {
         const agent = host.workspaceController.agents.find(({ id }) => id === button.dataset.id)!;
-        if (!confirm(`Delete ${agent.name}? This removes its file from the team folder.`))
+        if (!(await edit(`Delete ${agent.name}? This removes its file from the team folder.`, [], "Delete")))
           return;
         if (host.shell.view === "process")
-          await commitProcessAgentEdits();
+          await commitProcessAgentEdits(agent.id);
         await host.agentFiles.remove(await host.workspaceController.requireTeamRoot(), agent.id);
         if (host.runs.disabledAgentIds.delete(agent.id)) {
           await host.repository.setSetting(`disabled_agents:${host.workspaceController.workspace.teamId}`, [...host.runs.disabledAgentIds]);
