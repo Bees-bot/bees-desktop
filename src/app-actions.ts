@@ -1371,7 +1371,7 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "add-process-agent") {
         await commitProcessAgentEdits();
-        const created = newAgent({ name: "New agent", triggerStageId: button.dataset.stage! });
+        const created = newAgent({ name: "New agent", purpose: "Handles work in this status", triggerStageId: button.dataset.stage! });
         await writeAgent(created);
         host.shell.configAgentId = created.id;
         await host.workspaceController.refresh();
