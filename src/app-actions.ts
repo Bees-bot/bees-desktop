@@ -395,8 +395,8 @@ export function createMainActions(host: MainHost) {
   }
 
   /** Agent edits are data only; the stable Flue runtime reads the frozen config at admission. */
-  async function writeAgent(agent: Agent): Promise<void> {
-    await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent);
+  async function writeAgent(agent: Agent, draft = false): Promise<void> {
+    await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent, draft);
   }
 
   /**
@@ -1380,7 +1380,7 @@ export function createMainActions(host: MainHost) {
           throw new Error(`${context.stageName} already has an agent`);
         await commitProcessAgentEdits();
         const created = newAgent({ name: "New agent", purpose: "Handles work in this status", triggerStageId });
-        await writeAgent(created);
+        await writeAgent(created, true);
         host.shell.configAgentId = created.id;
         await host.workspaceController.refresh();
         return;

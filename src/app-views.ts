@@ -2264,6 +2264,7 @@ export function createMainViews(host: MainHost) {
         label: "Instructions",
         type: "textarea",
         value: config?.prompt ?? "",
+        hint: "Required before this agent can run.",
         step: "instructions"
       },
       {
