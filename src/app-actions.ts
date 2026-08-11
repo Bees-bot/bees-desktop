@@ -586,26 +586,18 @@ export function createMainActions(host: MainHost) {
       });
   }
 
-  /** Download toggled off on a finished model: drop the file, keep the row so it can be fetched again. */
-  function removeLocalModelFile(modelId: string): void {
-    host.assistant.localModelStarting.delete(modelId);
-    void host.localModels.removeFile(modelId)
-      .then(async (wasRunning) => {
-        if (wasRunning)
-          await host.flueProjectPort.restart();
-        host.assistant.localModelProgress.delete(modelId);
-        await refreshLocalModelRows();
-      })
-      .catch((error) => host.shell.showNotice(errorText(error), "error"));
-  }
-
   /** Stops a running model, or cancels its download when that is what the toggle turned off. */
   function stopLocalModel(modelId: string): void {
+    const download = host.assistant.localModelDownloads.get(modelId);
     void host.localModels.stop(modelId)
       .then(async (wasRunning) => {
+        // Cancellation is cooperative. Wait until the worker has left the native download map,
+        // otherwise the refresh below immediately reports "downloading" again.
+        await download;
         if (wasRunning)
           await host.flueProjectPort.restart();
-        host.assistant.localModelProgress.delete(modelId);
+        if (host.assistant.localModelProgress.get(modelId)?.state !== "cancelled")
+          host.assistant.localModelProgress.delete(modelId);
         await refreshLocalModelRows();
       })
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
@@ -2779,14 +2771,13 @@ export function createMainActions(host: MainHost) {
       const modelId = toggle.dataset.model!;
       host.assistant.localModelProgress.delete(modelId);
       if (toggle.dataset.modelToggle === "download") {
-        // Off on a downloaded model deletes the file; off mid-download only cancels it, so the
-        // partial file stays and a later Download resumes from where it stopped.
+        // Off mid-download only cancels it, so the partial file stays and a later Download resumes.
+        // Completed downloads are disabled in the row; Delete remains the destructive action.
         if (toggle.checked)
           void downloadLocalModel(modelId).then(refreshLocalModelRows);
-        else if (toggle.dataset.modelDownloaded)
-          removeLocalModelFile(modelId);
         else
           stopLocalModel(modelId);
+        return;
       }
       else if (toggle.checked) {
         void host.assistant.rememberModelChoice({
@@ -3190,7 +3181,6 @@ export function createMainActions(host: MainHost) {
     refreshLocalModelRows,
     downloadLocalModel,
     runLocalModel,
-    removeLocalModelFile,
     stopLocalModel,
     connectAiProvider,
     discoverMcpConnection,
