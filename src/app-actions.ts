@@ -565,8 +565,13 @@ export function createMainActions(host: MainHost) {
     void host.localModels.wantRun(modelId)
       .then(() => downloadLocalModel(modelId))
       .then(async (downloaded) => {
-        if (!downloaded || !host.assistant.localModelStarting.has(modelId))
+        if (!downloaded || !host.assistant.localModelStarting.has(modelId)) {
+          // The intent was persisted before the download. A download that failed or was cancelled,
+          // or a Run switched back off, has to take it with them or the row reads as wanted forever.
+          if (host.localModels.wantedRunId === modelId)
+            await host.localModels.wantRun(null);
           return;
+        }
         if (await host.localModels.run(modelId))
           await host.flueProjectPort.restart();
       })

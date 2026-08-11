@@ -982,7 +982,14 @@ fn start_local_model_blocking(
         }
         thread::sleep(Duration::from_millis(250));
     }
-    Err("The local model did not become ready within 60 seconds".into())
+    // Alive but not answering, and the child is about to be dropped and killed, so the tail it
+    // printed is the only account of what it was doing. Say that instead of a bare timeout.
+    Err(startup_failure_message(
+        &log.lock()
+            .map(|log| log.iter().cloned().collect::<Vec<String>>())
+            .unwrap_or_default(),
+    )
+    .unwrap_or_else(|| "The local model did not become ready within 60 seconds".into()))
 }
 
 #[tauri::command]

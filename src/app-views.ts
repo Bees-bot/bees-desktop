@@ -803,6 +803,12 @@ export function createMainViews(host: MainHost) {
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
     if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
       return;
+    // Why work sits still. Each agent already knows, but only as a tooltip on a badge in the process
+    // editor, nowhere near the board the user is looking at.
+    const blockedAgents = [...new Set(processAgents(host.workspaceController.activeProcess)
+      .map((agent) => host.workspaceController.eligibilityForAgent(agent))
+      .filter(({ active }) => !active)
+      .map(({ reason }) => reason))];
     host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
           <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
@@ -828,6 +834,9 @@ export function createMainViews(host: MainHost) {
       ${running
         ? ""
         : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
+      ${blockedAgents.length
+        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>Agents on this board cannot run: ${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
+        : ""}
       <div class="kanban">${stages
         .map((stage) => {
           const cards = visible.filter(({ stageId }) => stageId === stage.id);
@@ -1825,9 +1834,12 @@ export function createMainViews(host: MainHost) {
     const downloadedBytes = event?.downloadedBytes ?? model.runtime.downloadedBytes;
     const totalBytes = event?.totalBytes ?? model.runtime.totalBytes;
     const id = host.shell.escapeHtml(model.id);
-    // The wanted flag is persisted, so a Run toggled on during a long download stays on across a
-    // page reload or an app restart.
-    const starting = (host.assistant.localModelStarting.has(model.id) || host.localModels.wantedRunId === model.id) &&
+    // "Starting" means a start is in flight, never bare persisted intent. The wanted flag survives
+    // a restart, and a row that calls that "Starting…" also draws Run as already on, so the change
+    // event that starts a model cannot fire and there is no way to ask again. During a download the
+    // flag is the honest label, and app-bootstrap turns it into a start when the bytes land.
+    const starting = (host.assistant.localModelStarting.has(model.id) ||
+      (host.localModels.wantedRunId === model.id && state === "downloading")) &&
       state !== "running";
     const status = starting && state !== "downloading"
       ? "Starting…"
