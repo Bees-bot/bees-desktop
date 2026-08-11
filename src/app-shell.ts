@@ -55,6 +55,9 @@ export function createAppShell(host: MainHost) {
   // tab — the file being previewed or edited. Empty `boardItemId` means no card is expanded.
   let boardItemId = "";
 
+  /** Top-level task the board is scoped to — one run of the workflow. Empty shows every run. */
+  let boardRootItemId = "";
+
   let boardTab: BoardItemTab = "details";
 
   let boardFileRef = "";
@@ -79,7 +82,11 @@ export function createAppShell(host: MainHost) {
   /** Last value written to LAST_VIEW_KEY, so the common render() does not re-write the same row. */
   let savedView = "";
 
-  // The New work item page: the status column it lands in, and the folders its file picker browses.
+  // The New task page: the workflow it runs on, the status column it lands in (empty when the
+  // page was opened from the team's + and the workflow is still being chosen), and the folders
+  // its file picker browses.
+  let newItemProcessId = "";
+
   let newItemStageId = "";
 
   let newItemSources: FileSource[] = [];
@@ -414,6 +421,8 @@ export function createAppShell(host: MainHost) {
     set activeItemId(value: typeof activeItemId) { activeItemId = value; },
     get boardItemId() { return boardItemId; },
     set boardItemId(value: typeof boardItemId) { boardItemId = value; },
+    get boardRootItemId() { return boardRootItemId; },
+    set boardRootItemId(value: typeof boardRootItemId) { boardRootItemId = value; },
     get boardTab() { return boardTab; },
     set boardTab(value: typeof boardTab) { boardTab = value; },
     get boardFileRef() { return boardFileRef; },
@@ -430,6 +439,8 @@ export function createAppShell(host: MainHost) {
     set openRunItemId(value: typeof openRunItemId) { openRunItemId = value; },
     get view() { return view; },
     set view(value: typeof view) { view = value; },
+    get newItemProcessId() { return newItemProcessId; },
+    set newItemProcessId(value: typeof newItemProcessId) { newItemProcessId = value; },
     get newItemStageId() { return newItemStageId; },
     set newItemStageId(value: typeof newItemStageId) { newItemStageId = value; },
     get newItemSources() { return newItemSources; },

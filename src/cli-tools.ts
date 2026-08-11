@@ -42,6 +42,12 @@ export interface CliToolPath {
   path: string;
   /** The user browsed to this binary; false means it was found on PATH. */
   custom: boolean;
+  /** False once the user switches this CLI off by hand; runs stop being offered it. */
+  enabled: boolean;
+  /** Plan the CLI's own login file reports, e.g. `Pro`. Missing means it is not signed in. */
+  plan?: string | null;
+  /** Account the CLI is signed in as. */
+  account?: string | null;
 }
 
 /** The CLIs this computer can run, keyed by tool id. Missing = not installed and not picked. */
@@ -52,6 +58,11 @@ export function detectCliTools(): Promise<Record<string, CliToolPath>> {
 /** Point a tool at a binary of the user's choosing; an empty path goes back to detection. */
 export function setCliToolPath(id: string, path: string): Promise<void> {
   return invoke("set_cli_tool_path", { tool: id, path });
+}
+
+/** Switch a CLI off or on by hand, without forgetting the binary it is pointed at. */
+export function setCliToolEnabled(id: string, enabled: boolean): Promise<void> {
+  return invoke("set_cli_tool_enabled", { tool: id, enabled });
 }
 
 /** Run the CLI's own installer. Resolves to where the binary landed. */

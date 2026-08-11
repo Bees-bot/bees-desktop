@@ -193,6 +193,43 @@ export interface WorkItem {
   updatedAt: string;
 }
 
+/**
+ * A root work item plus everything planned under it, at any depth — one run of a workflow.
+ * The seen set is not paranoia: a corrupted `parentId` cycle would otherwise hang the render.
+ */
+export function itemTree<T extends { id: string; parentId: string | null }>(
+  all: T[],
+  rootId: string
+): T[] {
+  const seen = new Set<string>();
+  const tree: T[] = [];
+  // `for…of` over an array sees what the body appends, so this is a breadth-first walk.
+  const queue = all.filter(({ id }) => id === rootId);
+  for (const item of queue) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    tree.push(item);
+    queue.push(...all.filter(({ parentId }) => parentId === item.id));
+  }
+  return tree;
+}
+
+/** The top-level task an item belongs to — the nav row and board scope that hold it. */
+export function rootItemId<T extends { id: string; parentId: string | null }>(
+  all: T[],
+  id: string
+): string {
+  const seen = new Set<string>();
+  let current = all.find((item) => item.id === id);
+  while (current?.parentId && !seen.has(current.id)) {
+    seen.add(current.id);
+    const parent = all.find((item) => item.id === current!.parentId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current?.id ?? id;
+}
+
 export interface WorkItemWait {
   id: string;
   workItemId: string;

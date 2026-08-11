@@ -41,8 +41,8 @@ export const softwareProjectProcess = {
         purpose: "Inspects the selected repository and turns one free-form brief into approvable requirements",
         state: "requirements",
         prompt: REQUIREMENTS_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-requirements"]
       },
       {
@@ -51,8 +51,8 @@ export const softwareProjectProcess = {
         purpose: "Proposes and defends an independent project architecture",
         state: "architecture",
         prompt: OPENAI_ARCHITECT_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-architecture"]
       },
       {
@@ -61,8 +61,8 @@ export const softwareProjectProcess = {
         purpose: "Proposes and critiques an independent project architecture",
         state: "architecture",
         prompt: ANTHROPIC_ARCHITECT_PROMPT,
-        provider: "claude-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-architecture"]
       },
       {
@@ -71,8 +71,8 @@ export const softwareProjectProcess = {
         purpose: "Breaks an approved architecture into small reviewable phases",
         state: "plan",
         prompt: PLANNER_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-planning"]
       },
       {
@@ -81,8 +81,8 @@ export const softwareProjectProcess = {
         purpose: "Implements one approved phase directly in the project worktree",
         state: "implement",
         prompt: CODER_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-implementation"]
       },
       {
@@ -91,8 +91,8 @@ export const softwareProjectProcess = {
         purpose: "Independently verifies each committed phase and the final project",
         state: "implement",
         prompt: TESTER_PROMPT,
-        provider: "claude-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["software-testing"]
       }
     ]

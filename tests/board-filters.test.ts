@@ -3,7 +3,9 @@ import {
   defaultBoardFilters,
   formatBoardFilters,
   isFiltered,
+  itemTree,
   parseBoardFilters,
+  rootItemId,
   type WorkItem
 } from "../src/domain.js";
 import { LocalRepository } from "../src/repository.js";
@@ -59,5 +61,31 @@ describe("dashboard filters", () => {
     expect((await repository.listBoards(local.teamId))[0]!.filters).toEqual([
       { condition: "terminal", hours: 1 }
     ]);
+  });
+});
+
+describe("task trees", () => {
+  const node = (id: string, parentId: string | null) => ({ id, parentId });
+
+  it("collects a root and every descendant, and survives a parent cycle", () => {
+    const all = [
+      node("root", null),
+      node("child", "root"),
+      node("grandchild", "child"),
+      node("other-root", null),
+      node("other-child", "other-root")
+    ];
+    expect(itemTree(all, "root").map(({ id }) => id)).toEqual(["root", "child", "grandchild"]);
+    expect(itemTree(all, "missing")).toEqual([]);
+    expect(itemTree([node("a", "b"), node("b", "a")], "a").map(({ id }) => id)).toEqual(["a", "b"]);
+  });
+
+  it("climbs to the root a subtask belongs to", () => {
+    const all = [node("root", null), node("child", "root"), node("grandchild", "child")];
+    expect(rootItemId(all, "grandchild")).toBe("root");
+    expect(rootItemId(all, "root")).toBe("root");
+    // An orphan (parent archived away) and a cycle both have to terminate, not hang.
+    expect(rootItemId([node("orphan", "gone")], "orphan")).toBe("orphan");
+    expect(rootItemId([node("a", "b"), node("b", "a")], "a")).toBe("a");
   });
 });

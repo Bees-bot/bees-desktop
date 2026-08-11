@@ -64,8 +64,10 @@ files, or credentials mixing.
 ## 4. Teams
 
 A team is where the work lives: processes, boards, work items, agents, and one
-folder on disk. Add one with **+** beside *Teams*. Hover a team for its process
-library, new-process, and settings buttons.
+folder on disk. Add one with **+** beside *Teams*. Hover a team for its
+workflows, new-task, and settings buttons. Under each team, the left menu lists
+that team's top-level tasks — opening one shows the board for that task's own
+run of its workflow.
 
 Team settings: **Members**, **Folder**, **Integrations** (skills, trusted local
 tools, skill curation), **Browser**, **Archived**, and **Danger**.
@@ -92,6 +94,12 @@ volume matters most.
 Every model picker lists exactly what this computer can run right now. An agent
 naming a model this machine cannot reach is not eligible to run here, which is
 how work routes to the right laptop instead of failing on the wrong one.
+
+**Auto is the default on every workflow stage.** A stage left on *Auto* picks,
+at the moment it starts, the first of these that this computer has: Codex
+(ChatGPT), Claude Code, any other agent CLI, the largest downloaded local model,
+the largest remote model. Name a model on the stage instead and that model is
+used, with no substitution.
 
 ## 6. Folder structure
 
@@ -134,7 +142,7 @@ A process is an ordered list of statuses, and an agent is bound to one status.
 When a work item lands on a status that has an agent, that agent starts. That is
 the whole engine — there is no workflow graph to draw.
 
-Two processes ship ready to run. Open the process library from the icon beside a
+Two workflows ship ready to run. Open **Workflows** from the icon beside a
 team name:
 
 - **Goals** — a goal is planned into subtasks, worked one at a time, and reviewed. Good for marketing, research, operations, and anything you repeat.

@@ -730,6 +730,12 @@ export class LocalRepository {
       stages?: Array<{ name: string; isTerminal: boolean }>;
       tags?: readonly string[];
       template?: ProcessLibraryEntry;
+      /**
+       * Build an independent copy of the template rather than the team's one install of it:
+       * a fresh id instead of the deterministic one (so a second copy does not collide), and
+       * no `moduleId` (so the bundled entry does not report itself as already added).
+       */
+      copy?: boolean;
     }
   ): Promise<string> {
     const name = requiredText(input.name, "Process name", 120);
@@ -739,7 +745,7 @@ export class LocalRepository {
     if (stageInputs.length === 0) {
       throw new Error("A process needs at least one stage");
     }
-    const id = input.template
+    const id = input.template && !input.copy
       ? await deterministicUuid(`bees:process:${teamId}:${input.template.id}`)
       : createId();
     const timestamp = now();
@@ -752,10 +758,11 @@ export class LocalRepository {
       position,
       ...(stage.key ? { key: stage.key } : {})
     })));
-    const definition = persistProcessDefinition(
+    const resolved = persistProcessDefinition(
       input.template,
       Object.fromEntries(stages.flatMap((stage) => stage.key ? [[stage.key, stage.id]] : []))
     );
+    const definition = input.copy ? { ...resolved, moduleId: null } : resolved;
     await this.database.transaction([
       {
         sql: "INSERT INTO processes (id, team_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",

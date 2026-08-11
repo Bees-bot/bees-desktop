@@ -45,6 +45,19 @@ export interface ModelChoice {
 
 export const DEFAULT_MODEL_CHOICE: ModelChoice = { provider: LOCAL_PROVIDER, model: "active" };
 
+export const AUTO_PROVIDER = "auto";
+
+/**
+ * "Let Bees pick." A stage carrying this is resolved at run time by `preferredModelChoice`
+ * against whatever this machine can run right now, so a workflow keeps working on a computer
+ * that has a different set of CLIs, keys, and downloaded models than the one it was built on.
+ */
+export const AUTO_MODEL_CHOICE: ModelChoice = { provider: AUTO_PROVIDER, model: AUTO_PROVIDER };
+
+export function isAutoChoice(config: { provider?: string; model?: string }): boolean {
+  return config.provider?.trim() === AUTO_PROVIDER;
+}
+
 /**
  * Hex payload between "--" separators: the agent name and a team UUID both contain single
  * dashes, and base64url's alphabet contains one as well — but none of the three ever contains
@@ -513,8 +526,8 @@ export function sameChoice(left: ModelChoice, right: ModelChoice): boolean {
 export function modelCatalog(input: {
   local: LocalModelView[];
   connections: AiConnection[];
-  /** Keyed by CLI tool id; only presence matters here, not what the value describes. */
-  cliInstalled: Record<string, unknown>;
+  /** Keyed by CLI tool id. Missing, or switched off by hand, means runs cannot use it. */
+  cliInstalled: Record<string, { enabled?: boolean } | undefined>;
   extras: ModelChoice[];
 }): ModelOption[] {
   const options: ModelOption[] = [];
@@ -549,7 +562,7 @@ export function modelCatalog(input: {
   }
 
   for (const tool of CLI_TOOLS) {
-    if (!input.cliInstalled[tool.id]) continue;
+    if (!input.cliInstalled[tool.id]?.enabled) continue;
     const models = MODEL_PROVIDERS.find(({ id }) => id === tool.provider)?.models ?? ["default"];
     for (const model of models) {
       options.push({ group: tool.label, label: model, choice: { provider: tool.provider, model } });
@@ -569,25 +582,41 @@ export function modelCatalog(input: {
   return options;
 }
 
-/** First-run choice: installed agent CLIs beat the largest ready on-device model. */
+/**
+ * What "Auto" means, and the first-run default: Codex, then Claude Code, then any other agent
+ * CLI installed here, then the biggest downloaded local model, then the biggest remote one.
+ * `modelCatalog` already lists local models largest-first and each provider's own models
+ * largest-first, so "first match wins" is the size order without a second sort.
+ */
 export function preferredModelChoice(catalog: ModelOption[]): ModelChoice {
+  const isCli = (provider: string): boolean => CLI_TOOLS.some((tool) => tool.provider === provider);
   return (
     catalog.find(({ choice }) => choice.provider === "codex-cli" && choice.model === "default")
       ?.choice ??
     catalog.find(({ choice }) => choice.provider === "claude-cli" && choice.model === "default")
       ?.choice ??
+    catalog.find(({ choice }) => isCli(choice.provider))?.choice ??
     catalog.find(({ choice }) => choice.provider === LOCAL_PROVIDER)?.choice ??
+    catalog.find(({ choice }) => !isCli(choice.provider) && choice.provider !== LOCAL_PROVIDER)
+      ?.choice ??
     DEFAULT_MODEL_CHOICE
   );
 }
 
-/** Missing models and `bees-local/active` follow the user's current global choice. */
+/**
+ * Missing models and `bees-local/active` follow the user's current global choice; `auto/auto`
+ * follows this machine's catalog instead, falling back to the global choice when nothing is
+ * installed yet.
+ */
 export function resolveModelChoice(
   config: { provider?: string; model?: string },
-  active: ModelChoice
+  active: ModelChoice,
+  catalog: ModelOption[] = []
 ): ModelChoice {
   const provider = config.provider?.trim();
   const model = config.model?.trim();
+  if (provider === AUTO_PROVIDER)
+    return catalog.length ? preferredModelChoice(catalog) : active;
   return provider && model && !(provider === LOCAL_PROVIDER && model === "active")
     ? { provider, model }
     : active;
@@ -613,9 +642,10 @@ export function effectiveAgentEligibility(
   agent: Pick<Agent, "name" | "config">,
   activeModel: ModelChoice,
   enabledOnMachine: boolean,
-  availability: MachineModelAvailability
+  availability: MachineModelAvailability,
+  catalog: ModelOption[] = []
 ): EffectiveAgentEligibility {
-  const model = resolveModelChoice(agent.config, activeModel);
+  const model = resolveModelChoice(agent.config, activeModel, catalog);
   if (!enabledOnMachine) return { active: false, reason: "Disabled on this machine", model };
 
   if (model.provider === LOCAL_PROVIDER) {

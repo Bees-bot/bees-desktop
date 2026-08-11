@@ -5,6 +5,7 @@ import {
   ACTION_TYPES,
   applyActions,
   assistantInstanceId,
+  AUTO_MODEL_CHOICE,
   contextPrompt,
   effectiveAgentEligibility,
   modelCatalog,
@@ -271,7 +272,7 @@ describe("model catalog", () => {
           secretRef: "secret-1"
         }
       ],
-      cliInstalled: { claude: "/usr/local/bin/claude" },
+      cliInstalled: { claude: { enabled: true } },
       extras: [{ provider: "openrouter", model: "some/model" }]
     });
     const labels = catalog.map(({ label }) => label);
@@ -293,18 +294,63 @@ describe("model catalog", () => {
       localModel("small", "ready", "Small 3B"),
       localModel("large", "ready", "Large 70B")
     ];
-    const catalog = (cliInstalled: Record<string, string>) =>
+    const catalog = (cliInstalled: Record<string, { enabled: boolean }>) =>
       modelCatalog({ local, connections: [], cliInstalled, extras: [] });
 
-    expect(preferredModelChoice(catalog({ codex: "/codex", claude: "/claude" }))).toMatchObject({
+    expect(preferredModelChoice(catalog({ codex: { enabled: true }, claude: { enabled: true } }))).toMatchObject({
       provider: "codex-cli",
       model: "default"
     });
-    expect(preferredModelChoice(catalog({ claude: "/claude" }))).toMatchObject({
+    expect(preferredModelChoice(catalog({ claude: { enabled: true } }))).toMatchObject({
       provider: "claude-cli",
       model: "default"
     });
     expect(preferredModelChoice(catalog({}))).toMatchObject({ localModelId: "large" });
+    // Switched off by hand: installed, but no longer offered to runs.
+    expect(preferredModelChoice(catalog({ claude: { enabled: false } }))).toMatchObject({
+      localModelId: "large"
+    });
+  });
+
+  it("falls through to a remote model when nothing runs on this computer", () => {
+    const catalog = modelCatalog({
+      local: [],
+      connections: [
+        { id: "1", provider: "anthropic", label: "Anthropic", createdAt: "", secretRef: "s" }
+      ],
+      cliInstalled: {},
+      extras: []
+    });
+    // MODEL_PROVIDERS lists each provider's models largest-first, so the first is the biggest.
+    expect(preferredModelChoice(catalog)).toMatchObject({
+      provider: "anthropic",
+      model: "claude-opus-5"
+    });
+  });
+
+  it("resolves an Auto stage against this machine, not against the global choice", () => {
+    const latest = { provider: "anthropic", model: "claude-sonnet-5" };
+    const catalog = modelCatalog({
+      local: [localModel("large", "ready", "Large 70B")],
+      connections: [],
+      cliInstalled: { claude: { enabled: true } },
+      extras: []
+    });
+    expect(resolveModelChoice(AUTO_MODEL_CHOICE, latest, catalog)).toMatchObject({
+      provider: "claude-cli",
+      model: "default"
+    });
+    // Nothing installed yet: Auto has nothing to pick from, so the global choice still applies.
+    expect(resolveModelChoice(AUTO_MODEL_CHOICE, latest, [])).toBe(latest);
+    expect(
+      effectiveAgentEligibility(
+        { name: "Auto agent", config: { prompt: "Work.", ...AUTO_MODEL_CHOICE } },
+        latest,
+        true,
+        { localModelIds: [], connectedProviders: [], cliProviders: ["claude-cli"] },
+        catalog
+      )
+    ).toMatchObject({ active: true, model: { provider: "claude-cli" } });
   });
 
   it("resolves active through the latest choice but leaves named models pinned", () => {

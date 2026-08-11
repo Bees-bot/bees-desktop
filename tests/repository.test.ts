@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LocalRepository } from "../src/repository.js";
 import { GOALS_STAGES, TASK_PLAN_OUTPUT } from "../src/processes/goals/index.js";
+import { goalsProcess } from "../src/processes/goals/definition.js";
 import { softwareProjectProcess } from "../src/processes/software-project/definition.js";
 import type { BeesConversationSnapshotV1 } from "../src/conversation-snapshot.js";
 import { NodeDatabase } from "./node-database.js";
@@ -61,6 +62,39 @@ describe("local repository", () => {
     )!;
     expect(created.definition.renderer).toBe("software-project");
     expect(created.definition.stateIds.requirements).toBe(created.stages[0]!.id);
+  });
+
+  it("copies a bundled workflow as an independent, repeatable process", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const copyOf = (name: string) =>
+      repository.createProcess(local.teamId, { name, template: goalsProcess.definition, copy: true });
+
+    // A second copy must not collide with the first — the install id is deterministic per team.
+    const firstId = await copyOf("Goals copy");
+    const secondId = await copyOf("Goals copy 2");
+    expect(firstId).not.toBe(secondId);
+    expect(firstId).not.toBe(goals.id);
+
+    const all = await repository.listProcesses(local.teamId);
+    const copy = all.find(({ id }) => id === firstId)!;
+    expect(copy.stages.map(({ name }) => name)).toEqual(goals.stages.map(({ name }) => name));
+    // Install identity is not copied, or the bundled entry would report itself as added.
+    expect(copy.definition.moduleId).toBeNull();
+    // Behavior survives the copy, and every stage reference points into the copy's own stages.
+    const ownStageIds = new Set(copy.stages.map(({ id }) => id));
+    const references = [
+      ...Object.values(copy.definition.stateIds),
+      ...copy.definition.roleBindings.map(({ stageId }) => stageId),
+      ...copy.definition.capabilities.flatMap((capability) =>
+        capability.type === "task-plan" ? Object.values(capability.stageIds) : []
+      )
+    ];
+    expect(references.length).toBeGreaterThan(0);
+    expect(references.every((stageId) => ownStageIds.has(stageId))).toBe(true);
+    // The team's own install is untouched; a copy is not a move.
+    expect(all.find(({ id }) => id === goals.id)).toMatchObject({ definition: { moduleId: "goals" } });
   });
 
   it("persists ordered offline processes and work items", async () => {

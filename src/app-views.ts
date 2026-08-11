@@ -8,8 +8,11 @@ import {
 } from "./api.js";
 import {
   applicable,
+  AUTO_MODEL_CHOICE,
   effectiveAgentEligibility,
+  isAutoChoice,
   modelLabel,
+  preferredModelChoice,
   sameChoice,
   type ResolvedAction
 } from "./assistant.js";
@@ -43,6 +46,7 @@ import {
   errorText,
   fileTree,
   isFiltered,
+  itemTree,
   logicalFileReference,
   parseLogicalFileReference,
   processRuns,
@@ -177,31 +181,25 @@ export function createMainViews(host: MainHost) {
    * task count plus run state (the avatar goes green while running). The four actions ride an overlay
    * on the right that appears on hover or keyboard focus, so a team of ten processes stays readable.
    */
-  function processNavItem(teamId: string, board: Board, process: Process, count: number): string {
-    const openBoard = host.shell.view === "board" && host.workspaceController.activeBoard?.id === board.id;
-    const editing = host.shell.view === "process" && host.shell.configProcessId === process.id;
-    const history = host.shell.view === "process-runs" && host.shell.configProcessId === process.id;
-    const scheduled = host.shell.view === "schedules" && host.shell.configProcessId === process.id;
+  /**
+   * One nav row per top-level task, not per workflow: the workflow's name says nothing about
+   * what is being worked on, and a team runs the same workflow many times. Opening a row shows
+   * that task's own run of the board — see `boardRootItemId`.
+   */
+  function taskNavItem(teamId: string, board: Board, process: Process, item: WorkItem, open: number): string {
+    const active = host.shell.view === "board" &&
+      host.workspaceController.activeBoard?.id === board.id &&
+      host.shell.boardRootItemId === item.id;
     const running = host.runs.runningProcesses.has(process.id);
-    const interactive = processEngine.isInteractive(process);
-    const icon = (action: string, label: string, svg: string, extra = ""): string => `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${process.id}" data-team="${teamId}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${svg}</button>`;
-    const open = editing || history || scheduled; // a right-hand view of this process is on screen
-    return `<li class="group relative">
-      <button class="${host.shell.activeClass(openBoard)} gap-2 pr-[6.5rem]" data-board="${board.id}" data-team="${teamId}">
-        <span class="grid size-5 shrink-0 place-items-center rounded text-[10px] font-bold ${running ? "bg-success/20 text-success" : "bg-secondary/15 text-secondary"}" title="${running ? "Running" : "Stopped"}">P</span>
-        <span class="truncate">${host.shell.escapeHtml(process.name)}</span>
-        ${count
-        ? `<span class="badge badge-ghost badge-xs ml-auto" title="${count} open task${count === 1 ? "" : "s"}">${count}</span>`
+    return `<li>
+      <button class="${host.shell.activeClass(active)} gap-2" data-board="${board.id}" data-root="${host.shell.escapeHtml(item.id)}" data-team="${teamId}"
+        title="${host.shell.escapeHtml(`${item.title} — ${process.name}`)}">
+        <span class="size-1.5 shrink-0 rounded-full ${running ? "bg-success" : "bg-base-content/25"}"></span>
+        <span class="truncate">${host.shell.escapeHtml(item.title || "Untitled task")}</span>
+        ${open
+        ? `<span class="badge badge-ghost badge-xs ml-auto" title="${open} open task${open === 1 ? "" : "s"}">${open}</span>`
         : ""}
       </button>
-      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${open ? "opacity-100" : ""}">
-        ${interactive
-        ? ""
-        : icon(running ? "stop-process" : "start-process", running ? "Running. Click to stop." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, running ? "text-success" : "text-warning")}
-        ${icon("open-process-runs", `Past runs of ${process.name}`, ACTION_ICONS.history, history ? "btn-active" : "")}
-        ${icon("open-process-schedules", `Schedules of ${process.name}`, ACTION_ICONS.schedule, scheduled ? "btn-active" : "")}
-        ${icon("edit-process", `Edit ${process.name}`, ACTION_ICONS.edit, editing ? "btn-active" : "")}
-      </div>
     </li>`;
   }
 
@@ -293,8 +291,8 @@ export function createMainViews(host: MainHost) {
                       <span class="truncate">${host.shell.escapeHtml(team.name)}</span>
                     </button>
                     <div class="flex items-center pr-1 ${selected && host.shell.view === "settings" ? "" : teamActions}">
-                      <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${team.id}" aria-label="Process library" title="Process library">${ACTION_ICONS.library}</button>
-                      <button class="btn btn-square btn-ghost btn-xs" data-action="new-process" data-team="${team.id}" aria-label="New process" title="New process">${ACTION_ICONS.add}</button>
+                      <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${team.id}" aria-label="Workflows" title="Workflows">${ACTION_ICONS.workflows}</button>
+                      <button class="btn btn-square btn-ghost btn-xs" data-action="new-task" data-team="${team.id}" aria-label="New task" title="New task">${ACTION_ICONS.add}</button>
                       <button class="btn btn-square btn-ghost btn-xs ${selected && host.shell.view === "settings" ? "btn-active" : ""}" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
                         ${gearIcon()}
                       </button>
@@ -305,11 +303,11 @@ export function createMainViews(host: MainHost) {
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
                     ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
-              .map(({ board, process, count }) => processNavItem(team.id, board, process, count))
+              .flatMap(({ board, process, roots }) => roots.map(({ item, open }) => taskNavItem(team.id, board, process, item, open)))
               .join("")}
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).length
+                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).some(({ roots }) => roots.length)
               ? ""
-              : `<li><p class="px-2 py-1 text-xs text-base-content/45">No processes yet — use + above.</p></li>`}
+              : `<li><p class="px-2 py-1 text-xs text-base-content/45">No tasks yet — use + above.</p></li>`}
                   </ul>
                 </section>`;
         })
@@ -770,14 +768,19 @@ export function createMainViews(host: MainHost) {
   }
 
   async function renderBoard(): Promise<void> {
-    host.shell.setHeader(host.workspaceController.activeBoard?.name ?? "Work", host.workspaceController.activeProcess ? `${host.session.currentTeam()?.name} / ${host.workspaceController.activeProcess.name}` : undefined);
+    // The board is scoped to one top-level task when the nav opened it that way, so the header
+    // names that task rather than the workflow it happens to run on.
+    const root = host.shell.boardRootItemId
+      ? host.workspaceController.items.find(({ id }) => id === host.shell.boardRootItemId) ?? null
+      : null;
+    host.shell.setHeader(root?.title ?? host.workspaceController.activeBoard?.name ?? "Work", host.workspaceController.activeProcess ? `${host.session.currentTeam()?.name} / ${host.workspaceController.activeProcess.name}` : undefined);
     if (!host.workspaceController.activeBoard || !host.workspaceController.activeProcess) {
       host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
         <div class="hero-content text-center"><div class="max-w-md">
           <div class="mb-3 text-4xl">▦</div>
-          <h2 class="text-xl font-bold">Create your first process</h2>
-          <p class="py-3 text-sm text-base-content/60">Each process gets its own dashboard, with its statuses as columns.</p>
-          <button class="btn btn-primary" data-action="new-process" data-team="${host.workspaceController.workspace.teamId}">New process</button>
+          <h2 class="text-xl font-bold">Add your first workflow</h2>
+          <p class="py-3 text-sm text-base-content/60">Each workflow gets its own dashboard, with its statuses as columns.</p>
+          <button class="btn btn-primary" data-action="browse-process-library" data-team="${host.workspaceController.workspace.teamId}">Browse workflows</button>
         </div></div>
       </div>`);
       return;
@@ -787,8 +790,11 @@ export function createMainViews(host: MainHost) {
     const running = interactive || host.runs.runningProcesses.has(host.workspaceController.activeProcess.id);
     const filters = host.workspaceController.activeBoard.filters;
     const waiting = host.runs.supervise();
-    const visible = host.workspaceController.items.filter((item) => !isFiltered(item, filters));
-    const filtered = host.workspaceController.items.filter((item) => isFiltered(item, filters))
+    const scoped = root
+      ? itemTree(host.workspaceController.items, root.id)
+      : host.workspaceController.items;
+    const visible = scoped.filter((item) => !isFiltered(item, filters));
+    const filtered = scoped.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const expandedItemId = host.shell.boardItemId;
     // Looked up in all items, not just visible cards: the Inbox opens filtered/stuck items too.
@@ -798,13 +804,23 @@ export function createMainViews(host: MainHost) {
       return;
     host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
-          <span class="eyebrow-pill"><span class="status status-primary"></span> Workflow board</span>
+          <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
+          ${root
+        ? `<button class="badge badge-primary badge-outline gap-1" data-board="${host.workspaceController.activeBoard.id}" title="Show every run of this workflow">${host.shell.escapeHtml(root.title)} ✕</button>`
+        : ""}
           ${processStateBadge(host.workspaceController.activeProcess.id)}
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
           <span>${host.workspaceController.openWork(visible).length} item${host.workspaceController.openWork(visible).length === 1 ? "" : "s"}</span>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
+          ${
+          // These used to hang off the workflow's left-nav row, which tasks replaced.
+          [
+            ["open-process-runs", "Past runs", ACTION_ICONS.history],
+            ["open-process-schedules", "Schedules", ACTION_ICONS.schedule],
+            ["edit-process", "Edit workflow", ACTION_ICONS.edit]
+          ].map(([action, label, icon]) => actionIconButton(action!, label!, icon!, host.workspaceController.activeProcess!.id, "btn-ghost border border-base-300", "tooltip-bottom")).join("")}
           <button class="btn btn-ghost btn-sm border border-base-300" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button>
         </div>
       </div>
@@ -925,10 +941,12 @@ export function createMainViews(host: MainHost) {
       processEngine.allowsMultipleAgents(process, stage.id)
     );
     const card = (agent: Agent): string => {
-      const model = agent.config.provider && agent.config.model
-        ? `${agent.config.provider} · ${agent.config.model}`
-        : "No model";
       const eligibility = host.workspaceController.eligibilityForAgent(agent);
+      const model = isAutoChoice(agent.config)
+        ? `Auto · ${modelRef(eligibility.model)}`
+        : agent.config.provider && agent.config.model
+          ? `${agent.config.provider} · ${agent.config.model}`
+          : "No model";
       return `<div class="grid gap-2 rounded-box border p-3 ${agent.id === host.shell.configAgentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100"}" data-agent-row="${host.shell.escapeHtml(agent.id)}">
         <div class="flex items-start justify-between gap-1">
           <button class="link link-hover text-left text-sm font-semibold" type="button"
@@ -1164,24 +1182,55 @@ export function createMainViews(host: MainHost) {
         provider: definition.provider,
         model: definition.model
       }
-    }, host.assistant.assistantModel, true, host.assistant.machineModelAvailability);
+    }, host.assistant.assistantModel, true, host.assistant.machineModelAvailability, host.assistant.assistantCatalog);
+  }
+
+  /** One row per workflow this team already has — the only place to reach its editor by name. */
+  function teamWorkflowRow(process: Process): string {
+    const board = host.workspaceController.boards.find(({ processId }) => processId === process.id);
+    const statuses = process.stages.map(({ name }) => name).join(" → ");
+    const agents = host.workspaceController.agents.filter(({ triggerStageId }) =>
+      process.stages.some(({ id }) => id === triggerStageId)).length;
+    return `<article class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-5 py-4 first:border-t-0">
+      <div class="min-w-0">
+        <h3 class="font-semibold">${host.shell.escapeHtml(process.name)}</h3>
+        <p class="mt-0.5 truncate text-sm text-base-content/55">${host.shell.escapeHtml(statuses)}</p>
+        <p class="mt-0.5 text-xs text-base-content/45">${agents} agent${agents === 1 ? "" : "s"}${process.definition.moduleId ? " · Bundled" : ""}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        ${board ? `<button class="btn btn-ghost btn-sm border border-base-300" data-board="${board.id}">Open board</button>` : ""}
+        <button class="btn btn-ghost btn-sm border border-base-300 text-error" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}">Delete</button>
+        <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}">Edit</button>
+      </div>
+    </article>`;
   }
 
   function renderProcessLibrary(): void {
-    host.shell.setHeader("Process library", host.session.currentTeam()?.name);
-    host.shell.swap(`<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+    host.shell.setHeader("Workflows", host.session.currentTeam()?.name);
+    host.shell.swap(`<section class="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
           <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Back to the board</button>
-          <h2 class="font-bold">Process library</h2>
-          <p class="mt-1 text-sm text-base-content/55">Curated processes bundled with Bees Desktop and available offline.</p>
+          <h2 class="font-bold">In this team</h2>
+          <p class="mt-1 text-sm text-base-content/55">Edit a workflow's statuses and agents, or delete one you no longer run.</p>
         </div>
-        <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+        <button class="btn btn-primary btn-sm" data-action="new-process">Create workflow</button>
+      </header>
+      ${host.workspaceController.processes.length
+      ? host.workspaceController.processes.map(teamWorkflowRow).join("")
+      : `<p class="p-5 text-sm text-base-content/50">No workflows yet — add one below, or create your own.</p>`}
+    </section>
+    <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
+        <div>
+          <h2 class="font-bold">Bundled</h2>
+          <p class="mt-1 text-sm text-base-content/55">Curated workflows bundled with Bees Desktop and available offline. Add one as-is, or take a copy you can change — copies land in this team above.</p>
+        </div>
       </header>
       <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
       const installed = host.workspaceController.processes.some(({ name }) => name.toLowerCase() === entry.name.toLowerCase());
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
-      const models = [...new Set(entry.agents.map(({ provider, model }) => `${provider}/${model}`))];
+      const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent) ? "Auto" : `${agent.provider}/${agent.model}`))];
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
@@ -1198,6 +1247,7 @@ export function createMainViews(host: MainHost) {
           ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. You can change them after adding.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
+              <button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>
               <button class="btn btn-primary btn-sm" data-action="add-library-process" data-template="${host.shell.escapeHtml(entry.id)}" ${installed ? "disabled" : ""}>${installed ? "Added to team" : "Add to team"}</button>
             </div>
           </div>
@@ -1217,7 +1267,8 @@ export function createMainViews(host: MainHost) {
     archive: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16v13H4V7ZM3 4h18v3H3V4ZM9 11h6"></path></svg>',
     history: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path></svg>',
     schedule: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>',
-    library: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16ZM20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z"></path></svg>'
+    // A flow of connected stages, not a shelf of books: this opens the workflows, not a library.
+    workflows: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="5" rx="1.2"></rect><rect x="14" y="3" width="7" height="5" rx="1.2"></rect><rect x="8.5" y="16" width="7" height="5" rx="1.2"></rect><path d="M6.5 8v3.5h11V8M12 11.5V16"></path></svg>'
   } as const;
 
   function actionIconButton(action: string, label: string, icon: string, id?: string, classes = "btn-ghost", tooltip = "tooltip-left"): string {
@@ -1849,15 +1900,24 @@ export function createMainViews(host: MainHost) {
     const installed = await detectCliTools().catch(() => ({}) as Record<string, CliToolPath>);
     const rows = CLI_TOOLS.map((tool) => {
       const found = installed[tool.id];
+      // The CLI's own login file says which account and plan it would bill; no account in it
+      // means it has never been signed in, and a run pointed at it would stop and ask.
+      const signIn = `Not signed in — run <code>${host.shell.escapeHtml(tool.id)}</code> in a terminal once`;
+      const account = found?.plan
+        ? `${host.shell.escapeHtml(found.plan)}${found.account ? ` · ${host.shell.escapeHtml(found.account)}` : ""}`
+        : signIn;
       return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
         <div class="min-w-0">
           <span class="block truncate font-semibold">${host.shell.escapeHtml(tool.label)}</span>
           <span class="text-xs text-base-content/50">${found
-          ? `agent model <code>${host.shell.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.shell.escapeHtml(found.path)}</span>`
+          ? `${account} · agent model <code>${host.shell.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.shell.escapeHtml(found.path)}</span>`
           : `Not installed — <button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(tool.installUrl)}">install it</button>, or point Bees at it below`}</span>
         </div>
         <div class="flex shrink-0 items-center gap-1">
-          <span class="badge badge-sm ${found ? "badge-success" : "badge-ghost"}">${found ? (found.custom ? "Chosen" : "Found") : "Missing"}</span>
+          ${found
+          ? `<input type="checkbox" class="toggle toggle-sm" data-action="toggle-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}" ${found.enabled ? "checked" : ""} aria-label="Use ${host.shell.escapeHtml(tool.label)} for runs">`
+          : ""}
+          <span class="badge badge-sm ${!found ? "badge-ghost" : found.enabled ? "badge-success" : "badge-ghost"}">${found ? (found.enabled ? (found.custom ? "Chosen" : "Found") : "Off") : "Missing"}</span>
           <button class="btn btn-ghost btn-xs" data-action="pick-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Choose…</button>
           ${found?.custom
           ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Use detected</button>`
@@ -2118,10 +2178,12 @@ export function createMainViews(host: MainHost) {
 
   function agentEditorFields(agent?: Agent): EditorField[] {
     const config = agent?.config;
+    const auto = !agent || isAutoChoice(config ?? {});
     const selected = config?.provider?.trim() && config.model?.trim()
       ? { provider: config.provider, model: config.model }
       : host.assistant.assistantModel;
-    const selectedRef = modelRef(selected);
+    const autoRef = modelRef(AUTO_MODEL_CHOICE);
+    const selectedRef = auto ? autoRef : modelRef(selected);
     const catalog = host.assistant.overviewAssistantModels();
     const modelOptions = catalog.map(({ group, label, choice }) => ({
       label: `${group} · ${label}`,
@@ -2129,9 +2191,13 @@ export function createMainViews(host: MainHost) {
     }));
     // Keep an unavailable or custom model from an existing agent selectable instead of
     // silently rewriting the file on its next save.
-    if (!modelOptions.some(({ value }) => value === selectedRef)) {
+    if (!modelOptions.some(({ value }) => value === selectedRef) && selectedRef !== autoRef) {
       modelOptions.unshift({ label: `Configured · ${selectedRef}`, value: selectedRef });
     }
+    modelOptions.unshift({
+      label: `Auto · ${modelRef(preferredModelChoice(host.assistant.assistantCatalog))}`,
+      value: autoRef
+    });
     const capabilities = registryCapabilities(host.workspaceController.registries);
     const customTools = capabilities.filter(({ kind }) => kind === "tool");
     const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
@@ -2166,7 +2232,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: selectedRef,
         options: modelOptions,
-        hint: "Models available to the dashboard assistant on this computer.",
+        hint: "Auto picks the best AI installed on the computer running this stage: Codex, then Claude Code, then any other agent CLI, then the largest local model, then the largest remote one.",
         step: "instructions"
       },
       {
@@ -2174,7 +2240,7 @@ export function createMainViews(host: MainHost) {
         label: "Thinking",
         type: "select",
         value: config?.thinkingLevel ?? "",
-        options: thinkingOptionsForModel(selected),
+        options: thinkingOptionsForModel(auto ? { provider: "", model: "" } : selected),
         hint: "Automatic uses the model or Flue default.",
         step: "instructions"
       },
@@ -2319,9 +2385,19 @@ export function createMainViews(host: MainHost) {
   }
 
   function renderNewItem(): void {
-    host.shell.setHeader("New work item", host.workspaceController.activeBoard?.name ?? host.session.currentTeam()?.name);
+    host.shell.setHeader("New task", host.session.currentTeam()?.name);
     const stage = host.workspaceController.activeProcess?.stages.find(({ id }) => id === host.shell.newItemStageId);
+    // The workflow comes first: a task means nothing until you know which workflow runs it.
+    // Fixed when the form was opened from a status column, since that column names one already.
+    const workflows = host.workspaceController.processes;
+    const selectedWorkflowId = host.shell.newItemProcessId || workflows[0]?.id || "";
     host.shell.swap(`<form class="grid max-w-3xl grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-4" data-new-item>
+        <label class="label-text" for="new-item-workflow">Workflow</label>
+        ${stage
+        ? `<p class="text-sm"><input type="hidden" name="workflow" value="${host.shell.escapeHtml(selectedWorkflowId)}">${host.shell.escapeHtml(workflows.find(({ id }) => id === selectedWorkflowId)?.name ?? "")}</p>`
+        : `<select class="select select-bordered w-full" id="new-item-workflow" name="workflow">${workflows
+          .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === selectedWorkflowId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
+          .join("")}</select>`}
         <label class="label-text" for="new-item-title">Title</label>
         <input class="input input-bordered w-full" id="new-item-title" name="title" autofocus>
         <label class="label-text self-start pt-3" for="new-item-description">Description</label>
@@ -2331,9 +2407,11 @@ export function createMainViews(host: MainHost) {
         <span class="label-text self-start pt-2">Files</span>
         <div class="min-w-0">${filePickerHtml(host.shell.newItemSources)}</div>
         <div class="col-start-2 flex items-center gap-2">
-          <button class="btn btn-primary" type="submit">Create item</button>
+          <button class="btn btn-primary" type="submit">Create task</button>
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
-          ${stage ? `<span class="text-sm text-base-content/50">Lands in ${host.shell.escapeHtml(stage.name)}</span>` : ""}
+          <span class="text-sm text-base-content/50">${stage
+        ? `Lands in ${host.shell.escapeHtml(stage.name)}`
+        : "Starts at the workflow's first status"}</span>
         </div>
       </form>`);
   }
@@ -2500,7 +2578,7 @@ export function createMainViews(host: MainHost) {
     renderTabs,
     gearIcon,
     renderActiveOrg,
-    processNavItem,
+    taskNavItem,
     renderSidebarHelp,
     renderNavigation,
     renderPrefsButton,

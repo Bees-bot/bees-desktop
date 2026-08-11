@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     fs,
     net::TcpListener,
@@ -1208,7 +1208,11 @@ fn ensure_flue_runtime_blocking(
     // resolve them here and hand the runtime absolute paths.
     let overrides = usable_cli_overrides(app);
     let home = home_directory(app);
+    let disabled = disabled_cli_tools(app);
     for tool in &CLI_TOOLS {
+        if disabled.contains(tool.id) {
+            continue;
+        }
         if let Some(found) = cli_tool_path(&overrides, home.as_deref(), tool) {
             command.env(tool.variable, found.path);
         }
@@ -1422,11 +1426,108 @@ const CLI_TOOLS: [CliTool; 2] = [
     },
 ];
 
-/// A CLI the app will run: where it is, and whether the user picked it themselves.
+/// A CLI the app will run: where it is, whether the user picked it themselves, whether it is
+/// switched on, and what its own login file says about the account behind it.
 #[derive(Serialize)]
 struct CliToolPath {
     path: String,
     custom: bool,
+    /// False once the user switches this CLI off by hand; runs stop being offered it.
+    enabled: bool,
+    /// The plan the CLI is signed into, as its own login file reports it. `None` means that
+    /// file says nothing about an account — normally it has never been signed in.
+    plan: Option<String>,
+    /// The account the CLI is signed in as, for telling two logins apart.
+    account: Option<String>,
+}
+
+/// What a CLI's own login file says. The CLIs hold their own credentials; this only reads
+/// what they already wrote to disk — no network call, no keychain, no token is kept.
+#[derive(Default)]
+struct CliAccount {
+    plan: Option<String>,
+    email: Option<String>,
+}
+
+fn read_json_file(path: PathBuf) -> Option<JsonValue> {
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+/// A JWT's middle segment, which is plain base64url JSON. Unverified on purpose: the CLI
+/// wrote it locally and it is only read here to name the plan back to the user.
+fn jwt_claims(token: &str) -> Option<JsonValue> {
+    let payload = URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?;
+    serde_json::from_slice(&payload).ok()
+}
+
+fn cli_account(id: &str, home: Option<&Path>) -> CliAccount {
+    let Some(home) = home else {
+        return CliAccount::default();
+    };
+    match id {
+        "claude" => claude_account(home),
+        "codex" => codex_account(home),
+        _ => None,
+    }
+    .unwrap_or_default()
+}
+
+/// `~/.claude.json` keeps the signed-in account; it is dropped on logout, so its absence is
+/// the "not signed in" signal.
+fn claude_account(home: &Path) -> Option<CliAccount> {
+    let file = read_json_file(home.join(".claude.json"))?;
+    let account = file.get("oauthAccount")?;
+    let text = |key: &str| account.get(key).and_then(JsonValue::as_str);
+    Some(CliAccount {
+        // The subscription shows up as the type of the personal organization behind it.
+        plan: Some(match text("organizationType") {
+            Some("claude_pro") => "Pro".to_string(),
+            Some("claude_max") => "Max".to_string(),
+            _ => text("organizationName").unwrap_or("Signed in").to_string(),
+        }),
+        email: text("emailAddress").map(str::to_string),
+    })
+}
+
+/// `~/.codex/auth.json` holds either a pasted API key or the ChatGPT login, whose id token
+/// carries the plan the subscription is on.
+fn codex_account(home: &Path) -> Option<CliAccount> {
+    let file = read_json_file(home.join(".codex").join("auth.json"))?;
+    if file.get("OPENAI_API_KEY").and_then(JsonValue::as_str).is_some_and(|key| !key.is_empty()) {
+        return Some(CliAccount { plan: Some("API key".into()), email: None });
+    }
+    let token = file.get("tokens")?.get("id_token")?.as_str()?;
+    let claims = jwt_claims(token)?;
+    let plan = claims
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_plan_type"))
+        .and_then(JsonValue::as_str)
+        .map(|plan| match plan {
+            "plus" => "Plus".to_string(),
+            "pro" => "Pro".to_string(),
+            other => other.to_string(),
+        });
+    Some(CliAccount {
+        plan: plan.or_else(|| Some("Signed in".into())),
+        email: claims.get("email").and_then(JsonValue::as_str).map(str::to_string),
+    })
+}
+
+fn cli_disabled_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("cli-disabled.json"))
+        .map_err(|error| error.to_string())
+}
+
+/// Tool ids the user switched off by hand. Kept apart from the path overrides so switching a
+/// CLI off does not forget the binary it was pointed at.
+fn disabled_cli_tools(app: &tauri::AppHandle) -> BTreeSet<String> {
+    cli_disabled_path(app)
+        .ok()
+        .and_then(read_json_file)
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
 }
 
 fn cli_overrides_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1473,20 +1574,25 @@ fn cli_tool_path(
     home: Option<&Path>,
     tool: &CliTool,
 ) -> Option<CliToolPath> {
-    if let Some(path) = overrides.get(tool.id) {
-        return Some(CliToolPath {
-            path: path.clone(),
-            custom: true,
-        });
-    }
-    let installed = expand_home(tool.default_path, home).filter(|path| path.is_file());
-    let path = match installed {
-        Some(path) => path.display().to_string(),
-        None => resolve_cli(tool.id)?,
+    let (path, custom) = match overrides.get(tool.id) {
+        Some(path) => (path.clone(), true),
+        None => {
+            let installed = expand_home(tool.default_path, home).filter(|path| path.is_file());
+            let path = match installed {
+                Some(path) => path.display().to_string(),
+                None => resolve_cli(tool.id)?,
+            };
+            (path, false)
+        }
     };
+    // Switched on unless `detect_cli_tools` says otherwise; every other caller wants the path.
+    let account = cli_account(tool.id, home);
     Some(CliToolPath {
         path,
-        custom: false,
+        custom,
+        enabled: true,
+        plan: account.plan,
+        account: account.email,
     })
 }
 
@@ -1499,13 +1605,33 @@ fn home_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn detect_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
     let overrides = usable_cli_overrides(&app);
     let home = home_directory(&app);
+    let disabled = disabled_cli_tools(&app);
     CLI_TOOLS
         .iter()
         .filter_map(|tool| {
-            cli_tool_path(&overrides, home.as_deref(), tool)
-                .map(|found| (tool.id.to_string(), found))
+            cli_tool_path(&overrides, home.as_deref(), tool).map(|mut found| {
+                found.enabled = !disabled.contains(tool.id);
+                (tool.id.to_string(), found)
+            })
         })
         .collect()
+}
+
+/// Switch a CLI off by hand: it stays installed and keeps its chosen binary, but runs stop
+/// being offered it and the runtime is no longer told where it is.
+#[tauri::command]
+fn set_cli_tool_enabled(app: tauri::AppHandle, tool: String, enabled: bool) -> Result<(), String> {
+    if !CLI_TOOLS.iter().any(|candidate| candidate.id == tool) {
+        return Err(format!("{tool} is not a command-line agent"));
+    }
+    let mut disabled = disabled_cli_tools(&app);
+    if enabled {
+        disabled.remove(&tool);
+    } else {
+        disabled.insert(tool);
+    }
+    let content = serde_json::to_vec(&disabled).map_err(|error| error.to_string())?;
+    write_atomic(&cli_disabled_path(&app)?, &content)
 }
 
 /// Install a missing CLI with the installer its makers publish, and report where it landed.
@@ -2816,6 +2942,7 @@ pub fn run() {
             restart_flue_runtime,
             detect_cli_tools,
             set_cli_tool_path,
+            set_cli_tool_enabled,
             install_cli_tool,
             system_capacity,
             oauth_start,
@@ -2843,6 +2970,51 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_accounts_come_from_the_files_the_clis_write() {
+        let home = std::env::temp_dir().join(format!(
+            "bees-cli-account-{}",
+            loopback_token().expect("random name")
+        ));
+        fs::create_dir_all(home.join(".codex")).expect("home");
+
+        // Nothing written yet: no account, which is what "not signed in" looks like.
+        assert!(cli_account("claude", Some(&home)).plan.is_none());
+        assert!(cli_account("codex", Some(&home)).plan.is_none());
+
+        fs::write(
+            home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"someone@example.com","organizationType":"claude_max"}}"#,
+        )
+        .expect("claude config");
+        let claude = cli_account("claude", Some(&home));
+        assert_eq!(claude.plan.as_deref(), Some("Max"));
+        assert_eq!(claude.email.as_deref(), Some("someone@example.com"));
+
+        // The plan lives in the id token's claims, which are base64url with no padding.
+        let claims = URL_SAFE_NO_PAD.encode(
+            br#"{"email":"someone@example.com","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#,
+        );
+        fs::write(
+            home.join(".codex").join("auth.json"),
+            format!(r#"{{"auth_mode":"chatgpt","tokens":{{"id_token":"header.{claims}.signature"}}}}"#),
+        )
+        .expect("codex config");
+        let codex = cli_account("codex", Some(&home));
+        assert_eq!(codex.plan.as_deref(), Some("Plus"));
+        assert_eq!(codex.email.as_deref(), Some("someone@example.com"));
+
+        // A pasted key is read before the tokens: it is what the CLI would actually bill.
+        fs::write(
+            home.join(".codex").join("auth.json"),
+            r#"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-test"}"#,
+        )
+        .expect("codex key");
+        assert_eq!(cli_account("codex", Some(&home)).plan.as_deref(), Some("API key"));
+
+        fs::remove_dir_all(&home).ok();
+    }
 
     #[test]
     fn standing_feedback_can_be_undone() {

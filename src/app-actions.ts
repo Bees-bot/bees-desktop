@@ -19,6 +19,7 @@ import { executeBeesUiCommand, snapshotBeesUi } from "./assistant-ui.js";
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
+  AUTO_PROVIDER,
   applyActions,
   assistantInstanceId,
   instanceModelId,
@@ -32,7 +33,8 @@ import {
 import {
   CLI_TOOLS,
   installCliTool,
-  setCliToolPath
+  setCliToolPath,
+  setCliToolEnabled
 } from "./cli-tools.js";
 import {
   listMcpConnections,
@@ -65,7 +67,8 @@ import {
   formatBoardFilters,
   isProposal,
   logicalFileReference,
-  parseBoardFilters
+  parseBoardFilters,
+  rootItemId
 } from "./domain.js";
 import {
   isKnowledgeConnection,
@@ -185,14 +188,29 @@ export function createMainActions(host: MainHost) {
     host.shell.showNotice(`Created ${input.name}`, "success");
   }
 
-  async function installLibraryProcess(template: ProcessLibraryEntry): Promise<Process> {
+  /**
+   * Adds a bundled workflow to the team. With `copyName` it builds an independent copy instead:
+   * the team's one install of the module is left alone (or absent), so the copy can be edited
+   * freely and the bundled entry stays addable.
+   */
+  async function installLibraryProcess(template: ProcessLibraryEntry, copyName?: string): Promise<Process> {
     const allProcesses = await host.repository.listProcesses(host.workspaceController.workspace.teamId, true);
-    let process = allProcesses.find((entry) => entry.definition.moduleId === template.id);
+    let process = copyName
+      ? undefined
+      : allProcesses.find((entry) => entry.definition.moduleId === template.id);
     if (process && !process.archivedAt) {
       throw new Error(`${process.name} is already in this team`);
     }
     let processId: string;
-    if (process?.archivedAt) {
+    if (copyName) {
+      processId = await host.repository.createProcess(host.workspaceController.workspace.teamId, {
+        name: copyName,
+        description: template.description,
+        template,
+        copy: true
+      });
+    }
+    else if (process?.archivedAt) {
       await host.repository.restoreProcess(process.id);
       // Adding from the library is a fresh install, so the restored row takes the library's current
       // name. Without this it keeps whatever it was called when it was archived.
@@ -245,12 +263,42 @@ export function createMainActions(host: MainHost) {
     const hasBoard = (await host.repository.listBoards(host.workspaceController.workspace.teamId, true)).some(({ processId }) => processId === process.id);
     if (!hasBoard) {
       await host.repository.createBoard(host.workspaceController.workspace.teamId, {
-        name: template.boardName,
+        name: copyName ?? template.boardName,
         processId: process.id,
         stageIds: process.stages.map(({ id }) => id)
       });
     }
     return process;
+  }
+
+  /**
+   * Copies a bundled workflow into the team under its own name. The bundled entry is a read-only
+   * template, so this is how you get one you can change — including a second and third copy of
+   * the same one, each with its own statuses and agents.
+   */
+  async function copyLibraryProcess(templateId: string): Promise<void> {
+    const template = processLibraryEntry(templateId);
+    if (!template)
+      throw new Error("That bundled workflow is unavailable");
+    if (host.shell.view === "process")
+      await commitProcessAgentEdits();
+    const taken = new Set(host.workspaceController.processes.map(({ name }) => name.toLowerCase()));
+    let suggestion = `${template.name} copy`;
+    for (let suffix = 2; taken.has(suggestion.toLowerCase()); suffix += 1)
+      suggestion = `${template.name} copy ${suffix}`;
+    const data = await edit(`Copy ${template.name}`, [
+      { name: "name", label: "Name", value: suggestion }
+    ], "Create copy");
+    if (!data)
+      return;
+    const name = String(data.get("name") ?? "").trim();
+    const process = await installLibraryProcess(template, name);
+    // Land on the copy's own page: changing its statuses and agents is the point of copying it.
+    host.shell.configProcessId = process.id;
+    host.shell.configAgentId = "";
+    host.shell.view = "process";
+    await host.workspaceController.refresh();
+    host.shell.showNotice(`Created ${process.name}`, "success");
   }
 
   async function addLibraryProcess(templateId: string): Promise<void> {
@@ -297,7 +345,7 @@ export function createMainActions(host: MainHost) {
         label: "",
         type: "note" as const,
         value: eligibility.active
-          ? `✓ ${agent.name}: ${agent.provider}/${agent.model} is available.`
+          ? `✓ ${agent.name}: ${agent.provider === AUTO_PROVIDER ? `Auto (${modelRef(eligibility.model)})` : `${agent.provider}/${agent.model}`} is available.`
           : `✕ ${agent.name}: ${eligibility.reason}. Add the process, then change this model on its page.`
       }))
     ], "Add to team");
@@ -389,7 +437,9 @@ export function createMainActions(host: MainHost) {
         ]
       }
     });
-    if (provider && model && modelChanged)
+    // "Auto" is a resolution rule, not a model — remembering it as the global choice would
+    // leave the dashboard assistant pointed at a provider that does not exist.
+    if (provider && model && modelChanged && provider !== AUTO_PROVIDER)
       await host.assistant.rememberModelChoice({ provider, model });
   }
 
@@ -789,14 +839,20 @@ export function createMainActions(host: MainHost) {
     });
   }
 
-  /** A new work item is a page, not a dialog: the file picker below needs the room. */
+  /**
+   * A new task is a page, not a dialog: the file picker below needs the room. Called with a
+   * stage from a board column, which fixes the workflow; called without one from the team's +,
+   * which leaves the workflow to the form's picker.
+   */
   async function createItem(stageId?: string): Promise<void> {
-    if (!host.workspaceController.activeProcess || !host.workspaceController.activeBoard)
+    if (!host.workspaceController.processes.length)
+      throw new Error("Add a workflow to this team first");
+    if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
-    const targetStage = stageId ?? host.workspaceController.activeBoard.stageIds[0];
-    if (!targetStage)
-      throw new Error("This board needs a status column");
-    host.shell.newItemStageId = targetStage;
+    host.shell.newItemStageId = stageId ?? "";
+    host.shell.newItemProcessId = stageId
+      ? host.workspaceController.activeProcess!.id
+      : host.workspaceController.activeProcess?.id ?? host.workspaceController.processes[0]!.id;
     host.shell.newItemSources = await workItemFileSources();
     host.shell.view = "item-new";
     host.shell.render();
@@ -823,19 +879,36 @@ export function createMainActions(host: MainHost) {
   }
 
   async function submitNewItem(data: FormData): Promise<void> {
-    if (!host.workspaceController.activeProcess)
-      throw new Error("Open a board first");
-    const interactive = processEngine.isInteractive(host.workspaceController.activeProcess);
-    const itemId = await host.repository.createWorkItem(host.workspaceController.activeProcess.id, {
-      stageId: host.shell.newItemStageId,
+    const workflowId = String(data.get("workflow") ?? "");
+    const process = host.workspaceController.processes.find(({ id }) => id === workflowId) ??
+      host.workspaceController.activeProcess;
+    if (!process)
+      throw new Error("Choose a workflow");
+    // The remembered column only applies to the workflow it came from; picking another one in
+    // the form starts the task at that workflow's first status instead.
+    const stageId = process.stages.some(({ id }) => id === host.shell.newItemStageId)
+      ? host.shell.newItemStageId
+      : process.stages[0]?.id;
+    if (!stageId)
+      throw new Error(`${process.name} has no statuses`);
+    const interactive = processEngine.isInteractive(process);
+    const itemId = await host.repository.createWorkItem(process.id, {
+      stageId,
       title: String(data.get("title") ?? ""),
       description: String(data.get("description") ?? ""),
       owner: String(data.get("owner") ?? ""),
       logicalFiles: data.getAll("files").map(String)
     });
+    // Land on the new task's own board scope, which is also the nav row it just created.
+    host.workspaceController.activeProcess = process;
+    host.workspaceController.activeBoard =
+      host.workspaceController.boards.find(({ processId }) => processId === process.id) ??
+      host.workspaceController.activeBoard;
+    host.workspaceController.workspace.processId = process.id;
+    host.shell.boardRootItemId = itemId;
     host.shell.view = "board";
     await host.workspaceController.refresh();
-    // Interactive processes begin in their renderer, where the next human action is available.
+    // Interactive workflows begin in their renderer, where the next human action is available.
     if (interactive) {
       host.shell.activeItemId = itemId;
       host.shell.view = "item";
@@ -1045,7 +1118,7 @@ export function createMainActions(host: MainHost) {
   document.addEventListener("click", async (event) => {
     // Table rows with data-action behave like buttons (e.g. the Inbox row opening its item), so a
     // click anywhere on the row works without every cell needing its own button.
-    const button = (event.target as Element).closest<HTMLElement>("button, tr[data-action], article[data-action]");
+    const button = (event.target as Element).closest<HTMLElement>("button, tr[data-action], article[data-action], input[data-action]");
     // The assistant panel runs its own delegation — it lives outside #app and its buttons share
     // no data-action vocabulary with the views.
     if (!button || button.closest("dialog") || button.closest("#assistant"))
@@ -1103,6 +1176,10 @@ export function createMainActions(host: MainHost) {
             ({ processId }) => processId === host.workspaceController.activeProcess?.id
           )
           : [];
+        // A nav row carries the task it opened; the dashboard link itself carries none, which
+        // is how the board goes back to showing every run of the workflow.
+        host.shell.boardRootItemId = button.dataset.root ?? "";
+        host.shell.boardItemId = "";
         host.shell.view = "board";
         host.shell.render();
         return;
@@ -1153,6 +1230,9 @@ export function createMainActions(host: MainHost) {
           host.workspaceController.activeProcess = process;
           host.workspaceController.workspace.processId = process.id;
           host.workspaceController.items = host.workspaceController.teamItems.filter(({ processId }) => processId === process.id);
+          // Scope the board to the run this item belongs to, or a subtask opened from the
+          // Inbox would land on a board that filters its own card out.
+          host.shell.boardRootItemId = rootItemId(host.workspaceController.items, id);
           await expandBoardItem(id);
           host.shell.view = "board";
           host.shell.render();
@@ -1756,6 +1836,16 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice(`${tool.label} installed at ${path}`, "success");
         return;
       }
+      if (action === "toggle-cli-tool") {
+        const enabled = (button as HTMLInputElement).checked;
+        await setCliToolEnabled(button.dataset.tool ?? "", enabled);
+        // The runtime learns about a CLI from an environment variable set at launch, so it has
+        // to come back up before the change reaches runs.
+        await host.flueProjectPort.restart();
+        await host.workspaceController.refresh();
+        host.shell.showNotice(enabled ? "Command-line agent switched on" : "Command-line agent switched off", "success");
+        return;
+      }
       if (action === "pick-cli-tool" || action === "clear-cli-tool") {
         // No extension filter: these CLIs ship as bare executables on macOS and Linux.
         const picked = action === "clear-cli-tool" ? "" : await open({ multiple: false });
@@ -1994,6 +2084,12 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "new-item-in-stage")
         await createItem(button.dataset.stage);
+      if (action === "new-task") {
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(button.dataset.team);
+        await createItem();
+        return;
+      }
       if (action === "cancel-new-item") {
         host.shell.view = "board";
         host.shell.render();
@@ -2064,6 +2160,10 @@ export function createMainActions(host: MainHost) {
         await addLibraryProcess(button.dataset.template ?? "");
         return;
       }
+      if (action === "copy-library-process") {
+        await copyLibraryProcess(button.dataset.template ?? "");
+        return;
+      }
       // New and Edit are the same page: one blank, one loaded. Both keep the agent lanes below.
       if (action === "new-process" || action === "edit-process") {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
@@ -2100,6 +2200,12 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "archive-process") {
+        const process = host.workspaceController.processes.find(({ id }) => id === button.dataset.id);
+        // Asked for only where the button reads "Delete". Archiving is reversible from
+        // Team settings → Archived, but its work items go off the board either way.
+        if (button.dataset.confirm && process &&
+          !confirm(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`))
+          return;
         await host.repository.archiveProcess(button.dataset.id!);
         if (host.shell.configProcessId === button.dataset.id) {
           host.shell.configProcessId = "";
@@ -2945,6 +3051,7 @@ export function createMainActions(host: MainHost) {
     saveProcessDefinition,
     installLibraryProcess,
     addLibraryProcess,
+    copyLibraryProcess,
     loadAgents,
     writeAgent,
     applyAgentEdit,

@@ -11,6 +11,7 @@ import {
 import {
   reviewSkills
 } from "./curator.js";
+import { itemTree } from "./domain.js";
 import type {
   Agent,
   Board,
@@ -115,6 +116,8 @@ export function createWorkspaceController(host: MainHost) {
     board: Board;
     process: Process;
     count: number;
+    /** Top-level items of this process — one nav row each, with its own open-work count. */
+    roots: { item: WorkItem; open: number }[];
   }[]>();
 
   /** Work still on someone's plate — finished and archived items are not workload, so never counted. */
@@ -185,8 +188,12 @@ export function createWorkspaceController(host: MainHost) {
         const board = teamBoards.find(({ processId }) => processId === process.id);
         if (!board)
           return [];
-        const count = openWork(workItems.filter(({ processId }) => processId === process.id)).length;
-        return [{ board, process, count }];
+        const own = workItems.filter(({ processId }) => processId === process.id);
+        const roots = own
+          .filter(({ parentId, archivedAt }) => !parentId && !archivedAt)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .map((item) => ({ item, open: openWork(itemTree(own, item.id)).length }));
+        return [{ board, process, count: openWork(own).length, roots }];
       }));
     }
   }
@@ -391,7 +398,7 @@ export function createWorkspaceController(host: MainHost) {
   }
 
   function eligibilityForAgent(agent: Agent) {
-    return effectiveAgentEligibility(agent, host.assistant.assistantModel, !host.runs.disabledAgentIds.has(agent.id), host.assistant.machineModelAvailability);
+    return effectiveAgentEligibility(agent, host.assistant.assistantModel, !host.runs.disabledAgentIds.has(agent.id), host.assistant.machineModelAvailability, host.assistant.assistantCatalog);
   }
 
   /** Switch to an org by id, picking any connection it has (or none, for a local org). */

@@ -195,6 +195,7 @@ export interface AppShell {
   boardFileRef: string;
   boardItemEditing: boolean;
   boardItemId: string;
+  boardRootItemId: string;
   boardTab: BoardItemTab;
   configAgentId: string;
   configProcessId: string;
@@ -216,6 +217,7 @@ export interface AppShell {
   markdownTitle: HTMLElement;
   newItem: HTMLButtonElement;
   newItemSources: FileSource[];
+  newItemProcessId: string;
   newItemStageId: string;
   notifyLocal: (titleText: string, body: string) => void;
   openRunItemId: string;
@@ -301,7 +303,7 @@ export interface WorkspaceController {
   activeProcess: Process | null;
   agents: Agent[];
   boards: Board[];
-  dashboardsByTeam: Map<string, { board: Board; process: Process; count: number; }[]>;
+  dashboardsByTeam: Map<string, { board: Board; process: Process; count: number; roots: { item: WorkItem; open: number }[]; }[]>;
   eligibilityForAgent: (agent: Agent) => EffectiveAgentEligibility;
   ensureOrgFolders: () => Promise<void>;
   ensureTeamSkillsRegistry: (teamRoot: string) => Promise<void>;

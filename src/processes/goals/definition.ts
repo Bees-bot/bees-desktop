@@ -48,8 +48,8 @@ export const goalsProcess = {
         purpose: "Breaks large goals into an approved task plan",
         state: "plan",
         prompt: GOAL_PLANNER_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["bees-file-work"]
       },
       {
@@ -58,8 +58,8 @@ export const goalsProcess = {
         purpose: "Executes one concrete task at a time",
         state: "work",
         prompt: GOAL_WORKER_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["bees-file-work"]
       },
       {
@@ -68,8 +68,8 @@ export const goalsProcess = {
         purpose: "Checks completed work and closes or redirects it",
         state: "review",
         prompt: GOAL_REVIEWER_PROMPT,
-        provider: "codex-cli",
-        model: "default",
+        provider: "auto",
+        model: "auto",
         skills: ["bees-file-work"]
       }
     ]

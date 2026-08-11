@@ -120,7 +120,7 @@ export function createAssistantController(host: MainHost) {
         .filter(({ runtime }) => runtime.running)
         .map(({ id }) => id),
       connectedProviders: [...new Set(aiConnections.map(({ provider }) => provider))],
-      cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]).map(({ provider }) => provider)
+      cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
     };
     if (!hasUserModelChoice)
       assistantModel = preferredModelChoice(assistantCatalog);

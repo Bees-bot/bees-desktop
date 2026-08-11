@@ -8,6 +8,7 @@ import {
 } from "./api.js";
 import type { RuntimeClaim, WorkItemCommand } from "./workflow-runtime.js";
 import {
+  isAutoChoice,
   resolveModelChoice
 } from "./assistant.js";
 import {
@@ -1068,7 +1069,7 @@ export function createRunController(host: MainHost) {
     const source = host.workspaceController.agents.find(({ config }) => config.role === role);
     if (!source)
       throw new Error(`The ${role} agent is missing. Reinstall or repair this process.`);
-    const selectedModel = resolveModelChoice(source.config, host.assistant.assistantModel);
+    const selectedModel = resolveModelChoice(source.config, host.assistant.assistantModel, host.assistant.assistantCatalog);
     let agent = modelRef(source.config) === modelRef(selectedModel)
       ? source
       : {
@@ -1234,8 +1235,10 @@ export function createRunController(host: MainHost) {
         ? "The agent used by this run no longer exists"
         : "No agent is set to run on this status");
     }
-    const selectedModel = resolveModelChoice(agent.config, host.assistant.assistantModel);
-    let runAgent = !continuation && modelRef(agent.config) !== modelRef(selectedModel)
+    const selectedModel = resolveModelChoice(agent.config, host.assistant.assistantModel, host.assistant.assistantCatalog);
+    // A continuation keeps the model the conversation started on, but "auto" is not a model —
+    // it has to be resolved even then, or the run is handed the literal `auto/auto`.
+    let runAgent = (!continuation || isAutoChoice(agent.config)) && modelRef(agent.config) !== modelRef(selectedModel)
       ? {
         ...agent,
         config: {
