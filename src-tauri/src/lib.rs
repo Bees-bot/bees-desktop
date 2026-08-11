@@ -3559,6 +3559,18 @@ fn add_missing_columns(
     Ok(())
 }
 
+/// listProcesses joins process_definitions, so a workflow made before that table existed drops out
+/// of the join and the team looks empty. Give those the definition a hand-made workflow gets today.
+fn backfill_process_definitions(connection: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    connection.execute(
+        r#"INSERT INTO process_definitions (process_id, definition_json)
+           SELECT id, ?1 FROM processes
+           WHERE id NOT IN (SELECT process_id FROM process_definitions)"#,
+        [r#"{"moduleId":null,"version":1,"automation":"automatic","renderer":"default","stateIds":{},"capabilities":[],"roleBindings":[]}"#],
+    )?;
+    Ok(())
+}
+
 fn initialize_database(app: &tauri::App) -> Result<Database, Box<dyn std::error::Error>> {
     let app_data = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data)?;
@@ -3566,6 +3578,7 @@ fn initialize_database(app: &tauri::App) -> Result<Database, Box<dyn std::error:
     let schema = include_str!("../schema.sql");
     add_missing_columns(&connection, schema)?;
     connection.execute_batch(schema)?;
+    backfill_process_definitions(&connection)?;
     Ok(Database(Mutex::new(connection)))
 }
 
@@ -3750,6 +3763,32 @@ mod tests {
 
         // Running it again must do nothing rather than fail on a duplicate column.
         add_missing_columns(&connection, schema).expect("second run is a no-op");
+    }
+
+    /// A workflow made before process_definitions existed is dropped by the join that lists them.
+    #[test]
+    fn a_workflow_made_before_its_definition_table_still_lists() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                "CREATE TABLE processes (id TEXT PRIMARY KEY, name TEXT);\
+                 CREATE TABLE process_definitions (process_id TEXT PRIMARY KEY, definition_json TEXT NOT NULL);\
+                 INSERT INTO processes (id, name) VALUES ('bidding', 'Bidding');",
+            )
+            .expect("a workflow from before the table existed");
+
+        backfill_process_definitions(&connection).expect("backfill");
+
+        let listed: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM processes p JOIN process_definitions d ON d.process_id = p.id",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the join that lists workflows");
+        assert_eq!(listed, 1);
+
+        backfill_process_definitions(&connection).expect("second run is a no-op");
     }
 
     /// ALTER TABLE cannot add these to a table with rows.
