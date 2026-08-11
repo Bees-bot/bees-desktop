@@ -60,4 +60,10 @@ describe("process engine", () => {
       { role: "custom-role", stageId: "requirements-id" }
     ]);
   });
+
+  it("allows several agents only on statuses with several roles", () => {
+    expect(processEngine.allowsMultipleAgents(process, "requirements-id")).toBe(false);
+    expect(processEngine.allowsMultipleAgents(process, "architecture-id")).toBe(true);
+    expect(processEngine.allowsMultipleAgents(process, "missing")).toBe(false);
+  });
 });

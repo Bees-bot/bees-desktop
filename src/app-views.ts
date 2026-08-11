@@ -993,7 +993,9 @@ export function createMainViews(host: MainHost) {
       ...process.stages.map((stage) => lane(stage.name, own
         .filter((agent) => agent.triggerStageId === stage.id)
         .map(card)
-        .join(""), stage.id, "No agent yet.")),
+        .join(""), processEngine.allowsMultipleAgents(process, stage.id) || !own.some((agent) => agent.triggerStageId === stage.id)
+          ? stage.id
+          : undefined, "No agent yet.")),
       ...(unassigned.length
         ? [lane("No status", unassigned.map(card).join(""), undefined, "")]
         : [])
@@ -2262,6 +2264,7 @@ export function createMainViews(host: MainHost) {
         label: "Instructions",
         type: "textarea",
         value: config?.prompt ?? "",
+        hint: "Required before this agent can run.",
         step: "instructions"
       },
       {
