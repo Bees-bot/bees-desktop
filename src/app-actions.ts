@@ -1694,7 +1694,7 @@ export function createMainActions(host: MainHost) {
         if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
           throw new Error("Choose an available goal worker role");
         }
-        const nextRunAt = nextScheduleRun(recurrence, new Date()).toISOString();
+        const nextRunAt = nextScheduleRun(recurrence, new Date(), String(data.get("timezone"))).toISOString();
         await host.workflowRuntime.command(workItemId, {
           type: "upsert_schedule",
           schedule: {

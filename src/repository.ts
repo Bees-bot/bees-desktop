@@ -985,7 +985,7 @@ export class LocalRepository {
        FROM work_items w
        JOIN processes p ON p.id = w.process_id
        JOIN stages s ON s.id = w.stage_id
-       WHERE p.team_id = ? AND w.deleted_at IS NULL
+       WHERE p.team_id = ? AND w.deleted_at IS NULL AND p.archived_at IS NULL
        ORDER BY w.updated_at DESC`,
       [teamId]
     );
@@ -1505,15 +1505,27 @@ export class LocalRepository {
   }
 
   async listExecutions(teamId: string, limit = 200): Promise<Execution[]> {
+    // The limit keeps history bounded, but an output still awaiting approval must never fall out
+    // of it: losing it strands its work item with no way to approve and no way to move on.
     const rows = await this.database.query<Row>(
-      `SELECT ${executionColumns("e")}
+      `SELECT * FROM (
+         SELECT ${executionColumns("e")}
+         FROM executions e
+         JOIN work_items w ON w.id = e.work_item_id
+         JOIN processes p ON p.id = w.process_id
+         WHERE p.team_id = ?
+         ORDER BY e.created_at DESC
+         LIMIT ?
+       )
+       UNION
+       SELECT ${executionColumns("e")}
        FROM executions e
        JOIN work_items w ON w.id = e.work_item_id
        JOIN processes p ON p.id = w.process_id
        WHERE p.team_id = ?
-       ORDER BY e.created_at DESC
-       LIMIT ?`,
-      [teamId, limit]
+         AND EXISTS (SELECT 1 FROM execution_outputs o WHERE o.execution_id = e.id AND o.status = 'pending')
+       ORDER BY createdAt DESC`,
+      [teamId, limit, teamId]
     );
     return rows.map(executionRow);
   }

@@ -96,12 +96,50 @@ function nextDeadline(state: WorkItemRuntimeState): number | undefined {
   return candidates.length ? Math.min(...candidates) : undefined;
 }
 
+// Duplicated in src/scheduler.ts: this package can't import from src (separate tsconfig,
+// separate node_modules, Temporal's workflow bundler only resolves within its own package).
+function safeTz(tz: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
+function zonedParts(date: Date, tz: string): [number, number, number, number, number, number] {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric"
+  }).formatToParts(date);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+}
+
+function isWeekend(date: Date, tz: string): boolean {
+  return ["Sat", "Sun"].includes(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(date));
+}
+
+function addCalendarDay(date: Date, tz: string): Date {
+  const [y, m, d, h, min, s] = zonedParts(date, tz);
+  const naive = Date.UTC(y, m, d + 1, h, min, s);
+  let guess = naive;
+  for (let i = 0; i < 2; i++) {
+    const [gy, gm, gd, gh, gmin, gs] = zonedParts(new Date(guess), tz);
+    guess += naive - Date.UTC(gy, gm, gd, gh, gmin, gs);
+  }
+  return new Date(guess);
+}
+
 function nextScheduleRun(schedule: RuntimeSchedule, previous: number): number {
-  const next = new Date(previous);
+  const tz = safeTz(schedule.timezone);
+  let next = new Date(previous);
   if (schedule.recurrence === "hourly") next.setTime(next.getTime() + 3_600_000);
-  else next.setUTCDate(next.getUTCDate() + 1);
+  else next = addCalendarDay(next, tz);
   if (schedule.recurrence === "weekdays") {
-    while ([0, 6].includes(next.getUTCDay())) next.setUTCDate(next.getUTCDate() + 1);
+    while (isWeekend(next, tz)) next = addCalendarDay(next, tz);
   }
   return next.getTime();
 }
@@ -174,7 +212,7 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
   });
   setHandler(workItemCommandUpdate, async (command) => {
     try {
-      if (state.archivedAt && !["archive", "restore", "configure"].includes(command.type)) throw new Error("The work item is archived");
+      if (state.archivedAt && !["archive", "restore", "configure", "toggle_schedule", "delete_schedule"].includes(command.type)) throw new Error("The work item is archived");
       switch (command.type) {
       case "configure":
         if (!command.validStageIds.includes(state.stageId)) throw new Error("The current stage must remain in the process definition");
@@ -313,6 +351,10 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
         state.archivedAt ??= isoNow();
         state.claim = null;
         state.waits = [];
+        for (const schedule of state.schedules) {
+          schedule.enabled = false;
+          schedule.pending = false;
+        }
         break;
       case "restore":
         state.archivedAt = null;
@@ -340,7 +382,7 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
       state.waits = activeWaits;
       expired = true;
     }
-    for (const schedule of state.schedules.filter(({ enabled, nextRunAt }) => enabled && Date.parse(nextRunAt) <= now)) {
+    for (const schedule of state.schedules.filter(({ enabled, nextRunAt }) => !state.archivedAt && enabled && Date.parse(nextRunAt) <= now)) {
       schedule.pending = true;
       schedule.lastRunAt = schedule.nextRunAt;
       let next = Date.parse(schedule.nextRunAt);

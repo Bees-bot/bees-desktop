@@ -110,15 +110,24 @@ async function ensure(input) {
   return client.getHandle(workflowId(input.organizationId, input.workItemId));
 }
 
-async function state(organizationId, workItemId) {
-  const input = workflowInput(organizationId, workItemId);
-  const handle = await ensure(input);
+// A query costs no history; an update is recorded forever. Reads happen every few seconds per
+// item, so they only write when the process definition has actually moved.
+async function configured(handle, input) {
+  const current = await handle.query(stateQuery);
+  if (current.processId === input.processId
+    && JSON.stringify(current.validStageIds) === JSON.stringify([...new Set(input.validStageIds)])
+    && JSON.stringify(current.terminalStageIds) === JSON.stringify([...new Set(input.terminalStageIds)])) return current;
   return handle.executeUpdate(commandUpdate, { args: [{
     type: "configure",
     processId: input.processId,
     validStageIds: input.validStageIds,
     terminalStageIds: input.terminalStageIds
   }] });
+}
+
+async function state(organizationId, workItemId) {
+  const input = workflowInput(organizationId, workItemId);
+  return configured(await ensure(input), input);
 }
 
 async function command(organizationId, workItemId, value) {
@@ -139,16 +148,7 @@ async function command(organizationId, workItemId, value) {
     }
   }
   const handle = await ensure(input);
-  if (value.type !== "configure" && value.type !== "archive") {
-    await handle.executeUpdate(commandUpdate, {
-      args: [{
-        type: "configure",
-        processId: input.processId,
-        validStageIds: input.validStageIds,
-        terminalStageIds: input.terminalStageIds
-      }]
-    });
-  }
+  if (value.type !== "configure" && value.type !== "archive") await configured(handle, input);
   const result = await handle.executeUpdate(commandUpdate, { args: [value] });
   if (value.type === "archive") {
     // Archiving a task archives its whole subtask tree with it.

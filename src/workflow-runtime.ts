@@ -105,9 +105,15 @@ export class WorkflowRuntimeClient {
   ) {}
 
   private async localRequest<T>(organizationId: string, workItemId: string, body?: unknown): Promise<T> {
-    this.local ??= invoke<LocalRuntimeInfo>("ensure_local_workflow_runtime");
-    const runtime = await this.local;
+    let runtime: LocalRuntimeInfo;
     let response: Response;
+    try {
+      this.local ??= invoke<LocalRuntimeInfo>("ensure_local_workflow_runtime");
+      runtime = await this.local;
+    } catch {
+      this.local = null;
+      throw new Error("The local workflow service is unavailable");
+    }
     try {
       response = await tauriFetch(
         `${runtime.baseUrl}/organizations/${encodeURIComponent(organizationId)}/work-items/${encodeURIComponent(workItemId)}/runtime`,
