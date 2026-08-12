@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import {
   type AiProvider
 } from "./ai-connections.js";
@@ -605,7 +606,7 @@ export function createSessionController(host: MainHost) {
 
   async function probeKnowledgeConnection(connection: McpConnection): Promise<void> {
     const { baseUrl, token } = await host.ensureFlueRuntime();
-    const response = await fetch(`${baseUrl}/connections/discover`, {
+    const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify(connection)

@@ -93,6 +93,13 @@ export function createAppBootstrap(host: MainHost) {
           void host.views.renderPreferences();
         }
       });
+      // Startup reaps orphaned servers, so a model left switched on is down until someone asks
+      // again. Only start what is already on disk: runLocalModel downloads first, and a launch is
+      // no place to begin a several-gigabyte fetch nobody asked for.
+      const wanted = (await host.localModels.list())
+        .find(({ id, runtime }) => id === host.localModels.wantedRunId && runtime.state === "ready");
+      if (wanted)
+        host.actions.runLocalModel(wanted.id);
       await host.workspaceController.ensureOrgFolders();
       host.runs.runnerId = await host.repository.getSetting("runner_id", "");
       if (!host.runs.runnerId) {

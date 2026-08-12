@@ -127,12 +127,15 @@ export class AgentFileStore {
     return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  async save(teamRoot: string, agent: Agent): Promise<Agent> {
+  async save(teamRoot: string, agent: Agent, draft = false): Promise<Agent> {
+    const prompt = agent.config.prompt.trim();
+    if (!draft && !prompt) throw new Error("Agent instructions are required");
     const saved: Agent = {
       ...agent,
       name: requiredText(agent.name, "Agent name", 120),
       purpose: requiredText(agent.purpose, "Agent purpose", 240),
       description: agent.description.trim(),
+      config: { ...agent.config, prompt },
       updatedAt: now()
     };
     await this.port.write(teamRoot, saved.id, JSON.stringify(saved, null, 2));

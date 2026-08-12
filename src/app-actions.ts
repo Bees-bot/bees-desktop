@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   firstTriggerConflict,
@@ -123,14 +124,16 @@ export function createMainActions(host: MainHost) {
    * before anything is written: agent by agent, swapping two agents' statuses would be rejected
    * because the first write leaves the second one's old status still taken.
    */
-  async function saveProcessAgents(form: HTMLFormElement, notify = true): Promise<void> {
+  async function saveProcessAgents(form: HTMLFormElement, notify = true, excludedAgentId = ""): Promise<void> {
     const edits = [...form.querySelectorAll<HTMLElement>("[data-agent-pane]")]
       .map((pane) => host.workspaceController.agents.find(({ id }) => id === pane.dataset.agentPane))
-      .filter((agent): agent is Agent => Boolean(agent))
+      .filter((agent): agent is Agent => agent !== undefined && agent.id !== excludedAgentId)
       .map((agent) => ({ agent, data: host.shell.scopedFormData(form, agent.id) }));
     if (!edits.length)
       return;
     const edited = new Set(edits.map(({ agent }) => agent.id));
+    const processStageIds = new Set(host.workspaceController.processes
+      .find(({ id }) => id === host.shell.configProcessId)?.stages.map(({ id }) => id) ?? []);
     const assignment = (name: string, triggerStageId: string | null) => {
       const context = host.views.triggerContext(triggerStageId);
       return {
@@ -142,7 +145,8 @@ export function createMainActions(host: MainHost) {
       };
     };
     const conflict = firstTriggerConflict([
-      ...host.workspaceController.agents.filter(({ id }) => !edited.has(id))
+      ...host.workspaceController.agents.filter(({ id, triggerStageId }) =>
+        id !== excludedAgentId && !edited.has(id) && processStageIds.has(triggerStageId ?? ""))
         .map(({ name, triggerStageId }) => assignment(name, triggerStageId)),
       ...edits.map(({ agent, data }) => assignment(String(data.get("name") ?? "") || agent.name, String(data.get("trigger") ?? "") || null))
     ]);
@@ -163,10 +167,10 @@ export function createMainActions(host: MainHost) {
   }
 
   /** Writes the open edits before an action that re-renders the screen, so no typing is lost. */
-  async function commitProcessAgentEdits(): Promise<void> {
+  async function commitProcessAgentEdits(excludedAgentId = ""): Promise<void> {
     const form = host.shell.app.querySelector<HTMLFormElement>("form[data-process-agents]");
     if (form)
-      await saveProcessAgents(form, false);
+      await saveProcessAgents(form, false, excludedAgentId);
   }
 
   /**
@@ -391,8 +395,8 @@ export function createMainActions(host: MainHost) {
   }
 
   /** Agent edits are data only; the stable Flue runtime reads the frozen config at admission. */
-  async function writeAgent(agent: Agent): Promise<void> {
-    await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent);
+  async function writeAgent(agent: Agent, draft = false): Promise<void> {
+    await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent, draft);
   }
 
   /**
@@ -556,52 +560,69 @@ export function createMainActions(host: MainHost) {
     return download;
   }
 
+  /** Which start attempt per model is the live one, so an overtaken one stays out of the way. */
+  const localModelStartAttempt = new Map<string, number>();
+
   // Boot can take up to a minute, so it is not awaited either — the row shows "Starting…" until the
   // runtime answers, and the user is free to leave Preferences meanwhile.
   function runLocalModel(modelId: string): void {
     if (host.assistant.localModelStarting.has(modelId))
       return;
     host.assistant.localModelStarting.add(modelId);
+    // Turning Run off and on again while the download is still going starts a second attempt, and
+    // both share the one download. Without a mark of whose attempt this is, the first to finish
+    // tidies up after the second and clears the intent the second just saved.
+    const attempt = (localModelStartAttempt.get(modelId) ?? 0) + 1;
+    localModelStartAttempt.set(modelId, attempt);
+    const mine = (): boolean => localModelStartAttempt.get(modelId) === attempt;
     void host.localModels.wantRun(modelId)
       .then(() => downloadLocalModel(modelId))
       .then(async (downloaded) => {
-        if (!downloaded || !host.assistant.localModelStarting.has(modelId))
+        if (!mine())
           return;
+        if (!downloaded) {
+          // wantRun ran before the download, so a cancelled one has to take the intent with it.
+          if (host.localModels.wantedRunId === modelId)
+            await host.localModels.wantRun(null);
+          return;
+        }
         if (await host.localModels.run(modelId))
           await host.flueProjectPort.restart();
       })
       .catch(async (error) => {
+        if (!mine())
+          return;
         if (host.localModels.wantedRunId === modelId)
           await host.localModels.wantRun(null);
         host.shell.showNotice(errorText(error), "error");
       })
       .finally(() => {
+        if (!mine())
+          return;
         host.assistant.localModelStarting.delete(modelId);
         host.assistant.localModelProgress.delete(modelId);
         void refreshLocalModelRows();
       });
   }
 
-  /** Download toggled off on a finished model: drop the file, keep the row so it can be fetched again. */
-  function removeLocalModelFile(modelId: string): void {
+  /** Ends the in-flight start so its result cannot undo whatever the user asked for next. */
+  function cancelLocalModelStart(modelId: string): void {
+    localModelStartAttempt.set(modelId, (localModelStartAttempt.get(modelId) ?? 0) + 1);
     host.assistant.localModelStarting.delete(modelId);
-    void host.localModels.removeFile(modelId)
-      .then(async (wasRunning) => {
-        if (wasRunning)
-          await host.flueProjectPort.restart();
-        host.assistant.localModelProgress.delete(modelId);
-        await refreshLocalModelRows();
-      })
-      .catch((error) => host.shell.showNotice(errorText(error), "error"));
   }
 
   /** Stops a running model, or cancels its download when that is what the toggle turned off. */
   function stopLocalModel(modelId: string): void {
+    const download = host.assistant.localModelDownloads.get(modelId);
     void host.localModels.stop(modelId)
       .then(async (wasRunning) => {
+        // Cancellation is cooperative. Wait until the worker has left the native download map,
+        // otherwise the refresh below immediately reports "downloading" again.
+        await download;
         if (wasRunning)
           await host.flueProjectPort.restart();
-        host.assistant.localModelProgress.delete(modelId);
+        if (host.assistant.localModelProgress.get(modelId)?.state !== "cancelled")
+          host.assistant.localModelProgress.delete(modelId);
         await refreshLocalModelRows();
       })
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
@@ -630,7 +651,7 @@ export function createMainActions(host: MainHost) {
 
   async function discoverMcpConnection(connection: McpConnection): Promise<McpConnection> {
     const { baseUrl, token } = await host.ensureFlueRuntime();
-    const response = await fetch(`${baseUrl}/connections/discover`, {
+    const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify(connection)
@@ -1352,9 +1373,14 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "add-process-agent") {
+        const triggerStageId = button.dataset.stage!;
+        const context = host.views.triggerContext(triggerStageId);
+        if (context && !processEngine.allowsMultipleAgents(context.process, triggerStageId) &&
+          host.workspaceController.agents.some((agent) => agent.triggerStageId === triggerStageId))
+          throw new Error(`${context.stageName} already has an agent`);
         await commitProcessAgentEdits();
-        const created = newAgent({ name: "New agent", triggerStageId: button.dataset.stage! });
-        await writeAgent(created);
+        const created = newAgent({ name: "New agent", purpose: "Handles work in this status", triggerStageId });
+        await writeAgent(created, true);
         host.shell.configAgentId = created.id;
         await host.workspaceController.refresh();
         return;
@@ -2307,10 +2333,10 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "delete-agent") {
         const agent = host.workspaceController.agents.find(({ id }) => id === button.dataset.id)!;
-        if (!confirm(`Delete ${agent.name}? This removes its file from the team folder.`))
+        if (!(await edit(`Delete ${agent.name}? This removes its file from the team folder.`, [], "Delete")))
           return;
         if (host.shell.view === "process")
-          await commitProcessAgentEdits();
+          await commitProcessAgentEdits(agent.id);
         await host.agentFiles.remove(await host.workspaceController.requireTeamRoot(), agent.id);
         if (host.runs.disabledAgentIds.delete(agent.id)) {
           await host.repository.setSetting(`disabled_agents:${host.workspaceController.workspace.teamId}`, [...host.runs.disabledAgentIds]);
@@ -2476,7 +2502,7 @@ export function createMainActions(host: MainHost) {
           return;
         }
         const { baseUrl, token } = await host.ensureFlueRuntime();
-        const response = await fetch(`${baseUrl}/browser/open`, {
+        const response = await tauriFetch(`${baseUrl}/browser/open`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ profileKey: mapping.localPath, url: "about:blank" })
@@ -2775,14 +2801,13 @@ export function createMainActions(host: MainHost) {
       const modelId = toggle.dataset.model!;
       host.assistant.localModelProgress.delete(modelId);
       if (toggle.dataset.modelToggle === "download") {
-        // Off on a downloaded model deletes the file; off mid-download only cancels it, so the
-        // partial file stays and a later Download resumes from where it stopped.
+        // Off mid-download only cancels it, so the partial file stays and a later Download resumes.
+        // Completed downloads are disabled in the row; Delete remains the destructive action.
         if (toggle.checked)
           void downloadLocalModel(modelId).then(refreshLocalModelRows);
-        else if (toggle.dataset.modelDownloaded)
-          removeLocalModelFile(modelId);
         else
           stopLocalModel(modelId);
+        return;
       }
       else if (toggle.checked) {
         void host.assistant.rememberModelChoice({
@@ -2795,7 +2820,7 @@ export function createMainActions(host: MainHost) {
       else {
         // Drops a start still waiting on its download without cancelling that download — the
         // Download toggle owns it. Otherwise this stops the model that is serving.
-        host.assistant.localModelStarting.delete(modelId);
+        cancelLocalModelStart(modelId);
         if (host.localModels.wantedRunId === modelId) {
           void host.localModels.wantRun(null).then(refreshLocalModelRows);
         }
@@ -3186,7 +3211,6 @@ export function createMainActions(host: MainHost) {
     refreshLocalModelRows,
     downloadLocalModel,
     runLocalModel,
-    removeLocalModelFile,
     stopLocalModel,
     connectAiProvider,
     discoverMcpConnection,

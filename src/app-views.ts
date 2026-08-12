@@ -14,7 +14,8 @@ import {
   modelLabel,
   preferredModelChoice,
   sameChoice,
-  type ResolvedAction
+  type ResolvedAction,
+  DISABLED_ON_THIS_MACHINE
 } from "./assistant.js";
 import {
   CLI_TOOLS,
@@ -803,6 +804,14 @@ export function createMainViews(host: MainHost) {
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
     if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
       return;
+    // The eligibility reason is otherwise only a tooltip in the process editor. An agent the user
+    // switched off is not a problem to report, and a stopped process already says why nothing runs.
+    const blockedAgents = running
+      ? processAgents(host.workspaceController.activeProcess)
+        .map((agent) => ({ agent, ...host.workspaceController.eligibilityForAgent(agent) }))
+        .filter(({ active, reason }) => !active && reason !== DISABLED_ON_THIS_MACHINE)
+        .map(({ agent, reason }) => `${agent.name}: ${reason}`)
+      : [];
     host.shell.swap(`<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3 text-sm text-base-content/55">
           <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
@@ -828,6 +837,9 @@ export function createMainViews(host: MainHost) {
       ${running
         ? ""
         : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
+      ${blockedAgents.length
+        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
+        : ""}
       <div class="kanban">${stages
         .map((stage) => {
           const cards = visible.filter(({ stageId }) => stageId === stage.id);
@@ -980,7 +992,9 @@ export function createMainViews(host: MainHost) {
       ...process.stages.map((stage) => lane(stage.name, own
         .filter((agent) => agent.triggerStageId === stage.id)
         .map(card)
-        .join(""), stage.id, "No agent yet.")),
+        .join(""), processEngine.allowsMultipleAgents(process, stage.id) || !own.some((agent) => agent.triggerStageId === stage.id)
+          ? stage.id
+          : undefined, "No agent yet.")),
       ...(unassigned.length
         ? [lane("No status", unassigned.map(card).join(""), undefined, "")]
         : [])
@@ -1810,11 +1824,11 @@ export function createMainViews(host: MainHost) {
   }
 
   /** Download and Run are toggles: flipping one leaves the work running while the user moves on. */
-  function localModelToggle(id: string, kind: "download" | "run", on: boolean, disabled: boolean, downloaded = false): string {
+  function localModelToggle(id: string, kind: "download" | "run", on: boolean, disabled: boolean): string {
     const label = kind === "download" ? "Download" : "Run";
     return `<label class="flex cursor-pointer items-center gap-1.5 text-xs ${disabled ? "opacity-50" : ""}">
       <input type="checkbox" class="toggle toggle-xs toggle-primary" data-model-toggle="${kind}" data-model="${id}"
-        ${downloaded ? `data-model-downloaded="1"` : ""} ${on ? "checked" : ""} ${disabled ? "disabled" : ""}>${label}
+        ${on ? "checked" : ""} ${disabled ? "disabled" : ""}>${label}
     </label>`;
   }
 
@@ -1824,18 +1838,19 @@ export function createMainViews(host: MainHost) {
     const downloadedBytes = event?.downloadedBytes ?? model.runtime.downloadedBytes;
     const totalBytes = event?.totalBytes ?? model.runtime.totalBytes;
     const id = host.shell.escapeHtml(model.id);
-    // The wanted flag is persisted, so a Run toggled on during a long download stays on across a
-    // page reload or an app restart.
-    const starting = (host.assistant.localModelStarting.has(model.id) || host.localModels.wantedRunId === model.id) &&
+    // Persisted intent is not a start. It survives a restart, and it draws Run as already on, so
+    // the change event that starts a model can never fire.
+    const starting = (host.assistant.localModelStarting.has(model.id) ||
+      (host.localModels.wantedRunId === model.id && state === "downloading")) &&
       state !== "running";
     const status = starting && state !== "downloading"
       ? "Starting…"
       : localModelStatusLabel(state, downloadedBytes, totalBytes, event?.error);
     const downloaded = state === "ready" || state === "running";
     // Run implies Download: turning it on downloads first when the file isn't here yet, so both
-    // toggles read as on. Flipping Download back off deletes the file and keeps the row — Delete is
-    // for dropping the row too. A model picked off this computer has nothing to download at all.
-    const action = localModelToggle(id, "download", downloaded || state === "downloading" || starting, !!model.localPath, downloaded) + localModelToggle(id, "run", state === "running" || starting, false);
+    // toggles read as on. Completed downloads cannot be toggled off: Delete is the one destructive
+    // action. A model picked off this computer has nothing to download at all.
+    const action = localModelToggle(id, "download", downloaded || state === "downloading" || starting, !!model.localPath || downloaded) + localModelToggle(id, "run", state === "running" || starting, false);
     const source = model.localPath
       ? `<span class="truncate">${host.shell.escapeHtml(model.localPath)}</span>`
       : `<button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(model.sourceUrl ?? model.url ?? "")}">${host.shell.escapeHtml(model.sourceUrl ? "Hugging Face" : "Download link")}</button>`;
@@ -2248,6 +2263,7 @@ export function createMainViews(host: MainHost) {
         label: "Instructions",
         type: "textarea",
         value: config?.prompt ?? "",
+        hint: "Required before this agent can run.",
         step: "instructions"
       },
       {

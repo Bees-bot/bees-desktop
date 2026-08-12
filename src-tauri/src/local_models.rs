@@ -822,13 +822,18 @@ fn running_status(model_id: &str, bytes: u64) -> LocalModelStatus {
     }
 }
 
+/// A poisoned log still holds what was printed, so read it either way.
+fn log_lines(log: &Mutex<VecDeque<String>>) -> Vec<String> {
+    log.lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .cloned()
+        .collect()
+}
+
 /// Turn what llama-server printed before it quit into something the user can act on.
 fn startup_failure(log: &Mutex<VecDeque<String>>, status: ExitStatus) -> String {
-    let lines: Vec<String> = log
-        .lock()
-        .map(|log| log.iter().cloned().collect())
-        .unwrap_or_default();
-    startup_failure_message(&lines)
+    startup_failure_message(&log_lines(log))
         .unwrap_or_else(|| format!("llama-server stopped during startup ({status})"))
 }
 
@@ -982,7 +987,9 @@ fn start_local_model_blocking(
         }
         thread::sleep(Duration::from_millis(250));
     }
-    Err("The local model did not become ready within 60 seconds".into())
+    // The child is about to be dropped and killed, so its tail is the only account of the stall.
+    Err(startup_failure_message(&log_lines(&log))
+        .unwrap_or_else(|| "The local model did not become ready within 60 seconds".into()))
 }
 
 #[tauri::command]
