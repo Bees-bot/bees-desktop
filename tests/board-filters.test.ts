@@ -40,8 +40,10 @@ describe("dashboard filters", () => {
   });
 
   it("round-trips the edited text and rejects nonsense", () => {
-    expect(formatBoardFilters(defaultBoardFilters)).toBe("terminal 24\narchived 0");
-    expect(parseBoardFilters(" terminal 24 \n\narchived 0\n")).toEqual(defaultBoardFilters);
+    expect(formatBoardFilters(defaultBoardFilters)).toBe("Done 24\nArchived 0");
+    expect(parseBoardFilters(" Done 24 \n\nArchived 0\n")).toEqual(defaultBoardFilters);
+    // Filters saved before the rename still parse.
+    expect(parseBoardFilters("terminal 24\narchived 0")).toEqual(defaultBoardFilters);
     expect(parseBoardFilters("Done 0\nARCHIVED 0")).toEqual([
       { condition: "terminal", hours: 0 },
       { condition: "archived", hours: 0 }

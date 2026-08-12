@@ -82,9 +82,21 @@ export const defaultBoardFilters: BoardFilter[] = [
 
 const filterConditions: BoardFilter["condition"][] = ["terminal", "archived", "waiting", "error"];
 
+/**
+ * Conditions are internal words; users only ever see their board vocabulary — a terminal stage is
+ * the "Done" column. Every user-facing rendering of a condition goes through here.
+ */
+export function workItemConditionLabel(condition: WorkItemCondition): string {
+  return condition === "terminal" ? "Done" : condition[0]!.toUpperCase() + condition.slice(1);
+}
+
+export const boardFilterConditionLabels = filterConditions.map(workItemConditionLabel);
+
 /** Rules are edited as text, one `<condition> <hours>` line each. */
 export function formatBoardFilters(filters: BoardFilter[]): string {
-  return filters.map(({ condition, hours }) => `${condition} ${hours}`).join("\n");
+  return filters
+    .map(({ condition, hours }) => `${workItemConditionLabel(condition)} ${hours}`)
+    .join("\n");
 }
 
 export function parseBoardFilters(text: string): BoardFilter[] {
@@ -94,10 +106,10 @@ export function parseBoardFilters(text: string): BoardFilter[] {
     .filter(Boolean)
     .map((line) => {
       const [word = "", hours = "0"] = line.split(/\s+/);
-      // Boards ship a "Done" column, so that is what users type for the terminal condition.
+      // "terminal" still parses so filters saved before the rename keep working.
       const condition = word.toLowerCase() === "done" ? "terminal" : word.toLowerCase();
       if (!filterConditions.includes(condition as BoardFilter["condition"])) {
-        throw new Error(`"${condition}" is not a condition — use one of ${filterConditions.join(", ")}`);
+        throw new Error(`"${word}" is not a condition — use one of ${boardFilterConditionLabels.join(", ")}`);
       }
       const age = Number(hours);
       if (!Number.isFinite(age) || age < 0) {
