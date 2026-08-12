@@ -974,6 +974,7 @@ export function createMainViews(host: MainHost) {
           ${process
         ? `${processStatusButton(process.id)}${actionIconButton("archive-process", `Archive ${process.name}`, ACTION_ICONS.archive, process.id, "btn-ghost text-error")}`
         : ""}
+          <button class="btn btn-ghost" type="button" data-action="close-process-editor">Cancel</button>
           <button class="btn btn-primary" type="submit">${process ? "Save process" : "Create process"}</button>
         </div>
       </div>

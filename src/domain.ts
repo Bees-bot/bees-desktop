@@ -93,7 +93,9 @@ export function parseBoardFilters(text: string): BoardFilter[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [condition = "", hours = "0"] = line.split(/\s+/);
+      const [word = "", hours = "0"] = line.split(/\s+/);
+      // Boards ship a "Done" column, so that is what users type for the terminal condition.
+      const condition = word.toLowerCase() === "done" ? "terminal" : word.toLowerCase();
       if (!filterConditions.includes(condition as BoardFilter["condition"])) {
         throw new Error(`"${condition}" is not a condition — use one of ${filterConditions.join(", ")}`);
       }

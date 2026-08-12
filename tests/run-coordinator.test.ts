@@ -411,4 +411,27 @@ describe("RunCoordinator", () => {
       expect.objectContaining({ deliveryId: deliveries[1], prompt: "Second follow-up" })
     );
   });
+
+  it("reports the hand-over, after Rust accepted the run and before it settles", async () => {
+    const runHost = host();
+    const order: string[] = [];
+    runHost.startRun = vi.fn(async () => {
+      order.push("startRun");
+    });
+
+    await coordinator(
+      { createExecution: vi.fn().mockResolvedValue("run-new"), getExecution: vi.fn().mockResolvedValue(null) },
+      { prepare: vi.fn().mockResolvedValue("/cache/workspaces/run-new") },
+      runHost
+    ).start({
+      item: { id: "item-1", logicalFiles: [] } as unknown as WorkItem,
+      agent: { id: "agent-1", config: { prompt: "Work." } } as unknown as Agent,
+      teamRoot: "/team",
+      stages: [],
+      onCreated: () => void order.push("onCreated"),
+      onStarted: (executionId) => void order.push(`onStarted:${executionId}`)
+    });
+
+    expect(order).toEqual(["onCreated", "startRun", "onStarted:run-new"]);
+  });
 });

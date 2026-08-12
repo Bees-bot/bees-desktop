@@ -42,6 +42,10 @@ describe("dashboard filters", () => {
   it("round-trips the edited text and rejects nonsense", () => {
     expect(formatBoardFilters(defaultBoardFilters)).toBe("terminal 24\narchived 0");
     expect(parseBoardFilters(" terminal 24 \n\narchived 0\n")).toEqual(defaultBoardFilters);
+    expect(parseBoardFilters("Done 0\nARCHIVED 0")).toEqual([
+      { condition: "terminal", hours: 0 },
+      { condition: "archived", hours: 0 }
+    ]);
     expect(() => parseBoardFilters("finished 24")).toThrow(/not a condition/);
     expect(() => parseBoardFilters("terminal -1")).toThrow(/hours/);
   });

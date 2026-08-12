@@ -1212,7 +1212,10 @@ export function createRunController(host: MainHost) {
             correlationKey: `execution:${executionId}`
           });
           await host.workspaceController.refresh();
-        }
+        },
+        // Rust marks the row running straight after hand-over, without an event — re-read it, or
+        // the card reads "Queued" for the whole run and only corrects on `run-settled`.
+        onStarted: () => host.workspaceController.refresh()
       });
       await applySettledExecution(outcome.executionId, true, true, true);
       const execution = await host.repository.getExecution(outcome.executionId);
@@ -1409,6 +1412,9 @@ export function createRunController(host: MainHost) {
           }
           await host.workspaceController.refresh();
         },
+        // Rust marks the row running straight after hand-over, without an event — re-read it, or
+        // the card reads "Queued" for the whole run and only corrects on `run-settled`.
+        onStarted: () => host.workspaceController.refresh()
       });
       await applySettledExecution(outcome.executionId, true);
       if (report) {

@@ -1170,8 +1170,8 @@ export function createMainActions(host: MainHost) {
         label: "Hide items from the board",
         type: "textarea",
         value: formatBoardFilters(board.filters),
-        placeholder: "done 24",
-        hint: "One rule per line: condition then hours untouched (0 = always). Conditions: terminal, archived, waiting, error."
+        placeholder: "terminal 24",
+        hint: "One rule per line: condition then hours untouched (0 = always). Conditions: terminal (done), archived, waiting, error."
       }
     ]);
     if (!data)
@@ -2262,7 +2262,9 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      if (action === "close-process-library") {
+      // Leaving the library or the process editor both mean the same thing: back to the board,
+      // dropping whatever was typed and never saved.
+      if (action === "close-process-library" || action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
         return;

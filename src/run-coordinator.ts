@@ -55,6 +55,8 @@ export interface RunRequest {
   /** Line above `feedback`. Overridden when the notes are evidence rather than corrections. */
   feedbackIntro?: string;
   onCreated?: (executionId: string) => void | Promise<void>;
+  /** Rust has accepted the run and marked it running. The row the UI holds still says queued. */
+  onStarted?: (executionId: string) => void | Promise<void>;
   /** The published config to run instead of the source run's snapshot. Restart with current config. */
   restartedFromExecutionId?: string;
   /** Run directly in this work item's validated external Git worktree. */
@@ -340,6 +342,7 @@ export class RunCoordinator {
         manualProjection: Boolean(request.manualProjection)
       });
       handedOff = true;
+      await request.onStarted?.(executionId);
       const outcome = await settled;
       if (outcome.status === "failed") {
         throw Object.assign(new Error(outcome.error ?? "The run failed"), { executionId });
