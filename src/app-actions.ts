@@ -2205,8 +2205,24 @@ export function createMainActions(host: MainHost) {
         host.shell.view = "board";
         host.shell.render();
       }
+      if (action === "archive-item") {
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(button.dataset.team);
+        const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id);
+        if (item && await edit(`Archive "${item.title}"?`, [], "Archive")) {
+          await host.workflowRuntime.command(item.id, { type: "archive" });
+          if (host.shell.boardItemId === item.id)
+            host.shell.boardItemId = "";
+          if (host.shell.boardRootItemId === item.id)
+            host.shell.boardRootItemId = "";
+          await host.workspaceController.refresh();
+        }
+        return;
+      }
       if (action === "edit-item") {
-        const item = host.workspaceController.items.find(({ id }) => id === button.dataset.id)!;
+        if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
+          await host.workspaceController.switchTeam(button.dataset.team);
+        const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id)!;
         const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
         const data = await edit("Edit work item", [
           { name: "title", label: "Title", value: item.title },
@@ -2214,13 +2230,9 @@ export function createMainActions(host: MainHost) {
           { name: "owner", label: "Owner", value: item.owner ?? "" },
           {
             name: "archived",
-            label: "Visibility",
-            type: "toggle",
-            value: item.archivedAt ? "archived" : "active",
-            options: [
-              { label: "Active", value: "active" },
-              { label: "Archived", value: "archived" }
-            ]
+            label: "Archived",
+            type: "switch",
+            value: item.archivedAt ? "archived" : "active"
           },
           {
             name: "files",
