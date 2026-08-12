@@ -12,21 +12,25 @@ function compact(value: string, limit = 180): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-function visible(element: HTMLElement): boolean {
-  if (element.closest("#assistant,[hidden],[aria-hidden='true']")) return false;
+export function visible(element: HTMLElement): boolean {
+  // #tour is the onboarding wizard's own tooltip: it must never become a thing the model
+  // clicks, nor a control it points its own arrow at.
+  if (element.closest("#assistant,#tour,[hidden],[aria-hidden='true']")) return false;
   const style = getComputedStyle(element);
   if (style.display === "none" || style.visibility === "hidden") return false;
   const box = element.getBoundingClientRect();
   return box.width > 0 || box.height > 0;
 }
 
-function controlName(element: HTMLElement): string {
+export function controlName(element: HTMLElement): string {
   const input = element as HTMLInputElement;
   const labelled = "labels" in input ? input.labels?.[0]?.innerText : "";
   const name = [
     element.getAttribute("aria-label"),
     labelled,
-    element.innerText,
+    // textContent covers the detached case: the tour names an element the model chose, and a
+    // re-render may already have pulled it out of the document, where innerText reads empty.
+    element.innerText || element.textContent,
     element.getAttribute("title"),
     input.placeholder,
     input.name
@@ -106,6 +110,71 @@ export function snapshotBeesUi(): string {
     .filter(Boolean)
     .join("\n");
   return result.length > 8_000 ? `${result.slice(0, 8_000)}\n…[snapshot truncated]` : result;
+}
+
+/**
+ * The element behind a ref, connected or not. `current` below is the strict version the
+ * assistant's own commands need; this one exists for the tour, which only wants to read the
+ * element's identity and immediately turns it into a `UiLocator`.
+ */
+export function refElement(ref: string): HTMLElement | null {
+  return refs.get(ref)?.element ?? null;
+}
+
+/**
+ * A ref survives until the next snapshot; a tour step has to survive the user working the page
+ * underneath it, and `render()` replaces the whole `#app` subtree on every click. So the tour
+ * keeps a locator instead of an element, and re-finds the replacement each frame.
+ */
+export interface UiLocator {
+  selector: string;
+  name: string;
+}
+
+/** Attributes the app already uses to say what a control *is*, most specific first. */
+const LOCATOR_ATTRIBUTES = [
+  "data-view",
+  "data-action",
+  "data-prefs-tab",
+  "data-org-tab",
+  "data-team-tab",
+  "data-team-view",
+  "data-board",
+  "data-theme-preset",
+  "data-branding",
+  "data-model"
+];
+
+export function locatorFor(element: HTMLElement): UiLocator {
+  const name = controlName(element);
+  if (element.id) return { selector: `#${CSS.escape(element.id)}`, name };
+  const selector = LOCATOR_ATTRIBUTES.filter((attribute) => element.getAttribute(attribute))
+    .map((attribute) => `[${attribute}=${JSON.stringify(element.getAttribute(attribute))}]`)
+    .join("");
+  return { selector: selector || element.tagName.toLowerCase(), name };
+}
+
+/**
+ * Selector first, then the accessible name as a tiebreak — several rows can carry the same
+ * `data-action`. A control with no distinguishing attribute at all falls back to the name
+ * alone, which is how "the Rename button" keeps working across a re-render.
+ */
+export function resolveLocator({ selector, name }: UiLocator): HTMLElement | null {
+  let matches: HTMLElement[] = [];
+  try {
+    matches = [...document.querySelectorAll<HTMLElement>(selector)].filter(visible);
+  }
+  catch {
+    matches = [];
+  }
+  const named = matches.find((element) => controlName(element) === name);
+  if (named) return named;
+  if (matches.length) return matches[0]!;
+  return (
+    [...document.querySelectorAll<HTMLElement>("button,input:not([type='hidden']),textarea,select,a[href],[role='button']")]
+      .filter(visible)
+      .find((element) => controlName(element) === name) ?? null
+  );
 }
 
 function current(ref: string): UiRef {

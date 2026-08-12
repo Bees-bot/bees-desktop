@@ -41,7 +41,8 @@ describe("Goals process controller", () => {
       approveTaskPlan: vi.fn().mockResolvedValue(["child"]),
       workerRoles: vi.fn(() => ["goal-worker"]),
       syncCheckpoint: vi.fn(),
-      finishOutputReview: vi.fn()
+      finishOutputReview: vi.fn(),
+      resolveWait: vi.fn()
     } satisfies TaskPlanHost;
     const controller = new TaskPlanController(host);
     const output = { id: "output", logicalOutput: ".tasks.json" } as ExecutionOutput;
@@ -67,5 +68,7 @@ describe("Goals process controller", () => {
     );
     expect(host.syncCheckpoint).toHaveBeenCalledWith(item.id, "waiting-id");
     expect(host.finishOutputReview).toHaveBeenCalledWith(execution);
+    // Approval answers an earlier rejection of the same plan, so its wait is cleared.
+    expect(host.resolveWait).toHaveBeenCalledWith(item.id, "plan:output");
   });
 });

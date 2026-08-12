@@ -77,6 +77,9 @@ export function createAppShell(host: MainHost) {
   /** The work item whose pass through the process is open on the run history page. */
   let openRunItemId = "";
 
+  /** The step picked out of that run's sequence, whose details show under it. */
+  let openRunStepId = "";
+
   let view: View = "overview";
 
   /** Last value written to LAST_VIEW_KEY, so the common render() does not re-write the same row. */
@@ -389,7 +392,19 @@ export function createAppShell(host: MainHost) {
       void host.views.renderPreferences();
     if (view === "getting-started") {
       setHeader("Getting Started", "Set up Bees on this computer");
-      swap(`<article class="markdown-viewer mx-auto max-w-3xl rounded-box border border-base-300 bg-base-100 px-6 py-5">${renderMarkdown(GETTING_STARTED)}</article>`);
+      // The same ground as the page below, except pointed at the real controls. Offered here
+      // rather than launched automatically: a tooltip that opens itself over an app nobody has
+      // looked at yet is something to dismiss, not something to follow.
+      swap(`<div class="mx-auto max-w-3xl space-y-4">
+        <div class="flex flex-wrap items-center gap-3 rounded-box border border-primary/30 bg-primary/5 px-5 py-4">
+          <div class="min-w-0 flex-1">
+            <strong class="block text-sm">Prefer to be shown?</strong>
+            <span class="text-sm text-base-content/60">The guided tour walks the same setup inside the app, one control at a time.</span>
+          </div>
+          <button class="btn btn-primary btn-sm" data-action="start-tour">Start the guided tour</button>
+        </div>
+        <article class="markdown-viewer rounded-box border border-base-300 bg-base-100 px-6 py-5">${renderMarkdown(GETTING_STARTED)}</article>
+      </div>`);
     }
   }
 
@@ -437,6 +452,8 @@ export function createAppShell(host: MainHost) {
     set configAgentId(value: typeof configAgentId) { configAgentId = value; },
     get openRunItemId() { return openRunItemId; },
     set openRunItemId(value: typeof openRunItemId) { openRunItemId = value; },
+    get openRunStepId() { return openRunStepId; },
+    set openRunStepId(value: typeof openRunStepId) { openRunStepId = value; },
     get view() { return view; },
     set view(value: typeof view) { view = value; },
     get newItemProcessId() { return newItemProcessId; },

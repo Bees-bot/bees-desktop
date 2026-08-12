@@ -612,6 +612,55 @@ export function processRuns(items: WorkItem[], executions: Execution[]): Process
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
+/** One dated point on a run's path through its statuses. */
+export interface RunTimelineEvent {
+  at: string;
+  kind: "created" | "ran" | "moved";
+  /** The status the event happened in. Null when the run's status can no longer be resolved. */
+  stageId: string | null;
+  /** Where a checkpoint sent the item. Only set on "moved". */
+  toStageId?: string | null;
+  execution?: Execution;
+}
+
+/**
+ * A run's history as dated events, oldest first — the rows of the sequence view.
+ *
+ * Nothing records status transitions: a move is only visible where an agent checkpointed at the
+ * end of a run, so a status someone changed by hand on the board leaves no event here. Resolving
+ * which status a run executed in, and where it checkpointed to, both need the workspace, so they
+ * arrive as callbacks and this stays a pure ordering of what the database already holds.
+ */
+export function runTimeline(
+  run: ProcessRun,
+  stageOf: (execution: Execution) => string | null,
+  movedTo: (execution: Execution, fromStageId: string | null) => string | null
+): RunTimelineEvent[] {
+  const events: RunTimelineEvent[] = [
+    {
+      at: run.item.createdAt,
+      kind: "created",
+      // The status an item was created in is not stored either; where it first ran is the closest
+      // honest stand-in, and its current status is all that is left for a run that never ran.
+      stageId: run.steps[0] ? stageOf(run.steps[0]) : run.item.stageId
+    }
+  ];
+  for (const execution of run.steps) {
+    const stageId = stageOf(execution);
+    events.push({
+      at: execution.startedAt ?? execution.createdAt,
+      kind: "ran",
+      stageId,
+      execution
+    });
+    const toStageId = execution.endedAt ? movedTo(execution, stageId) : null;
+    if (toStageId && toStageId !== stageId) {
+      events.push({ at: execution.endedAt!, kind: "moved", stageId, toStageId, execution });
+    }
+  }
+  return events.sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /**
  * Keys to record when an autonomous run starts: one for the status, one for the exact version
  * of the item. See `needsAutonomousRun` for which of the two blocks a repeat.

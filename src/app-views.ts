@@ -52,9 +52,11 @@ import {
   logicalFileReference,
   parseLogicalFileReference,
   processRuns,
+  runTimeline,
   workItemCondition,
   type FileTreeNode,
-  type ProcessRun
+  type ProcessRun,
+  type RunTimelineEvent
 } from "./domain.js";
 import { COMMUNITY_URL, HELP_PAGES } from "./help.js";
 import {
@@ -91,6 +93,7 @@ import type { PlannedTask } from "./processes/goals/index.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import type { WorkState } from "./supervision.js";
 import { needsAttention } from "./supervision.js";
+import { DEFAULT_TOUR, TOUR_MARKDOWN_KEY, parseTour } from "./tour.js";
 
 export interface Tab<Id extends string> {
   id: Id;
@@ -215,6 +218,7 @@ export function createMainViews(host: MainHost) {
     // .drawer-side clips.
     host.shell.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
         <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
+        <li><button data-action="start-tour">Guided tour</button></li>
         <li class="dropdown dropdown-top w-full">
           <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
             Help
@@ -423,8 +427,18 @@ export function createMainViews(host: MainHost) {
     const runBadge = run === "Idle"
       ? ""
       : `<span class="badge ${run === "Running" ? "badge-success" : "badge-warning"} badge-sm">${run}</span>`;
+    // A parent sitting idle is usually waiting on its children, and a bare "3 tasks" does not say
+    // that. Open subtasks are the reason it waits, so they are what the badge counts while any
+    // are left; once none are, the badge falls back to reporting the whole set.
+    const children = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id);
+    const open = children.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt).length;
+    const subtaskBadge = open
+      ? `<span class="badge badge-outline badge-sm" title="Waiting on ${open} open subtask${open === 1 ? "" : "s"}">${open} subtask${open === 1 ? "" : "s"}</span>`
+      : children.length
+        ? `<span class="badge badge-outline badge-sm">${children.length} task${children.length === 1 ? "" : "s"}</span>`
+        : "";
     return `<span class="min-w-0 truncate text-xs text-base-content/55">${host.shell.escapeHtml(item.owner || "Unassigned")} · ${host.shell.escapeHtml(agent?.name || (execution ? "Unknown agent" : "No agent"))}</span>
-      ${runBadge}`;
+      ${runBadge}${subtaskBadge}`;
   }
 
   /** The Details tab: every field the item edit dialog offers, read-only or as an inline form. */
@@ -727,12 +741,41 @@ export function createMainViews(host: MainHost) {
         : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
   }
 
+  /** The Subtasks tab: the children this task is waiting on, each row opening that subtask's own
+   *  panel — the same click as its card on the board. */
+  function boardItemSubtasks(item: WorkItem): string {
+    const children = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id);
+    if (!children.length)
+      return `<p class="text-sm text-base-content/55">This task has no subtasks.</p>`;
+    const waiting = host.runs.supervise();
+    return `<ul class="divide-y divide-base-300 rounded-box border border-base-300">${children
+      .map((child) => {
+        const state = waiting.get(child.id) ?? null;
+        const stage = host.workspaceController.processes
+          .find(({ id }) => id === child.processId)?.stages.find(({ id }) => id === child.stageId);
+        return `<li><button class="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left hover:bg-base-200" data-action="toggle-board-item" data-id="${child.id}">
+            <span class="min-w-0">
+              <span class="font-semibold">${host.shell.escapeHtml(child.title)}</span>
+              <span class="ml-2 text-xs text-base-content/55">${host.shell.escapeHtml(stage?.name ?? "")}</span>
+            </span>
+            <span class="flex flex-wrap items-center gap-2">
+              ${workItemBadges(child)}
+              ${needsAttention(state)
+          ? `<span class="badge badge-sm ${state!.kind === "stalled" ? "badge-error" : "badge-warning"}">${host.shell.escapeHtml(state!.label)}</span>`
+          : ""}
+            </span>
+          </button></li>`;
+      })
+      .join("")}</ul>`;
+  }
+
   /** A card's detail, expanded in place under the board — Details / Approval / Conversation /
-   *  Files tabs, so opening an item never navigates away from the board it lives on. */
+   *  Files / Subtasks tabs, so opening an item never navigates away from the board it lives on. */
   async function renderBoardItemPanel(item: WorkItem, process: Process): Promise<string> {
     const tab = host.shell.boardTab;
     const stage = process.stages.find(({ id }) => id === item.stageId);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
+    const subtaskCount = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id).length;
     const pendingCount = host.runs.executionOutputs
       .filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length;
     const tabButton = (id: typeof tab, label: string): string =>
@@ -743,7 +786,9 @@ export function createMainViews(host: MainHost) {
         ? await boardItemFiles(item)
         : tab === "approval"
           ? await boardItemApprovals(item, runs)
-          : await boardItemDetails(item, runs);
+          : tab === "subtasks"
+            ? boardItemSubtasks(item)
+            : await boardItemDetails(item, runs);
     return `<div data-scroll-anchor class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -752,7 +797,7 @@ export function createMainViews(host: MainHost) {
           <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
-          ${tab === "approval" || tab === "conversation"
+          ${tab !== "details" && tab !== "files"
             ? ""
             : `<button class="btn btn-ghost btn-sm"
                 data-action="${tab === "files" ? "toggle-board-file-edit" : "toggle-board-item-edit"}"
@@ -764,6 +809,7 @@ export function createMainViews(host: MainHost) {
         ${tabButton("approval", `Approval${pendingCount ? ` <span class="badge badge-warning badge-xs">${pendingCount}</span>` : ""}`)}
         ${tabButton("conversation", `Conversation${runs.length ? ` (${runs.length})` : ""}`)}
         ${tabButton("files", `Files (${item.logicalFiles.length + pendingCount})`)}
+        ${subtaskCount ? tabButton("subtasks", `Subtasks (${subtaskCount})`) : ""}
       </div>
       ${body}
     </div>`;
@@ -861,9 +907,6 @@ export function createMainViews(host: MainHost) {
                     <div class="flex flex-wrap items-center gap-2">
                       ${workItemBadges(item)}
                       ${item.parentId ? '<span class="badge badge-outline badge-sm">Subtask</span>' : ""}
-                      ${host.workspaceController.teamItems.some(({ parentId }) => parentId === item.id)
-                  ? `<span class="badge badge-outline badge-sm">${host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id).length} tasks</span>`
-                  : ""}
                       ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge badge-warning badge-sm">Waiting</span>' : ""}
                       ${
                 // Silence is the normal look of stuck work, so the card always says which
@@ -1124,18 +1167,28 @@ export function createMainViews(host: MainHost) {
     </div>`);
   }
 
+  /**
+   * One run as a sequence diagram: a column per status, a row per dated event, oldest at the top.
+   * Picking a step opens that one step underneath — the page explains a run, and hands off to the
+   * task view for the parts that change it.
+   */
   function processRunDetail(process: Process, run: ProcessRun): string {
     const { item, steps } = run;
+    const outputsOf = (execution: Execution): ExecutionOutput[] =>
+      host.runs.executionOutputs.filter(({ executionId }) => executionId === execution.id);
     const stepCard = (execution: Execution): string => {
       const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
-      const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === execution.id);
+      const outputs = outputsOf(execution);
       const logs = execution.logs.trim().slice(-4000);
-      return `<details class="rounded-box border border-base-300 bg-base-100 p-3">
-        <summary class="cursor-pointer">
-          <span class="text-sm font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
-          <span class="ml-2">${statusBadge(execution.status)}</span>
-          <span class="mt-1 block text-xs text-base-content/55">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
-        </summary>
+      return `<div class="rounded-box border border-base-300 bg-base-100 p-3">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0">
+            <span class="text-sm font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
+            <span class="ml-2">${statusBadge(execution.status)}</span>
+            <span class="mt-1 block text-xs text-base-content/55">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
+          </div>
+          <button class="btn btn-ghost btn-xs border border-base-300" data-action="open-item" data-id="${host.shell.escapeHtml(item.id)}">Open task</button>
+        </div>
         <div class="mt-3 grid gap-3 text-xs">
           ${execution.error
           ? `<div><div class="font-bold uppercase text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(execution.error)}</pre></div>`
@@ -1151,40 +1204,95 @@ export function createMainViews(host: MainHost) {
           </div>
           <div><button class="btn btn-ghost btn-xs border border-base-300" data-action="open-run" data-id="${execution.id}">Open full conversation</button></div>
         </div>
-      </details>`;
+      </div>`;
     };
-    const placed = new Set<string>();
-    const lanes = process.stages
-      .map((stage) => {
-        const own = steps.filter((execution) => host.runs.runStageId(execution) === stage.id);
-        for (const execution of own)
-          placed.add(execution.id);
-        return `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
-          <span class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.shell.escapeHtml(stage.name)}${item.stageId === stage.id ? " · now here" : ""}</span>
-          ${own.map(stepCard).join("") ||
-          '<p class="px-1 py-2 text-xs text-base-content/45">Nothing ran here.</p>'}
-        </div>`;
-      })
-      .join("");
-    const orphans = steps.filter(({ id }) => !placed.has(id));
-    const sequence = steps
-      .map((execution, index) => {
-        const stage = process.stages.find(({ id }) => id === host.runs.runStageId(execution));
-        return `${index ? '<span class="text-base-content/30">→</span>' : ""}<span class="badge badge-ghost badge-sm whitespace-nowrap">${host.shell.escapeHtml(stage?.name ?? "No status")} · ${when(execution.startedAt ?? execution.createdAt).split(", ").at(-1) ?? ""}</span>`;
-      })
-      .join("");
+    // Which status a run executed in. A task-plan run wrote it down; for everything else the only
+    // record left is the agent's trigger, which moves the day someone retargets that agent.
+    const stageOf = (execution: Execution): string | null => {
+      const planned = execution.result?.taskPlan?.state;
+      return typeof planned === "string" && process.stages.some(({ id }) => id === planned)
+        ? planned
+        : host.runs.runStageId(execution);
+    };
+    // The checkpoint rule the run controller applies: a completed run with nothing left for a
+    // person to approve moves the item on, to the status it asked for or the next one along.
+    const movedTo = (execution: Execution, fromStageId: string | null): string | null => {
+      if (execution.status !== "completed" ||
+        execution.result?.continuation === true ||
+        execution.result?.manualProjection === true ||
+        outputsOf(execution).some(({ status }) => status !== "approved"))
+        return null;
+      const requested = typeof execution.result?.statusId === "string" ? execution.result.statusId : "";
+      return processEngine.resolveTarget(process, { stageId: fromStageId ?? item.stageId }, requested)?.id ?? null;
+    };
+    const events = runTimeline(run, stageOf, movedTo);
+    // A step id left over from another run picks out nothing here, which reads as no selection.
+    const picked = steps.find(({ id }) => id === host.shell.openRunStepId) ?? null;
+    const columns: Array<{ id: string | null; name: string }> = process.stages.map(({ id, name }) => ({ id, name }));
+    if (events.some(({ stageId }) => !columns.some((column) => column.id === stageId)))
+      columns.push({ id: null, name: "No status" });
+    const columnOf = (stageId: string | null): number => {
+      const index = columns.findIndex((column) => column.id === stageId);
+      return index === -1 ? columns.length - 1 : index;
+    };
+    const grid = `display:grid;grid-template-columns:repeat(${columns.length},minmax(0,1fr));`;
+    // A status a run never touched still draws its lifeline, so the columns read as one diagram.
+    const lifeline = '<div class="flex justify-center"><span class="block w-px bg-base-300"></span></div>';
+    const clock = (at: string): string => when(at).split(", ").at(-1) ?? when(at);
+    const runCard = (execution: Execution, at: string): string => {
+      const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
+      const files = outputsOf(execution).length;
+      const picked = execution.id === host.shell.openRunStepId;
+      return `<button class="block w-full rounded-box border bg-base-100 p-2 text-left shadow-sm hover:border-primary ${picked ? "border-primary ring-1 ring-primary" : "border-base-300"}"
+        data-action="open-process-run-step" data-id="${host.shell.escapeHtml(execution.id)}" aria-pressed="${picked}">
+        <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
+        <span class="mt-1 block text-[0.7rem] text-base-content/55">${clock(at)} · ${duration(execution)}</span>
+        <span class="mt-1 flex flex-wrap items-center gap-1">${statusBadge(execution.status)}${files
+        ? `<span class="badge badge-ghost badge-sm">${files} file${files === 1 ? "" : "s"}</span>`
+        : ""}</span>
+      </button>`;
+    };
+    const eventRow = (event: RunTimelineEvent): string => {
+      const from = columnOf(event.stageId);
+      if (event.kind === "moved") {
+        const to = columnOf(event.toStageId ?? null);
+        const start = Math.min(from, to);
+        return `<div style="${grid}"><div class="flex items-center gap-2 px-1.5 py-2 text-[0.7rem] text-base-content/55"
+          style="grid-column:${start + 1}/span ${Math.abs(to - from) + 1}">
+          <span class="h-px flex-1 bg-base-300"></span>
+          <span class="whitespace-nowrap">${host.shell.escapeHtml(columns[from]?.name ?? "")} → ${host.shell.escapeHtml(columns[to]?.name ?? "")} · ${clock(event.at)}</span>
+          <span class="h-px flex-1 bg-base-300"></span>
+        </div></div>`;
+      }
+      const card = event.kind === "created"
+        ? `<div class="rounded-box border border-dashed border-base-300 px-2 py-1.5 text-[0.7rem] text-base-content/60">Created · ${clock(event.at)}</div>`
+        : runCard(event.execution!, event.at);
+      return `<div style="${grid}">${columns
+        .map((_, position) => position === from ? `<div class="px-1.5 py-2">${card}</div>` : lifeline)
+        .join("")}</div>`;
+    };
     return `<article class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="border-b border-base-300 p-4">
           <h3 class="font-bold">${host.shell.escapeHtml(item.title)}</h3>
           <p class="mt-1 text-sm text-base-content/55">${steps.length ? "Started" : "Created"} ${when(run.startedAt)} · now on ${host.shell.escapeHtml(process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status")}</p>
-          <div class="mt-3 flex flex-wrap items-center gap-1.5">${sequence || '<span class="text-sm text-base-content/45">No steps recorded.</span>'}</div>
         </header>
-        <div class="flex gap-3 overflow-x-auto p-4">${lanes}${orphans.length
-        ? `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
-                <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">No status</span>
-                ${orphans.map(stepCard).join("")}
-              </div>`
-        : ""}</div>
+        <div class="overflow-x-auto p-4">
+          <div style="min-width:${columns.length * 11}rem">
+            <div class="sticky top-0 z-10 mb-1 border-b border-base-300 bg-base-100" style="${grid}">${columns
+      .map((column) => `<div class="truncate px-1.5 py-2 text-center text-xs font-semibold uppercase tracking-wide text-base-content/60">${host.shell.escapeHtml(column.name)}${column.id === item.stageId ? " · now here" : ""}</div>`)
+      .join("")}</div>
+            ${events.map(eventRow).join("")}
+          </div>
+          <p class="mt-3 text-xs text-base-content/45">Time runs downward. A status someone changed by hand on the board is not recorded anywhere, so only agent checkpoints appear as moves.</p>
+        </div>
+        ${steps.length
+        ? `<div class="grid gap-2 border-t border-base-300 p-4">
+            <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Step details</h4>
+            ${picked
+          ? stepCard(picked)
+          : '<p class="text-sm text-base-content/45">Pick a step above to see its logs and the files it proposed.</p>'}
+          </div>`
+        : ""}
       </article>`;
   }
 
@@ -2005,12 +2113,54 @@ export function createMainViews(host: MainHost) {
     </div>`;
   }
 
+  /**
+   * The wizard authoring surface. Plain Markdown in a textarea rather than a step builder: the
+   * whole point of the format is that an administrator can write, diff and paste it, and the
+   * model — not a form — works out what each step points at.
+   */
+  async function orgOnboardingContent(): Promise<string> {
+    const markdown = await host.repository.getSetting(TOUR_MARKDOWN_KEY, DEFAULT_TOUR);
+    const steps = parseTour(markdown);
+    const custom = markdown !== DEFAULT_TOUR;
+    return `<form data-tour-form class="space-y-5">
+      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="card-title text-base">Onboarding wizard</h2>
+          <span class="badge ${custom ? "badge-primary" : "badge-ghost"}">${custom ? "Customized" : "Default"} · ${steps.length} step${steps.length === 1 ? "" : "s"}</span>
+        </div>
+        <p class="text-sm text-base-content/60">A guided walkthrough for people new to Bees. One
+          <code>##</code> heading per step; the Markdown under it is what the tooltip shows. An
+          optional <code>Target:</code> line says which control the arrow belongs on — without one
+          the assistant reads the step and decides. It looks at the live screen each time, so
+          steps keep working when the interface moves.</p>
+        <p class="text-sm text-base-content/60">People start it from <strong>Guided tour</strong>
+          at the bottom of the left menu, or from Getting Started.</p>
+        <textarea class="textarea textarea-bordered min-h-96 w-full font-mono text-xs leading-relaxed"
+          name="markdown" spellcheck="false">${host.shell.escapeHtml(markdown)}</textarea>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary btn-sm" type="submit">Save</button>
+          <button class="btn btn-outline btn-sm" type="button" data-action="start-tour">Preview it</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-action="reset-tour">Reset to default</button>
+        </div>
+      </div></section>
+      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
+        <h3 class="font-semibold">Steps as they will run</h3>
+        <ol class="list-decimal space-y-1 pl-5 text-sm">${steps.length
+        ? steps.map(({ title, target }) => `<li><strong>${host.shell.escapeHtml(title)}</strong>${target
+          ? ` <span class="text-base-content/55">— arrow on ${host.shell.escapeHtml(target)}</span>`
+          : ` <span class="text-base-content/45">— the assistant picks the control</span>`}</li>`).join("")
+        : `<li class="list-none pl-0 text-base-content/50">No <code>##</code> headings, so the wizard has nothing to show.</li>`}</ol>
+      </div></section>
+    </form>`;
+  }
+
   async function renderOrgSettings(): Promise<void> {
     host.shell.setHeader("Organization settings", host.session.currentOrganization()?.name);
     await renderTabs<OrgTab>("org-tab", [
       { id: "general", label: "General", content: orgGeneralContent },
       { id: "members", label: "Members", content: orgMembersContent },
       { id: "invites", label: "Invites", content: orgInvitesContent },
+      { id: "onboarding", label: "Onboarding", content: orgOnboardingContent },
       { id: "folder", label: "Folder", content: orgWorkspaceContent },
       { id: "knowledge", label: "Knowledge", content: orgKnowledgeContent }
     ], host.shell.orgTab, () => host.shell.view === "org-settings");
@@ -2662,6 +2812,7 @@ export function createMainViews(host: MainHost) {
     prefsRemoteModelsContent,
     prefsMcpServersContent,
     renderOrgSettings,
+    orgOnboardingContent,
     prefsThemeContent,
     prefsSigninsContent,
     prefsOrgsContent,

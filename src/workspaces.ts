@@ -318,6 +318,53 @@ export function linkedLocationInputDirectory(location: Pick<FileLocation, "id" |
   return `locations/${slug}-${location.id.slice(0, 8)}`;
 }
 
+/** Where a run stages one approved input, relative to that run's input root. */
+export function stagedInputPath(
+  reference: string,
+  locations: Array<Pick<FileLocation, "id" | "name">> = []
+): string {
+  const { locationId, path } = parseLogicalFileReference(reference);
+  const location = locationId ? locations.find(({ id }) => id === locationId) : null;
+  return location ? `${linkedLocationInputDirectory(location)}/${path}` : path;
+}
+
+/**
+ * Every spelling a run could have shown an agent for an approved input, mapped back to the logical
+ * reference Bees stores. An agent browses its inputs on disk, so a planner names a file by the
+ * staged path as often as by its logical name — and both spellings were generated here, so they
+ * are matched by lookup rather than guessed at with a pattern.
+ */
+export function inputAliases(
+  logicalFiles: Iterable<string>,
+  locations: Array<Pick<FileLocation, "id" | "name">> = []
+): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const reference of logicalFiles) {
+    let staged: string;
+    try {
+      staged = stagedInputPath(reference, locations);
+    } catch {
+      // Aliases are additive: a reference too malformed to stage still matches itself exactly.
+      continue;
+    }
+    for (const alias of [
+      staged,
+      `inputs/${staged}`,
+      `${PROJECT_INPUT_PREFIX}/${staged}`,
+      `/workspace/inputs/${staged}`,
+      `/workspace/${PROJECT_INPUT_PREFIX}/${staged}`
+    ]) {
+      // A spelling two approved files share resolves to neither. Telling a planner to name the
+      // file exactly is cheaper than silently handing a task the wrong one.
+      if (aliases.has(alias) && aliases.get(alias) !== reference) ambiguous.add(alias);
+      else aliases.set(alias, reference);
+    }
+  }
+  for (const alias of ambiguous) aliases.delete(alias);
+  return aliases;
+}
+
 export function validateCollectedOutputs(outputs: string[], rules: string[] = []): void {
   outputs.forEach(logicalPath);
   if (rules.includes("require-output") && outputs.length === 0) {

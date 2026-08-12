@@ -53,7 +53,7 @@ import {
   modelRef
 } from "./local-models.js";
 import type { ControlInput, MainHost } from "./main.js";
-import { TaskPlanController } from "./processes/goals/controller.js";
+import { TaskPlanController, taskPlanWaitKey } from "./processes/goals/controller.js";
 import {
   completedTaskPlanParentsReadyForReview,
   hasTaskPlanCapability,
@@ -92,7 +92,8 @@ export function createRunController(host: MainHost) {
     approveTaskPlan: (outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks, finalize) => host.repository.approveTaskPlan(outputId, itemId, sourceStageId, workStageId, waitingStageId, reviewStageId, tasks, finalize),
     workerRoles: () => taskWorkerRoles().map(({ role }) => role),
     syncCheckpoint: (itemId, targetStageId) => syncCheckpoint(itemId, undefined, targetStageId),
-    finishOutputReview: (execution) => finishOutputReview(execution)
+    finishOutputReview: (execution) => finishOutputReview(execution),
+    resolveWait: (itemId, correlationKey) => resolveRuntimeWait(itemId, correlationKey)
   });
 
   let executions: Execution[] = [];
@@ -560,7 +561,22 @@ export function createRunController(host: MainHost) {
             : undefined;
           if (planOutput) {
             const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
-            if (mapping?.localPath) await taskPlanController.approveTaskPlan(planOutput, settledExecution, mapping.localPath);
+            // A plan Bees declines to approve on its own is answerable — a person can edit the
+            // tasks and approve the same output by hand. Park it on the item it belongs to,
+            // keyed so that approval clears it, rather than letting it reach `reportFailure`,
+            // which would attribute it to whichever item happens to be on screen and leave a
+            // wait nothing can resolve.
+            if (mapping?.localPath) {
+              await taskPlanController
+                .approveTaskPlan(planOutput, settledExecution, mapping.localPath)
+                .catch((error: unknown) =>
+                  createRuntimeWait(settledExecution.workItemId, {
+                    kind: "error",
+                    reason: errorText(error),
+                    correlationKey: taskPlanWaitKey(planOutput.id)
+                  })
+                );
+            }
           }
         }
         execution = (await host.repository.getExecution(execution.id)) ?? execution;

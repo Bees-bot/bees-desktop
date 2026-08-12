@@ -41,6 +41,7 @@ import {
   persistProcessDefinition,
   type ProcessLibraryEntry
 } from "./processes/types.js";
+import { inputAliases } from "./workspaces.js";
 
 type Row = Record<string, DatabaseValue>;
 
@@ -1713,10 +1714,17 @@ export class LocalRepository {
           .map((output) => stringValue(output.logicalOutput)).join(", ")})`);
       throw new Error(`These subtasks have files waiting for your review: ${byChild.join("; ")}. Open each subtask and approve or reject its files first.`);
     }
+    // A run stages approved inputs in a folder, so a planner may name the staged path instead of
+    // the logical file. Both spellings come from `inputAliases`, which the run itself generated.
+    const locations = (
+      await this.database.query<Row>("SELECT id, name FROM file_locations WHERE deleted_at IS NULL")
+    ).map((row) => ({ id: stringValue(row.id), name: stringValue(row.name) }));
+    const aliases = inputAliases(parentFiles, locations);
     // A planner may name a sibling task's key as an input. The key is not a filename — the
     // dependency is satisfied by that task's approved files, whatever they are called.
     const resolvedTasks = tasks.map((task, index) => {
-      const inputs = task.inputs.flatMap((input) => {
+      const inputs = task.inputs.flatMap((reference) => {
+        const input = parentFiles.has(reference) ? reference : aliases.get(reference) ?? reference;
         if (parentFiles.has(input)) return [input];
         const label = `Task ${index + 1} ("${task.title}") needs "${input}"`;
         const latest = itemOutputs.filter((output) => stringValue(output.logicalOutput) === input).at(-1);

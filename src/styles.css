@@ -242,6 +242,33 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
   button, .card, .menu button { transition: none; }
 }
 
+/* Onboarding wizard coach mark. The arrow is a rotated square borrowing two of the card's own
+   borders, so it reads as a tail rather than a separate shape. Its offset along the edge is set
+   inline by placeTip; which two borders it drops comes from the side. */
+#tour-arrow {
+  position: absolute;
+  width: .75rem;
+  height: .75rem;
+  background: var(--color-base-100);
+  border: 1px solid var(--color-base-300);
+  transform: rotate(45deg);
+}
+#tour-tip[data-side="right"] #tour-arrow { left: -.4rem; border-top: 0; border-right: 0; }
+#tour-tip[data-side="left"] #tour-arrow { right: -.4rem; border-bottom: 0; border-left: 0; }
+#tour-tip[data-side="bottom"] #tour-arrow { top: -.4rem; border-right: 0; border-bottom: 0; }
+#tour-tip[data-side="top"] #tour-arrow { bottom: -.4rem; border-top: 0; border-left: 0; }
+#tour-tip[data-side="none"] #tour-arrow { display: none; }
+#tour-body > :first-child { margin-top: 0; }
+#tour-body > :last-child { margin-bottom: 0; }
+
+/* The highlight. outline rather than border or box-shadow: it adds no layout, so ringing a
+   sidebar button cannot nudge the list it sits in. */
+.tour-target {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: .5rem;
+}
+
 /* Sidebar toggle icon: arrow points left when open, right when collapsed. */
 #app-drawer-open[aria-expanded="true"] .drawer-arrow-open { display: none; }
 #app-drawer-open[aria-expanded="false"] .drawer-arrow-close { display: none; }

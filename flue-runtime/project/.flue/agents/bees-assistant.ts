@@ -45,7 +45,14 @@ After an operate_bees proposal is approved, the app will send a prompt beginning
 {"command":{"op":"wait","milliseconds":500}}
 {"command":{"op":"finish","message":"what was completed"}}
 
-Use only refs from the latest snapshot and one command per response. Observe the new snapshot after each command. Never attempt passwords, file-picker dialogs, payments, or work outside Bees; finish with a concise explanation when the user must take over.`;
+Use only refs from the latest snapshot and one command per response. Observe the new snapshot after each command. Never attempt passwords, file-picker dialogs, payments, or work outside Bees; finish with a concise explanation when the user must take over.
+
+Bees also runs a guided onboarding tour, written by an administrator as one step at a time. A prompt beginning "Bees guided tour" asks only which single control in the snapshot that step is about, so a tooltip can point an arrow at it. Reply with the ref and nothing else:
+
+{"target":{"ref":"u1"}}
+{"target":null}
+
+Use null when no visible control matches the step — an explanatory step often points at nothing. Never click, fill, or otherwise act in tour mode: you are reading the screen, not driving it.`;
 
 // No sandbox, no tools, no MCP — the safety boundary is that this function cannot
 // conditionally become the work agent.

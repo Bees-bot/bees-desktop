@@ -99,6 +99,27 @@
       </form>
     </aside>
 
+    <!-- The onboarding wizard's coach mark. Outside #app because render() replaces that subtree,
+         and with no backdrop on purpose: the user is meant to work the highlighted control while
+         reading the step, so only the card itself takes clicks. -->
+    <!-- Above daisyUI's .modal (z-index 999): a step can point at a field inside the editor
+         dialog, and a coach mark hiding behind the thing it describes is no coach mark. -->
+    <div id="tour" hidden class="pointer-events-none fixed inset-0 z-[1000]">
+      <div id="tour-tip" role="dialog" aria-labelledby="tour-title" aria-live="polite"
+           class="pointer-events-auto absolute w-80 max-w-[calc(100vw-1rem)] rounded-box border border-base-300 bg-base-100 shadow-2xl">
+        <div id="tour-arrow" aria-hidden="true"></div>
+        <header class="border-b border-base-300 px-4 py-3">
+          <p id="tour-progress" class="text-[10px] font-bold uppercase tracking-widest text-base-content/45"></p>
+          <h2 id="tour-title" class="text-sm font-semibold"></h2>
+        </header>
+        <div id="tour-body" class="markdown-viewer max-h-72 overflow-y-auto px-4 py-3 text-sm"></div>
+        <footer class="flex items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
+          <button id="tour-close" class="btn btn-ghost btn-sm" type="button">Close</button>
+          <button id="tour-next" class="btn btn-primary btn-sm" type="button">Next</button>
+        </footer>
+      </div>
+    </div>
+
     <dialog id="editor" class="modal" aria-labelledby="editor-title">
       <div class="modal-box surface-modal max-h-[90vh] max-w-3xl overflow-y-auto p-0">
         <form method="dialog">

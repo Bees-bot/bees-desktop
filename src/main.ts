@@ -95,7 +95,7 @@ export type PrefsTab =
   | "signins"
   | "orgs"
   | "folder";
-export type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge";
+export type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge" | "onboarding";
 export type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
 // All daisyUI v5 built-in themes (keep in sync with themes: all in styles.css).
 const THEMES = [
@@ -222,6 +222,7 @@ export interface AppShell {
   newItemStageId: string;
   notifyLocal: (titleText: string, body: string) => void;
   openRunItemId: string;
+  openRunStepId: string;
   orgRow: HTMLElement;
   orgStatus: HTMLElement;
   orgTab: OrgTab;

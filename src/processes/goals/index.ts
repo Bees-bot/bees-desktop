@@ -81,10 +81,11 @@ for human review before the action happens.
 
 Only when the goal is genuinely larger than one run, plan the next safe, executable wave.
 Write only outputs/${TASK_PLAN_OUTPUT} as:
-{"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}
+{"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["file.md"]}]}
 Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
-and input paths listed in the run context. Every task you propose is created and started
-automatically, with no human selection step, so only propose tasks you actually want run.
+and input paths listed in the run context, written exactly as listed. Every task you propose is
+created and started automatically, with no human selection step, so only propose tasks you
+actually want run.
 Later waves are planned after these tasks finish; do not plan work that depends on this wave.
 
 When you tell the human what you did, describe the plan itself in plain language — what it covers

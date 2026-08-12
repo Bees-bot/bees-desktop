@@ -412,6 +412,32 @@ describe("local repository", () => {
     expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: plan!.id });
   });
 
+  it("accepts plan inputs named by the folder the run staged them in", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const [plan, work, waiting, review] = goals.stages;
+    const parentId = await repository.createWorkItem(goals.id, {
+      stageId: plan!.id,
+      title: "Count to ten",
+      logicalFiles: ["counter.txt"]
+    });
+    const executionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan." },
+      workItemId: parentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
+    const [output] = await repository.listExecutionOutputs(executionId);
+
+    const [childId] = await repository.approveTaskPlan(
+      output!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id,
+      [{ key: "second", title: "Second entry", description: "Append", role: "goal-worker", effect: "prepare", inputs: ["inputs/counter.txt"] }]
+    );
+    expect(await repository.getWorkItem(childId!)).toMatchObject({ logicalFiles: ["counter.txt"] });
+  });
+
   it("blocks task-plan approval until the run's other outputs are decided", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();

@@ -16,7 +16,7 @@ import {
   type AiProvider
 } from "./ai-connections.js";
 import type { EditorField, FileSource } from "./app-views.js";
-import { executeBeesUiCommand, snapshotBeesUi } from "./assistant-ui.js";
+import { executeBeesUiCommand, refElement, snapshotBeesUi } from "./assistant-ui.js";
 import {
   PLUGIN_CATALOG,
   catalogSourcePath,
@@ -116,6 +116,14 @@ import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import { runReceipt } from "./run-receipt.js";
 import { FlueRuntime } from "./runtime.js";
 import { nextScheduleRun } from "./scheduler.js";
+import {
+  DEFAULT_TOUR,
+  TOUR_MARKDOWN_KEY,
+  createTour,
+  parseTour,
+  parseTourTarget,
+  type TourStep
+} from "./tour.js";
 import { type BoardItemTab, type View } from "./views.js";
 
 export function createMainActions(host: MainHost) {
@@ -1185,9 +1193,9 @@ export function createMainActions(host: MainHost) {
     // Table rows with data-action behave like buttons (e.g. the Inbox row opening its item), so a
     // click anywhere on the row works without every cell needing its own button.
     const button = (event.target as Element).closest<HTMLElement>("button, tr[data-action], article[data-action], input[data-action]");
-    // The assistant panel runs its own delegation — it lives outside #app and its buttons share
-    // no data-action vocabulary with the views.
-    if (!button || button.closest("dialog") || button.closest("#assistant"))
+    // The assistant panel and the wizard's coach mark run their own delegation — both live
+    // outside #app and their buttons share no data-action vocabulary with the views.
+    if (!button || button.closest("dialog") || button.closest("#assistant") || button.closest("#tour"))
       return;
     try {
       if (button.dataset.view) {
@@ -1255,6 +1263,16 @@ export function createMainActions(host: MainHost) {
         if (await renderer.handleAction(action ?? "", button))
           return;
       }
+      if (action === "start-tour") {
+        startTour();
+        return;
+      }
+      if (action === "reset-tour") {
+        await host.repository.setSetting(TOUR_MARKDOWN_KEY, DEFAULT_TOUR);
+        host.shell.showNotice("Reset to the wizard Bees ships with", "success");
+        host.shell.render();
+        return;
+      }
       if (action === "knowledge-local") {
         try {
           await configureLocalKnowledge();
@@ -1313,18 +1331,13 @@ export function createMainActions(host: MainHost) {
         return;
       }
       // A card opens in place, under the board, rather than navigating away — clicking the
-      // already-open card closes it again.
+      // already-open card keeps it open, so the detail panel only changes when another card
+      // is picked.
       if (action === "toggle-board-item") {
         const id = button.dataset.id!;
-        if (host.shell.boardItemId === id) {
-          host.shell.boardItemId = "";
-          host.shell.boardFileRef = "";
-          host.shell.boardFileEditing = false;
-          host.shell.boardItemEditing = false;
-        }
-        else {
-          await expandBoardItem(id);
-        }
+        if (host.shell.boardItemId === id)
+          return;
+        await expandBoardItem(id);
         host.shell.render();
         return;
       }
@@ -1549,12 +1562,8 @@ export function createMainActions(host: MainHost) {
             data.getAll("selectedTasks").map(Number));
           return;
         }
-        const data = await edit("Approve file change", [
-          { name: "destination", label: "Team-folder destination", value: output.logicalDestination }
-        ], "Approve");
-        if (!data)
-          return;
-        const destination = String(data.get("destination") ?? "");
+        // ponytail: approve publishes to the output's own destination; no rename prompt.
+        const destination = output.logicalDestination;
         await host.runs.enforceControl(host.runs.controlInput("output.publish", { type: "execution_output", id: output.id, attributes: { destination: "team-folder" } }, { agentId: execution.agentId }), true);
         await host.workspaces.publishApproved(execution.workspaceRef, output.logicalOutput, mapping.localPath, destination);
         await host.repository.decideExecutionOutput(output.id, "approved", destination);
@@ -2283,6 +2292,7 @@ export function createMainActions(host: MainHost) {
         }
         host.shell.configProcessId = button.dataset.id!;
         host.shell.openRunItemId = "";
+        host.shell.openRunStepId = "";
         host.shell.view = "process-runs";
         host.shell.render();
         return;
@@ -2298,6 +2308,13 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "open-process-run") {
         host.shell.openRunItemId = button.dataset.id!;
+        host.shell.openRunStepId = "";
+        host.shell.render();
+        return;
+      }
+      if (action === "open-process-run-step") {
+        // Clicking the open step again closes it, so the sequence can be read on its own.
+        host.shell.openRunStepId = host.shell.openRunStepId === button.dataset.id! ? "" : button.dataset.id!;
         host.shell.render();
         return;
       }
@@ -2585,6 +2602,13 @@ export function createMainActions(host: MainHost) {
     if (newItemForm) {
       event.preventDefault();
       void submitNewItem(new FormData(newItemForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      return;
+    }
+    const tourForm = (event.target as Element).closest<HTMLFormElement>("form[data-tour-form]");
+    if (tourForm) {
+      event.preventDefault();
+      void saveTourMarkdown(String(new FormData(tourForm).get("markdown") ?? ""))
+        .catch((error) => host.shell.showNotice(errorText(error), "error"));
       return;
     }
     const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
@@ -3002,6 +3026,64 @@ export function createMainActions(host: MainHost) {
     throw new Error("The Bees operation exceeded 24 UI steps");
   }
 
+  // ---- The onboarding wizard ----
+
+  /** The administrator's Markdown, or the bundled default until one is written. */
+  async function tourSteps(): Promise<TourStep[]> {
+    return parseTour(await host.repository.getSetting(TOUR_MARKDOWN_KEY, DEFAULT_TOUR));
+  }
+
+  /**
+   * Asks the assistant which visible control a wizard step is about. Read-only: the answer is a
+   * ref out of the snapshot it was just shown, so the worst a confused model can do is point the
+   * arrow at the wrong button — it never clicks one.
+   */
+  async function locateTourStep(step: TourStep, index: number, total: number): Promise<string> {
+    if (host.assistant.assistantModel.provider === LOCAL_PROVIDER)
+      await host.localModels.requireRunning(host.assistant.assistantModel.model);
+    const { baseUrl, token } = await host.ensureFlueRuntime();
+    const result = await new FlueRuntime(baseUrl, undefined, token).execute({
+      executionId: crypto.randomUUID(),
+      // A fresh conversation per step. Snapshots are large and the previous step's is worthless
+      // once the screen has moved on, so replaying them would only burn the context window. The
+      // model still rides in the instance id — see `modelForInstance`.
+      conversationId: instanceModelId(ASSISTANT_AGENT, `tour-${crypto.randomUUID()}`, host.assistant.assistantModel),
+      agentName: ASSISTANT_AGENT,
+      prompt: [
+        `Bees guided tour, step ${index + 1} of ${total}. Point the arrow at one control.`,
+        `Step title: ${step.title}`,
+        step.body ? `Step text:\n${step.body}` : "",
+        step.target ? `The author says the arrow belongs on: ${step.target}` : "",
+        snapshotBeesUi(),
+        'Reply with {"target":{"ref":"u1"}} naming the control this step is about, or {"target":null} when none of them is.'
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    });
+    return parseTourTarget(String((result.output as {
+      text?: unknown;
+    } | null)?.text ?? ""));
+  }
+
+  const tour = createTour({
+    loadSteps: tourSteps,
+    locateStep: locateTourStep,
+    refElement,
+    onError: (message) => host.shell.showNotice(message, "error")
+  });
+
+  function startTour(): void {
+    void tour.start().catch((error) => host.shell.showNotice(errorText(error), "error"));
+  }
+
+  /** Save from the Onboarding tab. Empty resets to the bundled wizard rather than deleting it. */
+  async function saveTourMarkdown(markdown: string): Promise<void> {
+    await host.repository.setSetting(TOUR_MARKDOWN_KEY, markdown.trim() || DEFAULT_TOUR);
+    const count = parseTour(markdown.trim() || DEFAULT_TOUR).length;
+    host.shell.showNotice(`Saved — ${count} step${count === 1 ? "" : "s"}`, "success");
+    host.shell.render();
+  }
+
   async function applyAssistantActions(index: number): Promise<void> {
     const entry = host.assistant.assistantLogEntries[index];
     if (!entry?.actions || entry.applied)
@@ -3183,7 +3265,13 @@ export function createMainActions(host: MainHost) {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || host.shell.dialog.open)
       return;
-    if (host.assistant.assistantOpen) {
+    // Before the assistant: the wizard is the thing on top, and it is the one whose Escape a
+    // user pressing it is thinking about.
+    if (tour.running) {
+      event.preventDefault();
+      tour.stop();
+    }
+    else if (host.assistant.assistantOpen) {
       event.preventDefault();
       void toggleAssistant(false);
     }
@@ -3228,6 +3316,8 @@ export function createMainActions(host: MainHost) {
     curateSkills,
     applyCuratorProposal,
     runApprovedBeesOperation,
+    startTour,
+    stopTour: tour.stop,
     applyAssistantActions,
     pickAssistantModel,
     addAssistantModel,

@@ -20,6 +20,12 @@ export interface TaskPlanHost {
   workerRoles(): string[];
   syncCheckpoint(itemId: string, targetStageId: string): Promise<void>;
   finishOutputReview(execution: Execution): Promise<void>;
+  resolveWait(itemId: string, correlationKey: string): Promise<void>;
+}
+
+/** Correlates a plan's rejection wait with the approval that answers it. */
+export function taskPlanWaitKey(outputId: string): string {
+  return `plan:${outputId}`;
 }
 
 export class TaskPlanController {
@@ -68,6 +74,9 @@ export class TaskPlanController {
       approved,
       finalize
     );
+    // An earlier pass may have parked this plan as a failure — approving it answers that
+    // objection, so the item stops reading failed without anyone dismissing the notice by hand.
+    await this.host.resolveWait(item.id, taskPlanWaitKey(output.id));
     await this.host.syncCheckpoint(item.id, ids.length ? stages.waiting.id : stages.review.id);
     // finishOutputReview no-ops while any output is still pending, so a partial approval
     // (finalize false) leaves the run open for the remaining tasks.

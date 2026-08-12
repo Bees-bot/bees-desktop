@@ -22,6 +22,7 @@ import {
   PROJECT_INPUT_PREFIX,
   STATUS_OUTPUT,
   linkedLocationInputDirectory,
+  stagedInputPath,
   validateCollectedOutputs
 } from "./workspaces.js";
 import {
@@ -164,7 +165,9 @@ export function runPrompt({
     `Work item: ${item.title}\n${item.description}`,
     parent ? `Parent goal: ${parent.title}\n${parent.description}` : "",
     item.logicalFiles.length
-      ? `Approved input files, staged in ${inputRoot}: ${item.logicalFiles.join(", ")}`
+      ? `Approved input files, staged in ${inputRoot}: ${item.logicalFiles
+          .map((reference) => stagedInputPath(reference, fileLocations))
+          .join(", ")}`
       : "",
     workerRoles.length
       ? `Available worker roles:\n${workerRoles
@@ -172,7 +175,7 @@ export function runPrompt({
           .join("\n")}`
       : "",
     taskPlan
-      ? `Task plans must be written only to outputs/${taskPlan.output} as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["approved/file.md"]}]}. Every field is required. Use only approved input paths. An external action must be its own external_write task.`
+      ? `Task plans must be written only to outputs/${taskPlan.output} as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["file.md"]}]}. Every field is required. Use only approved input paths, written exactly as listed above. An external action must be its own external_write task.`
       : "",
     goalEffect === "external_write"
       ? `This approved task authorizes one external action. Perform exactly the described action using only approved inputs. Do not revise its substance. On confirmed success, write outputs/${ACTION_RECEIPT_OUTPUT} as {"status":"succeeded","destination":"service or recipient","externalId":"confirmation id or empty string","url":"result URL or empty string","timestamp":"ISO-8601 UTC"}. If success is uncertain, write no receipt and stop; Bees will block the task instead of retrying.`
