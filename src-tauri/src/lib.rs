@@ -395,6 +395,15 @@ fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, S
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
+            // One caller that connects and then stalls used to hold the only broker thread, so
+            // every later secret request queued behind it and the agent that asked for it failed
+            // with nothing but "an internal error". Each caller now gets its own thread and a
+            // deadline.
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let expected = expected.clone();
+            let database_path = database_path.clone();
+            thread::spawn(move || {
             let mut bytes = [0u8; 8192];
             let length = stream.read(&mut bytes).unwrap_or(0);
             let request = String::from_utf8_lossy(&bytes[..length]);
@@ -432,6 +441,7 @@ fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, S
                 body.len()
             );
             let _ = stream.write_all(response.as_bytes());
+            });
         }
     });
     Ok(CredentialBroker {

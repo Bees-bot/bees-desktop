@@ -639,8 +639,14 @@ export function createMainViews(host: MainHost) {
       .filter(({ parentId }) => parentId === item.id)
       .filter((child) => host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" &&
         host.runs.executions.some(({ id, workItemId }) => id === executionId && workItemId === child.id)));
-    if (!pending.length)
+    if (!pending.length) {
+      // A process with its own view approves its own work there — a requirements draft or a plan
+      // is never a pending file, so saying nothing waits here contradicts the item's own badge.
+      const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
+      if (process && processEngine.renderer(process))
+        return `<p class="text-sm text-base-content/55">Open this task to review and approve its work.</p>`;
       return `<p class="text-sm text-base-content/55">Nothing is waiting for approval on this item.</p>`;
+    }
     const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
     const sections: string[] = [];
     for (const { run, outputs } of pending) {
