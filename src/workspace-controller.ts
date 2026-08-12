@@ -191,7 +191,7 @@ export function createWorkspaceController(host: MainHost) {
           return [];
         const own = workItems.filter(({ processId }) => processId === process.id);
         const roots = own
-          .filter(({ parentId, archivedAt }) => !parentId && !archivedAt)
+          .filter(({ parentId }) => !parentId)
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
           .map((item) => ({ item, open: openWork(itemTree(own, item.id)).length }));
         return [{ board, process, count: openWork(own).length, roots }];
