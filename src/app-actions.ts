@@ -175,10 +175,10 @@ export function createMainActions(host: MainHost) {
    * `loadDashboardsByTeam` gives every process without one a board on the next refresh.
    */
   async function saveProcessDefinition(data: FormData): Promise<void> {
-    const stages = String(data.get("stages") ?? "").split(",").map((value) => {
-      const text = value.trim();
-      return { name: text.replace(/\s*\*$/, ""), isTerminal: text.endsWith("*") };
-    });
+    // Position carries the terminal semantics: the first status starts the work, the last one
+    // ends it. Nothing to mark up in the field.
+    const names = String(data.get("stages") ?? "").split(",").map((value) => value.trim());
+    const stages = names.map((name, index) => ({ name, isTerminal: index === names.length - 1 }));
     const input = {
       name: String(data.get("name") ?? ""),
       description: String(data.get("description") ?? ""),

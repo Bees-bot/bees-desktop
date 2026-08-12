@@ -87,8 +87,8 @@ export type AssistantAction =
       type: "create_process";
       name: string;
       description: string;
+      /** In order: the first status starts the work, the last one is terminal. */
       stages: string[];
-      terminalStages: string[];
     }
   | { type: "operate_bees"; goal: string }
   | {
@@ -151,11 +151,8 @@ function parseAction(value: unknown): AssistantAction | null {
     case "create_process": {
       const name = text(raw.name);
       const stages = textList(raw.stages);
-      const terminalStages = textList(raw.terminalStages);
-      return name && stages.length && terminalStages.every((terminal) =>
-        stages.some((stage) => sameName(stage, terminal))
-      )
-        ? { type: "create_process", name, description: text(raw.description), stages, terminalStages }
+      return name && stages.length
+        ? { type: "create_process", name, description: text(raw.description), stages }
         : null;
     }
     case "operate_bees": {
@@ -380,13 +377,12 @@ export async function applyActions(
       if (action.type === "operate_bees") {
         await context.operateBees(action.goal);
       } else if (action.type === "create_process") {
-        const terminal = new Set(action.terminalStages.map((name) => name.toLowerCase()));
         await context.repository.createProcess(context.teamId, {
           name: action.name,
           description: action.description,
-          stages: action.stages.map((name) => ({
+          stages: action.stages.map((name, index) => ({
             name,
-            isTerminal: terminal.has(name.toLowerCase())
+            isTerminal: index === action.stages.length - 1
           }))
         });
       } else if (action.type === "create_agent") {

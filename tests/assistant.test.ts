@@ -51,7 +51,7 @@ describe("assistant contract", () => {
 describe("parsing a turn", () => {
   it("reads actions out of a fenced, chatty answer", () => {
     const turn = parseTurn(
-      'Sure! Here you go:\n```json\n{"reply":"Made it.","actions":[{"type":"create_process","name":"Onboarding","description":"New hires","stages":["Draft","Review","Done"],"terminalStages":["Done"]}]}\n```\nHope that helps.'
+      'Sure! Here you go:\n```json\n{"reply":"Made it.","actions":[{"type":"create_process","name":"Onboarding","description":"New hires","stages":["Draft","Review","Done"]}]}\n```\nHope that helps.'
     );
     expect(turn.reply).toBe("Made it.");
     expect(turn.actions).toHaveLength(1);

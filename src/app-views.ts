@@ -923,9 +923,8 @@ export function createMainViews(host: MainHost) {
         </div>
       </div>
       <label class="form-control mt-4 grid min-w-0 gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
-        <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name, isTerminal }) => `${name}${isTerminal ? " *" : ""}`).join(", ") : "To do, In progress, Done *")}" required>
-        <p class="mt-1 text-xs text-base-content/50">Add * after every terminal status.</p>
-        <span class="text-xs text-base-content/55">Comma separated, in order. A removed status needs its work items moved first.</span></label>
+        <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done")}" required>
+        <span class="text-xs text-base-content/55">Comma separated, in order. The first status starts the work, the last one finishes it. A removed status needs its work items moved first.</span></label>
     </form>`;
     if (!process) {
       host.shell.swap(`<div class="grid gap-4">${definition}
