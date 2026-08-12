@@ -54,6 +54,7 @@ import {
   processRuns,
   runTimeline,
   workItemCondition,
+  workItemConditionLabel,
   type FileTreeNode,
   type ProcessRun,
   type RunTimelineEvent
@@ -209,6 +210,35 @@ export function createMainViews(host: MainHost) {
   }
 
   /**
+   * A team's task rows. Finished tasks fold into a collapsed "Done" group rather than sitting in
+   * the list forever — reaching a terminal status does not archive anything, so without this the
+   * menu only ever grows. "Clear" archives them, which is what takes them out for good; they stay
+   * on the board and can be set back to Active from the card.
+   */
+  function teamTaskNav(teamId: string): string {
+    const rows = (host.workspaceController.dashboardsByTeam.get(teamId) ?? [])
+      .flatMap(({ board, process, roots }) => roots.map(({ item, open }) => ({ board, process, item, open })));
+    if (!rows.length)
+      return `<li><p class="px-2 py-1 text-xs text-base-content/45">No tasks yet — use + above.</p></li>`;
+    const row = ({ board, process, item, open }: (typeof rows)[number]): string =>
+      taskNavItem(teamId, board, process, item, open);
+    // Open subtasks keep a task in the live list even when its own status is terminal — a parent
+    // can reach the end while its tree is still working.
+    const isDone = ({ item, open }: (typeof rows)[number]): boolean => item.isTerminal && !open;
+    const done = rows.filter(isDone);
+    return rows.filter((entry) => !isDone(entry)).map(row).join("") +
+      (done.length
+        ? `<li><details>
+              <summary class="text-base-content/60">Done <span class="badge badge-ghost badge-xs">${done.length}</span></summary>
+              <ul>
+                ${done.map(row).join("")}
+                <li><button class="text-xs text-base-content/60" data-action="archive-done" data-team="${teamId}">Clear from menu</button></li>
+              </ul>
+            </details></li>`
+        : "");
+  }
+
+  /**
    * The three items pinned under the team list. Getting Started renders in-app so a fresh install
    * has it without a browser; the rest of the pages, and the community, open externally.
    */
@@ -308,12 +338,7 @@ export function createMainViews(host: MainHost) {
                     <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">Inbox${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
-              .flatMap(({ board, process, roots }) => roots.map(({ item, open }) => taskNavItem(team.id, board, process, item, open)))
-              .join("")}
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).some(({ roots }) => roots.length)
-              ? ""
-              : `<li><p class="px-2 py-1 text-xs text-base-content/45">No tasks yet — use + above.</p></li>`}
+                    ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
         })
@@ -472,7 +497,7 @@ export function createMainViews(host: MainHost) {
     return `<dl class="grid gap-3 text-sm">
         <div><dt class="text-base-content/45">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description || "No description.")}</dd></div>
         <div class="grid gap-3 sm:grid-cols-2">
-          <div><dt class="text-base-content/45">Status</dt><dd>${host.shell.escapeHtml(workItemCondition(item, runs))}</dd></div>
+          <div><dt class="text-base-content/45">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
           <div><dt class="text-base-content/45">Owner</dt><dd>${host.shell.escapeHtml(item.owner || "Unassigned")}</dd></div>
           <div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>
           <div><dt class="text-base-content/45">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
@@ -930,13 +955,13 @@ export function createMainViews(host: MainHost) {
         .join("")}</div>
       ${panel}
       ${filtered.length
-        ? `<details class="collapse-arrow mt-5 rounded-box border border-base-300 bg-base-100">
-              <summary class="cursor-pointer px-4 py-3 text-sm font-semibold">Filtered items (${filtered.length})</summary>
+        ? `<details open class="mt-5 rounded-box border border-base-300 bg-base-100">
+              <summary class="cursor-pointer px-4 py-3 text-sm font-semibold marker:text-xl">Filtered items (${filtered.length})</summary>
               <ul class="divide-y divide-base-300 border-t border-base-300">${filtered
           .map((item) => `<li class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <span class="min-w-0">
                       <span class="font-semibold">${host.shell.escapeHtml(item.title)}</span>
-                      <span class="ml-2 badge badge-ghost badge-sm">${host.shell.escapeHtml(workItemCondition(item))}</span>
+                      <span class="ml-2 badge badge-ghost badge-sm">${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item)))}</span>
                       <span class="ml-2 text-xs text-base-content/55">${host.shell.escapeHtml(new Date(item.updatedAt).toLocaleString())}</span>
                     </span>
                     <button class="btn btn-ghost btn-xs" data-action="open-item" data-id="${item.id}">Open</button>
@@ -2763,6 +2788,7 @@ export function createMainViews(host: MainHost) {
     gearIcon,
     renderActiveOrg,
     taskNavItem,
+    teamTaskNav,
     renderSidebarHelp,
     renderNavigation,
     renderPrefsButton,

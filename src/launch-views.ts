@@ -7,7 +7,7 @@ import type {
   Team,
   WorkItem
 } from "./domain.js";
-import { workItemCondition } from "./domain.js";
+import { workItemCondition, workItemConditionLabel } from "./domain.js";
 import { modelRef } from "./local-models.js";
 import type {
   BeesConversationSnapshotV1,
@@ -657,7 +657,7 @@ export function workItemView(input: {
     <div class="rounded-box border border-base-300 bg-base-100 p-5 mb-5"><p>${escapeHtml(
       item.description || "No description."
     )}</p><dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-base-content/45">Status</dt><dd>${escapeHtml(
-      workItemCondition(item, runs)
+      workItemConditionLabel(workItemCondition(item, runs))
     )}</dd></div><div><dt class="text-base-content/45">Files</dt><dd>${escapeHtml(
       item.logicalFiles.join(", ") || "None"
     )}</dd></div><div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(

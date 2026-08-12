@@ -74,6 +74,7 @@ import type {
   WorkItem,
 } from "./domain.js";
 import {
+  boardFilterConditionLabels,
   errorText,
   formatBoardFilters,
   isProposal,
@@ -1170,8 +1171,8 @@ export function createMainActions(host: MainHost) {
         label: "Hide items from the board",
         type: "textarea",
         value: formatBoardFilters(board.filters),
-        placeholder: "terminal 24",
-        hint: "One rule per line: condition then hours untouched (0 = always). Conditions: terminal (done), archived, waiting, error."
+        placeholder: "Done 24",
+        hint: `One rule per line: condition then hours untouched (0 = always). Conditions: ${boardFilterConditionLabels.join(", ")}.`
       }
     ]);
     if (!data)
@@ -2318,6 +2319,20 @@ export function createMainActions(host: MainHost) {
         // Clicking the open step again closes it, so the sequence can be read on its own.
         host.shell.openRunStepId = host.shell.openRunStepId === button.dataset.id! ? "" : button.dataset.id!;
         host.shell.render();
+        return;
+      }
+      if (action === "archive-done") {
+        const teamId = button.dataset.team!;
+        const done = (host.workspaceController.dashboardsByTeam.get(teamId) ?? [])
+          .flatMap(({ roots }) => roots.filter(({ item, open }) => item.isTerminal && !open).map(({ item }) => item));
+        if (!done.length ||
+          !confirm(`Clear ${done.length} finished task${done.length === 1 ? "" : "s"} from the menu? They are archived, stay on the board, and can be set back to Active from the card.`))
+          return;
+        // One command per task: archiving a task takes its subtask tree with it, so only the
+        // roots the menu shows are sent.
+        for (const item of done)
+          await host.workflowRuntime.command(item.id, { type: "archive" });
+        await host.workspaceController.refresh();
         return;
       }
       if (action === "archive-process") {
