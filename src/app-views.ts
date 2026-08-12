@@ -111,7 +111,7 @@ export interface EditorField {
   name: string;
   label: string;
   value?: string;
-  type?: "text" | "password" | "textarea" | "select" | "toggle" | "checkboxes" | "color" | "file" | "note";
+  type?: "text" | "password" | "textarea" | "select" | "toggle" | "switch" | "checkboxes" | "color" | "file" | "note";
   placeholder?: string;
   options?: EditorOption[];
   checked?: string[];
@@ -196,15 +196,21 @@ export function createMainViews(host: MainHost) {
       host.workspaceController.activeBoard?.id === board.id &&
       host.shell.boardRootItemId === item.id;
     const running = host.runs.runningProcesses.has(process.id);
-    return `<li>
-      <button class="${host.shell.activeClass(active)} gap-2" data-board="${board.id}" data-root="${host.shell.escapeHtml(item.id)}" data-team="${teamId}"
+    const icon = (action: string, label: string, svg: string, extra = ""): string =>
+      `<button class="btn btn-square btn-ghost btn-xs ${extra}" data-action="${action}" data-id="${host.shell.escapeHtml(item.id)}" data-team="${teamId}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${svg}</button>`;
+    return `<li class="group relative ${item.archivedAt ? "opacity-65" : ""}">
+      <button class="${host.shell.activeClass(active)} gap-2 pr-14" data-board="${board.id}" data-root="${host.shell.escapeHtml(item.id)}" data-team="${teamId}"
         title="${host.shell.escapeHtml(`${item.title} — ${process.name}`)}">
         <span class="size-1.5 shrink-0 rounded-full ${running ? "bg-success" : "bg-base-content/25"}"></span>
         <span class="truncate">${host.shell.escapeHtml(item.title || "Untitled task")}</span>
         ${open
         ? `<span class="badge badge-ghost badge-xs ml-auto" title="${open} open task${open === 1 ? "" : "s"}">${open}</span>`
-        : ""}
+        : item.archivedAt ? '<span class="badge badge-ghost badge-xs ml-auto">Archived</span>' : ""}
       </button>
+      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        ${icon("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit)}
+        ${item.archivedAt ? "" : icon("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, "text-error")}
+      </div>
     </li>`;
   }
 
@@ -309,11 +315,18 @@ export function createMainViews(host: MainHost) {
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
                     ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
-              .flatMap(({ board, process, roots }) => roots.map(({ item, open }) => taskNavItem(team.id, board, process, item, open)))
+              .flatMap(({ board, process, roots }) => roots.filter(({ item }) => !item.archivedAt).map(({ item, open }) => taskNavItem(team.id, board, process, item, open)))
               .join("")}
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).some(({ roots }) => roots.length)
+                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).some(({ roots }) => roots.some(({ item }) => !item.archivedAt))
               ? ""
               : `<li><p class="px-2 py-1 text-xs text-base-content/45">No tasks yet — use + above.</p></li>`}
+                    ${(() => {
+          const archived = (host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
+            .flatMap(({ board, process, roots }) => roots.filter(({ item }) => item.archivedAt).map(({ item, open }) => taskNavItem(team.id, board, process, item, open)));
+          return archived.length
+            ? `<li><details><summary class="text-xs text-base-content/55">Archived tasks (${archived.length})</summary><ul>${archived.join("")}</ul></details></li>`
+            : "";
+        })()}
                   </ul>
                 </section>`;
         })
@@ -454,11 +467,8 @@ export function createMainViews(host: MainHost) {
         <div class="grid gap-3 sm:grid-cols-2">
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Owner</span>
             <input class="input input-bordered w-full" name="owner" value="${host.shell.escapeHtml(item.owner ?? "")}"></label>
-          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Visibility</span>
-            <select class="select select-bordered w-full" name="archived">
-              <option value="active" ${item.archivedAt ? "" : "selected"}>Active</option>
-              <option value="archived" ${item.archivedAt ? "selected" : ""}>Archived</option>
-            </select></label>
+          <label class="label cursor-pointer justify-start gap-3"><span class="label-text text-sm font-semibold">Archived</span>
+            <input class="toggle toggle-primary" type="checkbox" name="archived" value="archived" ${item.archivedAt ? "checked" : ""}></label>
         </div>
         <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">File references</span>
           <input class="input input-bordered w-full" name="files" value="${host.shell.escapeHtml(files.join(", "))}">
@@ -797,6 +807,7 @@ export function createMainViews(host: MainHost) {
           <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
+          ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
           ${tab !== "details" && tab !== "files"
             ? ""
             : `<button class="btn btn-ghost btn-sm"
@@ -900,8 +911,14 @@ export function createMainViews(host: MainHost) {
             <div class="grid gap-3">${cards
               .map((item) => `<article class="kanban-card card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="card-body gap-3 p-4">
+                    <div class="flex items-start justify-between gap-2">
+                      <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
+                      <div class="flex shrink-0 gap-1">
+                        ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
+                        ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
+                      </div>
+                    </div>
                     <div>
-                      <h3 class="card-title text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
                       <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-base-content/60">${host.shell.escapeHtml(item.description || "No description")}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
@@ -2547,6 +2564,9 @@ export function createMainViews(host: MainHost) {
       control = `<div class="join grid w-full" style="grid-template-columns: repeat(${Math.max(1, options.length)}, minmax(0, 1fr))" role="radiogroup" aria-label="${host.shell.escapeHtml(label)}">${options
         .map((option) => `<input class="btn join-item min-w-0" type="radio" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}" aria-label="${host.shell.escapeHtml(option.label)}" ${option.value === value ? "checked" : ""}>`)
         .join("")}</div>`;
+    }
+    if (type === "switch") {
+      control = `<input class="toggle toggle-primary" type="checkbox" name="${host.shell.escapeHtml(name)}" value="archived" aria-label="${host.shell.escapeHtml(label)}" ${value === "archived" ? "checked" : ""}>`;
     }
     if (type === "checkboxes") {
       // A plugin collection can install well over a hundred skills, and a single MCP server
