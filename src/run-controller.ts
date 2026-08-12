@@ -518,6 +518,16 @@ export function createRunController(host: MainHost) {
       const outputs = Array.isArray(execution.result.outputs)
         ? execution.result.outputs.filter((output): output is string => typeof output === "string")
         : [];
+      // A small model sometimes writes its next tool call out as text instead of calling it. Nothing
+      // runs, nothing is written, and the run still reports success, so the item looks finished with
+      // no file and no reason given. Call it what it is, so it can be run again.
+      const describedATool = execution.status === "completed" && outputs.length === 0 &&
+        /<tool_call|<function=/.test(JSON.stringify(execution.conversationSnapshot ?? ""));
+      if (describedATool) {
+        await host.repository.updateExecution(execution.id, "failed",
+          { error: "The model wrote a tool call as text instead of calling the tool, so nothing ran. Run it again." });
+      }
+      const settledStatus = describedATool ? "failed" : execution.status;
       const continuation = execution.result.continuation === true;
       const manualProjection = execution.result.manualProjection === true;
       const projectMode = execution.result.projectMode === true;
@@ -596,13 +606,13 @@ export function createRunController(host: MainHost) {
       if (announce) {
         const item = await host.repository.getWorkItem(execution.workItemId);
         const title = item?.title ?? "Bees run";
-        if (continuation && execution.status === "completed" && outputs.length === 0) {
+        if (continuation && settledStatus === "completed" && outputs.length === 0) {
           host.shell.notifyLocal("Bees replied", title);
         }
-        else if (execution.status === "completed" && outputs.length === 0) {
+        else if (settledStatus === "completed" && outputs.length === 0) {
           host.shell.notifyLocal("Bees run completed", `${title} finished with no file changes.`);
         }
-        else if (execution.status === "completed") {
+        else if (settledStatus === "completed") {
           host.shell.notifyLocal("Bees needs your review", `${outputs.length} file change(s) from ${title}.`);
         }
         else {
