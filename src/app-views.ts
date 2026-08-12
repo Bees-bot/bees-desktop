@@ -643,7 +643,7 @@ export function createMainViews(host: MainHost) {
       // A process with its own view approves its own work there — a requirements draft or a plan
       // is never a pending file, so saying nothing waits here contradicts the item's own badge.
       const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
-      if (process && processEngine.renderer(process))
+      if (process && processEngine.renderer(process) !== "default")
         return `<p class="text-sm text-base-content/55">Open this task to review and approve its work.</p>`;
       return `<p class="text-sm text-base-content/55">Nothing is waiting for approval on this item.</p>`;
     }
