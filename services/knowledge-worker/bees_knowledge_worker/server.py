@@ -82,14 +82,17 @@ class KnowledgeService:
         if not isinstance(snippets, bool):
             raise KnowledgeError("includeSnippets must be a boolean")
         sources = self.authorized_sources(scope, arguments.get("sourceIds"))
-        evidence = self.indexes.search(sources, question.strip(), maximum)
+        evidence, unavailable = self.indexes.search(sources, question.strip(), maximum)
         if not snippets:
             for item in evidence:
                 item.pop("snippet", None)
         else:
             for item in evidence:
                 item["snippet"] = item.get("snippet", "")[:4_000]
-        return {"evidence": evidence, "searchedSourceIds": sources}
+        searched = [source_id for source_id in sources if source_id not in unavailable]
+        if not unavailable:
+            return {"evidence": evidence, "searchedSourceIds": searched}
+        return {"evidence": evidence, "searchedSourceIds": searched, "unavailableSourceIds": unavailable}
 
     def health(self) -> dict[str, Any]:
         statuses = [self.indexes.status(source.id).status for source in self.config.sources.values()]

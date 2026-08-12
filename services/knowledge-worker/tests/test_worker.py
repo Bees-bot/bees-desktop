@@ -124,7 +124,9 @@ class WorkerTests(unittest.TestCase):
             backend.fail = True
             with self.assertRaisesRegex(KnowledgeError, "broken input"):
                 indexes.rebuild("org-docs")
-            self.assertEqual(indexes.search(["org-docs"], "answer", 1)[0]["snippet"], "answer")
+            evidence, unavailable = indexes.search(["org-docs"], "answer", 1)
+            self.assertEqual(evidence[0]["snippet"], "answer")
+            self.assertEqual(unavailable, [])
             self.assertEqual(indexes.status("org-docs").status, "error")
             self.assertEqual(indexes.status("org-docs").documentCount, 3)
 

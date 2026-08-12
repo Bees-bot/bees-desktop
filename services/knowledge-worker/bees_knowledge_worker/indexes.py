@@ -226,17 +226,23 @@ class IndexManager:
                 except KnowledgeError:
                     pass
 
-    def search(self, source_ids: list[str], question: str, limit: int) -> list[dict[str, Any]]:
+    def search(self, source_ids: list[str], question: str, limit: int) -> tuple[list[dict[str, Any]], list[str]]:
+        # One folder that is missing, unmounted or still building must not take the readable ones
+        # down with it: skip it, name it in the reply, and only fail when nothing can be searched.
         evidence: list[dict[str, Any]] = []
+        unavailable: list[str] = []
         for source_id in source_ids:
             source = self._source(source_id)
             current = self.source_root(source) / "current"
             with self._swap_locks[source_id]:
                 if not current.is_dir():
-                    raise KnowledgeError(f"KNOWLEDGE_SOURCE_NOT_READY: {source_id}")
+                    unavailable.append(source_id)
+                    continue
                 evidence.extend(self.backend.search(source, current, question, limit))
+        if source_ids and len(unavailable) == len(source_ids):
+            raise KnowledgeError(f"KNOWLEDGE_SOURCE_NOT_READY: {', '.join(unavailable)}")
         evidence.sort(key=lambda item: item.get("score") if item.get("score") is not None else -1, reverse=True)
-        return evidence[:limit]
+        return evidence[:limit], unavailable
 
     def _swap(self, source: Source, staging: Path) -> None:
         root = self.source_root(source)
