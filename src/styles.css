@@ -101,10 +101,6 @@
   --text-title: 1.125rem;       /* 18px — screen titles */
   --text-display: 1.375rem;     /* 22px — the few genuinely large headings */
 
-  --control-height: 2rem;       /* 32px — comfortable pointer target */
-  --control-height-sm: 1.75rem; /* 28px — toolbar density */
-  --gutter: 1.5rem;             /* 24px — content inset */
-
   --motion-fast: 120ms;
   --motion-base: 160ms;
   --ease-ui: cubic-bezier(0.2, 0, 0.2, 1);
@@ -187,19 +183,18 @@ button, input, textarea, select { font: inherit; }
 
 /* ---------------------------------------------------------------- controls */
 
+/*
+ * Height comes from the theme's --size-field, not from a rule here: daisyUI derives every size
+ * modifier from it, and hard-coding a height on `.btn` also hit `.btn-xs`, which made the sidebar's
+ * small row buttons 32px inside a 29px row and pushed 24 of them 3px out of their parent.
+ */
 .btn {
-  height: var(--control-height);
-  min-height: var(--control-height);
   border-radius: var(--radius-field);
   font-size: var(--text-body);
   font-weight: 500;
   letter-spacing: 0;
 }
-.btn-sm {
-  height: var(--control-height-sm);
-  min-height: var(--control-height-sm);
-  font-size: var(--text-caption);
-}
+.btn-sm, .btn-xs { font-size: var(--text-caption); }
 .btn-primary { border-color: transparent; box-shadow: none; }
 .btn-ghost:hover { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); }
 .btn:active:not(:disabled) { transform: translateY(0.5px); }
@@ -212,7 +207,6 @@ button, input, textarea, select { font: inherit; }
   font-size: var(--text-body);
   outline: none;
 }
-.select, .input { height: var(--control-height); min-height: var(--control-height); }
 .select:focus, .input:focus, .textarea:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent);
