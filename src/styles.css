@@ -12,6 +12,24 @@
 
 * { scrollbar-color: color-mix(in oklab, currentColor 18%, transparent) transparent; }
 button, input, textarea, select { font: inherit; }
+
+/*
+ * Two invariants for text that must stay inside its box. Both are written here rather than at the
+ * call sites because the call sites already ask for the behavior — they just don't get it.
+ *
+ * A flex child defaults to `min-width: auto`, which refuses to shrink below its content. That
+ * silently cancels `truncate` and `line-clamp`: every one of them sat in a flex row and grew the
+ * row instead of clipping, which is how a long task title pushed the inbox table 600px wide.
+ */
+.flex > .truncate,
+.flex > [class*="line-clamp-"] { min-width: 0; }
+
+/*
+ * daisyUI gives each badge size a fixed height. A label long enough to wrap then paints its second
+ * line outside the pill's own border — "Waiting for your approval" overflowed by 7px. A status pill
+ * is a single label by definition, so it stays on one line and the row truncates around it.
+ */
+.badge { white-space: nowrap; }
 button, .card, .menu button { transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
 

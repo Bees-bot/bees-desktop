@@ -186,21 +186,27 @@ export function inboxView(
       ({ workItemId, status }) =>
         workItemId === itemId && (status === "failed" || status === "interrupted")
     );
+  // table-fixed, not auto: an auto layout widens a column to fit its longest cell, so the `truncate`
+  // below never clipped anything and a long title dragged the table past the edge of its own box.
+  // Fixed widths on the narrow columns leave Details as the one column that flexes.
   return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
-    <table class="table table-zebra">
-      <thead><tr><th>Org</th><th>Team</th><th>Workflow</th><th>Details</th><th></th></tr></thead>
+    <table class="table table-zebra table-fixed">
+      <thead><tr>
+        <th class="w-32">Org</th><th class="w-32">Team</th><th class="w-40">Workflow</th>
+        <th>Details</th><th class="w-44"></th>
+      </tr></thead>
       <tbody>${rows
         .map(({ group, item, state }) => {
           const run = group.reason === "run-failed" ? failedRun(item.id) : undefined;
           const workflow = processes.find(({ id }) => id === item.processId)?.name ?? "—";
           return `<tr class="cursor-pointer hover" data-action="open-item" data-id="${item.id}">
-            <td>${escapeHtml(org)}</td>
-            <td>${escapeHtml(team)}</td>
-            <td>${escapeHtml(workflow)}</td>
+            <td class="truncate" title="${escapeHtml(org)}">${escapeHtml(org)}</td>
+            <td class="truncate" title="${escapeHtml(team)}">${escapeHtml(team)}</td>
+            <td class="truncate" title="${escapeHtml(workflow)}">${escapeHtml(workflow)}</td>
             <td class="min-w-0">
               <div class="flex items-center gap-2">
-                <span class="badge badge-sm ${group.kind === "stalled" ? "badge-error" : "badge-warning"} badge-outline">${escapeHtml(state.label)}</span>
-                <span class="truncate font-semibold">${escapeHtml(item.title)}</span>
+                <span class="badge badge-sm shrink-0 ${group.kind === "stalled" ? "badge-error" : "badge-warning"} badge-outline">${escapeHtml(state.label)}</span>
+                <span class="truncate font-semibold" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
               </div>
               <p class="line-clamp-1 text-sm text-base-content/55">${escapeHtml(state.detail)}</p>
             </td>
