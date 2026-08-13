@@ -127,10 +127,17 @@ const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, e
  * webview supplies only business scope and never reads a stored secret.
  */
 async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }> {
-  return invoke<{ baseUrl: string; token: string; }>("ensure_flue_runtime", {
+  const runtime = await invoke<{ baseUrl: string; token: string; }>("ensure_flue_runtime", {
     organizationId: session.aiConnectionScope(),
     teamId: workspaceController.workspace.teamId
   });
+  // Four call sites destructure this, and `invoke` asserts the return type without checking it.
+  // A runtime that failed to start resolved with nothing, and the first destructure reported it
+  // as "Cannot destructure property 'baseUrl' of '(intermediate value)'" — a message that names
+  // neither the runtime nor what to do about it. Fail here instead, once, in words.
+  if (!runtime || typeof runtime.baseUrl !== "string" || !runtime.baseUrl)
+    throw new Error("The local workflow runtime did not start. Reopen Bees, and check Preferences → AI if it keeps happening.");
+  return { baseUrl: runtime.baseUrl, token: typeof runtime.token === "string" ? runtime.token : "" };
 }
 
 export type KnowledgeRuntimeInfo = { url: string; token: string; sourceCount: number; };

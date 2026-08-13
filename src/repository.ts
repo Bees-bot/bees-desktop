@@ -125,6 +125,36 @@ function synchronizedProcessDefinition(value: unknown): PersistedProcessDefiniti
   return definition as PersistedProcessDefinition;
 }
 
+/**
+ * The read path for the same column. `synchronizedProcessDefinition` above is right to throw for
+ * an inbound sync record — that record can be refused. A row already in this database cannot, and
+ * a raw JSON.parse over it threw inside a map across every process the team owns, so one bad row
+ * emptied the whole process list and broke the sync projection with it.
+ *
+ * The fallback is deliberately inert: `interactive` means the process still lists and still opens,
+ * but waits for a person rather than starting agents from a definition nobody could read.
+ */
+function storedProcessDefinition(
+  value: DatabaseValue | undefined,
+  processId: string
+): PersistedProcessDefinition {
+  try {
+    return synchronizedProcessDefinition(parseJson<unknown>(value, null));
+  }
+  catch {
+    console.warn(`Process ${processId} has an unreadable definition; treating it as interactive.`);
+    return {
+      moduleId: null,
+      version: 1,
+      automation: "interactive",
+      renderer: "default",
+      stateIds: {},
+      capabilities: [],
+      roleBindings: []
+    };
+  }
+}
+
 /** The first local workspace stays useful on launch; later teams choose from the library. */
 function newStarterProcess(teamId: string, timestamp: string): {
   processId: string;
@@ -724,7 +754,7 @@ export class LocalRepository {
         stages
           .map(stageRow)
           .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt),
-        JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
+        storedProcessDefinition(row.definitionJson, stringValue(row.id)),
         tags
           .filter((tag) => stringValue(tag.entityId) === stringValue(row.id))
           .map((tag) => stringValue(tag.tag))
@@ -2162,7 +2192,7 @@ export class LocalRepository {
           teamId,
           name: stringValue(row.name),
           description: stringValue(row.description),
-          definition: JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
+          definition: storedProcessDefinition(row.definitionJson, stringValue(row.id)),
           updatedAt: stringValue(row.updatedAt)
         }
       })),
@@ -2229,29 +2259,36 @@ export class LocalRepository {
         [recordId]
       );
       if (current[0] && stringValue(current[0].updatedAt) >= updatedAt) return;
-      await this.database.execute(
-        `INSERT INTO file_locations
-         (id, organization_id, team_id, name, deleted_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           organization_id = excluded.organization_id, team_id = excluded.team_id,
-           name = excluded.name, deleted_at = excluded.deleted_at,
-           updated_at = excluded.updated_at`,
-        [
-          recordId,
-          organizationId,
-          teamId,
-          requiredText(payload.name, "File location name", 120),
-          record.deleted ? updatedAt : null,
-          updatedAt,
-          updatedAt
-        ]
-      );
-      if (record.deleted) {
-        await this.database.execute("DELETE FROM file_location_mappings WHERE location_id = ?", [
-          recordId
-        ]);
-      }
+      // One transaction, the way the local `deleteFileLocation` already does it. This is a soft
+      // delete, so the mappings row is not reached by ON DELETE CASCADE — the second statement is
+      // the only thing that removes it. Run apart, a crash between the two left the location
+      // invisible while its absolute local path stayed behind with nothing able to clean it up.
+      await this.database.transaction([
+        {
+          sql: `INSERT INTO file_locations
+                (id, organization_id, team_id, name, deleted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  organization_id = excluded.organization_id, team_id = excluded.team_id,
+                  name = excluded.name, deleted_at = excluded.deleted_at,
+                  updated_at = excluded.updated_at`,
+          params: [
+            recordId,
+            organizationId,
+            teamId,
+            requiredText(payload.name, "File location name", 120),
+            record.deleted ? updatedAt : null,
+            updatedAt,
+            updatedAt
+          ]
+        },
+        ...(record.deleted
+          ? [{
+              sql: "DELETE FROM file_location_mappings WHERE location_id = ?",
+              params: [recordId]
+            }]
+          : [])
+      ]);
       return;
     }
     if (record.recordType === "process") {
