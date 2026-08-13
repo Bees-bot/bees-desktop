@@ -464,8 +464,10 @@ export function runView(input: {
             .map((output) => approvalCard(output, busy, taskPlan))
             .join("")}
           <form class="mt-2 border-t border-base-300 pt-4" data-run-followup="${execution.id}">
-            <label class="sr-only" for="run-followup-message">Continue conversation</label>
-            <textarea id="run-followup-message" name="message" class="textarea min-h-24 w-full resize-y" maxlength="20000"
+            <!-- Per run: a work item with two runs renders this form twice, and a duplicate id
+                 sends every label to the first textarea on the page. -->
+            <label class="sr-only" for="run-followup-message-${execution.id}">Continue conversation</label>
+            <textarea id="run-followup-message-${execution.id}" name="message" class="textarea min-h-24 w-full resize-y" maxlength="20000"
               placeholder="${busy ? "Wait for the agent to finish…" : "Ask a follow-up or give more direction…"}" required ${
                 busy ? "disabled" : ""
               }></textarea>

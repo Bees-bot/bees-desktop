@@ -902,7 +902,14 @@ export function createMainViews(host: MainHost) {
     // Looked up in all items, not just visible cards: the Inbox opens filtered/stuck items too.
     const expandedItem = host.workspaceController.items.find(({ id }) => id === expandedItemId) ?? null;
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
-    if (host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId)
+    // activeBoard and activeProcess are re-derived by workspace refresh, which the 30s tick and any
+    // team switch can run while the panel above is still awaiting. They are read bare below, so
+    // they are re-checked here with the rest: the entry guard was for a different moment in time,
+    // and TypeScript keeps the narrowing across the await even though the value can change.
+    if (
+      host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId
+      || !host.workspaceController.activeBoard || !host.workspaceController.activeProcess
+    )
       return;
     // The eligibility reason is otherwise only a tooltip in the process editor. An agent the user
     // switched off is not a problem to report, and a stopped process already says why nothing runs.
@@ -1167,6 +1174,12 @@ export function createMainViews(host: MainHost) {
       button.type = "button";
     }
     for (const select of host.shell.app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
+      // `swap()` leaves the DOM alone when a render produces identical HTML, so these are usually
+      // the very same elements as last time — while this runs after every render, including the
+      // 30s background tick. Unguarded, leaving the process editor open added one duplicate
+      // handler per idle tick, each rebuilding the thinking list again on the next change.
+      if (select.dataset.thinkingLinked) continue;
+      select.dataset.thinkingLinked = "true";
       const agentId = select.name.slice(0, -":model".length);
       select.addEventListener("change", () => {
         const thinking = host.shell.app.querySelector<HTMLSelectElement>(`select[name="${agentId}:thinkingLevel"]`);
@@ -2334,7 +2347,10 @@ export function createMainViews(host: MainHost) {
         rows.push({
           name: "Organizations unavailable",
           account: email,
-          button: `<span class="badge badge-error badge-sm">${host.shell.escapeHtml(orgResult.reason)}</span>`
+          // The one badge in the app holding text of unbounded length — a network error, not a
+          // status word. Capped and hoverable for the rest: kept on one line it would otherwise
+          // run straight out of the panel, measured at 465px inside a 304px row.
+          button: `<span class="badge badge-error badge-sm max-w-56 truncate" title="${host.shell.escapeHtml(orgResult.reason)}">${host.shell.escapeHtml(orgResult.reason)}</span>`
         });
       }
       const orgs = orgResult.ok ? orgResult.value : [];

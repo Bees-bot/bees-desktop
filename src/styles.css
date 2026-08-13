@@ -14,20 +14,13 @@
 button, input, textarea, select { font: inherit; }
 
 /*
- * Two invariants for text that must stay inside its box. Both are written here rather than at the
- * call sites because the call sites already ask for the behavior — they just don't get it.
+ * daisyUI gives every badge size a fixed height, so a label long enough to wrap paints its second
+ * line outside the pill's own border. Measured: a badge holding a network error in a 320px row
+ * overflows its 20px pill by 6px. A badge is a single short label by definition — it stays on one
+ * line, and whatever holds it is responsible for the width.
  *
- * A flex child defaults to `min-width: auto`, which refuses to shrink below its content. That
- * silently cancels `truncate` and `line-clamp`: every one of them sat in a flex row and grew the
- * row instead of clipping, which is how a long task title pushed the inbox table 600px wide.
- */
-.flex > .truncate,
-.flex > [class*="line-clamp-"] { min-width: 0; }
-
-/*
- * daisyUI gives each badge size a fixed height. A label long enough to wrap then paints its second
- * line outside the pill's own border — "Waiting for your approval" overflowed by 7px. A status pill
- * is a single label by definition, so it stays on one line and the row truncates around it.
+ * Note this is the whole fix: a flex child that sets `overflow: hidden` (which `truncate` and
+ * `line-clamp` both do) already gets an automatic minimum size of 0, so those need no help here.
  */
 .badge { white-space: nowrap; }
 button, .card, .menu button { transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
