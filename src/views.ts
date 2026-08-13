@@ -36,6 +36,23 @@ export const RESTORABLE_VIEWS = new Set<View>([
   "getting-started"
 ]);
 
+/**
+ * Where Back goes; anything absent is top level. A structural parent rather than a history stack,
+ * which would have to restore the item or run each entry was about.
+ */
+export const PARENT_VIEW: Partial<Record<View, View>> = {
+  item: "board",
+  "item-new": "board",
+  run: "board",
+  process: "board",
+  "process-runs": "process",
+  "process-library": "board",
+  schedules: "board",
+  settings: "overview",
+  "org-settings": "overview",
+  preferences: "overview"
+};
+
 export const LAST_VIEW_KEY = "ui_last_view";
 
 /**

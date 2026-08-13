@@ -1245,7 +1245,26 @@ export function createRunController(host: MainHost) {
     return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
   }
 
+  /** `executions` only learns of a run at `onCreated`, so two near-simultaneous calls both started. */
+  const startingItemIds = new Set<string>();
+
+  /** Claimed before any await. Body split out so the guard does not reindent two hundred lines. */
   async function runItem(itemId: string, auto = false, continuation?: {
+    execution: Execution;
+    message: string;
+  }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {
+    if (startingItemIds.has(itemId))
+      throw new Error("This work item is already starting");
+    startingItemIds.add(itemId);
+    try {
+      await runItemUnguarded(itemId, auto, continuation, restartedFromExecutionId, scheduled);
+    }
+    finally {
+      startingItemIds.delete(itemId);
+    }
+  }
+
+  async function runItemUnguarded(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
   }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {
@@ -1555,9 +1574,11 @@ export function createRunController(host: MainHost) {
     if (execution.conversationSnapshot)
       return;
     if (!liveEvents.has(execution.id)) {
-      const { baseUrl, token } = await host.ensureFlueRuntime();
-      const history = await new FlueRuntime(baseUrl, undefined, token)
-        .history(runtimeAgentName(execution.agentId), execution.conversationId)
+      // The history fetch could already fail, the runtime start could not — so a dead runtime stopped
+      // the card opening at all. The transcript is one tab; the rest reads from the database.
+      const history = await host.ensureFlueRuntime()
+        .then(({ baseUrl, token }) => new FlueRuntime(baseUrl, undefined, token)
+          .history(runtimeAgentName(execution.agentId), execution.conversationId))
         .catch(() => null);
       liveEvents.set(execution.id, history ? [history] : []);
     }

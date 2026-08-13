@@ -73,16 +73,30 @@ export class MetadataSyncService {
     projection.forEach((record) => assertMetadataOnly(record.payload));
     await this.transport.push(organizationId, projection);
     const pulled = await this.transport.pull(organizationId, currentCursor);
-    const ordered = [...pulled.records].sort(
+    // A 200 carrying an error envelope has no records, and spreading undefined threw before the cursor moved.
+    const records = Array.isArray(pulled?.records) ? pulled.records : [];
+    const cursor = typeof pulled?.cursor === "string" ? pulled.cursor : currentCursor;
+    const ordered = [...records].sort(
       (a, b) =>
         ["file_location", "process", "stage", "work_item"].indexOf(a.recordType) -
         ["file_location", "process", "stage", "work_item"].indexOf(b.recordType)
     );
+    // One bad record used to abort before the cursor advanced, so every later sync re-pulled it.
+    let applied = 0;
+    const skipped: string[] = [];
     for (const record of ordered) {
-      assertMetadataOnly(record.payload);
-      await this.repository.applyCoordinationRecord(record);
+      try {
+        assertMetadataOnly(record.payload);
+        await this.repository.applyCoordinationRecord(record);
+        applied += 1;
+      }
+      catch (error) {
+        skipped.push(`${record.recordType}:${record.recordId} (${error instanceof Error ? error.message : String(error)})`);
+      }
     }
-    await this.repository.completeSyncEntries([], pulled.cursor, scope);
-    return ordered.length;
+    if (skipped.length)
+      console.warn(`Sync skipped ${skipped.length} unusable record(s): ${skipped.join("; ")}`);
+    await this.repository.completeSyncEntries([], cursor, scope);
+    return applied;
   }
 }

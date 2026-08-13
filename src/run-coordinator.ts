@@ -109,14 +109,14 @@ export interface RunHost {
   startRun(request: RustRunRequest): Promise<void>;
   resumeRun(request: RustRunRequest, submissionId: string): Promise<void>;
   stopRun(request: RustRunRequest, submissionId: string): Promise<void>;
-  awaitSettled(executionId: string): Promise<SettledRun>;
+  awaitSettled(executionId: string, signal?: AbortSignal): Promise<SettledRun>;
 }
 
 export const tauriRunHost: RunHost = {
   startRun: (request) => invoke("start_run", { request }),
   resumeRun: (request, submissionId) => invoke("resume_run", { request, submissionId }),
   stopRun: (request, submissionId) => invoke("stop_run", { request, submissionId }),
-  awaitSettled: (executionId) =>
+  awaitSettled: (executionId, signal) =>
     new Promise<SettledRun>((resolve) => {
       // Rust has already written the receipt by the time this fires; the event only says
       // "look again". Losing it costs a notification, never the transaction.
@@ -125,6 +125,9 @@ export const tauriRunHost: RunHost = {
         void stop.then((unlisten) => unlisten());
         resolve(event.payload);
       });
+      // Hand-over can fail, and the listener otherwise outlives the window. Left unsettled rather than
+      // rejected: nothing awaits it by now.
+      signal?.addEventListener("abort", () => void stop.then((unlisten) => unlisten()), { once: true });
     })
 };
 
@@ -254,6 +257,7 @@ export class RunCoordinator {
     const deliveryId = crypto.randomUUID();
     let workspacePath = "";
     let handedOff = false;
+    let handOver: AbortController | null = null;
     try {
       workspacePath = request.projectWorkItemId
         ? await this.workspaces.projectWorkspace(request.projectWorkItemId)
@@ -324,7 +328,9 @@ export class RunCoordinator {
 
       const { baseUrl, token = "" } = await this.launchRuntime();
       // Hand over. From here the run belongs to Rust, whatever happens to this window.
-      const settled = this.host.awaitSettled(executionId);
+      // Must exist before startRun so the event cannot land between them, so a throw has to cancel it.
+      handOver = new AbortController();
+      const settled = this.host.awaitSettled(executionId, handOver.signal);
       await this.host.startRun({
         executionId,
         deliveryId,

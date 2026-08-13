@@ -3,38 +3,144 @@
   themes: all;
 }
 
+/*
+ * The two Bees themes; the daisyUI presets stay available under Preferences. Near-neutral greys with a
+ * trace of green so surfaces sit under the accent, 6px radii on controls and 8px on containers, and
+ * elevation from a border rather than a shadow.
+ */
+@plugin "daisyui/theme" {
+  name: "bees";
+  default: true;
+  color-scheme: light;
+
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97.6% 0.002 152);
+  --color-base-300: oklch(92.4% 0.004 152);
+  --color-base-content: oklch(24% 0.012 152);
+
+  --color-primary: oklch(53% 0.108 155);
+  --color-primary-content: oklch(99% 0 0);
+  --color-neutral: oklch(32% 0.012 152);
+  --color-neutral-content: oklch(99% 0 0);
+
+  --color-info: oklch(52% 0.096 245);
+  --color-info-content: oklch(99% 0 0);
+  --color-success: oklch(52% 0.104 152);
+  --color-success-content: oklch(99% 0 0);
+  --color-warning: oklch(60% 0.118 72);
+  --color-warning-content: oklch(99% 0 0);
+  --color-error: oklch(53% 0.170 25);
+  --color-error-content: oklch(99% 0 0);
+
+  --radius-selector: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "bees-dark";
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: oklch(21% 0.008 152);
+  --color-base-200: oklch(17.5% 0.008 152);
+  --color-base-300: oklch(27.5% 0.010 152);
+  --color-base-content: oklch(92% 0.006 152);
+
+  --color-primary: oklch(72% 0.124 155);
+  --color-primary-content: oklch(18% 0.010 152);
+  --color-neutral: oklch(30% 0.010 152);
+  --color-neutral-content: oklch(93% 0.006 152);
+
+  --color-info: oklch(72% 0.104 245);
+  --color-info-content: oklch(18% 0.010 152);
+  --color-success: oklch(72% 0.116 152);
+  --color-success-content: oklch(18% 0.010 152);
+  --color-warning: oklch(78% 0.124 72);
+  --color-warning-content: oklch(18% 0.010 152);
+  --color-error: oklch(69% 0.164 25);
+  --color-error-content: oklch(18% 0.010 152);
+
+  --radius-selector: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --text-caption: 0.75rem;      /* 12px — metadata, section labels */
+  --text-body: 0.8125rem;       /* 13px — dense interface text */
+  --text-ui: 0.875rem;          /* 14px — default interface text */
+  --text-label: 0.9375rem;      /* 15px — prominent labels */
+  --text-title: 1.125rem;       /* 18px — screen titles */
+  --text-display: 1.375rem;     /* 22px — the few genuinely large headings */
+
+  --motion-fast: 120ms;
+  --ease-ui: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
 :root {
-  font-family: var(--font-sans);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+    system-ui, "Helvetica Neue", Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-* { scrollbar-color: color-mix(in oklab, currentColor 18%, transparent) transparent; }
+body {
+  font-size: var(--text-ui);
+  line-height: 1.45;
+}
+
+/* One secondary colour, not the seven picked per call site. Against base-200 everything under 62%
+   failed 4.5:1, so most metadata and helper text was under it; 65% clears both themes. */
+.text-muted { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); }
+
+* { scrollbar-color: color-mix(in oklab, currentColor 20%, transparent) transparent; }
 button, input, textarea, select { font: inherit; }
-button, .card, .menu button { transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
+
+/* daisyUI fixes each badge height, so a wrapping label paints its second line outside the pill —
+   measured 6px over on a network error in a 320px row. One line; the container owns the width. */
+.badge { white-space: nowrap; }
+
+/* ---------------------------------------------------------------- app regions */
 
 .app-canvas {
   min-height: 100vh;
   background-color: var(--color-base-200);
 }
 
+/* Opaque: a blurred header tints whatever scrolls under it, moving the contrast of the title. */
 .app-header {
-  min-height: 4.25rem;
-  border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 9%, transparent);
-  background: color-mix(in oklab, var(--color-base-100) 88%, transparent);
-  backdrop-filter: blur(16px) saturate(140%);
+  min-height: 3.25rem;
+  border-bottom: 1px solid var(--color-base-300);
+  background: var(--color-base-100);
 }
 
 .sidebar-shell {
-  border-right: 1px solid color-mix(in oklab, var(--color-base-content) 9%, transparent);
-  background: var(--color-base-100);
+  border-right: 1px solid var(--color-base-300);
+  background: var(--color-base-200);
 }
 
 .logo-mark { box-shadow: none; }
 
 .content-canvas { position: relative; }
+
+/* Above this width the page gives the slide-over its own column so the screen keeps its controls;
+   below it there is no room to give. */
+@media (min-width: 64rem) {
+  body.assistant-open .drawer-content { padding-right: 28rem; }
+}
 
 #notice:empty { display: none; }
 #notice:not(:empty) {
@@ -42,140 +148,138 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
   right: 1rem;
   bottom: 1rem;
   z-index: 60;
-  width: min(32rem, calc(100vw - 2rem));
+  width: min(28rem, calc(100vw - 2rem));
   margin: 0;
 }
 #notice .alert { border: 1px solid color-mix(in oklab, currentColor 20%, transparent); }
 
+/* ---------------------------------------------------------------- controls */
+
+/* Height comes from --size-field; hard-coding it here also hit .btn-xs and pushed 24 sidebar buttons
+   3px out of their row. */
 .btn {
-  border-radius: .5rem;
-  font-weight: 600;
+  border-radius: var(--radius-field);
+  font-size: var(--text-body);
+  font-weight: 500;
   letter-spacing: 0;
 }
-.btn-primary {
-  border-color: color-mix(in oklab, var(--color-primary) 88%, #000);
-  box-shadow: 0 1px 2px color-mix(in oklab, #000 8%, transparent);
+.btn-sm, .btn-xs { font-size: var(--text-caption); }
+
+/* One icon size; call sites had drifted to 16, 20 and 15px. New buttons inherit rather than pick. */
+.btn svg { width: 1rem; height: 1rem; flex: none; }
+.btn-primary { border-color: transparent; box-shadow: none; }
+.btn-ghost:hover { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); }
+.btn:active:not(:disabled) { transform: translateY(0.5px); }
+/* daisyUI dims a disabled button twice — 20% alpha and a container opacity — which multiply, leaving
+   "Run from the item view" at 1.69:1. That label is the only reason given, so it is coloured once. */
+.btn:disabled, .btn[disabled] {
+  opacity: 1;
+  color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
 }
-.btn-ghost:hover { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); }
 
 .select, .input, .textarea {
-  border-color: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+  border-color: var(--color-base-300);
+  border-radius: var(--radius-field);
   background: var(--color-base-100);
+  font-size: var(--text-body);
   outline: none;
 }
 .select:focus, .input:focus, .textarea:focus {
-  border-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 12%, transparent);
-}
-:where(button, input, textarea, select, a[href], [role="button"]):focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent);
 }
 
-.menu li > button { border-radius: .5rem; }
+:where(button, input, textarea, select, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-field);
+}
+
+.menu { width: 100%; }
+.menu li > button { border-radius: var(--radius-field); font-size: var(--text-body); }
 .menu li > button.active {
   color: var(--color-primary);
-  background: color-mix(in oklab, var(--color-primary) 9%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
   box-shadow: none;
 }
 
 .badge {
-  border-radius: .375rem;
+  border-radius: var(--radius-selector);
+  font-size: var(--text-caption);
   font-weight: 500;
   letter-spacing: 0;
 }
 .badge-ghost {
   border-color: transparent;
-  background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+  background: color-mix(in oklab, var(--color-base-content) 7%, transparent);
   color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
 }
 .badge-outline {
-  border-color: color-mix(in oklab, var(--color-base-content) 16%, transparent);
+  border-color: var(--color-base-300);
   color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
 }
 /* Soft tints instead of solid fills: state should read at a glance without shouting. */
-.badge-warning {
-  border-color: color-mix(in oklab, var(--color-warning) 32%, transparent);
-  background: color-mix(in oklab, var(--color-warning) 14%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-warning) 45%, var(--color-base-content));
-}
-.badge-success {
-  border-color: color-mix(in oklab, var(--color-success) 32%, transparent);
-  background: color-mix(in oklab, var(--color-success) 14%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-success) 45%, var(--color-base-content));
-}
-.badge-error {
-  border-color: color-mix(in oklab, var(--color-error) 32%, transparent);
-  background: color-mix(in oklab, var(--color-error) 12%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-error) 50%, var(--color-base-content));
+.badge-warning { --tint: var(--color-warning); }
+.badge-success { --tint: var(--color-success); }
+.badge-error   { --tint: var(--color-error); }
+.badge-warning, .badge-success, .badge-error {
+  border-color: color-mix(in oklab, var(--tint) 30%, transparent);
+  background: color-mix(in oklab, var(--tint) 12%, var(--color-base-100));
+  color: color-mix(in oklab, var(--tint) 55%, var(--color-base-content));
 }
 
-.alert { border-radius: .75rem; }
-.alert-warning {
-  border: 1px solid color-mix(in oklab, var(--color-warning) 32%, transparent);
-  background: color-mix(in oklab, var(--color-warning) 10%, var(--color-base-100));
-  color: var(--color-base-content);
-}
-.alert-error {
-  border: 1px solid color-mix(in oklab, var(--color-error) 32%, transparent);
-  background: color-mix(in oklab, var(--color-error) 8%, var(--color-base-100));
+.alert { border-radius: var(--radius-box); font-size: var(--text-body); }
+.alert-warning { --tint: var(--color-warning); }
+.alert-error   { --tint: var(--color-error); }
+.alert-warning, .alert-error {
+  border: 1px solid color-mix(in oklab, var(--tint) 30%, transparent);
+  background: color-mix(in oklab, var(--tint) 10%, var(--color-base-100));
   color: var(--color-base-content);
 }
 
-.table > tbody > tr:nth-child(odd) { background: var(--color-base-200); }
+/* ---------------------------------------------------------------- surfaces */
 
+/* A border defines a surface; a shadow is for something that genuinely floats. Sections sit in the
+   layout, so a settings screen stops reading as a stack of floating boxes. */
 #app > section,
 .card {
-  border-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  border-color: var(--color-base-300);
+  border-radius: var(--radius-box);
   background: var(--color-base-100);
-  box-shadow: 0 1px 2px color-mix(in oklab, #000 4%, transparent);
+  box-shadow: none;
 }
 
 .surface-modal {
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-box);
   background: var(--color-base-100);
-  box-shadow: 0 24px 64px color-mix(in oklab, #000 24%, transparent);
+  box-shadow: 0 12px 32px color-mix(in oklab, #000 18%, transparent);
 }
 
-.markdown-viewer { line-height: 1.7; }
-.markdown-viewer > :first-child { margin-top: 0; }
-.markdown-viewer h1,
-.markdown-viewer h2,
-.markdown-viewer h3,
-.markdown-viewer h4,
-.markdown-viewer h5,
-.markdown-viewer h6 { margin: 1.4em 0 .5em; font-weight: 650; line-height: 1.25; letter-spacing: -.01em; }
-.markdown-viewer h1 { font-size: 1.5rem; }
-.markdown-viewer h2 { font-size: 1.25rem; }
-.markdown-viewer h3 { font-size: 1.1rem; }
-.markdown-viewer p,
-.markdown-viewer ul,
-.markdown-viewer ol,
-.markdown-viewer blockquote,
-.markdown-viewer pre { margin: .8rem 0; }
-.markdown-viewer ul { list-style: disc; }
-.markdown-viewer ol { list-style: decimal; }
-.markdown-viewer ul,
-.markdown-viewer ol { padding-left: 1.5rem; }
-.markdown-viewer blockquote { border-left: 3px solid var(--color-primary); padding-left: 1rem; color: color-mix(in oklab, currentColor 65%, transparent); }
-.markdown-viewer pre { overflow: auto; border-radius: .5rem; background: var(--color-base-200); padding: 1rem; }
-.markdown-viewer code { border-radius: .3rem; background: var(--color-base-200); padding: .1em .3em; font-size: .9em; }
-.markdown-viewer pre code { padding: 0; background: transparent; }
-.markdown-viewer a { color: var(--color-primary); text-decoration: underline; }
-.markdown-viewer hr { margin: 1.5rem 0; border-color: var(--color-base-300); }
+.table { font-size: var(--text-body); }
+.table > thead > tr > th {
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: color-mix(in oklab, var(--color-base-content) 62%, transparent);
+}
+.table > tbody > tr:nth-child(odd) { background: transparent; }
+.table > tbody > tr { border-bottom: 1px solid var(--color-base-300); }
+.table > tbody > tr:hover { background: color-mix(in oklab, var(--color-base-content) 4%, transparent); }
+
+/* ---------------------------------------------------------------- board */
 
 .kanban {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(19rem, 1fr);
-  gap: .75rem;
+  gap: 0.75rem;
   /* `scroll`, not `auto`: with system scrollbars set to "always show", a scrollbar that only
      appears once the columns overflow grows this box after its siblings are placed, and WebKit
      leaves the expanded card panel below it 15px too high — sitting on top of the scrollbar
      until the next re-render reflows it. Always reserving the track keeps the height constant.
      Costs nothing under overlay scrollbars, which is the macOS default. */
   overflow-x: scroll;
-  padding: .1rem .1rem 1rem;
+  padding: 0.1rem 0.1rem 1rem;
   scroll-snap-type: x proximity;
 }
 
@@ -183,31 +287,30 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
   max-height: 50vh;
   overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 7%, transparent);
-  border-radius: .75rem;
-  background: color-mix(in oklab, var(--color-base-content) 3%, var(--color-base-200));
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-box);
+  background: var(--color-base-200);
   scroll-snap-align: start;
 }
 
 .kanban-card {
+  border-radius: var(--radius-field);
   background: var(--color-base-100);
-  box-shadow: 0 1px 2px color-mix(in oklab, #000 5%, transparent);
+  box-shadow: none;
 }
-.kanban-card:hover {
-  border-color: color-mix(in oklab, var(--color-base-content) 22%, transparent);
-  box-shadow: 0 2px 8px color-mix(in oklab, #000 7%, transparent);
-}
+.kanban-card:hover { border-color: color-mix(in oklab, var(--color-base-content) 24%, transparent); }
 
+/* A quiet label, not a lozenge: the border and size carry it, so it stops competing with badges. */
 .eyebrow-pill {
   display: inline-flex;
   align-items: center;
-  gap: .4rem;
-  padding: .25rem .55rem;
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
-  border-radius: 999px;
-  color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-selector);
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
   background: var(--color-base-100);
-  font-size: .7rem;
+  font-size: var(--text-caption);
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -215,60 +318,203 @@ button, .card, .menu button { transition: border-color 140ms ease, background-co
 .theme-card {
   position: relative;
   display: grid;
-  gap: .75rem;
-  padding: 1rem;
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
-  border-radius: .75rem;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-box);
   text-align: left;
   background: var(--color-base-100);
 }
 .theme-card:hover { border-color: color-mix(in oklab, var(--color-primary) 45%, transparent); }
 .theme-card.selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 14%, transparent);
 }
-.theme-swatches { display: flex; gap: .35rem; }
-.theme-swatches span { width: 1.5rem; height: .55rem; border-radius: 999px; }
+.theme-swatches { display: flex; gap: 0.25rem; }
+.theme-swatches span { width: 1.5rem; height: 0.5rem; border-radius: var(--radius-selector); }
 
-/* daisyUI sets .menu { width: fit-content }, so menu rows only take clicks over their text. */
-.menu { width: 100%; }
+/* ---------------------------------------------------------------- long-form content */
 
-@media (max-width: 1023px) {
-  .drawer-side > div { padding-top: env(safe-area-inset-top); }
-  .app-header { min-height: 4rem; }
+.markdown-viewer { line-height: 1.65; }
+.markdown-viewer > :first-child { margin-top: 0; }
+.markdown-viewer h1,
+.markdown-viewer h2,
+.markdown-viewer h3,
+.markdown-viewer h4,
+.markdown-viewer h5,
+.markdown-viewer h6 { margin: 1.4em 0 0.5em; font-weight: 600; line-height: 1.3; letter-spacing: -0.006em; }
+.markdown-viewer h1 { font-size: var(--text-display); }
+.markdown-viewer h2 { font-size: var(--text-title); }
+.markdown-viewer h3 { font-size: var(--text-label); }
+.markdown-viewer p,
+.markdown-viewer ul,
+.markdown-viewer ol,
+.markdown-viewer blockquote,
+.markdown-viewer pre { margin: 0.75rem 0; }
+.markdown-viewer ul { list-style: disc; }
+.markdown-viewer ol { list-style: decimal; }
+.markdown-viewer ul,
+.markdown-viewer ol { padding-left: 1.5rem; }
+.markdown-viewer blockquote {
+  border-left: 2px solid var(--color-base-300);
+  padding-left: 1rem;
+  color: color-mix(in oklab, currentColor 68%, transparent);
+}
+.markdown-viewer pre { overflow: auto; border-radius: var(--radius-field); background: var(--color-base-200); padding: 0.875rem; }
+.markdown-viewer code { border-radius: 0.25rem; background: var(--color-base-200); padding: 0.1em 0.3em; font-size: 0.9em; }
+.markdown-viewer pre code { padding: 0; background: transparent; }
+.markdown-viewer a { color: var(--color-primary); text-decoration: underline; }
+.markdown-viewer hr { margin: 1.5rem 0; border-color: var(--color-base-300); }
+
+/* ---------------------------------------------------------------- motion */
+
+button, .card, .menu button {
+  transition:
+    border-color var(--motion-fast) var(--ease-ui),
+    background-color var(--motion-fast) var(--ease-ui),
+    color var(--motion-fast) var(--ease-ui),
+    box-shadow var(--motion-fast) var(--ease-ui);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  button, .card, .menu button { transition: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-/* Onboarding wizard coach mark. The arrow is a rotated square borrowing two of the card's own
-   borders, so it reads as a tail rather than a separate shape. Its offset along the edge is set
-   inline by placeTip; which two borders it drops comes from the side. */
+@media (max-width: 1023px) {
+  .drawer-side > div { padding-top: env(safe-area-inset-top); }
+}
+
+/* ---------------------------------------------------------------- onboarding tour */
+
+/* The arrow is a rotated square borrowing two of the card's own borders, so it reads as a tail
+   rather than a separate shape. Its offset along the edge is set inline by placeTip; which two
+   borders it drops comes from the side. */
 #tour-arrow {
   position: absolute;
-  width: .75rem;
-  height: .75rem;
+  width: 0.75rem;
+  height: 0.75rem;
   background: var(--color-base-100);
   border: 1px solid var(--color-base-300);
   transform: rotate(45deg);
 }
-#tour-tip[data-side="right"] #tour-arrow { left: -.4rem; border-top: 0; border-right: 0; }
-#tour-tip[data-side="left"] #tour-arrow { right: -.4rem; border-bottom: 0; border-left: 0; }
-#tour-tip[data-side="bottom"] #tour-arrow { top: -.4rem; border-right: 0; border-bottom: 0; }
-#tour-tip[data-side="top"] #tour-arrow { bottom: -.4rem; border-top: 0; border-left: 0; }
+#tour-tip[data-side="right"] #tour-arrow { left: -0.4rem; border-top: 0; border-right: 0; }
+#tour-tip[data-side="left"] #tour-arrow { right: -0.4rem; border-bottom: 0; border-left: 0; }
+#tour-tip[data-side="bottom"] #tour-arrow { top: -0.4rem; border-right: 0; border-bottom: 0; }
+#tour-tip[data-side="top"] #tour-arrow { bottom: -0.4rem; border-top: 0; border-left: 0; }
 #tour-tip[data-side="none"] #tour-arrow { display: none; }
 #tour-body > :first-child { margin-top: 0; }
 #tour-body > :last-child { margin-bottom: 0; }
 
-/* The highlight. outline rather than border or box-shadow: it adds no layout, so ringing a
-   sidebar button cannot nudge the list it sits in. */
+/* outline rather than border or box-shadow: it adds no layout, so ringing a sidebar button
+   cannot nudge the list it sits in. */
 .tour-target {
   outline: 2px solid var(--color-primary);
   outline-offset: 3px;
-  border-radius: .5rem;
+  border-radius: var(--radius-field);
 }
 
 /* Sidebar toggle icon: arrow points left when open, right when collapsed. */
 #app-drawer-open[aria-expanded="true"] .drawer-arrow-open { display: none; }
 #app-drawer-open[aria-expanded="false"] .drawer-arrow-close { display: none; }
+
+/* ---------------------------------------------------------------- sidebar nav */
+
+/* Plain flex-column list replacing daisyUI .menu for the team sub-nav.
+   No pseudo-element bullet, no inherited list-style, no daisyUI hover. */
+@layer components {
+  .team-sub-nav {
+    display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-left: 0.875rem;
+  padding-left: 0.25rem;
+  padding-right: 0;
+  padding-top: 0.125rem;
+  padding-bottom: 0.25rem;
+  border-left: 1px solid var(--color-base-300);
+  list-style: none;
+}
+.team-sub-nav li { list-style: none; }
+
+/* Task / nav item button — full-width, transparent, colour-only hover.
+   Mirrors the visual weight of sidebar-icon-btn but is laid out as a row. */
+.task-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-ui);
+}
+.task-nav-btn:hover,
+.task-nav-btn:focus-visible {
+  background: transparent;
+  color: var(--color-base-content);
+  outline: none;
+}
+.task-nav-btn--active {
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+.task-nav-btn--active:hover,
+.task-nav-btn--active:focus-visible {
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+}
+
+/* The team-level dropdown sits inside overflow-x:hidden so the default positioning
+   can clip it. Allow overflow when the dropdown is focused/open so the panel escapes. */
+#team-nav .dropdown:focus-within { overflow: visible; }
+
+/* Hide scrollbar for sidebar navigation */
+#team-nav {
+  scrollbar-width: none; /* Firefox */
+}
+#team-nav::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+/* Transparent icon button used in the team row header and task list.
+   No background, no border — only the icon colour shifts on hover/focus. */
+.sidebar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-field);
+  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--motion-fast) var(--ease-ui);
+}
+.sidebar-icon-btn:hover,
+.sidebar-icon-btn:focus-visible {
+  color: var(--color-base-content);
+  background: transparent;
+  outline: none;
+}
+/* Coloured variants (e.g. text-error on archive) keep their hue on hover,
+   just at full opacity instead of the muted default. */
+.sidebar-icon-btn.text-error { color: color-mix(in oklab, var(--color-error) 55%, transparent); }
+.sidebar-icon-btn.text-error:hover,
+.sidebar-icon-btn.text-error:focus-visible { color: var(--color-error); }
+.sidebar-icon-btn svg { width: 1rem; height: 1rem; flex: none; }
+}

@@ -130,6 +130,35 @@ describe("Agent Plugins 1.0.0", () => {
     expect(plugin.issues[0]).toContain("MCP was disabled");
   });
 
+  // A command that fails to build a package resolves null; reading `.issues` off that threw.
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["an array", []],
+    ["a string", "boom"],
+    ["a package with no manifest", { skills: [], issues: [], fileCount: 0 }],
+    ["a package whose skills are not a list", { manifest, skills: null, issues: [], fileCount: 0 }],
+    ["a package whose issues are not a list", { manifest, skills: [], issues: null, fileCount: 0 }],
+    ["a package with no file count", { manifest, skills: [], issues: [] }]
+  ])("rejects %s by name rather than failing later", (_label, value) => {
+    expect(() => parseAgentPlugin(value)).toThrow("unreadable plugin package");
+  });
+
+  it("skips an unreadable skill entry and keeps the rest of the package", () => {
+    const plugin = parseAgentPlugin({
+      manifest,
+      skills: [
+        null,
+        { directory: "valid", path: "skills/valid/SKILL.md", contents: "---\nname: valid\ndescription: Valid skill\n---\n" }
+      ],
+      mcp: null,
+      issues: [],
+      fileCount: 2
+    });
+    expect(plugin.skills.map(({ name }) => name)).toEqual(["valid"]);
+    expect(plugin.issues).toEqual(["A skill entry was unreadable and was skipped."]);
+  });
+
   it("creates stable optional runtime connections without embedded credentials", () => {
     const registry = {
       id: "11111111-1111-1111-1111-111111111111",

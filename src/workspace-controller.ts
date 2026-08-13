@@ -199,7 +199,28 @@ export function createWorkspaceController(host: MainHost) {
     }
   }
 
-  async function refresh(): Promise<void> {
+  /*
+   * Seven callers trigger this, and two overlapping ones both wrote the same state — the last to resolve
+   * won, not the last asked for. Serialized rather than sequence-numbered: the writes span the function.
+   */
+  let active: Promise<void> | null = null;
+  let queued: Promise<void> | null = null;
+
+  function refresh(): Promise<void> {
+    if (active) {
+      queued ??= active.catch(() => undefined).then(() => {
+        queued = null;
+        return refresh();
+      });
+      return queued;
+    }
+    active = loadWorkspace().finally(() => {
+      active = null;
+    });
+    return active;
+  }
+
+  async function loadWorkspace(): Promise<void> {
     organizations = await host.repository.listOrganizations();
     teams = await host.repository.listTeams(workspace.organizationId);
     if (!teams.some(({ id }) => id === workspace.teamId))

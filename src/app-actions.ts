@@ -126,7 +126,7 @@ import {
   parseTourTarget,
   type TourStep
 } from "./tour.js";
-import { type BoardItemTab, type View } from "./views.js";
+import { PARENT_VIEW, type BoardItemTab, type View } from "./views.js";
 
 export function createMainActions(host: MainHost) {
   /**
@@ -1231,6 +1231,8 @@ export function createMainActions(host: MainHost) {
       if (button.dataset.teamView) {
         const teamId = button.dataset.team!;
         const nextView = button.dataset.teamView as View;
+        // Otherwise navigating into a collapsed team lands on a page whose sidebar section is shut.
+        host.shell.expandTeam(teamId);
         if (teamId !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(teamId, nextView);
         else {
@@ -2276,9 +2278,7 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      // Leaving the library or the process editor both mean the same thing: back to the board,
-      // dropping whatever was typed and never saved.
-      if (action === "close-process-library" || action === "close-process-editor") {
+      if (action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
         return;
@@ -2332,6 +2332,11 @@ export function createMainActions(host: MainHost) {
         // Clicking the open step again closes it, so the sequence can be read on its own.
         host.shell.openRunStepId = host.shell.openRunStepId === button.dataset.id! ? "" : button.dataset.id!;
         host.shell.render();
+        return;
+      }
+      if (action === "toggle-team") {
+        host.shell.toggleTeamCollapsed(button.dataset.team!);
+        host.views.renderNavigation();
         return;
       }
       if (action === "archive-done") {
@@ -2634,49 +2639,64 @@ export function createMainActions(host: MainHost) {
       : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(area.value)}</pre>`;
   });
 
+  /** Forms with a write already in flight. Outside the listener so it survives between events. */
+  const submitting = new WeakSet<HTMLFormElement>();
+
   host.shell.app.addEventListener("submit", (event) => {
+    const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+    /** Every branch hands work to a floating promise, so a double-click on Create made two work items. */
+    const once = (form: HTMLFormElement, run: () => Promise<unknown>): void => {
+      if (submitting.has(form)) return;
+      submitting.add(form);
+      if (submitter) submitter.disabled = true;
+      void run()
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          submitting.delete(form);
+          if (submitter) submitter.disabled = false;
+        });
+    };
+
     const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
     if (newItemForm) {
       event.preventDefault();
-      void submitNewItem(new FormData(newItemForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(newItemForm, () => submitNewItem(new FormData(newItemForm)));
       return;
     }
     const tourForm = (event.target as Element).closest<HTMLFormElement>("form[data-tour-form]");
     if (tourForm) {
       event.preventDefault();
-      void saveTourMarkdown(String(new FormData(tourForm).get("markdown") ?? ""))
-        .catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(tourForm, () => saveTourMarkdown(String(new FormData(tourForm).get("markdown") ?? "")));
       return;
     }
     const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
     if (definitionForm) {
       event.preventDefault();
-      void saveProcessDefinition(new FormData(definitionForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(definitionForm, () => saveProcessDefinition(new FormData(definitionForm)));
       return;
     }
     const approvalPlanForm = (event.target as Element).closest<HTMLFormElement>("form[data-approval-plan-form]");
     if (approvalPlanForm) {
       event.preventDefault();
-      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
-      void submitApprovalPlan(approvalPlanForm, submitter).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(approvalPlanForm, () => submitApprovalPlan(approvalPlanForm, submitter));
       return;
     }
     const boardItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-item-form]");
     if (boardItemForm) {
       event.preventDefault();
-      void saveBoardItem(boardItemForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(boardItemForm, () => saveBoardItem(boardItemForm));
       return;
     }
     const boardFileForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-file-form]");
     if (boardFileForm) {
       event.preventDefault();
-      void saveBoardFile(new FormData(boardFileForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(boardFileForm, () => saveBoardFile(new FormData(boardFileForm)));
       return;
     }
     const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
     if (agentsForm) {
       event.preventDefault();
-      void saveProcessAgents(agentsForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(agentsForm, () => saveProcessAgents(agentsForm));
       return;
     }
     const processForm = (event.target as Element).closest<HTMLFormElement>("form");
@@ -2685,7 +2705,7 @@ export function createMainActions(host: MainHost) {
       : undefined;
     if (processForm && renderer) {
       event.preventDefault();
-      void renderer.handleSubmit(processForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(processForm, () => renderer.handleSubmit(processForm));
       return;
     }
     const assistant = (event.target as Element).closest<HTMLFormElement>("form[data-overview-assistant]");
@@ -2864,6 +2884,15 @@ export function createMainActions(host: MainHost) {
   });
 
   host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
+
+  host.shell.viewBack.addEventListener("click", () => {
+    const parent = PARENT_VIEW[host.shell.view];
+    if (!parent) return;
+    host.shell.activeItemId = "";
+    host.shell.activeExecutionId = "";
+    host.shell.view = parent;
+    host.shell.render();
+  });
 
   async function sendAssistantMessage(message: string): Promise<void> {
     host.assistant.assistantLogEntries.push({ role: "you", text: message });

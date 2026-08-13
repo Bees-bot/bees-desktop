@@ -124,6 +124,24 @@ function synchronizedProcessDefinition(value: unknown): PersistedProcessDefiniti
   return definition as PersistedProcessDefinition;
 }
 
+/**
+ * A raw JSON.parse here threw inside a map across every process the team owns, so one bad row emptied
+ * the list and broke the sync projection with it. Null for that row alone — inventing an inert
+ * definition would show a process that silently does nothing.
+ */
+function storedProcessDefinition(
+  value: DatabaseValue | undefined,
+  processId: string
+): PersistedProcessDefinition | null {
+  try {
+    return synchronizedProcessDefinition(parseJson<unknown>(value, null));
+  }
+  catch {
+    console.warn(`Process ${processId} has an unreadable definition and was left out.`);
+    return null;
+  }
+}
+
 /** The first local workspace stays useful on launch; later teams choose from the library. */
 function newStarterProcess(teamId: string, timestamp: string): {
   processId: string;
@@ -344,36 +362,38 @@ function outputRow(row: Row): ExecutionOutput {
   };
 }
 
-function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] {
-  const invalid: Registry["plugin"] = {
-    manifest: {
-      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-      name: "invalid-plugin"
-    },
-    skills: [],
-    mcpServers: [],
-    issues: ["Reinstall this plugin: its saved package data is invalid."],
-    fileCount: 0
-  };
+/**
+ * Stored packages are already parsed, so this checks the saved projection rather than re-deriving
+ * skills from SKILL.md text the row no longer carries. Null when unreadable: listing it as a plugin
+ * with no skills would offer tools that do not exist.
+ */
+function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] | null {
   const candidate = parseJson<unknown>(value, null);
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return invalid;
-  const plugin = candidate as Partial<Registry["plugin"]>;
+  const plugin = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? candidate as Partial<Registry["plugin"]>
+    : null;
   if (
-    !plugin.manifest || typeof plugin.manifest !== "object" ||
-    typeof plugin.manifest.$schema !== "string" || typeof plugin.manifest.name !== "string" ||
-    !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers) ||
-    !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
-  ) return invalid;
+    !plugin || !plugin.manifest || typeof plugin.manifest !== "object"
+    || typeof plugin.manifest.$schema !== "string" || typeof plugin.manifest.name !== "string"
+    || !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers)
+    || !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
+  )
+    return null;
   return plugin as Registry["plugin"];
 }
 
-function registryRow(row: Row): Registry {
+function registryRow(row: Row): Registry | null {
+  const plugin = storedPlugin(row.filesJson);
+  if (!plugin) {
+    console.warn(`Registry ${stringValue(row.id)} has unreadable package data and was left out.`);
+    return null;
+  }
   return {
     id: stringValue(row.id),
     teamId: stringValue(row.teamId),
     name: stringValue(row.name),
     sourcePath: stringValue(row.sourcePath),
-    plugin: storedPlugin(row.filesJson),
+    plugin,
     copiedAt: stringValue(row.copiedAt),
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt)
@@ -720,18 +740,20 @@ export class LocalRepository {
        ORDER BY t.tag`,
       [teamId]
     );
-    return rows.map((row) =>
-      processRow(
+    return rows.flatMap((row) => {
+      const definition = storedProcessDefinition(row.definitionJson, stringValue(row.id));
+      if (!definition) return [];
+      return [processRow(
         row,
         stages
           .map(stageRow)
           .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt),
-        JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
+        definition,
         tags
           .filter((tag) => stringValue(tag.entityId) === stringValue(row.id))
           .map((tag) => stringValue(tag.tag))
-      )
-    );
+      )];
+    });
   }
 
   /** Replaces the row's free-form labels. Process behavior never depends on tags. */
@@ -1944,7 +1966,7 @@ export class LocalRepository {
        FROM registries WHERE team_id = ? ORDER BY name`,
       [teamId]
     );
-    return rows.map(registryRow);
+    return rows.map(registryRow).filter((registry): registry is Registry => registry !== null);
   }
 
   async saveRegistry(input: {
@@ -2155,19 +2177,24 @@ export class LocalRepository {
           updatedAt: stringValue(row.updatedAt)
         }
       })),
-      ...processes.map((row) => ({
-        recordType: "process" as const,
-        recordId: stringValue(row.id),
-        version: Date.parse(stringValue(row.updatedAt)),
-        deleted: Boolean(row.archivedAt),
-        payload: {
-          teamId,
-          name: stringValue(row.name),
-          description: stringValue(row.description),
-          definition: JSON.parse(stringValue(row.definitionJson)) as PersistedProcessDefinition,
-          updatedAt: stringValue(row.updatedAt)
-        }
-      })),
+      // Left out rather than pushed with a null definition, which the server rejects for the whole batch.
+      ...processes.flatMap((row) => {
+        const definition = storedProcessDefinition(row.definitionJson, stringValue(row.id));
+        if (!definition) return [];
+        return [{
+          recordType: "process" as const,
+          recordId: stringValue(row.id),
+          version: Date.parse(stringValue(row.updatedAt)),
+          deleted: Boolean(row.archivedAt),
+          payload: {
+            teamId,
+            name: stringValue(row.name),
+            description: stringValue(row.description),
+            definition,
+            updatedAt: stringValue(row.updatedAt)
+          }
+        }];
+      }),
       ...stages.map((row) => ({
         recordType: "stage" as const,
         recordId: stringValue(row.id),
@@ -2231,29 +2258,33 @@ export class LocalRepository {
         [recordId]
       );
       if (current[0] && stringValue(current[0].updatedAt) >= updatedAt) return;
-      await this.database.execute(
-        `INSERT INTO file_locations
-         (id, organization_id, team_id, name, deleted_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           organization_id = excluded.organization_id, team_id = excluded.team_id,
-           name = excluded.name, deleted_at = excluded.deleted_at,
-           updated_at = excluded.updated_at`,
-        [
-          recordId,
-          organizationId,
-          teamId,
-          requiredText(payload.name, "File location name", 120),
-          record.deleted ? updatedAt : null,
-          updatedAt,
-          updatedAt
-        ]
-      );
-      if (record.deleted) {
-        await this.database.execute("DELETE FROM file_location_mappings WHERE location_id = ?", [
-          recordId
-        ]);
-      }
+      // Soft delete, so no cascade reaches the mappings row; run apart, a crash stranded a local path.
+      await this.database.transaction([
+        {
+          sql: `INSERT INTO file_locations
+                (id, organization_id, team_id, name, deleted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  organization_id = excluded.organization_id, team_id = excluded.team_id,
+                  name = excluded.name, deleted_at = excluded.deleted_at,
+                  updated_at = excluded.updated_at`,
+          params: [
+            recordId,
+            organizationId,
+            teamId,
+            requiredText(payload.name, "File location name", 120),
+            record.deleted ? updatedAt : null,
+            updatedAt,
+            updatedAt
+          ]
+        },
+        ...(record.deleted
+          ? [{
+              sql: "DELETE FROM file_location_mappings WHERE location_id = ?",
+              params: [recordId]
+            }]
+          : [])
+      ]);
       return;
     }
     if (record.recordType === "process") {

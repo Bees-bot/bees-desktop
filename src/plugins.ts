@@ -177,18 +177,46 @@ function mcpServers(value: unknown, issues: string[]): AgentPluginMcpServer[] {
   });
 }
 
-export function parseAgentPlugin(raw: RawAgentPluginPackage): AgentPluginPackage {
-  const issues = [...raw.issues];
+function rawSkill(value: unknown): RawAgentPluginSkill | null {
+  const entry = record(value);
+  return entry && typeof entry.path === "string" && typeof entry.contents === "string"
+    ? { directory: String(entry.directory ?? ""), path: entry.path, contents: entry.contents }
+    : null;
+}
+
+/**
+ * Takes `unknown` because `invoke<T>` asserts T without checking it: a command that failed to build
+ * a package resolved null, and reading `.issues` off that threw three frames away. Throws rather
+ * than substituting an empty package, which would install nothing and report success.
+ */
+export function parseAgentPlugin(value: unknown): AgentPluginPackage {
+  const raw = record(value);
+  const manifest = record(raw?.manifest);
+  if (
+    !raw || !manifest
+    || typeof manifest.$schema !== "string" || typeof manifest.name !== "string"
+    || !Array.isArray(raw.skills) || !Array.isArray(raw.issues)
+    || typeof raw.fileCount !== "number"
+  )
+    throw new Error("The installer returned an unreadable plugin package.");
+
+  const issues = raw.issues.filter((issue): issue is string => typeof issue === "string");
+  // Screened before `skill` runs: the catch reports by path, and an entry without one would throw twice.
   const skills = raw.skills.flatMap((entry) => {
+    const candidate = rawSkill(entry);
+    if (!candidate) {
+      issues.push("A skill entry was unreadable and was skipped.");
+      return [];
+    }
     try {
-      return [skill(entry, issues)];
+      return [skill(candidate, issues)];
     } catch (error) {
-      issues.push(`${entry.path}: ${error instanceof Error ? error.message : String(error)}; skill was skipped.`);
+      issues.push(`${candidate.path}: ${error instanceof Error ? error.message : String(error)}; skill was skipped.`);
       return [];
     }
   });
   return {
-    manifest: raw.manifest,
+    manifest: manifest as unknown as AgentPluginManifest,
     skills,
     mcpServers: mcpServers(raw.mcp, issues),
     issues,

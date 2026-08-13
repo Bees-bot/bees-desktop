@@ -11,6 +11,7 @@
     "postinstall": "npm ci --omit=dev --prefix flue-runtime",
     "prepare:flue": "node scripts/prepare-flue-runtime.mjs",
     "dev": "vite",
+    "dev:harness": "BEES_HARNESS=1 vite",
     "build": "vite build && npm run build:flue",
     "build:flue": "vite build flue-runtime/project",
     "typecheck": "tsc --noEmit",

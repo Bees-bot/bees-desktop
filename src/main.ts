@@ -97,8 +97,9 @@ export type PrefsTab =
   | "folder";
 export type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge" | "onboarding";
 export type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
-// All daisyUI v5 built-in themes (keep in sync with themes: all in styles.css).
+// The two Bees themes first, then every daisyUI v5 built-in (keep in sync with styles.css).
 const THEMES = [
+  "bees", "bees-dark",
   "light", "dark", "cupcake", "bumblebee", "emerald", "corporate", "synthwave",
   "retro", "cyberpunk", "valentine", "halloween", "garden", "forest", "aqua",
   "lofi", "pastel", "fantasy", "wireframe", "black", "luxury", "dracula", "cmyk",
@@ -127,10 +128,15 @@ const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, e
  * webview supplies only business scope and never reads a stored secret.
  */
 async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }> {
-  return invoke<{ baseUrl: string; token: string; }>("ensure_flue_runtime", {
+  const runtime = await invoke<{ baseUrl: string; token: string; }>("ensure_flue_runtime", {
     organizationId: session.aiConnectionScope(),
     teamId: workspaceController.workspace.teamId
   });
+  // Four call sites destructure this. A runtime that failed to start resolved with nothing, which
+  // surfaced as "Cannot destructure property 'baseUrl'". Fail here instead, in words.
+  if (!runtime || typeof runtime.baseUrl !== "string" || !runtime.baseUrl)
+    throw new Error("The local workflow runtime did not start. Reopen Bees, and check Preferences → AI if it keeps happening.");
+  return { baseUrl: runtime.baseUrl, token: typeof runtime.token === "string" ? runtime.token : "" };
 }
 
 export type KnowledgeRuntimeInfo = { url: string; token: string; sourceCount: number; };
@@ -198,6 +204,9 @@ export interface AppShell {
   boardItemId: string;
   boardRootItemId: string;
   boardTab: BoardItemTab;
+  teamCollapsed: (teamId: string) => boolean;
+  toggleTeamCollapsed: (teamId: string) => void;
+  expandTeam: (teamId: string) => void;
   configAgentId: string;
   configProcessId: string;
   darkDefaultTheme: ThemePreset;
@@ -217,6 +226,7 @@ export interface AppShell {
   markdownDialog: HTMLDialogElement;
   markdownTitle: HTMLElement;
   newItem: HTMLButtonElement;
+  viewBack: HTMLButtonElement;
   newItemSources: FileSource[];
   newItemProcessId: string;
   newItemStageId: string;
