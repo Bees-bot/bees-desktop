@@ -35,6 +35,7 @@ import {
   type Team,
   type WorkItem
 } from "./domain.js";
+import { invalidAgentPlugin } from "./plugins.js";
 import type { PlannedTask } from "./processes/goals/index.js";
 import { starterProcessModule } from "./processes/registry.js";
 import {
@@ -344,26 +345,23 @@ function outputRow(row: Row): ExecutionOutput {
   };
 }
 
+/**
+ * Stored packages are already parsed — re-running `parseAgentPlugin` would re-derive skills from
+ * SKILL.md text this row no longer carries. So the shape check is the same one, applied to the
+ * saved projection, and a row that fails it degrades to the same explainable package.
+ */
 function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] {
-  const invalid: Registry["plugin"] = {
-    manifest: {
-      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-      name: "invalid-plugin"
-    },
-    skills: [],
-    mcpServers: [],
-    issues: ["Reinstall this plugin: its saved package data is invalid."],
-    fileCount: 0
-  };
   const candidate = parseJson<unknown>(value, null);
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return invalid;
-  const plugin = candidate as Partial<Registry["plugin"]>;
+  const plugin = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? candidate as Partial<Registry["plugin"]>
+    : null;
   if (
-    !plugin.manifest || typeof plugin.manifest !== "object" ||
-    typeof plugin.manifest.$schema !== "string" || typeof plugin.manifest.name !== "string" ||
-    !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers) ||
-    !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
-  ) return invalid;
+    !plugin || !plugin.manifest || typeof plugin.manifest !== "object"
+    || typeof plugin.manifest.$schema !== "string" || typeof plugin.manifest.name !== "string"
+    || !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers)
+    || !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
+  )
+    return invalidAgentPlugin("Reinstall this plugin: its saved package data is invalid.");
   return plugin as Registry["plugin"];
 }
 

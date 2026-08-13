@@ -177,18 +177,63 @@ function mcpServers(value: unknown, issues: string[]): AgentPluginMcpServer[] {
   });
 }
 
-export function parseAgentPlugin(raw: RawAgentPluginPackage): AgentPluginPackage {
-  const issues = [...raw.issues];
+/**
+ * A package that could not be read, as a package. Callers render it like any other, so a plugin
+ * that fails to load costs the user that one plugin and an explanation — never the window.
+ */
+export function invalidAgentPlugin(reason: string): AgentPluginPackage {
+  return {
+    manifest: { $schema: AGENT_PLUGIN_SCHEMA, name: "invalid-plugin" },
+    skills: [],
+    mcpServers: [],
+    issues: [reason],
+    fileCount: 0
+  };
+}
+
+function rawSkill(value: unknown): RawAgentPluginSkill | null {
+  const entry = record(value);
+  return entry && typeof entry.path === "string" && typeof entry.contents === "string"
+    ? { directory: String(entry.directory ?? ""), path: entry.path, contents: entry.contents }
+    : null;
+}
+
+/**
+ * Takes `unknown` rather than the declared package type on purpose. Both callers hand it the
+ * resolved value of a Tauri command, and `invoke<T>` asserts T without checking it: a command
+ * that fails to build a package resolves with null, and reading `.issues` off that threw during
+ * startup and left the user a dead window. Validating at the boundary keeps the rest of this
+ * module free to trust its own types, and costs one bad plugin instead of the session.
+ */
+export function parseAgentPlugin(value: unknown): AgentPluginPackage {
+  const raw = record(value);
+  const manifest = record(raw?.manifest);
+  if (
+    !raw || !manifest
+    || typeof manifest.$schema !== "string" || typeof manifest.name !== "string"
+    || !Array.isArray(raw.skills) || !Array.isArray(raw.issues)
+    || typeof raw.fileCount !== "number"
+  )
+    return invalidAgentPlugin("Reinstall this plugin: the installer returned an unreadable package.");
+
+  const issues = raw.issues.filter((issue): issue is string => typeof issue === "string");
+  // Entries are screened before `skill` runs: the catch below reports the failure by path, and an
+  // entry malformed enough to have no path would throw a second time inside the handler.
   const skills = raw.skills.flatMap((entry) => {
+    const candidate = rawSkill(entry);
+    if (!candidate) {
+      issues.push("A skill entry was unreadable and was skipped.");
+      return [];
+    }
     try {
-      return [skill(entry, issues)];
+      return [skill(candidate, issues)];
     } catch (error) {
-      issues.push(`${entry.path}: ${error instanceof Error ? error.message : String(error)}; skill was skipped.`);
+      issues.push(`${candidate.path}: ${error instanceof Error ? error.message : String(error)}; skill was skipped.`);
       return [];
     }
   });
   return {
-    manifest: raw.manifest,
+    manifest: manifest as unknown as AgentPluginManifest,
     skills,
     mcpServers: mcpServers(raw.mcp, issues),
     issues,
