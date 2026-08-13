@@ -35,7 +35,6 @@ import {
   type Team,
   type WorkItem
 } from "./domain.js";
-import { invalidAgentPlugin } from "./plugins.js";
 import type { PlannedTask } from "./processes/goals/index.js";
 import { starterProcessModule } from "./processes/registry.js";
 import {
@@ -126,32 +125,22 @@ function synchronizedProcessDefinition(value: unknown): PersistedProcessDefiniti
 }
 
 /**
- * The read path for the same column. `synchronizedProcessDefinition` above is right to throw for
- * an inbound sync record — that record can be refused. A row already in this database cannot, and
- * a raw JSON.parse over it threw inside a map across every process the team owns, so one bad row
- * emptied the whole process list and broke the sync projection with it.
- *
- * The fallback is deliberately inert: `interactive` means the process still lists and still opens,
- * but waits for a person rather than starting agents from a definition nobody could read.
+ * The read path for the same column. A raw JSON.parse over it threw inside a map across every
+ * process the team owns, so one unreadable row emptied the whole list and broke the sync
+ * projection with it. Null for that row alone: a process whose definition cannot be read has no
+ * known statuses, agents or automation, and inventing an inert one would show the user a process
+ * that quietly does nothing.
  */
 function storedProcessDefinition(
   value: DatabaseValue | undefined,
   processId: string
-): PersistedProcessDefinition {
+): PersistedProcessDefinition | null {
   try {
     return synchronizedProcessDefinition(parseJson<unknown>(value, null));
   }
   catch {
-    console.warn(`Process ${processId} has an unreadable definition; treating it as interactive.`);
-    return {
-      moduleId: null,
-      version: 1,
-      automation: "interactive",
-      renderer: "default",
-      stateIds: {},
-      capabilities: [],
-      roleBindings: []
-    };
+    console.warn(`Process ${processId} has an unreadable definition and was left out.`);
+    return null;
   }
 }
 
@@ -377,10 +366,11 @@ function outputRow(row: Row): ExecutionOutput {
 
 /**
  * Stored packages are already parsed — re-running `parseAgentPlugin` would re-derive skills from
- * SKILL.md text this row no longer carries. So the shape check is the same one, applied to the
- * saved projection, and a row that fails it degrades to the same explainable package.
+ * SKILL.md text this row no longer carries, so the shape check is applied to the saved projection
+ * instead. Null when the row cannot be read: a registry whose package is unreadable is not a
+ * registry with no skills, and presenting it as one would offer the user tools that do not exist.
  */
-function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] {
+function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] | null {
   const candidate = parseJson<unknown>(value, null);
   const plugin = candidate && typeof candidate === "object" && !Array.isArray(candidate)
     ? candidate as Partial<Registry["plugin"]>
@@ -391,17 +381,22 @@ function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] {
     || !Array.isArray(plugin.skills) || !Array.isArray(plugin.mcpServers)
     || !Array.isArray(plugin.issues) || typeof plugin.fileCount !== "number"
   )
-    return invalidAgentPlugin("Reinstall this plugin: its saved package data is invalid.");
+    return null;
   return plugin as Registry["plugin"];
 }
 
-function registryRow(row: Row): Registry {
+function registryRow(row: Row): Registry | null {
+  const plugin = storedPlugin(row.filesJson);
+  if (!plugin) {
+    console.warn(`Registry ${stringValue(row.id)} has unreadable package data and was left out.`);
+    return null;
+  }
   return {
     id: stringValue(row.id),
     teamId: stringValue(row.teamId),
     name: stringValue(row.name),
     sourcePath: stringValue(row.sourcePath),
-    plugin: storedPlugin(row.filesJson),
+    plugin,
     copiedAt: stringValue(row.copiedAt),
     createdAt: stringValue(row.createdAt),
     updatedAt: stringValue(row.updatedAt)
@@ -748,18 +743,20 @@ export class LocalRepository {
        ORDER BY t.tag`,
       [teamId]
     );
-    return rows.map((row) =>
-      processRow(
+    return rows.flatMap((row) => {
+      const definition = storedProcessDefinition(row.definitionJson, stringValue(row.id));
+      if (!definition) return [];
+      return [processRow(
         row,
         stages
           .map(stageRow)
           .filter((stage) => stage.processId === stringValue(row.id) && !stage.archivedAt),
-        storedProcessDefinition(row.definitionJson, stringValue(row.id)),
+        definition,
         tags
           .filter((tag) => stringValue(tag.entityId) === stringValue(row.id))
           .map((tag) => stringValue(tag.tag))
-      )
-    );
+      )];
+    });
   }
 
   /** Replaces the row's free-form labels. Process behavior never depends on tags. */
@@ -1972,7 +1969,7 @@ export class LocalRepository {
        FROM registries WHERE team_id = ? ORDER BY name`,
       [teamId]
     );
-    return rows.map(registryRow);
+    return rows.map(registryRow).filter((registry): registry is Registry => registry !== null);
   }
 
   async saveRegistry(input: {
@@ -2183,19 +2180,25 @@ export class LocalRepository {
           updatedAt: stringValue(row.updatedAt)
         }
       })),
-      ...processes.map((row) => ({
-        recordType: "process" as const,
-        recordId: stringValue(row.id),
-        version: Date.parse(stringValue(row.updatedAt)),
-        deleted: Boolean(row.archivedAt),
-        payload: {
-          teamId,
-          name: stringValue(row.name),
-          description: stringValue(row.description),
-          definition: storedProcessDefinition(row.definitionJson, stringValue(row.id)),
-          updatedAt: stringValue(row.updatedAt)
-        }
-      })),
+      // A process whose definition cannot be read is left out of the projection rather than
+      // pushed with a null definition, which the server would reject for the whole batch.
+      ...processes.flatMap((row) => {
+        const definition = storedProcessDefinition(row.definitionJson, stringValue(row.id));
+        if (!definition) return [];
+        return [{
+          recordType: "process" as const,
+          recordId: stringValue(row.id),
+          version: Date.parse(stringValue(row.updatedAt)),
+          deleted: Boolean(row.archivedAt),
+          payload: {
+            teamId,
+            name: stringValue(row.name),
+            description: stringValue(row.description),
+            definition,
+            updatedAt: stringValue(row.updatedAt)
+          }
+        }];
+      }),
       ...stages.map((row) => ({
         recordType: "stage" as const,
         recordId: stringValue(row.id),

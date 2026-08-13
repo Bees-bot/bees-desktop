@@ -131,8 +131,8 @@ describe("Agent Plugins 1.0.0", () => {
   });
 
   // `invoke<T>` asserts its return type without checking it, so a backend command that fails to
-  // build a package resolves with null. Reading `.issues` off that used to throw during startup
-  // and leave a dead window, so every unreadable shape has to survive as a package.
+  // build a package resolves with null. Reading `.issues` off that threw
+  // `Cannot read properties of null` from three frames away; it names the problem now.
   it.each([
     ["null", null],
     ["undefined", undefined],
@@ -142,12 +142,8 @@ describe("Agent Plugins 1.0.0", () => {
     ["a package whose skills are not a list", { manifest, skills: null, issues: [], fileCount: 0 }],
     ["a package whose issues are not a list", { manifest, skills: [], issues: null, fileCount: 0 }],
     ["a package with no file count", { manifest, skills: [], issues: [] }]
-  ])("reports %s as an unreadable package instead of throwing", (_label, value) => {
-    const plugin = parseAgentPlugin(value);
-    expect(plugin.manifest.name).toBe("invalid-plugin");
-    expect(plugin.skills).toEqual([]);
-    expect(plugin.mcpServers).toEqual([]);
-    expect(plugin.issues[0]).toContain("Reinstall this plugin");
+  ])("rejects %s by name rather than failing later", (_label, value) => {
+    expect(() => parseAgentPlugin(value)).toThrow("unreadable plugin package");
   });
 
   it("skips an unreadable skill entry and keeps the rest of the package", () => {

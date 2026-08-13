@@ -177,20 +177,6 @@ function mcpServers(value: unknown, issues: string[]): AgentPluginMcpServer[] {
   });
 }
 
-/**
- * A package that could not be read, as a package. Callers render it like any other, so a plugin
- * that fails to load costs the user that one plugin and an explanation — never the window.
- */
-export function invalidAgentPlugin(reason: string): AgentPluginPackage {
-  return {
-    manifest: { $schema: AGENT_PLUGIN_SCHEMA, name: "invalid-plugin" },
-    skills: [],
-    mcpServers: [],
-    issues: [reason],
-    fileCount: 0
-  };
-}
-
 function rawSkill(value: unknown): RawAgentPluginSkill | null {
   const entry = record(value);
   return entry && typeof entry.path === "string" && typeof entry.contents === "string"
@@ -201,9 +187,11 @@ function rawSkill(value: unknown): RawAgentPluginSkill | null {
 /**
  * Takes `unknown` rather than the declared package type on purpose. Both callers hand it the
  * resolved value of a Tauri command, and `invoke<T>` asserts T without checking it: a command
- * that fails to build a package resolves with null, and reading `.issues` off that threw during
- * startup and left the user a dead window. Validating at the boundary keeps the rest of this
- * module free to trust its own types, and costs one bad plugin instead of the session.
+ * that fails to build a package resolves with null, and reading `.issues` off that threw
+ * `Cannot read properties of null` from three frames away.
+ *
+ * It throws rather than substituting an empty package. A plugin that cannot be read is not a
+ * plugin with no skills — pretending otherwise would install nothing and report success.
  */
 export function parseAgentPlugin(value: unknown): AgentPluginPackage {
   const raw = record(value);
@@ -214,7 +202,7 @@ export function parseAgentPlugin(value: unknown): AgentPluginPackage {
     || !Array.isArray(raw.skills) || !Array.isArray(raw.issues)
     || typeof raw.fileCount !== "number"
   )
-    return invalidAgentPlugin("Reinstall this plugin: the installer returned an unreadable package.");
+    throw new Error("The installer returned an unreadable plugin package.");
 
   const issues = raw.issues.filter((issue): issue is string => typeof issue === "string");
   // Entries are screened before `skill` runs: the catch below reports the failure by path, and an
