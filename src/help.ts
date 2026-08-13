@@ -7,7 +7,7 @@ export const COMMUNITY_URL = "https://discord.gg/PTbcFnu4hS";
 export const HELP_PAGES: { label: string; url: string }[] = [
   { label: "Getting started", url: "https://bees.bot/help/getting-started" },
   { label: "Why Bees.bot exists", url: "https://bees.bot/help/why-bees" },
-  { label: "Ask the AI to build a workflow", url: "https://bees.bot/help/assistant-workflow" },
+  { label: "Ask the AI to build a process", url: "https://bees.bot/help/assistant-workflow" },
   { label: "A loop that escalates to a human", url: "https://bees.bot/help/escalation-loop" },
   { label: "The nine parts of an agent loop", url: "https://bees.bot/help/agent-loop" },
   { label: "The enterprise layer", url: "https://bees.bot/help/enterprise" },
@@ -24,7 +24,7 @@ organization so coordination — never documents — is shared.
 ## 1. Join the community first
 
 The people who build Bees are in the Discord alongside everyone else running
-it, so setup questions, workflow design, and model choices get answered by
+it, so setup questions, process design, and model choices get answered by
 someone who has already solved them.
 
 [Open the Discord](${COMMUNITY_URL})
@@ -66,9 +66,9 @@ files, or credentials mixing.
 
 A team is where the work lives: processes, boards, work items, agents, and one
 folder on disk. Add one with **+** beside *Teams*. Hover a team for its
-workflows, new-task, and settings buttons. Under each team, the left menu lists
+processes, new-task, and settings buttons. Under each team, the left menu lists
 that team's top-level tasks — opening one shows the board for that task's own
-run of its workflow.
+run of its process.
 
 Team settings: **Members**, **Folder**, **Integrations** (Agent Plugins and skill
 curation), **Browser**, **Archived**, and **Danger**.
@@ -82,7 +82,7 @@ process — most "nothing happens when I press Run" comes from skipping it.
 Codex CLI or opencode, sign it in from your terminal, and it appears under
 **Preferences → AI Subscriptions** as \`claude-cli\`, \`codex-cli\` or
 \`opencode-cli\`. It bills your existing subscription, so frontier models cost you
-nothing new. Installing more than one unlocks the multi-vendor workflows, where
+nothing new. Installing more than one unlocks the multi-vendor processes, where
 one vendor proposes and the other critiques.
 
 **Option B — an on-device model.** **Preferences → Local AI**, select
@@ -96,7 +96,7 @@ Every model picker lists exactly what this computer can run right now. An agent
 naming a model this machine cannot reach is not eligible to run here, which is
 how work routes to the right laptop instead of failing on the wrong one.
 
-**Auto is the default on every workflow stage.** A stage left on *Auto* picks,
+**Auto is the default on every process stage.** A stage left on *Auto* picks,
 at the moment it starts, the first of these that this computer has: Codex
 (ChatGPT), Claude Code, any other agent CLI, the largest downloaded local model,
 the largest remote model. Name a model on the stage instead and that model is
@@ -150,9 +150,9 @@ until you approve it.
 
 A process is an ordered list of statuses, and an agent is bound to one status.
 When a work item lands on a status that has an agent, that agent starts. That is
-the whole engine — there is no workflow graph to draw.
+the whole engine — there is no process graph to draw.
 
-Two workflows ship ready to run. Open **Workflows** from the icon beside a
+Two processes ship ready to run. Open **Processes** from the icon beside a
 team name:
 
 - **Goals** — a goal is planned into subtasks, worked one at a time, and reviewed. Good for marketing, research, operations, and anything you repeat.

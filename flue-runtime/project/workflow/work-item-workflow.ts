@@ -29,6 +29,7 @@ const CONTINUE_AFTER_COMMANDS = 1_000;
 
 export const runtimeStateQuery = defineQuery<WorkItemRuntimeState>("runtimeState");
 export const workItemCommandUpdate = defineUpdate<WorkItemRuntimeState, [WorkItemCommand]>("workItemCommand");
+export const archiveStateSignal = defineSignal<[boolean]>("archiveState");
 export const childStateSignal = defineSignal<[WorkItemRuntimeState]>("childState");
 export const dependencyWatchSignal = defineSignal<[string]>("dependencyWatch");
 
@@ -176,6 +177,18 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
     state.phase = phase(state);
     return publicState(state);
   };
+  const setArchived = (archived: boolean): WorkItemRuntimeState => {
+    state.archivedAt = archived ? state.archivedAt ?? isoNow() : null;
+    if (archived) {
+      state.claim = null;
+      state.waits = [];
+      for (const schedule of state.schedules) {
+        schedule.enabled = false;
+        schedule.pending = false;
+      }
+    }
+    return changed();
+  };
   const notifyWatchersIfTerminal = async (): Promise<void> => {
     if (!state.terminalStageIds.includes(state.stageId)) return;
     const watchers = [...new Set([...(input.parentWorkflowId ? [input.parentWorkflowId] : []), ...state.watcherWorkflowIds])];
@@ -195,6 +208,12 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
   };
 
   setHandler(runtimeStateQuery, () => publicState(state));
+  setHandler(archiveStateSignal, (archived) => {
+    setArchived(archived);
+    // Signals remain available after Temporal's per-run Update limit. Rotate immediately so an
+    // old task whose history is already full recovers along with the archive/restore operation.
+    commands = CONTINUE_AFTER_COMMANDS;
+  });
   setHandler(childStateSignal, (child) => {
     if (!child.terminalStageIds.includes(child.stageId)) return;
     const before = state.waits.length;
@@ -348,17 +367,9 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
         state.schedules = state.schedules.filter(({ id }) => id !== command.scheduleId);
         break;
       case "archive":
-        state.archivedAt ??= isoNow();
-        state.claim = null;
-        state.waits = [];
-        for (const schedule of state.schedules) {
-          schedule.enabled = false;
-          schedule.pending = false;
-        }
-        break;
+        return setArchived(true);
       case "restore":
-        state.archivedAt = null;
-        break;
+        return setArchived(false);
       }
       return changed();
     } catch (error) {

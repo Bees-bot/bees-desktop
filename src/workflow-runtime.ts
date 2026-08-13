@@ -112,7 +112,7 @@ export class WorkflowRuntimeClient {
       runtime = await this.local;
     } catch {
       this.local = null;
-      throw new Error("The local workflow service is unavailable");
+      throw new Error("The local process service is unavailable");
     }
     try {
       response = await tauriFetch(
@@ -128,17 +128,17 @@ export class WorkflowRuntimeClient {
       );
     } catch {
       this.local = null;
-      throw new Error("The local workflow service is unavailable");
+      throw new Error("The local process service is unavailable");
     }
     const value = (await response.json().catch(() => ({}))) as { error?: string };
-    if (!response.ok) throw new Error(value.error ?? "The workflow command was rejected");
+    if (!response.ok) throw new Error(value.error ?? "The process command was rejected");
     return value as T;
   }
 
   async state(workItemId: string): Promise<WorkItemRuntimeState> {
     const scope = this.scope();
     if (scope.connected) {
-      if (!scope.token) throw new Error("Sign in to access this organization's workflows");
+      if (!scope.token) throw new Error("Sign in to access this organization's processes");
       return (await this.api.workItemRuntime(scope.token, scope.organizationId, workItemId)).runtime;
     }
     return (await this.localRequest<{ runtime: WorkItemRuntimeState }>(scope.organizationId, workItemId)).runtime;
@@ -147,7 +147,7 @@ export class WorkflowRuntimeClient {
   async command(workItemId: string, command: WorkItemCommand): Promise<WorkItemRuntimeState> {
     const scope = this.scope();
     if (scope.connected) {
-      if (!scope.token) throw new Error("Sign in to change this organization's workflows");
+      if (!scope.token) throw new Error("Sign in to change this organization's processes");
       return (await this.api.commandWorkItem(scope.token, scope.organizationId, workItemId, command)).runtime;
     }
     return (

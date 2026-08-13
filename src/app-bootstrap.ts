@@ -167,7 +167,7 @@ export function createAppBootstrap(host: MainHost) {
       }
       await step("Loading the workspace", () => host.workspaceController.refresh(), undefined);
       await step("Preparing the plugin registry", () => host.workspaceController.seedDefaultRegistry(), undefined);
-      await step("Installing bundled workflows", () => host.workspaceController.seedInstalledWorkflows(), undefined);
+      await step("Installing bundled processes", () => host.workspaceController.seedInstalledWorkflows(), undefined);
       // Re-copied at launch and after each write, not on every refresh: the snapshot only changes
       // when someone edits the team folder. ponytail: add a watcher if hand-edits need to show sooner.
       const teamFolder = await step(

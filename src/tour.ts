@@ -306,7 +306,7 @@ export function createTour(deps: TourDeps) {
 export const DEFAULT_TOUR = `# Bees onboarding
 
 ## Welcome to Bees
-Bees runs work through **workflows**: a work item moves along a row of statuses, and an agent
+Bees runs work through **processes**: a work item moves along a row of statuses, and an agent
 bound to a status starts by itself when an item lands there.
 
 This wizard walks the setup in order. Do each step in the app — the tooltip stays out of your
@@ -339,17 +339,17 @@ it. Agents never see the rest of your disk.
 Target: the Root Folder tab in Preferences
 
 ## Add a team
-A team is where the work actually lives — its workflows, boards, tasks, agents, and one folder
+A team is where the work actually lives — its processes, boards, tasks, agents, and one folder
 on disk. Add one now.
 
 Target: the + button beside Teams in the left menu
 
-## Install a workflow
+## Install a process
 **Goals** plans a goal into subtasks, works them one at a time and reviews them. **Code** runs
 requirements through to review against a Git project. Either is a better first run than a
-workflow you design from scratch.
+process you design from scratch.
 
-Target: the Workflows button on the team row
+Target: the Processes button on the team row
 
 ## Add your first task
 The title is the goal. The description is the acceptance criteria, and it is the only thing a
@@ -358,14 +358,14 @@ reviewing agent has to judge the result against later — so write it properly.
 Target: the New task button on the team row
 
 ## Press Run, then watch the Inbox
-**Run** starts the *workflow*, not one task: from then on every item landing on a status with
+**Run** starts the *process*, not one task: from then on every item landing on a status with
 an agent starts itself. Anything needing a person — an approval, a rejected file, a stuck run —
 collects in the Inbox.
 
 Target: the Inbox item under the team
 
 ## Or just ask
-The **Assistant** takes plain language and proposes workflows, statuses, agents and tasks as
+The **Assistant** takes plain language and proposes processes, statuses, agents and tasks as
 cards you read first. Nothing is written until you press Apply.
 
 That is the whole setup. Reopen this wizard any time from **Guided tour** at the bottom of the

@@ -399,7 +399,7 @@ export async function applyActions(
           description: action.description
         });
       } else if (action.type === "move_items") {
-        if (!context.moveWorkItem) throw new Error("The workflow runtime is unavailable");
+        if (!context.moveWorkItem) throw new Error("The process runtime is unavailable");
         for (const item of entry.items) {
           await context.moveWorkItem(item.id, entry.targetStageId!);
         }

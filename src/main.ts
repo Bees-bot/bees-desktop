@@ -135,7 +135,7 @@ async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }>
   // Four call sites destructure this. A runtime that failed to start resolved with nothing, which
   // surfaced as "Cannot destructure property 'baseUrl'". Fail here instead, in words.
   if (!runtime || typeof runtime.baseUrl !== "string" || !runtime.baseUrl)
-    throw new Error("The local workflow runtime did not start. Reopen Bees, and check Preferences → AI if it keeps happening.");
+    throw new Error("The local process runtime did not start. Reopen Bees, and check Preferences → AI if it keeps happening.");
   return { baseUrl: runtime.baseUrl, token: typeof runtime.token === "string" ? runtime.token : "" };
 }
 

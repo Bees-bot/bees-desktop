@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm test && npm run build",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "npm run build:flue && npm run prepare:flue && npm run prepare:bridge && tauri dev",
     "tauri:build": "tauri build",
     "prepare:bridge": "node scripts/prepare-api-bridge.mjs"
   },

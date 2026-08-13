@@ -145,7 +145,7 @@ export function overviewView(
 function inboxWorkflowFilter(processes: Process[], excluded: ReadonlySet<string>): string {
   if (!processes.length) return "";
   return `<div class="dropdown mb-3">
-    <button class="btn btn-sm" tabindex="0">Workflow<span class="badge badge-ghost badge-sm">${
+    <button class="btn btn-sm" tabindex="0">Process<span class="badge badge-ghost badge-sm">${
       processes.length - excluded.size
     }/${processes.length}</span></button>
     <ul tabindex="0" class="dropdown-content menu menu-sm z-10 mt-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
@@ -191,7 +191,7 @@ export function inboxView(
   return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table table-zebra table-fixed">
       <thead><tr>
-        <th class="w-32">Org</th><th class="w-32">Team</th><th class="w-40">Workflow</th>
+        <th class="w-32">Org</th><th class="w-32">Team</th><th class="w-40">Process</th>
         <th>Details</th><th class="w-44"></th>
       </tr></thead>
       <tbody>${rows

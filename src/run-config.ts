@@ -42,7 +42,7 @@ function instructions(
     projectWorkspace
       ? "Work directly in the Git project at /workspace. Do not run Git commands or edit .git; Bees owns commits and review history."
       : manualProjection
-        ? "Return the requested result in your response. Do not write output files; the Project Studio owns approval and workflow state."
+        ? "Return the requested result in your response. Do not write output files; the Project Studio owns approval and process state."
       : "Read task inputs from /workspace/inputs. Write every proposed output under /workspace/outputs.",
     browser
       ? "You can use the browser tools. If a site needs a login, call browser_wait_for_login so the user signs in themselves; never ask for or type a password."

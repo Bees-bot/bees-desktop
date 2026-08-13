@@ -4,7 +4,7 @@
   "version": "0.1.1",
   "identifier": "bot.bees.desktop",
   "build": {
-    "beforeDevCommand": "npm run build:flue && npm run prepare:flue && npm run dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build && npm run prepare:flue && npm run prepare:bridge",
     "frontendDist": "../dist"

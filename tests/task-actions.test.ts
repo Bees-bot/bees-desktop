@@ -6,6 +6,8 @@ describe("task actions", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
     const workspace = readFileSync(new URL("../src/workspace-controller.ts", import.meta.url), "utf8");
+    const runtime = readFileSync(new URL("../flue-runtime/project/workflow/start.mjs", import.meta.url), "utf8");
+    const workflow = readFileSync(new URL("../flue-runtime/project/workflow/work-item-workflow.ts", import.meta.url), "utf8");
 
     expect(views).toContain('actionIconButton("edit-item"');
     expect(views).toContain('actionIconButton("archive-item"');
@@ -18,5 +20,7 @@ describe("task actions", () => {
     expect(views).toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');
+    expect(runtime).toContain("handle.signal(archiveStateSignal");
+    expect(workflow).toContain("commands = CONTINUE_AFTER_COMMANDS");
   });
 });

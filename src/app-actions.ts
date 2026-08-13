@@ -306,7 +306,7 @@ export function createMainActions(host: MainHost) {
   async function copyLibraryProcess(templateId: string): Promise<void> {
     const template = processLibraryEntry(templateId);
     if (!template)
-      throw new Error("That bundled workflow is unavailable");
+      throw new Error("That bundled process is unavailable");
     if (host.shell.view === "process")
       await commitProcessAgentEdits();
     const taken = new Set(host.workspaceController.processes.map(({ name }) => name.toLowerCase()));
@@ -1022,7 +1022,7 @@ export function createMainActions(host: MainHost) {
    */
   async function createItem(stageId?: string): Promise<void> {
     if (!host.workspaceController.processes.length)
-      throw new Error("Add a workflow to this team first");
+      throw new Error("Add a process to this team first");
     if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
     host.shell.newItemStageId = stageId ?? "";
@@ -1059,7 +1059,7 @@ export function createMainActions(host: MainHost) {
     const process = host.workspaceController.processes.find(({ id }) => id === workflowId) ??
       host.workspaceController.activeProcess;
     if (!process)
-      throw new Error("Choose a workflow");
+      throw new Error("Choose a process");
     // The remembered column only applies to the workflow it came from; picking another one in
     // the form starts the task at that workflow's first status instead.
     const stageId = process.stages.some(({ id }) => id === host.shell.newItemStageId)

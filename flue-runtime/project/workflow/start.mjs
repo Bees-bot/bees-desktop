@@ -13,13 +13,14 @@ const taskQueue = "bees-work-items-v1";
 const workflowType = "workItemWorkflow";
 const stateQuery = "runtimeState";
 const commandUpdate = "workItemCommand";
+const archiveStateSignal = "archiveState";
 const address = process.env.BEES_TEMPORAL_ADDRESS;
 const databasePath = process.env.BEES_DATABASE_PATH;
 const token = process.env.BEES_WORKFLOW_TOKEN ?? "";
 const port = Number.parseInt(process.env.PORT ?? "0", 10);
 
 if (!address || !databasePath || !token || !port) {
-  throw new Error("The local workflow runtime is missing its launch configuration");
+  throw new Error("The local process runtime is missing its launch configuration");
 }
 
 const database = new DatabaseSync(databasePath);
@@ -148,27 +149,33 @@ async function command(organizationId, workItemId, value) {
     }
   }
   const handle = await ensure(input);
+  if (value.type === "archive" || value.type === "restore") {
+    // A signal is still accepted when a long-lived workflow has exhausted Temporal's Update
+    // limit. The workflow rotates its history after applying this state change.
+    await handle.signal(archiveStateSignal, value.type === "archive");
+    if (value.type === "archive") {
+      // Archiving a task archives its whole subtask tree with it.
+      const descendants = database
+        .prepare(
+          `WITH RECURSIVE descendants(id) AS (
+             SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
+             UNION
+             SELECT w.id FROM work_items w
+             JOIN descendants d ON w.parent_id = d.id
+             WHERE w.deleted_at IS NULL
+           )
+           SELECT id FROM descendants`
+        )
+        .all(workItemId);
+      for (const { id } of descendants) {
+        const descendant = workflowInput(organizationId, String(id));
+        await (await ensure(descendant)).signal(archiveStateSignal, true);
+      }
+    }
+    return handle.query(stateQuery);
+  }
   if (value.type !== "configure" && value.type !== "archive") await configured(handle, input);
   const result = await handle.executeUpdate(commandUpdate, { args: [value] });
-  if (value.type === "archive") {
-    // Archiving a task archives its whole subtask tree with it.
-    const descendants = database
-      .prepare(
-        `WITH RECURSIVE descendants(id) AS (
-           SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
-           UNION
-           SELECT w.id FROM work_items w
-           JOIN descendants d ON w.parent_id = d.id
-           WHERE w.deleted_at IS NULL
-         )
-         SELECT id FROM descendants`
-      )
-      .all(workItemId);
-    for (const { id } of descendants) {
-      const descendant = workflowInput(organizationId, String(id));
-      await (await ensure(descendant)).executeUpdate(commandUpdate, { args: [value] });
-    }
-  }
   return result;
 }
 

@@ -354,7 +354,7 @@ export function createMainViews(host: MainHost) {
                           <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
                         </button>
                         <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-                          <li><button data-action="browse-process-library" data-team="${team.id}">Workflows</button></li>
+                          <li><button data-action="browse-process-library" data-team="${team.id}">Processes</button></li>
                           <li><button data-team-view="settings" data-team="${team.id}">Team settings</button></li>
                         </ul>
                       </div>
@@ -894,9 +894,9 @@ export function createMainViews(host: MainHost) {
       host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
         <div class="hero-content text-center"><div class="max-w-md">
           <div class="mb-3 text-4xl">▦</div>
-          <h2 class="text-xl font-bold">Add your first workflow</h2>
-          <p class="py-3 text-sm text-muted">Each workflow gets its own dashboard, with its statuses as columns.</p>
-          <button class="btn btn-primary" data-action="browse-process-library" data-team="${host.workspaceController.workspace.teamId}">Browse workflows</button>
+          <h2 class="text-xl font-bold">Add your first process</h2>
+          <p class="py-3 text-sm text-muted">Each process gets its own dashboard, with its statuses as columns.</p>
+          <button class="btn btn-primary" data-action="browse-process-library" data-team="${host.workspaceController.workspace.teamId}">Browse processes</button>
         </div></div>
       </div>`);
       return;
@@ -934,7 +934,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex flex-wrap items-center gap-3 text-sm text-muted">
           <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
           ${root
-        ? `<button class="badge badge-primary badge-outline max-w-64 gap-1" data-board="${host.workspaceController.activeBoard.id}" title="Show every run of this workflow"><span class="truncate">${host.shell.escapeHtml(root.title)}</span><svg viewBox="0 0 24 24" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>`
+        ? `<button class="badge badge-primary badge-outline max-w-64 gap-1" data-board="${host.workspaceController.activeBoard.id}" title="Show every run of this process"><span class="truncate">${host.shell.escapeHtml(root.title)}</span><svg viewBox="0 0 24 24" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>`
         : ""}
           ${processStateBadge(host.workspaceController.activeProcess.id)}
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
@@ -945,13 +945,13 @@ export function createMainViews(host: MainHost) {
           ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
           <div class="dropdown dropdown-end">
             <button tabindex="0" class="btn btn-ghost btn-sm border border-base-300" aria-haspopup="menu"
-              aria-label="More workflow actions" title="More workflow actions">
+              aria-label="More process actions" title="More process actions">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>
             </button>
             <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
-              <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Past runs</button></li>
+              <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Runs</button></li>
               <li><button data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">Schedules</button></li>
-              <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit workflow</button></li>
+              <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit process</button></li>
               <li><button data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button></li>
             </ul>
           </div>
@@ -1226,7 +1226,7 @@ export function createMainViews(host: MainHost) {
       void renderBoard();
       return;
     }
-    host.shell.setHeader(`${process.name} — past runs`, host.session.currentTeam()?.name);
+    host.shell.setHeader("Runs", process.name);
     const runs = processRuns(host.workspaceController.teamItems.filter(({ processId }) => processId === process.id), host.runs.executions);
     if (!runs.some(({ item }) => item.id === host.shell.openRunItemId))
       host.shell.openRunItemId = runs[0]?.item.id ?? "";
@@ -1415,24 +1415,24 @@ export function createMainViews(host: MainHost) {
   }
 
   function renderProcessLibrary(): void {
-    host.shell.setHeader("Workflows", host.session.currentTeam()?.name);
+    host.shell.setHeader("Processes", host.session.currentTeam()?.name);
     host.shell.swap(`<section class="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
           <h2 class="font-bold">In this team</h2>
-          <p class="mt-1 text-sm text-muted">Edit a workflow's statuses and agents, or delete one you no longer run.</p>
+          <p class="mt-1 text-sm text-muted">Edit a process's statuses and agents, or delete one you no longer run.</p>
         </div>
-        <button class="btn btn-primary btn-sm" data-action="new-process">Create workflow</button>
+        <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
       </header>
       ${host.workspaceController.processes.length
       ? host.workspaceController.processes.map(teamWorkflowRow).join("")
-      : `<p class="p-5 text-sm text-muted">No workflows yet — add one below, or create your own.</p>`}
+      : `<p class="p-5 text-sm text-muted">No processes yet — add one below, or create your own.</p>`}
     </section>
     <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
           <h2 class="font-bold">Bundled</h2>
-          <p class="mt-1 text-sm text-muted">Curated workflows bundled with Bees Desktop and available offline. Add one as-is, or take a copy you can change — copies land in this team above.</p>
+          <p class="mt-1 text-sm text-muted">Curated processes bundled with Bees Desktop and available offline. Add one as-is, or take a copy you can change — copies land in this team above.</p>
         </div>
       </header>
       <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
@@ -2667,7 +2667,7 @@ export function createMainViews(host: MainHost) {
     const workflows = host.workspaceController.processes;
     const selectedWorkflowId = host.shell.newItemProcessId || workflows[0]?.id || "";
     host.shell.swap(`<form class="grid max-w-3xl grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-4" data-new-item>
-        <label class="label-text" for="new-item-workflow">Workflow</label>
+        <label class="label-text" for="new-item-workflow">Process</label>
         ${stage
         ? `<p class="text-sm"><input type="hidden" name="workflow" value="${host.shell.escapeHtml(selectedWorkflowId)}">${host.shell.escapeHtml(workflows.find(({ id }) => id === selectedWorkflowId)?.name ?? "")}</p>`
         : `<select class="select select-bordered w-full" id="new-item-workflow" name="workflow">${workflows
@@ -2686,7 +2686,7 @@ export function createMainViews(host: MainHost) {
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
           <span class="text-sm text-muted">${stage
         ? `Lands in ${host.shell.escapeHtml(stage.name)}`
-        : "Starts at the workflow's first status"}</span>
+        : "Starts at the process's first status"}</span>
         </div>
       </form>`);
   }

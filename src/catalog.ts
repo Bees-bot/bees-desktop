@@ -24,12 +24,12 @@ export const PLUGIN_CATALOG: CatalogSource[] = [
   {
     repo: "wshobson/agents",
     label: "wshobson Plugins",
-    note: "Engineering workflows across 90+ plugins"
+    note: "Engineering processes across 90+ plugins"
   },
   {
     repo: "affaan-m/ECC",
     label: "ECC",
-    note: "Harness optimization and research workflows"
+    note: "Harness optimization and research processes"
   }
 ];
 
