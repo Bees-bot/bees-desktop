@@ -170,6 +170,16 @@ button, input, textarea, select { font: inherit; }
 
 .content-canvas { position: relative; }
 
+/*
+ * The assistant is a fixed slide-over. Above this width the page gives it its own column so the
+ * screen underneath keeps all of its controls; below it, there is not enough room to give and it
+ * covers the page, which is what a slide-over is for. 64rem leaves the content 40rem at the point
+ * the rule starts applying.
+ */
+@media (min-width: 64rem) {
+  body.assistant-open .drawer-content { padding-right: 28rem; }
+}
+
 #notice:empty { display: none; }
 #notice:not(:empty) {
   position: fixed;

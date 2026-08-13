@@ -2843,6 +2843,11 @@ export function createMainViews(host: MainHost) {
     host.shell.assistantPanel.classList.toggle("translate-x-full", !host.assistant.assistantOpen);
     host.shell.assistantPanel.setAttribute("aria-hidden", host.assistant.assistantOpen ? "false" : "true");
     host.shell.assistantPanel.inert = !host.assistant.assistantOpen;
+    // The panel is fixed to the right edge, so while it is open it sat on top of the page — the
+    // New task form lost its inputs and its Create button behind it. Room is made for it instead,
+    // and only where there is room to give: on a narrow window it stays an overlay, which is the
+    // point of a slide-over.
+    document.body.classList.toggle("assistant-open", host.assistant.assistantOpen);
     host.shell.assistantSend.disabled = host.assistant.assistantBusy;
     host.shell.assistantSend.textContent = host.assistant.assistantBusy ? "Working…" : "Send";
     host.shell.assistantModelSlot.innerHTML = assistantModelHtml();
