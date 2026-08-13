@@ -1,12 +1,8 @@
 /**
- * Runs the Bees frontend in an ordinary browser, so the UI can be inspected, measured and driven
- * by a real pointer without a Tauri window in the way. Nothing here ships: the plugin is only
- * added when BEES_HARNESS=1, which `npm run dev:harness` sets and `tauri dev` never does.
- *
- * The seam is `window.__TAURI_INTERNALS__.invoke`. Database commands run against an in-memory
- * SQLite (node:sqlite, a Node 22 builtin — no new dependency); every other command returns a
- * canned value. Unknown commands answer `null` and are logged once, so a missing stub shows up
- * as a named gap rather than a blank page.
+ * Serves the frontend to an ordinary browser so the UI can be measured and clicked without a Tauri
+ * window. Answers the `window.__TAURI_INTERNALS__.invoke` seam: database commands hit an in-memory
+ * SQLite through node:sqlite, the rest return canned values, unknown ones log once and answer null.
+ * Dev only — BEES_HARNESS=1, which `tauri dev` never sets.
  */
 
 import { readFileSync } from "node:fs";
@@ -17,11 +13,7 @@ import { seedStatements } from "./seed.mjs";
 const SCHEMA_PATH = fileURLToPath(new URL("../../src-tauri/schema.sql", import.meta.url));
 const ENDPOINT = "/__harness/invoke";
 
-/**
- * The Rust command layer accepts the wider `DatabaseValue`; node:sqlite binds only null, number,
- * string and bigint. Booleans become 0/1 the way SQLite stores them, and structured values become
- * the JSON text every `json_extract` in the queries already expects.
- */
+/** node:sqlite binds only null/number/string/bigint, so booleans become 0/1 and objects become JSON. */
 function bind(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === "boolean") return value ? 1 : 0;
@@ -78,9 +70,7 @@ export function harnessPlugin() {
   const reported = new Set();
 
   function handle(cmd, args, failing) {
-    // ?fail=cmd,cmd makes those commands reject, which is the only practical way to check that a
-    // launch step degrades instead of replacing the window. Real failures here are a deleted
-    // model file or a moved team folder; this reproduces them without staging either.
+    // ?fail=cmd,cmd reproduces a deleted model file or moved team folder without staging either.
     if (failing.includes(cmd)) throw new Error(`Injected failure for ${cmd}`);
     if (cmd === "db_query")
       return db.prepare(args.sql).all(...(args.params ?? []).map(bind));
@@ -122,8 +112,7 @@ export function harnessPlugin() {
             res.end(JSON.stringify({ ok: true, value: handle(cmd, args ?? {}, fail ?? []) ?? null }));
           }
           catch (error) {
-            // 200 with ok:false on purpose: the client rejects the promise the way a failed
-            // Tauri command does, which is the path the UI's error states are written for.
+            // 200 with ok:false: the client rejects the way a failed Tauri command does.
             res.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
           }
         });

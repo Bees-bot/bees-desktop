@@ -185,13 +185,9 @@ function rawSkill(value: unknown): RawAgentPluginSkill | null {
 }
 
 /**
- * Takes `unknown` rather than the declared package type on purpose. Both callers hand it the
- * resolved value of a Tauri command, and `invoke<T>` asserts T without checking it: a command
- * that fails to build a package resolves with null, and reading `.issues` off that threw
- * `Cannot read properties of null` from three frames away.
- *
- * It throws rather than substituting an empty package. A plugin that cannot be read is not a
- * plugin with no skills — pretending otherwise would install nothing and report success.
+ * Takes `unknown` because `invoke<T>` asserts T without checking it: a command that failed to build
+ * a package resolved null, and reading `.issues` off that threw three frames away. Throws rather
+ * than substituting an empty package, which would install nothing and report success.
  */
 export function parseAgentPlugin(value: unknown): AgentPluginPackage {
   const raw = record(value);
@@ -205,8 +201,7 @@ export function parseAgentPlugin(value: unknown): AgentPluginPackage {
     throw new Error("The installer returned an unreadable plugin package.");
 
   const issues = raw.issues.filter((issue): issue is string => typeof issue === "string");
-  // Entries are screened before `skill` runs: the catch below reports the failure by path, and an
-  // entry malformed enough to have no path would throw a second time inside the handler.
+  // Screened before `skill` runs: the catch reports by path, and an entry without one would throw twice.
   const skills = raw.skills.flatMap((entry) => {
     const candidate = rawSkill(entry);
     if (!candidate) {

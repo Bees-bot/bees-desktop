@@ -200,16 +200,10 @@ export function createWorkspaceController(host: MainHost) {
   }
 
   /*
-   * refresh() is triggered from many independent places — launch, the 30s background sync, window
-   * focus, switching team, signing in or out, a run starting or finishing. Two overlapping calls
-   * both wrote the same module-scoped boards/processes/teamItems and the one that *resolved* last
-   * won, which is not the one that was *asked for* last: switching to Team B while a sync-driven
-   * refresh for Team A was mid-flight could leave Team A's board on screen under Team B's name.
-   *
-   * Serializing is the fix rather than a sequence number, because the writes are spread across the
-   * whole function — a counter would have to be re-checked after every await to be sound, and
-   * would still leave half-applied state behind. Callers arriving during a pass share one
-   * follow-up pass, so a burst of triggers costs two loads, not one per caller.
+   * Seven callers trigger this, and two overlapping ones both wrote the same state — the last to
+   * resolve won rather than the last asked for, so switching team mid-sync left the old board under
+   * the new team's name. Serialized rather than sequence-numbered because the writes span the whole
+   * function; callers arriving mid-pass share one follow-up pass.
    */
   let active: Promise<void> | null = null;
   let queued: Promise<void> | null = null;

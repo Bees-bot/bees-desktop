@@ -62,16 +62,8 @@ export function createAppBootstrap(host: MainHost) {
   }
 
   async function start(): Promise<void> {
-    /*
-     * Launch used to be one try block over roughly twenty-five sequential awaits, so any one of
-     * them — a deleted model file, a moved team folder, a corrupt cache, a backend command not
-     * ready yet — replaced the entire window with an error card. Almost none of those steps are
-     * worth a window: once the workspace has loaded, the rest is enrichment.
-     *
-     * So each of them runs through `step`, which names the failure, keeps its own fallback, and
-     * lets the launch continue. The fatal path below is reserved for the two things with no
-     * useful degraded form: opening the database, and rendering at all.
-     */
+    // Everything past the workspace load is enrichment: a deleted model file or a moved team folder
+    // used to replace the whole window. Each step reports and carries on; only the database is fatal.
     const incomplete: string[] = [];
     async function step<T>(label: string, run: () => Promise<T>, fallback: T): Promise<T> {
       try {
@@ -120,8 +112,7 @@ export function createAppBootstrap(host: MainHost) {
       // Startup reaps orphaned servers, so a model left switched on is down until someone asks
       // again. Only start what is already on disk: runLocalModel downloads first, and a launch is
       // no place to begin a several-gigabyte fetch nobody asked for.
-      // One model whose file was deleted underneath us used to take the whole launch with it:
-      // `list()` polls every seeded model's runtime status through a bare command call.
+      // list() polls every seeded model's runtime, so one deleted file used to take the launch with it.
       const wanted = (await step("Checking local models", () => host.localModels.list(), []))
         .find(({ id, runtime }) => id === host.localModels.wantedRunId && runtime.state === "ready");
       if (wanted)
@@ -156,8 +147,7 @@ export function createAppBootstrap(host: MainHost) {
       // the exact pre-admission message and let Flue converge on the same receipt.
       const resumed = await step("Finding runs to resume", () => host.repository.listNonTerminalExecutions(), []);
       void host.runs.resumeInterruptedRuns(resumed).catch((error) => host.shell.showNotice(errorText(error), "error"));
-      // Reported rather than swallowed: a purge that never completes is a conversation the user
-      // asked to be deleted and which is still there.
+      // A purge that never completes is a conversation the user asked to delete, still sitting there.
       void host.runs.retryConversationPurges().catch((error) =>
         console.warn("Retrying conversation purges failed:", error)
       );
@@ -177,15 +167,11 @@ export function createAppBootstrap(host: MainHost) {
       for (const execution of await step("Reading settled runs", () => host.repository.listPendingExecutionProjections(), [])) {
         await host.runs.applySettledExecution(execution.id, false, false).catch((error) => host.shell.showNotice(errorText(error), "error"));
       }
-      // The densest cluster of backend calls in the launch, and the likeliest single cause of the
-      // error card this whole block replaced.
       await step("Loading the workspace", () => host.workspaceController.refresh(), undefined);
       await step("Preparing the plugin registry", () => host.workspaceController.seedDefaultRegistry(), undefined);
       await step("Installing bundled workflows", () => host.workspaceController.seedInstalledWorkflows(), undefined);
       // Re-copied at launch and after each write, not on every refresh: the snapshot only changes
       // when someone edits the team folder. ponytail: add a watcher if hand-edits need to show sooner.
-      // A team folder moved or deleted outside Bees is an ordinary Monday, not a reason to refuse
-      // to open.
       const teamFolder = await step(
         "Locating the team folder",
         () => host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId),
@@ -221,7 +207,6 @@ export function createAppBootstrap(host: MainHost) {
       const launchUrls = await getCurrentDeepLink().catch(() => null);
       if (launchUrls?.length)
         host.session.routeDeepLink(launchUrls);
-      // One sentence naming what is missing, rather than a stack of toasts or a blank window.
       if (incomplete.length)
         host.shell.showNotice(
           `Bees opened, but ${incomplete.join(", ")} did not finish. Everything else is ready.`,
@@ -229,9 +214,7 @@ export function createAppBootstrap(host: MainHost) {
         );
     }
     catch (error) {
-      // Only `repository.bootstrap()` still reaches this, and there is no degraded form of "the
-      // database did not open" — so the card offers the one thing that can help instead of
-      // leaving the user with a sentence and no control.
+      // Only bootstrap() reaches this now, and "the database did not open" has no degraded form.
       host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
         <div class="hero-content text-center"><div>
           <h2 class="text-xl font-bold">Bees could not open its database</h2>

@@ -4,14 +4,9 @@
 }
 
 /*
- * The Bees themes. Everything in the app draws from these two, and the thirty-odd daisyUI presets
- * stay available under Preferences for anyone who wants them.
- *
- * The palette is deliberately quiet: near-neutral greys carrying a trace of green so the surfaces
- * sit under the accent rather than competing with it, and one accent used only where something is
- * genuinely primary. Radii are 6px for controls and 8px for containers — enough to soften an edge,
- * not enough to read as a row of lozenges. --depth and --noise are off; elevation here comes from
- * a border and, where a surface truly floats, one soft shadow.
+ * The two Bees themes; the daisyUI presets stay available under Preferences. Near-neutral greys with a
+ * trace of green so surfaces sit under the accent, 6px radii on controls and 8px on containers, and
+ * elevation from a border rather than a shadow.
  */
 @plugin "daisyui/theme" {
   name: "bees";
@@ -89,10 +84,7 @@
   --noise: 0;
 }
 
-/*
- * The rest of the foundation. Sizes are named once here and referred to everywhere else, so a
- * control height or a gutter changes in one place rather than thirty.
- */
+/* Named once here so a size changes in one place rather than thirty. */
 @theme {
   --text-caption: 0.75rem;      /* 12px — metadata, section labels */
   --text-body: 0.8125rem;       /* 13px — dense interface text */
@@ -102,7 +94,6 @@
   --text-display: 1.375rem;     /* 22px — the few genuinely large headings */
 
   --motion-fast: 120ms;
-  --motion-base: 160ms;
   --ease-ui: cubic-bezier(0.2, 0, 0.2, 1);
 }
 
@@ -133,15 +124,8 @@ body {
 button, input, textarea, select { font: inherit; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
 
-/*
- * daisyUI gives every badge size a fixed height, so a label long enough to wrap paints its second
- * line outside the pill's own border. Measured: a badge holding a network error in a 320px row
- * overflows its 20px pill by 6px. A badge is a single short label by definition — it stays on one
- * line, and whatever holds it is responsible for the width.
- *
- * A flex child that sets `overflow: hidden` (which `truncate` and `line-clamp` both do) already
- * gets an automatic minimum size of 0, so those need no help here.
- */
+/* daisyUI fixes each badge height, so a wrapping label paints its second line outside the pill —
+   measured 6px over on a network error in a 320px row. One line; the container owns the width. */
 .badge { white-space: nowrap; }
 
 /* ---------------------------------------------------------------- app regions */
@@ -151,10 +135,7 @@ button, input, textarea, select { font: inherit; }
   background-color: var(--color-base-200);
 }
 
-/*
- * Opaque, not translucent. A blurred header tints whatever scrolls under it, which moves the
- * contrast of the title with the content behind it — the one piece of text that must stay legible.
- */
+/* Opaque: a blurred header tints whatever scrolls under it, moving the contrast of the title. */
 .app-header {
   min-height: 3.25rem;
   border-bottom: 1px solid var(--color-base-300);
@@ -170,12 +151,8 @@ button, input, textarea, select { font: inherit; }
 
 .content-canvas { position: relative; }
 
-/*
- * The assistant is a fixed slide-over. Above this width the page gives it its own column so the
- * screen underneath keeps all of its controls; below it, there is not enough room to give and it
- * covers the page, which is what a slide-over is for. 64rem leaves the content 40rem at the point
- * the rule starts applying.
- */
+/* Above this width the page gives the slide-over its own column so the screen keeps its controls;
+   below it there is no room to give. */
 @media (min-width: 64rem) {
   body.assistant-open .drawer-content { padding-right: 28rem; }
 }
@@ -193,11 +170,8 @@ button, input, textarea, select { font: inherit; }
 
 /* ---------------------------------------------------------------- controls */
 
-/*
- * Height comes from the theme's --size-field, not from a rule here: daisyUI derives every size
- * modifier from it, and hard-coding a height on `.btn` also hit `.btn-xs`, which made the sidebar's
- * small row buttons 32px inside a 29px row and pushed 24 of them 3px out of their parent.
- */
+/* Height comes from --size-field; hard-coding it here also hit .btn-xs and pushed 24 sidebar buttons
+   3px out of their row. */
 .btn {
   border-radius: var(--radius-field);
   font-size: var(--text-body);
@@ -206,25 +180,13 @@ button, input, textarea, select { font: inherit; }
 }
 .btn-sm, .btn-xs { font-size: var(--text-caption); }
 
-/*
- * One icon size for every control. Call sites had drifted to three: 16px in most places, 20px on
- * a handful of chrome buttons, and 15px inside circular buttons, which squeeze their content.
- * Setting it here means a new button inherits the right size instead of picking one.
- */
+/* One icon size; call sites had drifted to 16, 20 and 15px. New buttons inherit rather than pick. */
 .btn svg { width: 1rem; height: 1rem; flex: none; }
 .btn-primary { border-color: transparent; box-shadow: none; }
 .btn-ghost:hover { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); }
 .btn:active:not(:disabled) { transform: translateY(0.5px); }
-/*
- * Disabled controls are exempt from the contrast minimum, but several of them carry the only
- * explanation of why the action is unavailable — "Run from the item view" is the button's label,
- * not a tooltip, and at 1.69:1 that sentence was decoration rather than text.
- *
- * daisyUI dims a disabled button twice, with base-content at 20% alpha *and* a container opacity,
- * which multiply. Setting the colour once and leaving opacity alone stops them compounding. Still
- * unmistakably inactive: the cursor, the missing hover and the disabled attribute all say so, so
- * nothing here rests on colour alone.
- */
+/* daisyUI dims a disabled button twice — 20% alpha and a container opacity — which multiply, leaving
+   "Run from the item view" at 1.69:1. That label is the only reason given, so it is coloured once. */
 .btn:disabled, .btn[disabled] {
   opacity: 1;
   color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
@@ -303,11 +265,8 @@ button, input, textarea, select { font: inherit; }
 
 /* ---------------------------------------------------------------- surfaces */
 
-/*
- * A border defines a surface; a shadow is reserved for something that genuinely floats above the
- * page. Sections and cards sit in the layout, so they get the border and nothing else — that is
- * what keeps a settings screen from reading as a stack of floating boxes.
- */
+/* A border defines a surface; a shadow is for something that genuinely floats. Sections sit in the
+   layout, so a settings screen stops reading as a stack of floating boxes. */
 #app > section,
 .card {
   border-color: var(--color-base-300);

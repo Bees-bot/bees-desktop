@@ -1231,8 +1231,7 @@ export function createMainActions(host: MainHost) {
       if (button.dataset.teamView) {
         const teamId = button.dataset.team!;
         const nextView = button.dataset.teamView as View;
-        // Going to a team unfolds it. Otherwise navigating into a team collapsed earlier lands on
-        // a page whose own section in the sidebar is shut.
+        // Otherwise navigating into a collapsed team lands on a page whose sidebar section is shut.
         host.shell.expandTeam(teamId);
         if (teamId !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(teamId, nextView);
@@ -2279,8 +2278,7 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      // Cancelling the process editor returns to the board, dropping whatever was typed and never
-      // saved. Leaving the library is the header's Back control now, like every other nested view.
+      // Drops whatever was typed and never saved. Leaving the library is the header's Back control now.
       if (action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
@@ -2649,13 +2647,9 @@ export function createMainActions(host: MainHost) {
   host.shell.app.addEventListener("submit", (event) => {
     const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
     /**
-     * Runs one submission per form at a time. Every branch below hands its work to a floating
-     * promise, so a double-click on Create — or Enter pressed twice before the write returned —
-     * ran the whole handler again and produced two work items from one submission. The assistant
-     * form further down already guarded itself this way; this is that guard, for all of them.
-     *
-     * Re-enabling a button that render() has since replaced is harmless, and the WeakSet lets a
-     * discarded form be collected without bookkeeping.
+     * One submission per form. Every branch below hands work to a floating promise, so a double-click on
+     * Create ran the handler twice and made two work items. The assistant form already guarded itself;
+     * this is that guard for all of them.
      */
     const once = (form: HTMLFormElement, run: () => Promise<unknown>): void => {
       if (submitting.has(form)) return;
@@ -2897,10 +2891,7 @@ export function createMainActions(host: MainHost) {
 
   host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
 
-  /**
-   * Leaving a detail screen clears what it was about. The board keeps its own scope — which run of
-   * the workflow was open — because that is the context the user is returning to, not a leftover.
-   */
+  /** Clears what the detail screen was about. The board keeps its own scope — that is what you return to. */
   host.shell.viewBack.addEventListener("click", () => {
     const parent = PARENT_VIEW[host.shell.view];
     if (!parent) return;

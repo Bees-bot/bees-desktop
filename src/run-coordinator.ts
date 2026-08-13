@@ -125,11 +125,9 @@ export const tauriRunHost: RunHost = {
         void stop.then((unlisten) => unlisten());
         resolve(event.payload);
       });
-      // The subscription is opened just before hand-over, and hand-over can fail. Without this the
-      // listener stayed for the life of the window, comparing every later run against an id that
-      // could never arrive — one more each time a start failed, in an app built to stay open.
-      // The promise is left unsettled rather than rejected: by this point nothing awaits it, and
-      // rejecting an abandoned promise only trades a leak for an unhandled rejection.
+      // Hand-over can fail, and the listener otherwise outlives the window — one more per failed start.
+      // Left unsettled rather than rejected: nothing awaits it by now, and rejecting only trades the
+      // leak for an unhandled rejection.
       signal?.addEventListener("abort", () => void stop.then((unlisten) => unlisten()), { once: true });
     })
 };
@@ -332,8 +330,7 @@ export class RunCoordinator {
 
       const { baseUrl, token = "" } = await this.launchRuntime();
       // Hand over. From here the run belongs to Rust, whatever happens to this window.
-      // The subscription has to exist before startRun so the event cannot arrive between them,
-      // which means a startRun that throws leaves one behind unless it is cancelled.
+      // Must exist before startRun so the event cannot land between them, so a throw has to cancel it.
       handOver = new AbortController();
       const settled = this.host.awaitSettled(executionId, handOver.signal);
       await this.host.startRun({

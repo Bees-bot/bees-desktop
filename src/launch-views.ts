@@ -130,8 +130,7 @@ export function overviewView(
               <table class="table table-sm"><tbody>${executions
                 .slice(0, 8)
                 .map(
-                  // inline-flex with a minimum height: as a bare inline link the row target was
-                  // 17px tall, under the 24px a pointer can be expected to hit reliably.
+                  // As a bare inline link this target was 17px tall, under the 24px a pointer can reliably hit.
                   (run) => `<tr><td><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
                     itemName(items, run.workItemId)
                   )}</button></td><td>${statusBadge(run.status)}</td><td>${duration(run)}</td><td>${when(run.createdAt)}</td></tr>`
@@ -188,9 +187,8 @@ export function inboxView(
       ({ workItemId, status }) =>
         workItemId === itemId && (status === "failed" || status === "interrupted")
     );
-  // table-fixed, not auto: an auto layout widens a column to fit its longest cell, so the `truncate`
-  // below never clipped anything and a long title dragged the table past the edge of its own box.
-  // Fixed widths on the narrow columns leave Details as the one column that flexes.
+  // table-fixed, not auto: an auto layout widens a column to its longest cell, so `truncate` below never
+  // clipped and a long title dragged the table past its own box. Details is the one column that flexes.
   return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table table-zebra table-fixed">
       <thead><tr>
@@ -466,8 +464,7 @@ export function runView(input: {
             .map((output) => approvalCard(output, busy, taskPlan))
             .join("")}
           <form class="mt-2 border-t border-base-300 pt-4" data-run-followup="${execution.id}">
-            <!-- Per run: a work item with two runs renders this form twice, and a duplicate id
-                 sends every label to the first textarea on the page. -->
+            <!-- Per run: two runs render this twice, and a duplicate id sends every label to the first box. -->
             <label class="sr-only" for="run-followup-message-${execution.id}">Continue conversation</label>
             <textarea id="run-followup-message-${execution.id}" name="message" class="textarea min-h-24 w-full resize-y" maxlength="20000"
               placeholder="${busy ? "Wait for the agent to finish…" : "Ask a follow-up or give more direction…"}" required ${

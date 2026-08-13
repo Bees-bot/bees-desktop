@@ -125,11 +125,9 @@ function synchronizedProcessDefinition(value: unknown): PersistedProcessDefiniti
 }
 
 /**
- * The read path for the same column. A raw JSON.parse over it threw inside a map across every
- * process the team owns, so one unreadable row emptied the whole list and broke the sync
- * projection with it. Null for that row alone: a process whose definition cannot be read has no
- * known statuses, agents or automation, and inventing an inert one would show the user a process
- * that quietly does nothing.
+ * A raw JSON.parse here threw inside a map across every process the team owns, so one bad row emptied
+ * the list and broke the sync projection with it. Null for that row alone — inventing an inert
+ * definition would show a process that silently does nothing.
  */
 function storedProcessDefinition(
   value: DatabaseValue | undefined,
@@ -365,10 +363,9 @@ function outputRow(row: Row): ExecutionOutput {
 }
 
 /**
- * Stored packages are already parsed — re-running `parseAgentPlugin` would re-derive skills from
- * SKILL.md text this row no longer carries, so the shape check is applied to the saved projection
- * instead. Null when the row cannot be read: a registry whose package is unreadable is not a
- * registry with no skills, and presenting it as one would offer the user tools that do not exist.
+ * Stored packages are already parsed, so this checks the saved projection rather than re-deriving
+ * skills from SKILL.md text the row no longer carries. Null when unreadable: listing it as a plugin
+ * with no skills would offer tools that do not exist.
  */
 function storedPlugin(value: DatabaseValue | undefined): Registry["plugin"] | null {
   const candidate = parseJson<unknown>(value, null);
@@ -2180,8 +2177,7 @@ export class LocalRepository {
           updatedAt: stringValue(row.updatedAt)
         }
       })),
-      // A process whose definition cannot be read is left out of the projection rather than
-      // pushed with a null definition, which the server would reject for the whole batch.
+      // Left out rather than pushed with a null definition, which the server rejects for the whole batch.
       ...processes.flatMap((row) => {
         const definition = storedProcessDefinition(row.definitionJson, stringValue(row.id));
         if (!definition) return [];
@@ -2262,10 +2258,8 @@ export class LocalRepository {
         [recordId]
       );
       if (current[0] && stringValue(current[0].updatedAt) >= updatedAt) return;
-      // One transaction, the way the local `deleteFileLocation` already does it. This is a soft
-      // delete, so the mappings row is not reached by ON DELETE CASCADE — the second statement is
-      // the only thing that removes it. Run apart, a crash between the two left the location
-      // invisible while its absolute local path stayed behind with nothing able to clean it up.
+      // Soft delete, so ON DELETE CASCADE never reaches the mappings row and the second statement is the
+      // only thing that removes it. Run apart, a crash between them stranded an absolute local path.
       await this.database.transaction([
         {
           sql: `INSERT INTO file_locations

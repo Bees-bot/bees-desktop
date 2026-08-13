@@ -1246,19 +1246,14 @@ export function createRunController(host: MainHost) {
   }
 
   /**
-   * Items whose start is in flight on this device. `executions` only learns about a new run when
-   * `onCreated` fires, deep inside runCoordinator.start() and well past the first await below, so
-   * the `workItemCondition` check could not see a run that had been asked for and not yet
-   * recorded: two near-simultaneous calls for the same item both read the stale array, both
-   * passed, and both started. Autopilot, a schedule and a button press can coincide exactly.
+   * Items whose start is in flight. `executions` only learns of a run when `onCreated` fires, well
+   * past the first await below, so two near-simultaneous calls both read the stale array and both
+   * started. Autopilot, a schedule and a button press can coincide exactly.
    */
   const startingItemIds = new Set<string>();
 
-  /**
-   * Claimed synchronously — before any await, so there is no window for a second caller to slip
-   * between the check and the claim. The body is `runItemUnguarded` rather than a try block here
-   * so that adding this guard does not reindent two hundred lines of it.
-   */
+  /** Claimed before any await, so nothing can slip between check and claim. Body split out to avoid
+   * reindenting two hundred lines. */
   async function runItem(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
@@ -1584,11 +1579,9 @@ export function createRunController(host: MainHost) {
     if (execution.conversationSnapshot)
       return;
     if (!liveEvents.has(execution.id)) {
-      // The history fetch was already allowed to fail; starting the runtime was not, and it is the
-      // likelier of the two to. Expanding a card whose run has no stored snapshot yet calls this,
-      // so a runtime that will not start stopped the card from opening at all — no panel, no
-      // message, nothing. The live transcript is one part of that panel; everything else on it
-      // reads from the database and is worth showing on its own.
+      // The history fetch could already fail; starting the runtime could not, and it is likelier to.
+      // A runtime that would not start stopped the card opening at all — no panel, no message. The
+      // transcript is one tab; the rest reads from the database and is worth showing regardless.
       const history = await host.ensureFlueRuntime()
         .then(({ baseUrl, token }) => new FlueRuntime(baseUrl, undefined, token)
           .history(runtimeAgentName(execution.agentId), execution.conversationId))

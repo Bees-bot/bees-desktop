@@ -199,9 +199,7 @@ export function createMainViews(host: MainHost) {
         ? `<span class="badge badge-ghost badge-xs ml-auto" title="${open} open task${open === 1 ? "" : "s"}">${open}</span>`
         : item.archivedAt ? '<span class="badge badge-ghost badge-xs ml-auto">Archived</span>' : ""}
       </button>
-      <!-- Revealed on hover and on keyboard focus, never removed from the tab order: an action
-           only reachable with a pointer is not reachable. Absolutely positioned, so appearing
-           moves nothing around it. -->
+      <!-- Hover and keyboard focus, never out of the tab order. Positioned out of flow so it shifts nothing. -->
       <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity
                   group-hover:opacity-100 group-focus-within:opacity-100">
         ${icon("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit)}
@@ -335,9 +333,8 @@ export function createMainViews(host: MainHost) {
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
           const selected = team.id === host.workspaceController.workspace.teamId;
-          // Every team starts open, and navigating into one re-opens it, so the current location is
-          // never behind a fold. Beyond that the user's own choice stands — including on the team
-          // they are in, whose disclosure would otherwise look broken.
+          // Navigating into a team re-opens it, so the current location is never behind a fold. Past that
+          // the user's choice stands, including on the active team — forcing it open looked broken.
           const expanded = !host.shell.teamCollapsed(team.id);
           return `<section class="group/team mb-3 border-t border-base-300 pt-3">
                   <div class="flex items-center">
@@ -351,8 +348,7 @@ export function createMainViews(host: MainHost) {
                       <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
                       <span class="truncate">${host.shell.escapeHtml(team.name)}</span>
                     </button>
-                    <!-- New task stays out where it can be found; the rest of the team's actions
-                         live in its own menu, which is what removes the gear repeated per team. -->
+                    <!-- New task stays visible; the rest move into the team menu, removing the per-team gear. -->
                     <div class="flex shrink-0 items-center pr-2.5 opacity-0 transition-opacity
                                 group-hover/team:opacity-100 group-focus-within/team:opacity-100">
                       <button class="btn btn-square btn-ghost btn-xs" data-action="new-task" data-team="${team.id}" aria-label="New task in ${host.shell.escapeHtml(team.name)}" title="New task">${ACTION_ICONS.add}</button>
@@ -924,10 +920,8 @@ export function createMainViews(host: MainHost) {
     // Looked up in all items, not just visible cards: the Inbox opens filtered/stuck items too.
     const expandedItem = host.workspaceController.items.find(({ id }) => id === expandedItemId) ?? null;
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
-    // activeBoard and activeProcess are re-derived by workspace refresh, which the 30s tick and any
-    // team switch can run while the panel above is still awaiting. They are read bare below, so
-    // they are re-checked here with the rest: the entry guard was for a different moment in time,
-    // and TypeScript keeps the narrowing across the await even though the value can change.
+    // Workspace refresh re-derives both while the panel above is still awaiting, and they are read bare
+    // below. TypeScript keeps the narrowing across the await even though the value can change.
     if (
       host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId
       || !host.workspaceController.activeBoard || !host.workspaceController.activeProcess
@@ -951,9 +945,7 @@ export function createMainViews(host: MainHost) {
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
           <span>${host.workspaceController.openWork(visible).length} item${host.workspaceController.openWork(visible).length === 1 ? "" : "s"}</span>
         </div>
-        <!-- Run is the one thing anybody comes to this toolbar to press. The four that used to sit
-             beside it as equals — three bordered icon buttons and a text button — are things you
-             do occasionally to the workflow, so they moved behind one menu. -->
+        <!-- Run is what this toolbar is for. The four occasional workflow actions moved behind one menu. -->
         <div class="flex flex-wrap items-center gap-2">
           ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
           <div class="dropdown dropdown-end">
@@ -992,8 +984,7 @@ export function createMainViews(host: MainHost) {
                   <div class="card-body gap-3 p-4">
                     <div class="flex items-start justify-between gap-2">
                       <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
-                      <!-- On hover and on keyboard focus, as in the sidebar. The row keeps its
-                           height either way, so cards do not shift as the pointer crosses them. -->
+                      <!-- Hover and focus, as in the sidebar; the row keeps its height so cards never shift. -->
                       <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
                         ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
                         ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
@@ -1206,10 +1197,8 @@ export function createMainViews(host: MainHost) {
       button.type = "button";
     }
     for (const select of host.shell.app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
-      // `swap()` leaves the DOM alone when a render produces identical HTML, so these are usually
-      // the very same elements as last time — while this runs after every render, including the
-      // 30s background tick. Unguarded, leaving the process editor open added one duplicate
-      // handler per idle tick, each rebuilding the thinking list again on the next change.
+      // swap() leaves the DOM alone when a render is identical, so these are usually the same elements —
+      // and this runs after every render, including the 30s tick. Unguarded it bound one handler per tick.
       if (select.dataset.thinkingLinked) continue;
       select.dataset.thinkingLinked = "true";
       const agentId = select.name.slice(0, -":model".length);
@@ -2378,9 +2367,8 @@ export function createMainViews(host: MainHost) {
         rows.push({
           name: "Organizations unavailable",
           account: email,
-          // The one badge in the app holding text of unbounded length — a network error, not a
-          // status word. Capped and hoverable for the rest: kept on one line it would otherwise
-          // run straight out of the panel, measured at 465px inside a 304px row.
+          // The only badge holding unbounded text — a network error, not a status word. Measured 465px in a
+          // 304px row, so it is capped and hoverable for the rest.
           button: `<span class="badge badge-error badge-sm max-w-56 truncate" title="${host.shell.escapeHtml(orgResult.reason)}">${host.shell.escapeHtml(orgResult.reason)}</span>`
         });
       }
@@ -2853,10 +2841,8 @@ export function createMainViews(host: MainHost) {
     host.shell.assistantPanel.classList.toggle("translate-x-full", !host.assistant.assistantOpen);
     host.shell.assistantPanel.setAttribute("aria-hidden", host.assistant.assistantOpen ? "false" : "true");
     host.shell.assistantPanel.inert = !host.assistant.assistantOpen;
-    // The panel is fixed to the right edge, so while it is open it sat on top of the page — the
-    // New task form lost its inputs and its Create button behind it. Room is made for it instead,
-    // and only where there is room to give: on a narrow window it stays an overlay, which is the
-    // point of a slide-over.
+    // Fixed to the right edge, so while open it sat on top of the page and the New task form lost its
+    // inputs and Create button behind it. Room is made only where there is room to give.
     document.body.classList.toggle("assistant-open", host.assistant.assistantOpen);
     host.shell.assistantSend.disabled = host.assistant.assistantBusy;
     host.shell.assistantSend.textContent = host.assistant.assistantBusy ? "Working…" : "Send";

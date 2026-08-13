@@ -1,12 +1,11 @@
 /**
- * Demo database for the browser harness. Deliberately unkind data: titles that are far too long,
- * titles that repeat verbatim, a stage holding far more cards than fit, a team holding none.
- * A design that only survives three-word titles is not a design, it is a screenshot.
+ * Deliberately unkind demo data: titles too long, titles that repeat verbatim, a crowded stage, an
+ * empty team. A layout that only survives three-word titles has not been tested.
  */
 
 const NOW = "2026-08-13T09:00:00.000Z";
 
-/** Fixed clock: a seed that moves makes two screenshots of the same view differ for no reason. */
+/** Fixed clock, so two screenshots of the same view do not differ for no reason. */
 function at(minutesAgo) {
   return new Date(Date.parse(NOW) - minutesAgo * 60_000).toISOString();
 }
@@ -22,7 +21,7 @@ const definition = (renderer, stateIds = {}) =>
     roleBindings: []
   });
 
-/** Long enough to overflow a card, a table cell and a sidebar row — all three clip differently. */
+/** Long enough to overflow a card, a table cell and a sidebar row — each clips differently. */
 const LONG_TITLE =
   "Triage: Supermarket Full-Stack E-commerce Platform rebuild, fixed price INR 37,500 to 75,000, "
   + "skills PHP, Laravel, Vue, MySQL, Redis, Docker — client wants a written estimate first";
