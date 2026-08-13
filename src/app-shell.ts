@@ -337,7 +337,7 @@ export function createAppShell(host: MainHost) {
     rememberView();
     host.views.renderNavigation();
     if (view === "overview") {
-      setHeader("Overview", host.session.currentOrganization()?.name);
+      setHeader("What do you want to do today?", host.session.currentTeam()?.name);
       const models = host.assistant.overviewAssistantModels();
       swap(overviewView(host.workspaceController.teamItems, host.runs.executions, host.runs.executionOutputs.filter(({ status }) => status === "pending"), host.runs.dismissedRunIds, {
         projects: host.workspaceController.organizations,

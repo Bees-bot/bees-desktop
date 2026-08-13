@@ -163,29 +163,20 @@ export function createMainViews(host: MainHost) {
     return `<svg viewBox="0 0 24 24" class="${cls}" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>`;
   }
 
-  /** "Active org: <name> — <who>" line under the org row. Text opens preferences; gear opens org settings. */
+  /** Settings for the organization named by the switcher beside it. */
   function renderActiveOrg(): void {
     const org = host.session.currentOrganization();
-    if (!org) {
-      host.shell.orgStatus.innerHTML = "";
-      return;
-    }
-    const who = host.session.orgIsConnected(org.id) ? (host.session.currentUser()?.email ?? "connected") : "local";
-    host.shell.orgStatus.innerHTML = `<div class="flex items-center gap-1 rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 shadow-sm">
-        <button class="min-w-0 flex-1 text-left" data-view="preferences">
-          <span class="block text-[10px] font-bold uppercase tracking-widest text-base-content/45">Active org</span>
-          <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(org.name)} — ${host.shell.escapeHtml(who)}</span>
-        </button>
-        <button class="btn btn-square btn-ghost btn-xs" data-view="org-settings" aria-label="Organization settings" title="Organization settings">
+    host.shell.orgStatus.innerHTML = org
+      ? `<button class="btn btn-square btn-ghost btn-sm" data-view="org-settings" aria-label="Organization settings" title="Organization settings">
           ${gearIcon()}
-        </button>
-      </div>`;
+        </button>`
+      : "";
   }
 
   /**
    * One process in the left menu — a single row. The name opens its board and always shows the open
-   * task count plus run state (the avatar goes green while running). The four actions ride an overlay
-   * on the right that appears on hover or keyboard focus, so a team of ten processes stays readable.
+   * task count plus run state (the avatar goes green while running). Actions ride an overlay on the
+   * right so they remain visible without reducing the task title's clickable area.
    */
   /**
    * One nav row per top-level task, not per workflow: the workflow's name says nothing about
@@ -208,7 +199,7 @@ export function createMainViews(host: MainHost) {
         ? `<span class="badge badge-ghost badge-xs ml-auto" title="${open} open task${open === 1 ? "" : "s"}">${open}</span>`
         : item.archivedAt ? '<span class="badge badge-ghost badge-xs ml-auto">Archived</span>' : ""}
       </button>
-      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5">
         ${icon("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit)}
         ${item.archivedAt ? "" : icon("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, "text-error")}
       </div>
@@ -270,8 +261,8 @@ export function createMainViews(host: MainHost) {
 
   function renderNavigation(): void {
     renderSidebarHelp();
-    // One icon per connection (org × account), so the same org shows twice if two accounts are in
-    // it. Local orgs get one icon with no account. Hover shows the org name and account email.
+    // One menu item per connection (org × account), so the same org shows twice if two accounts are
+    // in it. Local orgs get one item with no account; the secondary label disambiguates them.
     type Icon = {
       orgId: string;
       userId: string;
@@ -291,20 +282,39 @@ export function createMainViews(host: MainHost) {
         icons.push({ orgId: org.id, userId: "", name: org.name, email: "local" });
     }
     icons.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
-    host.shell.orgRow.innerHTML =
-      icons
-        .map(({ orgId, userId, name, email }) => {
-          const active = orgId === host.workspaceController.workspace.organizationId && userId === host.session.activeUserId;
-          const branding = host.session.brandingFor(orgId);
-          const ring = active ? "ring-2 ring-primary ring-offset-1 ring-offset-base-100" : "";
-          const inner = branding.logo
-            ? `<img src="${host.shell.escapeHtml(branding.logo)}" alt="" class="size-full object-cover">`
-            : `<span class="grid size-full place-items-center text-[11px] font-semibold text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
-          const label = `${name} — ${email}`;
-          return `<button class="btn btn-xs btn-square overflow-hidden p-0 ${ring}" data-action="switch-org" data-id="${orgId}" data-account="${host.shell.escapeHtml(userId)}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${inner}</button>`;
-        })
-        .join("") +
-      `<button class="btn btn-xs btn-square btn-ghost tooltip tooltip-bottom border border-dashed border-base-300" data-action="new-organization" data-tip="Add organization" aria-label="Add organization">+</button>`;
+    const selected = icons.find(({ orgId, userId }) =>
+      orgId === host.workspaceController.workspace.organizationId && userId === host.session.activeUserId);
+    const avatar = ({ orgId, name }: Icon): string => {
+      const branding = host.session.brandingFor(orgId);
+      return branding.logo
+        ? `<span class="size-6 shrink-0 overflow-hidden rounded-md"><img src="${host.shell.escapeHtml(branding.logo)}" alt="" class="size-full object-cover"></span>`
+        : `<span class="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+    };
+    host.shell.orgRow.innerHTML = `<div class="dropdown w-full">
+        <button tabindex="0" class="btn btn-ghost btn-sm w-full justify-start gap-2 px-2" aria-haspopup="menu" aria-label="Switch organization" title="Switch organization">
+          ${selected ? avatar(selected) : ""}
+          <span class="min-w-0 flex-1 truncate text-left">${host.shell.escapeHtml(selected?.name ?? "Choose organization")}</span>
+          <svg viewBox="0 0 24 24" class="size-4 shrink-0 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mt-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          ${icons.map((icon) => {
+            const active = icon === selected;
+            return `<li><button class="${host.shell.activeClass(active)} gap-2" data-action="switch-org" data-id="${icon.orgId}" data-account="${host.shell.escapeHtml(icon.userId)}"${active ? ' aria-current="true"' : ""}>
+                ${avatar(icon)}
+                <span class="min-w-0 flex-1 text-left">
+                  <span class="block truncate">${host.shell.escapeHtml(icon.name)}</span>
+                  <span class="block truncate text-xs font-normal text-base-content/50">${host.shell.escapeHtml(icon.email)}</span>
+                </span>
+                ${active ? '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>' : ""}
+              </button></li>`;
+          }).join("")}
+          ${icons.length ? '<li class="my-1 border-t border-base-300" aria-hidden="true"></li>' : ""}
+          <li><button class="gap-2" data-action="new-organization">
+            <span class="grid size-6 place-items-center text-lg" aria-hidden="true">+</span>
+            Create organization
+          </button></li>
+        </ul>
+      </div>`;
     renderActiveOrg();
     // No active org (e.g. all deleted): teams need an org to belong to, so show nothing here.
     if (!host.workspaceController.workspace.organizationId) {
@@ -314,25 +324,21 @@ export function createMainViews(host: MainHost) {
     }
     // Only the active team has execution/agent state loaded, so only its row can show a live count.
     const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
-    host.shell.teamNav.innerHTML = `<ul class="menu menu-sm mb-4 gap-0.5 px-0">
-        <li><button class="${host.shell.activeClass(host.shell.view === "overview")}" data-view="overview">Overview</button></li>
-      </ul>
-      <div class="mb-2 flex items-center justify-between px-2">
+    host.shell.teamNav.innerHTML = `<div class="mb-2 flex items-center justify-between px-2">
         <span class="text-[11px] font-bold uppercase tracking-widest text-base-content/45">Teams</span>
         <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
       </div>
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
           const selected = team.id === host.workspaceController.workspace.teamId;
-          const teamActions = `opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100`;
-          return `<section class="group mb-3">
+          return `<section class="mb-3 border-t border-base-300 pt-3">
                   <div class="flex items-center">
                     <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-2 ${selected ? "font-bold" : ""}"
                       data-team-view="overview" data-team="${team.id}">
                       <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
                       <span class="truncate">${host.shell.escapeHtml(team.name)}</span>
                     </button>
-                    <div class="flex items-center pr-1 ${selected && host.shell.view === "settings" ? "" : teamActions}">
+                    <div class="flex items-center pr-2.5">
                       <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${team.id}" aria-label="Workflows" title="Workflows">${ACTION_ICONS.workflows}</button>
                       <button class="btn btn-square btn-ghost btn-xs" data-action="new-task" data-team="${team.id}" aria-label="New task" title="New task">${ACTION_ICONS.add}</button>
                       <button class="btn btn-square btn-ghost btn-xs ${selected && host.shell.view === "settings" ? "btn-active" : ""}" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
@@ -341,7 +347,8 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
-                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">Inbox${selected && inboxCount
+                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "overview")}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="truncate">What do you want to do today?</span></button></li>
+                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}Inbox${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
                     ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
@@ -1434,6 +1441,8 @@ export function createMainViews(host: MainHost) {
 
   const ACTION_ICONS = {
     add: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+    assistant: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>',
+    inbox: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16l2 9v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-6l2-9Z"></path><path d="M2 13h5l2 3h6l2-3h5"></path></svg>',
     active: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
     inactive: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"></path><path d="M12 9v5M12 17.5v.5"></path></svg>',
     broken: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>',
