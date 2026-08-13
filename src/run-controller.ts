@@ -1245,7 +1245,36 @@ export function createRunController(host: MainHost) {
     return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
   }
 
+  /**
+   * Items whose start is in flight on this device. `executions` only learns about a new run when
+   * `onCreated` fires, deep inside runCoordinator.start() and well past the first await below, so
+   * the `workItemCondition` check could not see a run that had been asked for and not yet
+   * recorded: two near-simultaneous calls for the same item both read the stale array, both
+   * passed, and both started. Autopilot, a schedule and a button press can coincide exactly.
+   */
+  const startingItemIds = new Set<string>();
+
+  /**
+   * Claimed synchronously — before any await, so there is no window for a second caller to slip
+   * between the check and the claim. The body is `runItemUnguarded` rather than a try block here
+   * so that adding this guard does not reindent two hundred lines of it.
+   */
   async function runItem(itemId: string, auto = false, continuation?: {
+    execution: Execution;
+    message: string;
+  }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {
+    if (startingItemIds.has(itemId))
+      throw new Error("This work item is already starting");
+    startingItemIds.add(itemId);
+    try {
+      await runItemUnguarded(itemId, auto, continuation, restartedFromExecutionId, scheduled);
+    }
+    finally {
+      startingItemIds.delete(itemId);
+    }
+  }
+
+  async function runItemUnguarded(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
   }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {

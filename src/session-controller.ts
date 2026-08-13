@@ -386,15 +386,26 @@ export function createSessionController(host: MainHost) {
   }
 
   /**
+   * Bumped on every attempt. `oauth_await` has no cancellation, and an abandoned browser tab
+   * stays capable of completing the flow at any later time — including after the user gave up
+   * and signed in again a different way. Comparing against this after the wait returns is what
+   * stops that late token from reconnecting a session nobody is looking at anymore.
+   */
+  let oauthAttempt = 0;
+
+  /**
    * Browser-based social sign-in via a loopback listener: the app binds a local port,
    * opens the browser, and the finished OAuth flow redirects the session token back to
    * that port over http. No custom URL scheme, so it works under `tauri dev` too.
    */
   async function socialSignInUser(provider: string): Promise<AuthResult | null> {
+    const attempt = ++oauthAttempt;
     const port = await invoke<number>("oauth_start");
     await openUrl(host.api.socialSignInUrl(provider, `http://127.0.0.1:${port}/callback`));
     host.shell.showNotice(`Continue with ${providerLabel[provider] ?? provider} in your browser`, "success");
     const token = new URLSearchParams(await invoke<string>("oauth_await")).get("token");
+    if (attempt !== oauthAttempt)
+      return null;
     return token ? host.api.resumeSession(token) : null;
   }
 
