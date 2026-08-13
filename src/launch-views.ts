@@ -130,7 +130,9 @@ export function overviewView(
               <table class="table table-sm"><tbody>${executions
                 .slice(0, 8)
                 .map(
-                  (run) => `<tr><td><button class="link link-hover font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
+                  // inline-flex with a minimum height: as a bare inline link the row target was
+                  // 17px tall, under the 24px a pointer can be expected to hit reliably.
+                  (run) => `<tr><td><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
                     itemName(items, run.workItemId)
                   )}</button></td><td>${statusBadge(run.status)}</td><td>${duration(run)}</td><td>${when(run.createdAt)}</td></tr>`
                 )
