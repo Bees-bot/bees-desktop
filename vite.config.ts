@@ -1,8 +1,10 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { harnessPlugin } from "./dev/harness/plugin.mjs";
 
 export default defineConfig({
-  plugins: [tailwindcss()],
+  // harnessPlugin() is null unless BEES_HARNESS=1, so `tauri dev` and every build are untouched.
+  plugins: [tailwindcss(), harnessPlugin()],
   clearScreen: false,
   server: {
     host: "127.0.0.1",
