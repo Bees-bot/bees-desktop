@@ -49,11 +49,7 @@ export function createAppShell(host: MainHost) {
 
   let activeItemId = "";
 
-  /**
-   * Teams the user has folded shut in the sidebar. Held rather than persisted: a team is folded to
-   * get it out of the way while working on another one, which is a fact about right now. The team
-   * being worked in renders open whatever this says.
-   */
+  /** Folded teams. Not persisted: folding one is a fact about right now, not a preference. */
   const collapsedTeams = new Set<string>();
 
   // The kanban card expanded inline under the board, its active tab, and — inside the Files
@@ -321,7 +317,6 @@ export function createAppShell(host: MainHost) {
     title.textContent = name;
     context.textContent = detail ?? [host.session.currentOrganization()?.name, host.session.currentTeam()?.name].filter(Boolean).join(" / ");
     newItem.hidden = view !== "board" || !host.workspaceController.activeProcess;
-    // Driven by the view alone, so a screen cannot forget to offer a way out.
     const parent = PARENT_VIEW[view];
     viewBack.hidden = !parent;
   }

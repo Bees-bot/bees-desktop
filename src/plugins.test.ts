@@ -130,9 +130,7 @@ describe("Agent Plugins 1.0.0", () => {
     expect(plugin.issues[0]).toContain("MCP was disabled");
   });
 
-  // `invoke<T>` asserts its return type without checking it, so a backend command that fails to
-  // build a package resolves with null. Reading `.issues` off that threw
-  // `Cannot read properties of null` from three frames away; it names the problem now.
+  // A command that fails to build a package resolves null; reading `.issues` off that threw.
   it.each([
     ["null", null],
     ["undefined", undefined],

@@ -37,9 +37,8 @@ export const RESTORABLE_VIEWS = new Set<View>([
 ]);
 
 /**
- * Where Back goes from each nested view; anything absent is top level and shows no control. A
- * structural parent, not a history stack — a stack would have to restore the item or run each entry
- * was about, and every destination here rebuilds from the workspace alone.
+ * Where Back goes; anything absent is top level. A structural parent rather than a history stack,
+ * which would have to restore the item or run each entry was about.
  */
 export const PARENT_VIEW: Partial<Record<View, View>> = {
   item: "board",

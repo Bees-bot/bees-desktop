@@ -200,10 +200,8 @@ export function createWorkspaceController(host: MainHost) {
   }
 
   /*
-   * Seven callers trigger this, and two overlapping ones both wrote the same state — the last to
-   * resolve won rather than the last asked for, so switching team mid-sync left the old board under
-   * the new team's name. Serialized rather than sequence-numbered because the writes span the whole
-   * function; callers arriving mid-pass share one follow-up pass.
+   * Seven callers trigger this, and two overlapping ones both wrote the same state — the last to resolve
+   * won, not the last asked for. Serialized rather than sequence-numbered: the writes span the function.
    */
   let active: Promise<void> | null = null;
   let queued: Promise<void> | null = null;

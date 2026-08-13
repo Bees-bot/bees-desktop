@@ -29,7 +29,6 @@ function createDatabase() {
   return db;
 }
 
-/** Commands with no database behind them. Values match what the real backend returns on success. */
 function staticResponses() {
   return {
     api_server_override: "",
@@ -112,7 +111,6 @@ export function harnessPlugin() {
             res.end(JSON.stringify({ ok: true, value: handle(cmd, args ?? {}, fail ?? []) ?? null }));
           }
           catch (error) {
-            // 200 with ok:false: the client rejects the way a failed Tauri command does.
             res.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
           }
         });

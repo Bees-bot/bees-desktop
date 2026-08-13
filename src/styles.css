@@ -76,7 +76,6 @@
   --noise: 0;
 }
 
-/* Named once here so a size changes in one place rather than thirty. */
 @theme {
   --text-caption: 0.75rem;      /* 12px — metadata, section labels */
   --text-body: 0.8125rem;       /* 13px — dense interface text */
@@ -90,7 +89,6 @@
 }
 
 :root {
-  /* The system interface font, so Bees reads as native on macOS and on Windows. */
   font-family: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI",
     system-ui, "Helvetica Neue", Arial, sans-serif;
   font-synthesis: none;
@@ -107,7 +105,6 @@ body {
    failed 4.5:1, so most metadata and helper text was under it; 65% clears both themes. */
 .text-muted { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); }
 
-/* Overlay scrollbars: a track only appears while a region is actually scrolling. */
 * { scrollbar-color: color-mix(in oklab, currentColor 20%, transparent) transparent; }
 button, input, textarea, select { font: inherit; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
@@ -192,7 +189,6 @@ button, input, textarea, select { font: inherit; }
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent);
 }
 
-/* One focus ring, everywhere, strong enough to find on any surface. */
 :where(button, input, textarea, select, a[href], [role="button"], [tabindex]):focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;

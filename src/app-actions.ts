@@ -2278,7 +2278,6 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      // Drops whatever was typed and never saved. Leaving the library is the header's Back control now.
       if (action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
@@ -2335,7 +2334,6 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      // Only the sidebar changes, so this redraws the navigation rather than the whole view.
       if (action === "toggle-team") {
         host.shell.toggleTeamCollapsed(button.dataset.team!);
         host.views.renderNavigation();
@@ -2646,11 +2644,7 @@ export function createMainActions(host: MainHost) {
 
   host.shell.app.addEventListener("submit", (event) => {
     const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
-    /**
-     * One submission per form. Every branch below hands work to a floating promise, so a double-click on
-     * Create ran the handler twice and made two work items. The assistant form already guarded itself;
-     * this is that guard for all of them.
-     */
+    /** Every branch hands work to a floating promise, so a double-click on Create made two work items. */
     const once = (form: HTMLFormElement, run: () => Promise<unknown>): void => {
       if (submitting.has(form)) return;
       submitting.add(form);
@@ -2891,7 +2885,6 @@ export function createMainActions(host: MainHost) {
 
   host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
 
-  /** Clears what the detail screen was about. The board keeps its own scope — that is what you return to. */
   host.shell.viewBack.addEventListener("click", () => {
     const parent = PARENT_VIEW[host.shell.view];
     if (!parent) return;

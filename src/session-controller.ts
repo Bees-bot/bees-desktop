@@ -385,12 +385,7 @@ export function createSessionController(host: MainHost) {
     return host.api.signUpEmail(String(data.get("name") ?? ""), String(data.get("email") ?? ""), String(data.get("password") ?? ""));
   }
 
-  /**
-   * Bumped on every attempt. `oauth_await` has no cancellation, and an abandoned browser tab
-   * stays capable of completing the flow at any later time — including after the user gave up
-   * and signed in again a different way. Comparing against this after the wait returns is what
-   * stops that late token from reconnecting a session nobody is looking at anymore.
-   */
+  /** `oauth_await` cannot be cancelled, so an abandoned tab can still resume a session much later. */
   let oauthAttempt = 0;
 
   /**

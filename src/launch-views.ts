@@ -130,7 +130,7 @@ export function overviewView(
               <table class="table table-sm"><tbody>${executions
                 .slice(0, 8)
                 .map(
-                  // As a bare inline link this target was 17px tall, under the 24px a pointer can reliably hit.
+                  // A bare inline link here was 17px tall, under the 24px a pointer reliably hits.
                   (run) => `<tr><td><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
                     itemName(items, run.workItemId)
                   )}</button></td><td>${statusBadge(run.status)}</td><td>${duration(run)}</td><td>${when(run.createdAt)}</td></tr>`
@@ -187,8 +187,7 @@ export function inboxView(
       ({ workItemId, status }) =>
         workItemId === itemId && (status === "failed" || status === "interrupted")
     );
-  // table-fixed, not auto: an auto layout widens a column to its longest cell, so `truncate` below never
-  // clipped and a long title dragged the table past its own box. Details is the one column that flexes.
+  // An auto layout widens a column to its longest cell, so `truncate` below never clipped anything.
   return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table table-zebra table-fixed">
       <thead><tr>

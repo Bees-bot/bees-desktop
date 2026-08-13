@@ -112,7 +112,6 @@ export function createAppBootstrap(host: MainHost) {
       // Startup reaps orphaned servers, so a model left switched on is down until someone asks
       // again. Only start what is already on disk: runLocalModel downloads first, and a launch is
       // no place to begin a several-gigabyte fetch nobody asked for.
-      // list() polls every seeded model's runtime, so one deleted file used to take the launch with it.
       const wanted = (await step("Checking local models", () => host.localModels.list(), []))
         .find(({ id, runtime }) => id === host.localModels.wantedRunId && runtime.state === "ready");
       if (wanted)
@@ -147,7 +146,6 @@ export function createAppBootstrap(host: MainHost) {
       // the exact pre-admission message and let Flue converge on the same receipt.
       const resumed = await step("Finding runs to resume", () => host.repository.listNonTerminalExecutions(), []);
       void host.runs.resumeInterruptedRuns(resumed).catch((error) => host.shell.showNotice(errorText(error), "error"));
-      // A purge that never completes is a conversation the user asked to delete, still sitting there.
       void host.runs.retryConversationPurges().catch((error) =>
         console.warn("Retrying conversation purges failed:", error)
       );
@@ -214,7 +212,6 @@ export function createAppBootstrap(host: MainHost) {
         );
     }
     catch (error) {
-      // Only bootstrap() reaches this now, and "the database did not open" has no degraded form.
       host.shell.swap(`<div class="hero min-h-80 rounded-box border border-dashed border-base-300 bg-base-100">
         <div class="hero-content text-center"><div>
           <h2 class="text-xl font-bold">Bees could not open its database</h2>

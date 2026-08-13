@@ -65,7 +65,6 @@ export function seedStatements() {
     ["st-gdone", "proc-goals", "Done", 4, 1]
   ]);
 
-  // Triage holds six so the column overflows; three share a title so truncation has to earn its keep.
   const item = (id, processId, stageId, title, description, ago) =>
     [id, processId, stageId, title, description, at(ago + 30), at(ago)];
   insert("work_items", "id, process_id, stage_id, title, description, created_at, updated_at", [
@@ -102,7 +101,6 @@ export function seedStatements() {
       run("ex-6", "wi-10", "interrupted", 14, at(13))
     ]);
 
-  // Pending outputs are what puts a card in "Waiting for your approval".
   insert("execution_outputs",
     "id, execution_id, logical_output, logical_destination, status, created_at", [
       ["eo-1", "ex-2", "proposal.md", "proposals/", "pending", at(20)],

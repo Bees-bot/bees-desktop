@@ -1245,15 +1245,10 @@ export function createRunController(host: MainHost) {
     return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
   }
 
-  /**
-   * Items whose start is in flight. `executions` only learns of a run when `onCreated` fires, well
-   * past the first await below, so two near-simultaneous calls both read the stale array and both
-   * started. Autopilot, a schedule and a button press can coincide exactly.
-   */
+  /** `executions` only learns of a run at `onCreated`, so two near-simultaneous calls both started. */
   const startingItemIds = new Set<string>();
 
-  /** Claimed before any await, so nothing can slip between check and claim. Body split out to avoid
-   * reindenting two hundred lines. */
+  /** Claimed before any await. Body split out so the guard does not reindent two hundred lines. */
   async function runItem(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
@@ -1579,9 +1574,8 @@ export function createRunController(host: MainHost) {
     if (execution.conversationSnapshot)
       return;
     if (!liveEvents.has(execution.id)) {
-      // The history fetch could already fail; starting the runtime could not, and it is likelier to.
-      // A runtime that would not start stopped the card opening at all — no panel, no message. The
-      // transcript is one tab; the rest reads from the database and is worth showing regardless.
+      // The history fetch could already fail, the runtime start could not — so a dead runtime stopped
+      // the card opening at all. The transcript is one tab; the rest reads from the database.
       const history = await host.ensureFlueRuntime()
         .then(({ baseUrl, token }) => new FlueRuntime(baseUrl, undefined, token)
           .history(runtimeAgentName(execution.agentId), execution.conversationId))

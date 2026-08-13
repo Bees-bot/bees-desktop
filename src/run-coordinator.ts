@@ -125,9 +125,8 @@ export const tauriRunHost: RunHost = {
         void stop.then((unlisten) => unlisten());
         resolve(event.payload);
       });
-      // Hand-over can fail, and the listener otherwise outlives the window — one more per failed start.
-      // Left unsettled rather than rejected: nothing awaits it by now, and rejecting only trades the
-      // leak for an unhandled rejection.
+      // Hand-over can fail, and the listener otherwise outlives the window. Left unsettled rather than
+      // rejected: nothing awaits it by now.
       signal?.addEventListener("abort", () => void stop.then((unlisten) => unlisten()), { once: true });
     })
 };
@@ -258,7 +257,6 @@ export class RunCoordinator {
     const deliveryId = crypto.randomUUID();
     let workspacePath = "";
     let handedOff = false;
-    /** Cancels the settle subscription if the run never reaches Rust. Null until it is opened. */
     let handOver: AbortController | null = null;
     try {
       workspacePath = request.projectWorkItemId

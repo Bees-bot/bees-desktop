@@ -333,8 +333,7 @@ export function createMainViews(host: MainHost) {
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
           const selected = team.id === host.workspaceController.workspace.teamId;
-          // Navigating into a team re-opens it, so the current location is never behind a fold. Past that
-          // the user's choice stands, including on the active team — forcing it open looked broken.
+          // Entering a team re-opens it; past that the user's choice stands, even on the active team.
           const expanded = !host.shell.teamCollapsed(team.id);
           return `<section class="group/team mb-3 border-t border-base-300 pt-3">
                   <div class="flex items-center">
@@ -920,8 +919,7 @@ export function createMainViews(host: MainHost) {
     // Looked up in all items, not just visible cards: the Inbox opens filtered/stuck items too.
     const expandedItem = host.workspaceController.items.find(({ id }) => id === expandedItemId) ?? null;
     const panel = expandedItem ? await renderBoardItemPanel(expandedItem, host.workspaceController.activeProcess) : "";
-    // Workspace refresh re-derives both while the panel above is still awaiting, and they are read bare
-    // below. TypeScript keeps the narrowing across the await even though the value can change.
+    // Refresh can null both during the await above; TypeScript keeps the narrowing across it.
     if (
       host.shell.view !== "board" || host.shell.boardItemId !== expandedItemId
       || !host.workspaceController.activeBoard || !host.workspaceController.activeProcess
@@ -984,14 +982,12 @@ export function createMainViews(host: MainHost) {
                   <div class="card-body gap-3 p-4">
                     <div class="flex items-start justify-between gap-2">
                       <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
-                      <!-- Hover and focus, as in the sidebar; the row keeps its height so cards never shift. -->
                       <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
                         ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
                         ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
                       </div>
                     </div>
                     ${item.description
-                      // An empty description is silence, not the words "No description".
                       ? `<p class="line-clamp-3 text-xs leading-relaxed text-muted">${host.shell.escapeHtml(item.description)}</p>`
                       : ""}
                     <div class="flex flex-wrap items-center gap-2">
@@ -1197,8 +1193,7 @@ export function createMainViews(host: MainHost) {
       button.type = "button";
     }
     for (const select of host.shell.app.querySelectorAll<HTMLSelectElement>('select[name$=":model"]')) {
-      // swap() leaves the DOM alone when a render is identical, so these are usually the same elements —
-      // and this runs after every render, including the 30s tick. Unguarded it bound one handler per tick.
+      // swap() leaves an identical render alone, so unguarded this bound one handler per 30s tick.
       if (select.dataset.thinkingLinked) continue;
       select.dataset.thinkingLinked = "true";
       const agentId = select.name.slice(0, -":model".length);
@@ -2367,8 +2362,7 @@ export function createMainViews(host: MainHost) {
         rows.push({
           name: "Organizations unavailable",
           account: email,
-          // The only badge holding unbounded text — a network error, not a status word. Measured 465px in a
-          // 304px row, so it is capped and hoverable for the rest.
+          // The only badge holding unbounded text; measured 465px in a 304px row.
           button: `<span class="badge badge-error badge-sm max-w-56 truncate" title="${host.shell.escapeHtml(orgResult.reason)}">${host.shell.escapeHtml(orgResult.reason)}</span>`
         });
       }
@@ -2841,8 +2835,7 @@ export function createMainViews(host: MainHost) {
     host.shell.assistantPanel.classList.toggle("translate-x-full", !host.assistant.assistantOpen);
     host.shell.assistantPanel.setAttribute("aria-hidden", host.assistant.assistantOpen ? "false" : "true");
     host.shell.assistantPanel.inert = !host.assistant.assistantOpen;
-    // Fixed to the right edge, so while open it sat on top of the page and the New task form lost its
-    // inputs and Create button behind it. Room is made only where there is room to give.
+    // Fixed to the right edge, so open it covered the New task form's inputs and Create button.
     document.body.classList.toggle("assistant-open", host.assistant.assistantOpen);
     host.shell.assistantSend.disabled = host.assistant.assistantBusy;
     host.shell.assistantSend.textContent = host.assistant.assistantBusy ? "Working…" : "Send";

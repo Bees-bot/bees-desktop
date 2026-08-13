@@ -73,8 +73,7 @@ export class MetadataSyncService {
     projection.forEach((record) => assertMetadataOnly(record.payload));
     await this.transport.push(organizationId, projection);
     const pulled = await this.transport.pull(organizationId, currentCursor);
-    // A 200 carrying an error envelope has no records, and spreading undefined threw before the cursor
-    // could move — so the same batch failed identically on every later attempt.
+    // A 200 carrying an error envelope has no records, and spreading undefined threw before the cursor moved.
     const records = Array.isArray(pulled?.records) ? pulled.records : [];
     const cursor = typeof pulled?.cursor === "string" ? pulled.cursor : currentCursor;
     const ordered = [...records].sort(
@@ -82,8 +81,7 @@ export class MetadataSyncService {
         ["file_location", "process", "stage", "work_item"].indexOf(a.recordType) -
         ["file_location", "process", "stage", "work_item"].indexOf(b.recordType)
     );
-    // One unusable record used to abort the loop before the cursor advanced, so every later sync
-    // re-pulled the same poison batch. Skipping it costs one row; stopping costs sync entirely.
+    // One bad record used to abort before the cursor advanced, so every later sync re-pulled it.
     let applied = 0;
     const skipped: string[] = [];
     for (const record of ordered) {

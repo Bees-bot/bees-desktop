@@ -34,8 +34,7 @@ describe("MetadataSyncService.synchronize", () => {
     expect(completed).toEqual(["9"]);
   });
 
-  // The wedge: one unusable record aborted the loop before the cursor moved, so the next sync pulled
-  // the same batch and failed on the same record — permanently, with no way out.
+  // The wedge: one bad record aborted the loop before the cursor moved, so the next sync repeated it.
   it("skips an unusable record, keeps the rest, and still advances the cursor", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { applied, completed, service } = sync(

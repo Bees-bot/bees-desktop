@@ -2258,8 +2258,7 @@ export class LocalRepository {
         [recordId]
       );
       if (current[0] && stringValue(current[0].updatedAt) >= updatedAt) return;
-      // Soft delete, so ON DELETE CASCADE never reaches the mappings row and the second statement is the
-      // only thing that removes it. Run apart, a crash between them stranded an absolute local path.
+      // Soft delete, so no cascade reaches the mappings row; run apart, a crash stranded a local path.
       await this.database.transaction([
         {
           sql: `INSERT INTO file_locations
