@@ -77,7 +77,11 @@ export function harnessPlugin() {
   const canned = staticResponses();
   const reported = new Set();
 
-  function handle(cmd, args) {
+  function handle(cmd, args, failing) {
+    // ?fail=cmd,cmd makes those commands reject, which is the only practical way to check that a
+    // launch step degrades instead of replacing the window. Real failures here are a deleted
+    // model file or a moved team folder; this reproduces them without staging either.
+    if (failing.includes(cmd)) throw new Error(`Injected failure for ${cmd}`);
     if (cmd === "db_query")
       return db.prepare(args.sql).all(...(args.params ?? []).map(bind));
     if (cmd === "db_execute")
@@ -114,8 +118,8 @@ export function harnessPlugin() {
         req.on("end", () => {
           res.setHeader("Content-Type", "application/json");
           try {
-            const { cmd, args } = JSON.parse(body || "{}");
-            res.end(JSON.stringify({ ok: true, value: handle(cmd, args ?? {}) ?? null }));
+            const { cmd, args, fail } = JSON.parse(body || "{}");
+            res.end(JSON.stringify({ ok: true, value: handle(cmd, args ?? {}, fail ?? []) ?? null }));
           }
           catch (error) {
             // 200 with ok:false on purpose: the client rejects the promise the way a failed
@@ -133,12 +137,14 @@ export function harnessPlugin() {
           (() => {
             const callbacks = new Map();
             let nextCallback = 1;
+            const fail = (new URLSearchParams(location.search).get("fail") || "")
+              .split(",").filter(Boolean);
             window.__TAURI_INTERNALS__ = {
               async invoke(cmd, args) {
                 const response = await fetch(${JSON.stringify(ENDPOINT)}, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cmd, args })
+                  body: JSON.stringify({ cmd, args, fail })
                 });
                 const result = await response.json();
                 if (!result.ok) throw new Error(result.error);
