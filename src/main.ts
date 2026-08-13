@@ -206,6 +206,9 @@ export interface AppShell {
   boardItemId: string;
   boardRootItemId: string;
   boardTab: BoardItemTab;
+  teamCollapsed: (teamId: string) => boolean;
+  toggleTeamCollapsed: (teamId: string) => void;
+  expandTeam: (teamId: string) => void;
   configAgentId: string;
   configProcessId: string;
   darkDefaultTheme: ThemePreset;

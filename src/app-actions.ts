@@ -1231,6 +1231,9 @@ export function createMainActions(host: MainHost) {
       if (button.dataset.teamView) {
         const teamId = button.dataset.team!;
         const nextView = button.dataset.teamView as View;
+        // Going to a team unfolds it. Otherwise navigating into a team collapsed earlier lands on
+        // a page whose own section in the sidebar is shut.
+        host.shell.expandTeam(teamId);
         if (teamId !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(teamId, nextView);
         else {
@@ -2332,6 +2335,12 @@ export function createMainActions(host: MainHost) {
         // Clicking the open step again closes it, so the sequence can be read on its own.
         host.shell.openRunStepId = host.shell.openRunStepId === button.dataset.id! ? "" : button.dataset.id!;
         host.shell.render();
+        return;
+      }
+      // Only the sidebar changes, so this redraws the navigation rather than the whole view.
+      if (action === "toggle-team") {
+        host.shell.toggleTeamCollapsed(button.dataset.team!);
+        host.views.renderNavigation();
         return;
       }
       if (action === "archive-done") {

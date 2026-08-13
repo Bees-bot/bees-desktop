@@ -49,6 +49,13 @@ export function createAppShell(host: MainHost) {
 
   let activeItemId = "";
 
+  /**
+   * Teams the user has folded shut in the sidebar. Held rather than persisted: a team is folded to
+   * get it out of the way while working on another one, which is a fact about right now. The team
+   * being worked in renders open whatever this says.
+   */
+  const collapsedTeams = new Set<string>();
+
   // The kanban card expanded inline under the board, its active tab, and — inside the Files
   // tab — the file being previewed or edited. Empty `boardItemId` means no card is expanded.
   let boardItemId = "";
@@ -433,6 +440,11 @@ export function createAppShell(host: MainHost) {
     set boardRootItemId(value: typeof boardRootItemId) { boardRootItemId = value; },
     get boardTab() { return boardTab; },
     set boardTab(value: typeof boardTab) { boardTab = value; },
+    teamCollapsed: (teamId: string) => collapsedTeams.has(teamId),
+    toggleTeamCollapsed: (teamId: string) => {
+      if (!collapsedTeams.delete(teamId)) collapsedTeams.add(teamId);
+    },
+    expandTeam: (teamId: string) => collapsedTeams.delete(teamId),
     get boardFileRef() { return boardFileRef; },
     set boardFileRef(value: typeof boardFileRef) { boardFileRef = value; },
     get boardFileEditing() { return boardFileEditing; },

@@ -199,7 +199,11 @@ export function createMainViews(host: MainHost) {
         ? `<span class="badge badge-ghost badge-xs ml-auto" title="${open} open task${open === 1 ? "" : "s"}">${open}</span>`
         : item.archivedAt ? '<span class="badge badge-ghost badge-xs ml-auto">Archived</span>' : ""}
       </button>
-      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5">
+      <!-- Revealed on hover and on keyboard focus, never removed from the tab order: an action
+           only reachable with a pointer is not reachable. Absolutely positioned, so appearing
+           moves nothing around it. -->
+      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity
+                  group-hover:opacity-100 group-focus-within:opacity-100">
         ${icon("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit)}
         ${item.archivedAt ? "" : icon("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, "text-error")}
       </div>
@@ -331,22 +335,40 @@ export function createMainViews(host: MainHost) {
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
           const selected = team.id === host.workspaceController.workspace.teamId;
-          return `<section class="mb-3 border-t border-base-300 pt-3">
+          // Every team starts open, and navigating into one re-opens it, so the current location is
+          // never behind a fold. Beyond that the user's own choice stands — including on the team
+          // they are in, whose disclosure would otherwise look broken.
+          const expanded = !host.shell.teamCollapsed(team.id);
+          return `<section class="group/team mb-3 border-t border-base-300 pt-3">
                   <div class="flex items-center">
-                    <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-2 ${selected ? "font-bold" : ""}"
+                    <button class="btn btn-square btn-ghost btn-xs shrink-0" data-action="toggle-team" data-team="${team.id}"
+                      aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${host.shell.escapeHtml(team.name)}"
+                      title="${expanded ? "Collapse" : "Expand"} ${host.shell.escapeHtml(team.name)}">
+                      <svg viewBox="0 0 24 24" class="size-4 transition-transform ${expanded ? "rotate-90" : ""}" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                    </button>
+                    <button class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start gap-2 px-2 ${selected ? "font-semibold" : ""}"
                       data-team-view="overview" data-team="${team.id}">
-                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
+                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
                       <span class="truncate">${host.shell.escapeHtml(team.name)}</span>
                     </button>
-                    <div class="flex items-center pr-2.5">
-                      <button class="btn btn-square btn-ghost btn-xs" data-action="browse-process-library" data-team="${team.id}" aria-label="Workflows" title="Workflows">${ACTION_ICONS.workflows}</button>
-                      <button class="btn btn-square btn-ghost btn-xs" data-action="new-task" data-team="${team.id}" aria-label="New task" title="New task">${ACTION_ICONS.add}</button>
-                      <button class="btn btn-square btn-ghost btn-xs ${selected && host.shell.view === "settings" ? "btn-active" : ""}" data-team-view="settings" data-team="${team.id}" aria-label="Team settings" title="Team settings">
-                        ${gearIcon()}
-                      </button>
+                    <!-- New task stays out where it can be found; the rest of the team's actions
+                         live in its own menu, which is what removes the gear repeated per team. -->
+                    <div class="flex shrink-0 items-center pr-2.5 opacity-0 transition-opacity
+                                group-hover/team:opacity-100 group-focus-within/team:opacity-100">
+                      <button class="btn btn-square btn-ghost btn-xs" data-action="new-task" data-team="${team.id}" aria-label="New task in ${host.shell.escapeHtml(team.name)}" title="New task">${ACTION_ICONS.add}</button>
+                      <div class="dropdown dropdown-end">
+                        <button tabindex="0" class="btn btn-square btn-ghost btn-xs" aria-haspopup="menu"
+                          aria-label="More actions for ${host.shell.escapeHtml(team.name)}" title="More actions">
+                          <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
+                        </button>
+                        <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-52 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+                          <li><button data-action="browse-process-library" data-team="${team.id}">Workflows</button></li>
+                          <li><button data-team-view="settings" data-team="${team.id}">Team settings</button></li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
-                  <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
+                  <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0 ${expanded ? "" : "hidden"}">
                     <li><button class="${host.shell.activeClass(selected && host.shell.view === "overview")}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">What do you want to do today?</span></button></li>
                     <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}Inbox${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
