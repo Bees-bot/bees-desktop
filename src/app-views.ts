@@ -1428,7 +1428,6 @@ export function createMainViews(host: MainHost) {
     host.shell.swap(`<section class="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
-          <button class="link link-primary mb-2 text-sm" data-action="close-process-library">← Back to the board</button>
           <h2 class="font-bold">In this team</h2>
           <p class="mt-1 text-sm text-muted">Edit a workflow's statuses and agents, or delete one you no longer run.</p>
         </div>

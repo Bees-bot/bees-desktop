@@ -19,7 +19,7 @@ import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js
 import { renderMarkdown } from "./markdown.js";
 import { type SearchHit } from "./repository.js";
 import { escalationGroups } from "./supervision.js";
-import { LAST_VIEW_KEY, RESTORABLE_VIEWS, type BoardItemTab, type View } from "./views.js";
+import { LAST_VIEW_KEY, PARENT_VIEW, RESTORABLE_VIEWS, type BoardItemTab, type View } from "./views.js";
 
 export function createAppShell(host: MainHost) {
   // daisyUI themes that ship a dark color-scheme (drive the native colorScheme + toggle icon).
@@ -130,6 +130,7 @@ export function createAppShell(host: MainHost) {
   const notice = document.querySelector<HTMLElement>("#notice")!;
 
   const newItem = document.querySelector<HTMLButtonElement>("#new-item")!;
+  const viewBack = document.querySelector<HTMLButtonElement>("#view-back")!;
 
   const themeToggle = document.querySelector<HTMLButtonElement>("#theme-toggle")!;
 
@@ -320,6 +321,9 @@ export function createAppShell(host: MainHost) {
     title.textContent = name;
     context.textContent = detail ?? [host.session.currentOrganization()?.name, host.session.currentTeam()?.name].filter(Boolean).join(" / ");
     newItem.hidden = view !== "board" || !host.workspaceController.activeProcess;
+    // Driven by the view alone, so a screen cannot forget to offer a way out.
+    const parent = PARENT_VIEW[view];
+    viewBack.hidden = !parent;
   }
 
   function activeClass(selected: boolean): string {
@@ -487,6 +491,7 @@ export function createAppShell(host: MainHost) {
     set themePreset(value: typeof themePreset) { themePreset = value; },
     app,
     newItem,
+    viewBack,
     assistantPanel,
     assistantToggle,
     assistantLog,

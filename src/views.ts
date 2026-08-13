@@ -36,6 +36,27 @@ export const RESTORABLE_VIEWS = new Set<View>([
   "getting-started"
 ]);
 
+/**
+ * Where the Back control goes from each nested view. A structural parent rather than a history
+ * stack: a stack would have to restore the item, run or process each entry was about, and a Back
+ * that lands on a page about nothing is worse than no Back at all. Every destination here is a
+ * view that rebuilds from the workspace alone, so it is always somewhere real.
+ *
+ * Views absent from this map are top level and show no Back control.
+ */
+export const PARENT_VIEW: Partial<Record<View, View>> = {
+  item: "board",
+  "item-new": "board",
+  run: "board",
+  process: "board",
+  "process-runs": "process",
+  "process-library": "board",
+  schedules: "board",
+  settings: "overview",
+  "org-settings": "overview",
+  preferences: "overview"
+};
+
 export const LAST_VIEW_KEY = "ui_last_view";
 
 /**

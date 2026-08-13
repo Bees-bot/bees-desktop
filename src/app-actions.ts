@@ -126,7 +126,7 @@ import {
   parseTourTarget,
   type TourStep
 } from "./tour.js";
-import { type BoardItemTab, type View } from "./views.js";
+import { PARENT_VIEW, type BoardItemTab, type View } from "./views.js";
 
 export function createMainActions(host: MainHost) {
   /**
@@ -2279,9 +2279,9 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      // Leaving the library or the process editor both mean the same thing: back to the board,
-      // dropping whatever was typed and never saved.
-      if (action === "close-process-library" || action === "close-process-editor") {
+      // Cancelling the process editor returns to the board, dropping whatever was typed and never
+      // saved. Leaving the library is the header's Back control now, like every other nested view.
+      if (action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
         return;
@@ -2896,6 +2896,19 @@ export function createMainActions(host: MainHost) {
   });
 
   host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
+
+  /**
+   * Leaving a detail screen clears what it was about. The board keeps its own scope — which run of
+   * the workflow was open — because that is the context the user is returning to, not a leftover.
+   */
+  host.shell.viewBack.addEventListener("click", () => {
+    const parent = PARENT_VIEW[host.shell.view];
+    if (!parent) return;
+    host.shell.activeItemId = "";
+    host.shell.activeExecutionId = "";
+    host.shell.view = parent;
+    host.shell.render();
+  });
 
   async function sendAssistantMessage(message: string): Promise<void> {
     host.assistant.assistantLogEntries.push({ role: "you", text: message });
