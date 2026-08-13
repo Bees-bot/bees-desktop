@@ -133,7 +133,7 @@ export function createMainActions(host: MainHost) {
    * before anything is written: agent by agent, swapping two agents' statuses would be rejected
    * because the first write leaves the second one's old status still taken.
    */
-  async function saveProcessAgents(form: HTMLFormElement, notify = true, excludedAgentId = ""): Promise<void> {
+  async function saveProcessAgents(form: HTMLFormElement, notify = true, excludedAgentId = "", draft = false): Promise<void> {
     const edits = [...form.querySelectorAll<HTMLElement>("[data-agent-pane]")]
       .map((pane) => host.workspaceController.agents.find(({ id }) => id === pane.dataset.agentPane))
       .filter((agent): agent is Agent => agent !== undefined && agent.id !== excludedAgentId)
@@ -163,7 +163,7 @@ export function createMainActions(host: MainHost) {
       throw new Error(`${conflict.first} and ${conflict.second} would both run on ${host.views.stageName(conflict.triggerStageId) ?? "one status"}`);
     }
     for (const { agent, data } of edits) {
-      await applyAgentEdit(agent, data);
+      await applyAgentEdit(agent, data, draft);
       if (data.get("enabled"))
         host.runs.disabledAgentIds.delete(agent.id);
       else
@@ -176,10 +176,10 @@ export function createMainActions(host: MainHost) {
   }
 
   /** Writes the open edits before an action that re-renders the screen, so no typing is lost. */
-  async function commitProcessAgentEdits(excludedAgentId = ""): Promise<void> {
+  async function commitProcessAgentEdits(excludedAgentId = "", draft = false): Promise<void> {
     const form = host.shell.app.querySelector<HTMLFormElement>("form[data-process-agents]");
     if (form)
-      await saveProcessAgents(form, false, excludedAgentId);
+      await saveProcessAgents(form, false, excludedAgentId, draft);
   }
 
   /**
@@ -412,7 +412,7 @@ export function createMainActions(host: MainHost) {
    * Writes one agent from editor fields. The trigger is taken as given: callers that edit several
    * agents at once check the statuses across the whole set first — see `saveProcessAgents`.
    */
-  async function applyAgentEdit(agent: Agent, data: FormData): Promise<void> {
+  async function applyAgentEdit(agent: Agent, data: FormData, draft = false): Promise<void> {
     const triggerStageId = String(data.get("trigger") ?? "") || null;
     const selectedModelRef = String(data.get("model") ?? modelRef(host.assistant.assistantModel)).trim();
     const selectedModel = parseModelRef(selectedModelRef);
@@ -467,7 +467,7 @@ export function createMainActions(host: MainHost) {
           ...mcpConnectionRefs.map((id) => `mcp:${id}`)
         ]
       }
-    });
+    }, draft);
     // "Auto" is a resolution rule, not a model — remembering it as the global choice would
     // leave the dashboard assistant pointed at a provider that does not exist.
     if (provider && model && modelChanged && provider !== AUTO_PROVIDER)
@@ -2381,11 +2381,18 @@ export function createMainActions(host: MainHost) {
         const agent = host.workspaceController.agents.find(({ id }) => id === button.dataset.id)!;
         if (!(await edit(`Delete ${agent.name}? This removes its file from the team folder.`, [], "Delete")))
           return;
-        if (host.shell.view === "process")
-          await commitProcessAgentEdits(agent.id);
         await host.agentFiles.remove(await host.workspaceController.requireTeamRoot(), agent.id);
         if (host.runs.disabledAgentIds.delete(agent.id)) {
           await host.repository.setSetting(`disabled_agents:${host.workspaceController.workspace.teamId}`, [...host.runs.disabledAgentIds]);
+        }
+        try {
+          if (host.shell.view === "process")
+            await commitProcessAgentEdits(agent.id, true);
+        }
+        catch (error) {
+          await host.workspaceController.refresh();
+          host.shell.showNotice(`Deleted ${agent.name}. Other agent changes were not saved: ${errorText(error)}`, "info");
+          return;
         }
         await host.workspaceController.refresh();
         host.shell.showNotice(`Deleted ${agent.name}`, "success");
