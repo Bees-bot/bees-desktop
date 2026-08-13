@@ -49,7 +49,7 @@ export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: 
   if (/\.md$/i.test(output.logicalOutput)) {
     return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-bold uppercase tracking-wide text-warning">Approval required</div>
+        <div class="text-xs font-semibold text-warning">Approval required</div>
         ${actions}
       </div>
       <button class="mt-2 flex w-full items-center gap-2 rounded px-1 py-1 text-left text-sm font-semibold hover:bg-warning/10"
@@ -63,7 +63,7 @@ export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: 
   return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <div class="text-xs font-bold uppercase tracking-wide text-warning">${
+        <div class="text-xs font-semibold text-warning">${
           output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"
         }</div>
         <h4 class="mt-1 font-semibold">${escapeHtml(outputName(output, taskPlan))}</h4>
@@ -311,8 +311,8 @@ function toolPart(part: Extract<SnapshotPart, { kind: "tool" }>): string {
   return `<details class="my-2 rounded-lg border border-base-content/10 bg-base-200/60 px-3 py-2 text-sm">
     <summary class="cursor-pointer font-semibold">${escapeHtml(state)} · ${escapeHtml(name)}</summary>
     <div class="mt-2 grid gap-2">
-      ${input !== "None" ? `<div><div class="text-xs font-bold uppercase text-muted">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
-      ${result !== "None" ? `<div><div class="text-xs font-bold uppercase text-muted">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
+      ${input !== "None" ? `<div><div class="text-xs font-semibold text-muted">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
+      ${result !== "None" ? `<div><div class="text-xs font-semibold text-muted">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
     </div>
   </details>`;
 }

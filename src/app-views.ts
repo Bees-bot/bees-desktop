@@ -159,8 +159,8 @@ export function createMainViews(host: MainHost) {
     host.shell.swap(pageWithMenu(attr, tabs, active, content));
   }
 
-  function gearIcon(cls = "size-5"): string {
-    return `<svg viewBox="0 0 24 24" class="${cls}" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>`;
+  function gearIcon(): string {
+    return `<svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>`;
   }
 
   /** Settings for the organization named by the switcher beside it. */
@@ -329,7 +329,7 @@ export function createMainViews(host: MainHost) {
     // Only the active team has execution/agent state loaded, so only its row can show a live count.
     const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
     host.shell.teamNav.innerHTML = `<div class="mb-2 flex items-center justify-between px-2">
-        <span class="text-[11px] font-bold uppercase tracking-widest text-muted">Teams</span>
+        <span class="text-[11px] font-semibold text-muted">Teams</span>
         <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
       </div>
       ${host.workspaceController.teams.length
@@ -634,7 +634,7 @@ export function createMainViews(host: MainHost) {
     const remaining = proposed.filter(({ key }) => !approved.has(key)).length;
     return `<form data-approval-plan-form data-output="${output.id}" class="rounded-box border border-warning/40 bg-warning/5 p-4">
       <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-bold uppercase tracking-wide text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
+        <div class="text-xs font-semibold text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
         <div class="flex gap-2">
           <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
           <button class="btn btn-error btn-outline btn-sm" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
@@ -868,7 +868,7 @@ export function createMainViews(host: MainHost) {
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p class="mb-1 text-[11px] font-medium uppercase tracking-[.06em] text-muted">${host.shell.escapeHtml(stage?.name ?? "")}</p>
+          <p class="mb-1 text-[11px] font-medium text-muted">${host.shell.escapeHtml(stage?.name ?? "")}</p>
           <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
@@ -1124,7 +1124,7 @@ export function createMainViews(host: MainHost) {
     };
     const lane = (title: string, cards: string, addStageId?: string, note = ""): string => `<div class="flex w-64 shrink-0 flex-col gap-2 rounded-box bg-base-200/50 p-3">
         <div class="flex items-center justify-between gap-2">
-          <span class="truncate text-xs font-semibold uppercase tracking-wide text-muted">${host.shell.escapeHtml(title)}</span>
+          <span class="truncate text-xs font-semibold text-muted">${host.shell.escapeHtml(title)}</span>
           ${addStageId === undefined
         ? ""
         : `<button class="btn btn-ghost btn-xs" type="button" data-action="add-process-agent" data-stage="${host.shell.escapeHtml(addStageId)}">+ Agent</button>`}
@@ -1163,7 +1163,7 @@ export function createMainViews(host: MainHost) {
               return "";
             // Collapsed sections still submit their inputs, so `scopedFormData` reads them either way.
             return `<details class="min-w-0 rounded-box border border-base-300 p-4" ${step === "basics" ? "open" : ""}>
-              <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted">${step}</summary>
+              <summary class="cursor-pointer text-xs font-semibold text-muted">${step}</summary>
               <div class="mt-4 grid min-w-0 gap-4">${group
                 .map((field) => editorFieldHtml({ ...field, name: `${agent.id}:${field.name}` }))
                 .join("")}</div>
@@ -1297,11 +1297,11 @@ export function createMainViews(host: MainHost) {
         </div>
         <div class="mt-3 grid gap-3 text-xs">
           ${execution.error
-          ? `<div><div class="font-bold uppercase text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(execution.error)}</pre></div>`
+          ? `<div><div class="font-semibold text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(execution.error)}</pre></div>`
           : ""}
-          <div><div class="font-bold uppercase text-muted">Logs</div>
+          <div><div class="font-semibold text-muted">Logs</div>
             <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(logs) || "No logs recorded."}</pre></div>
-          <div><div class="font-bold uppercase text-muted">Files</div>
+          <div><div class="font-semibold text-muted">Files</div>
             ${outputs.length
           ? `<ul class="mt-1 grid gap-1">${outputs
             .map((output) => `<li>${host.shell.escapeHtml(output.logicalOutput)} → ${host.shell.escapeHtml(output.logicalDestination)} ${statusBadge(output.status)}</li>`)
@@ -1385,7 +1385,7 @@ export function createMainViews(host: MainHost) {
         <div class="overflow-x-auto p-4">
           <div style="min-width:${columns.length * 11}rem">
             <div class="sticky top-0 z-10 mb-1 border-b border-base-300 bg-base-100" style="${grid}">${columns
-      .map((column) => `<div class="truncate px-1.5 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted">${host.shell.escapeHtml(column.name)}${column.id === item.stageId ? " · now here" : ""}</div>`)
+      .map((column) => `<div class="truncate px-1.5 py-2 text-center text-xs font-semibold text-muted">${host.shell.escapeHtml(column.name)}${column.id === item.stageId ? " · now here" : ""}</div>`)
       .join("")}</div>
             ${events.map(eventRow).join("")}
           </div>
@@ -1393,7 +1393,7 @@ export function createMainViews(host: MainHost) {
         </div>
         ${steps.length
         ? `<div class="grid gap-2 border-t border-base-300 p-4">
-            <h4 class="text-xs font-semibold uppercase tracking-wide text-muted">Step details</h4>
+            <h4 class="text-xs font-semibold text-muted">Step details</h4>
             ${picked
           ? stepCard(picked)
           : '<p class="text-sm text-muted">Pick a step above to see its logs and the files it proposed.</p>'}
@@ -2838,7 +2838,7 @@ export function createMainViews(host: MainHost) {
               </button>
             </li>`)
           .join("");
-        return `<li class="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-muted">${host.shell.escapeHtml(group)}</li>${entries}`;
+        return `<li class="px-3 pb-1 pt-2 text-[10px] font-semibold text-muted">${host.shell.escapeHtml(group)}</li>${entries}`;
       })
       .join("");
     return `<div class="rounded-box border border-base-300 bg-base-100 shadow-lg">
