@@ -205,6 +205,13 @@ button, input, textarea, select { font: inherit; }
   letter-spacing: 0;
 }
 .btn-sm, .btn-xs { font-size: var(--text-caption); }
+
+/*
+ * One icon size for every control. Call sites had drifted to three: 16px in most places, 20px on
+ * a handful of chrome buttons, and 15px inside circular buttons, which squeeze their content.
+ * Setting it here means a new button inherits the right size instead of picking one.
+ */
+.btn svg { width: 1rem; height: 1rem; flex: none; }
 .btn-primary { border-color: transparent; box-shadow: none; }
 .btn-ghost:hover { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); }
 .btn:active:not(:disabled) { transform: translateY(0.5px); }

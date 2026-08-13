@@ -945,7 +945,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex flex-wrap items-center gap-3 text-sm text-muted">
           <span class="eyebrow-pill"><span class="status status-primary"></span> ${host.shell.escapeHtml(host.workspaceController.activeProcess.name)}</span>
           ${root
-        ? `<button class="badge badge-primary badge-outline gap-1" data-board="${host.workspaceController.activeBoard.id}" title="Show every run of this workflow">${host.shell.escapeHtml(root.title)} ✕</button>`
+        ? `<button class="badge badge-primary badge-outline max-w-64 gap-1" data-board="${host.workspaceController.activeBoard.id}" title="Show every run of this workflow"><span class="truncate">${host.shell.escapeHtml(root.title)}</span><svg viewBox="0 0 24 24" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>`
         : ""}
           ${processStateBadge(host.workspaceController.activeProcess.id)}
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
