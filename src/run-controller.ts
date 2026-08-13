@@ -1584,9 +1584,14 @@ export function createRunController(host: MainHost) {
     if (execution.conversationSnapshot)
       return;
     if (!liveEvents.has(execution.id)) {
-      const { baseUrl, token } = await host.ensureFlueRuntime();
-      const history = await new FlueRuntime(baseUrl, undefined, token)
-        .history(runtimeAgentName(execution.agentId), execution.conversationId)
+      // The history fetch was already allowed to fail; starting the runtime was not, and it is the
+      // likelier of the two to. Expanding a card whose run has no stored snapshot yet calls this,
+      // so a runtime that will not start stopped the card from opening at all — no panel, no
+      // message, nothing. The live transcript is one part of that panel; everything else on it
+      // reads from the database and is worth showing on its own.
+      const history = await host.ensureFlueRuntime()
+        .then(({ baseUrl, token }) => new FlueRuntime(baseUrl, undefined, token)
+          .history(runtimeAgentName(execution.agentId), execution.conversationId))
         .catch(() => null);
       liveEvents.set(execution.id, history ? [history] : []);
     }
