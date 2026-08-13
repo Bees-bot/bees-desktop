@@ -951,16 +951,23 @@ export function createMainViews(host: MainHost) {
           <span class="badge badge-ghost">${stages.length} status${stages.length === 1 ? "" : "es"}</span>
           <span>${host.workspaceController.openWork(visible).length} item${host.workspaceController.openWork(visible).length === 1 ? "" : "s"}</span>
         </div>
+        <!-- Run is the one thing anybody comes to this toolbar to press. The four that used to sit
+             beside it as equals — three bordered icon buttons and a text button — are things you
+             do occasionally to the workflow, so they moved behind one menu. -->
         <div class="flex flex-wrap items-center gap-2">
           ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
-          ${
-          // These used to hang off the workflow's left-nav row, which tasks replaced.
-          [
-            ["open-process-runs", "Past runs", ACTION_ICONS.history],
-            ["open-process-schedules", "Schedules", ACTION_ICONS.schedule],
-            ["edit-process", "Edit workflow", ACTION_ICONS.edit]
-          ].map(([action, label, icon]) => actionIconButton(action!, label!, icon!, host.workspaceController.activeProcess!.id, "btn-ghost border border-base-300", "tooltip-bottom")).join("")}
-          <button class="btn btn-ghost btn-sm border border-base-300" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button>
+          <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-ghost btn-sm border border-base-300" aria-haspopup="menu"
+              aria-label="More workflow actions" title="More workflow actions">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>
+            </button>
+            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+              <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Past runs</button></li>
+              <li><button data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">Schedules</button></li>
+              <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit workflow</button></li>
+              <li><button data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button></li>
+            </ul>
+          </div>
         </div>
       </div>
       ${running
@@ -981,18 +988,21 @@ export function createMainViews(host: MainHost) {
               <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
             </header>
             <div class="grid gap-3">${cards
-              .map((item) => `<article class="kanban-card card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
+              .map((item) => `<article class="kanban-card card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="card-body gap-3 p-4">
                     <div class="flex items-start justify-between gap-2">
                       <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
-                      <div class="flex shrink-0 gap-1">
+                      <!-- On hover and on keyboard focus, as in the sidebar. The row keeps its
+                           height either way, so cards do not shift as the pointer crosses them. -->
+                      <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
                         ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
                         ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
                       </div>
                     </div>
-                    <div>
-                      <p class="mt-1 line-clamp-3 text-xs leading-relaxed text-muted">${host.shell.escapeHtml(item.description || "No description")}</p>
-                    </div>
+                    ${item.description
+                      // An empty description is silence, not the words "No description".
+                      ? `<p class="line-clamp-3 text-xs leading-relaxed text-muted">${host.shell.escapeHtml(item.description)}</p>`
+                      : ""}
                     <div class="flex flex-wrap items-center gap-2">
                       ${workItemBadges(item)}
                       ${item.parentId ? '<span class="badge badge-outline badge-sm">Subtask</span>' : ""}
