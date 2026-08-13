@@ -421,3 +421,100 @@ button, .card, .menu button {
 /* Sidebar toggle icon: arrow points left when open, right when collapsed. */
 #app-drawer-open[aria-expanded="true"] .drawer-arrow-open { display: none; }
 #app-drawer-open[aria-expanded="false"] .drawer-arrow-close { display: none; }
+
+/* ---------------------------------------------------------------- sidebar nav */
+
+/* Plain flex-column list replacing daisyUI .menu for the team sub-nav.
+   No pseudo-element bullet, no inherited list-style, no daisyUI hover. */
+@layer components {
+  .team-sub-nav {
+    display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-left: 0.875rem;
+  padding-left: 0.25rem;
+  padding-right: 0;
+  padding-top: 0.125rem;
+  padding-bottom: 0.25rem;
+  border-left: 1px solid var(--color-base-300);
+  list-style: none;
+}
+.team-sub-nav li { list-style: none; }
+
+/* Task / nav item button — full-width, transparent, colour-only hover.
+   Mirrors the visual weight of sidebar-icon-btn but is laid out as a row. */
+.task-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-ui);
+}
+.task-nav-btn:hover,
+.task-nav-btn:focus-visible {
+  background: transparent;
+  color: var(--color-base-content);
+  outline: none;
+}
+.task-nav-btn--active {
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+.task-nav-btn--active:hover,
+.task-nav-btn--active:focus-visible {
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+}
+
+/* The team-level dropdown sits inside overflow-x:hidden so the default positioning
+   can clip it. Allow overflow when the dropdown is focused/open so the panel escapes. */
+#team-nav .dropdown:focus-within { overflow: visible; }
+
+/* Hide scrollbar for sidebar navigation */
+#team-nav {
+  scrollbar-width: none; /* Firefox */
+}
+#team-nav::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+/* Transparent icon button used in the team row header and task list.
+   No background, no border — only the icon colour shifts on hover/focus. */
+.sidebar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-field);
+  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--motion-fast) var(--ease-ui);
+}
+.sidebar-icon-btn:hover,
+.sidebar-icon-btn:focus-visible {
+  color: var(--color-base-content);
+  background: transparent;
+  outline: none;
+}
+/* Coloured variants (e.g. text-error on archive) keep their hue on hover,
+   just at full opacity instead of the muted default. */
+.sidebar-icon-btn.text-error { color: color-mix(in oklab, var(--color-error) 55%, transparent); }
+.sidebar-icon-btn.text-error:hover,
+.sidebar-icon-btn.text-error:focus-visible { color: var(--color-error); }
+.sidebar-icon-btn svg { width: 1rem; height: 1rem; flex: none; }
+}
