@@ -232,36 +232,15 @@ describe("lean launch modules", () => {
     expect(waiting).not.toContain("Inbox clear");
     expect(waiting).toContain("Waiting on you");
     expect(waiting).toContain('data-action="open-item" data-id="item"');
-    expect(
-      overviewView([item], [execution], [], new Set([execution.id]))
-    ).toMatch(/Needs attention.*?stat-value[^>]*>0<\/div>/s);
   });
 
-  it("renders the overview assistant with contextual project, team, and model controls", () => {
-    const html = overviewView([], [], [], new Set(), {
-      projects: [
-        { id: "project-one", name: "Project one" },
-        { id: "project-two", name: "Project two" }
-      ],
-      teams: [
-        { id: "team-one", organizationId: "project-one", name: "Design" },
-        { id: "team-two", organizationId: "project-one", name: "Marketing" }
-      ],
-      models: [
-        { group: "On this computer", label: "Qwen" },
-        { group: "OpenAI", label: "gpt-5" }
-      ],
-      projectId: "project-one",
-      teamId: "team-one",
-      modelIndex: 1
-    });
+  it("renders the team assistant without context dropdowns", () => {
+    const html = overviewView([], []);
 
     expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent runs"));
     expect(html).toContain('class="textarea textarea-bordered min-h-28 w-full resize-y"');
-    expect(html).toContain('data-overview-project');
-    expect(html).toContain('data-overview-team');
-    expect(html).toContain('data-overview-model');
-    expect(html).toContain('value="1" selected');
+    expect(html).not.toContain("<select");
+    expect(html).not.toMatch(/Running|Needs attention|Completed/);
     expect(html).toContain(">Go</button>");
   });
 

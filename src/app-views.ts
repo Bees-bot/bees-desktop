@@ -347,7 +347,7 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="menu menu-sm ml-3.5 gap-0.5 border-l border-base-300 py-0 pl-1 pr-0">
-                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "overview")}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="truncate">What do you want to do today?</span></button></li>
+                    <li><button class="${host.shell.activeClass(selected && host.shell.view === "overview")}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">What do you want to do today?</span></button></li>
                     <li><button class="${host.shell.activeClass(selected && host.shell.view === "inbox")}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}Inbox${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
@@ -1441,7 +1441,7 @@ export function createMainViews(host: MainHost) {
 
   const ACTION_ICONS = {
     add: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
-    assistant: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>',
+    assistant: '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>',
     inbox: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16l2 9v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-6l2-9Z"></path><path d="M2 13h5l2 3h6l2-3h5"></path></svg>',
     active: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
     inactive: '<svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"></path><path d="M12 9v5M12 17.5v.5"></path></svg>',

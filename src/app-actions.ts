@@ -29,6 +29,7 @@ import {
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
+  AUTO_MODEL_CHOICE,
   AUTO_PROVIDER,
   applyActions,
   assistantInstanceId,
@@ -2699,24 +2700,8 @@ export function createMainActions(host: MainHost) {
         submit.disabled = true;
         submit.textContent = "Going…";
       }
-      const projectId = String(data.get("project") ?? "") || host.workspaceController.workspace.organizationId;
-      const requestedTeamId = String(data.get("team") ?? "");
-      const modelIndex = Number(data.get("model") ?? 0);
-      const choice = host.assistant.overviewAssistantModels()[modelIndex]?.choice ?? host.assistant.assistantModel;
       void (async () => {
-        const projectTeams = await host.repository.listTeams(projectId);
-        const targetTeam = projectTeams.find(({ id }) => id === requestedTeamId) ??
-          (projectId === host.workspaceController.workspace.organizationId
-            ? projectTeams.find(({ id }) => id === host.workspaceController.workspace.teamId)
-            : undefined) ??
-          projectTeams[0];
-        if (!targetTeam)
-          throw new Error("The selected project has no team for the assistant");
-        if (projectId !== host.workspaceController.workspace.organizationId)
-          await host.workspaceController.switchOrganization(projectId);
-        if (targetTeam.id !== host.workspaceController.workspace.teamId)
-          await host.workspaceController.switchTeam(targetTeam.id, "overview");
-        await pickAssistantModel(choice);
+        await host.assistant.rememberModelChoice(AUTO_MODEL_CHOICE);
         await toggleAssistant(true);
         await sendAssistantMessage(message);
       })().catch((error) => {
@@ -2788,43 +2773,6 @@ export function createMainActions(host: MainHost) {
       const mode = themeDefault.dataset.themeDefault;
       if (mode === "light" || mode === "dark") {
         void host.shell.saveDefaultTheme(mode, themeDefault.value).catch((error) => host.shell.showNotice(errorText(error), "error"));
-      }
-      return;
-    }
-    const project = (event.target as Element).closest<HTMLSelectElement>("[data-overview-project]");
-    if (project) {
-      const projectId = project.value || host.workspaceController.workspace.organizationId;
-      const team = project.form?.querySelector<HTMLSelectElement>("[data-overview-team]");
-      if (!team)
-        return;
-      team.disabled = true;
-      void host.repository.listTeams(projectId)
-        .then((projectTeams) => {
-          if (!team.isConnected || (project.value || host.workspaceController.workspace.organizationId) !== projectId)
-            return;
-          const currentTeamId = projectId === host.workspaceController.workspace.organizationId ? host.workspaceController.workspace.teamId : "";
-          const current = projectTeams.find(({ id }) => id === currentTeamId);
-          const fallback = projectTeams[0];
-          team.innerHTML = [
-            `<option value="">${host.shell.escapeHtml(current
-              ? `Current team: ${current.name}`
-              : fallback
-                ? `Team (optional; defaults to ${fallback.name})`
-                : "No teams available")}</option>`,
-            ...projectTeams
-              .filter(({ id }) => id !== currentTeamId)
-              .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}">${host.shell.escapeHtml(name)}</option>`)
-          ].join("");
-          team.disabled = projectTeams.length === 0;
-        })
-        .catch((error) => host.shell.showNotice(errorText(error), "error"));
-      return;
-    }
-    const assistantModelSelect = (event.target as Element).closest<HTMLSelectElement>("[data-overview-model]");
-    if (assistantModelSelect) {
-      const choice = host.assistant.overviewAssistantModels()[Number(assistantModelSelect.value)]?.choice;
-      if (choice) {
-        void pickAssistantModel(choice).catch((error) => host.shell.showNotice(errorText(error), "error"));
       }
       return;
     }

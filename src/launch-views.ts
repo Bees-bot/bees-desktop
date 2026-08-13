@@ -1,10 +1,8 @@
 import type {
   Execution,
   ExecutionOutput,
-  Organization,
   Process,
   Schedule,
-  Team,
   WorkItem
 } from "./domain.js";
 import { workItemCondition, workItemConditionLabel } from "./domain.js";
@@ -106,89 +104,23 @@ function empty(title: string, detail: string): string {
   </div>`;
 }
 
-export interface OverviewAssistantOptions {
-  projects: Organization[];
-  teams: Team[];
-  models: { group: string; label: string }[];
-  projectId: string;
-  teamId: string;
-  modelIndex: number;
-}
-
-function overviewAssistant(options?: OverviewAssistantOptions): string {
-  const project = options?.projects.find(({ id }) => id === options.projectId);
-  const team = options?.teams.find(({ id }) => id === options.teamId);
-  const models = options?.models ?? [];
+function overviewAssistant(): string {
   return `<form class="mt-6 w-full rounded-box border border-base-300 bg-base-100 p-4 shadow-sm" data-overview-assistant>
     <label class="mb-2 block text-sm font-bold" for="overview-assistant-message">Ask AI assistant</label>
     <textarea id="overview-assistant-message" name="message"
       class="textarea textarea-bordered min-h-28 w-full resize-y" maxlength="20000" required
       placeholder="What would you like help with?"></textarea>
-    <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
-      <select class="select select-bordered w-full" name="project" data-overview-project aria-label="Project context">
-        <option value="">${escapeHtml(project ? `Current project: ${project.name}` : "Project (optional)")}</option>
-        ${(options?.projects ?? [])
-          .filter(({ id }) => id !== options?.projectId)
-          .map(({ id, name }) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`)
-          .join("")}
-      </select>
-      <select class="select select-bordered w-full" name="team" data-overview-team aria-label="Team context"
-        ${options?.teams.length ? "" : "disabled"}>
-        <option value="">${escapeHtml(team ? `Current team: ${team.name}` : "Team (optional)")}</option>
-        ${(options?.teams ?? [])
-          .filter(({ id }) => id !== options?.teamId)
-          .map(({ id, name }) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`)
-          .join("")}
-      </select>
-      <select class="select select-bordered w-full" name="model" data-overview-model aria-label="AI model"
-        ${models.length ? "" : "disabled"}>
-        ${
-          models.length
-            ? models
-                .map(
-                  ({ group, label }, index) =>
-                    `<option value="${index}" ${index === options?.modelIndex ? "selected" : ""}>${escapeHtml(
-                      `${group} · ${label}`
-                    )}</option>`
-                )
-                .join("")
-            : '<option value="">No models available</option>'
-        }
-      </select>
-      <button class="btn btn-primary" type="submit" ${models.length ? "" : "disabled"}>Go</button>
+    <div class="mt-3 flex justify-end">
+      <button class="btn btn-primary" type="submit">Go</button>
     </div>
   </form>`;
 }
 
 export function overviewView(
   items: WorkItem[],
-  executions: Execution[],
-  pendingOutputs: ExecutionOutput[],
-  dismissedRunIds: ReadonlySet<string> = new Set(),
-  assistant?: OverviewAssistantOptions
+  executions: Execution[]
 ): string {
-  const running = executions.filter(({ status }) => status === "running").length;
-  const attention =
-    pendingOutputs.length +
-    executions.filter(
-      ({ id, status }) =>
-        ["failed", "interrupted"].includes(status) && !dismissedRunIds.has(id)
-    ).length;
-  const completed = executions.filter(({ status }) => status === "completed").length;
-  return `<div class="grid gap-4 md:grid-cols-3">
-      ${[
-        ["Running", running, "runs"],
-        ["Needs attention", attention, "inbox"],
-        ["Completed", completed, "runs"]
-      ]
-        .map(
-          ([label, value, view]) => `<button class="stat rounded-box border border-base-300 bg-base-100 text-left shadow-sm" data-view="${view}">
-            <div class="stat-title">${label}</div><div class="stat-value text-primary">${value}</div>
-          </button>`
-        )
-        .join("")}
-    </div>
-    ${overviewAssistant(assistant)}
+  return `${overviewAssistant()}
     <section class="mt-6">
       <div class="mb-3 flex items-center justify-between"><h2 class="text-lg font-bold">Recent runs</h2>
         <button class="btn btn-ghost btn-sm" data-view="runs">View all</button></div>

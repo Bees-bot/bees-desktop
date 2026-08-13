@@ -5,9 +5,6 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { FileSource } from "./app-views.js";
 import {
-  sameChoice
-} from "./assistant.js";
-import {
   errorText
 } from "./domain.js";
 import { GETTING_STARTED } from "./help.js";
@@ -338,15 +335,10 @@ export function createAppShell(host: MainHost) {
     host.views.renderNavigation();
     if (view === "overview") {
       setHeader("What do you want to do today?", host.session.currentTeam()?.name);
-      const models = host.assistant.overviewAssistantModels();
-      swap(overviewView(host.workspaceController.teamItems, host.runs.executions, host.runs.executionOutputs.filter(({ status }) => status === "pending"), host.runs.dismissedRunIds, {
-        projects: host.workspaceController.organizations,
-        teams: host.workspaceController.teams,
-        models: models.map(({ group, label }) => ({ group, label })),
-        projectId: host.workspaceController.workspace.organizationId,
-        teamId: host.workspaceController.workspace.teamId,
-        modelIndex: Math.max(0, models.findIndex(({ choice }) => sameChoice(choice, host.assistant.assistantModel)))
-      }));
+      swap(overviewView(
+        host.workspaceController.teamItems,
+        host.runs.executions
+      ));
     }
     if (view === "inbox") {
       setHeader("Inbox", host.session.currentTeam()?.name);
