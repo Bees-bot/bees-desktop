@@ -100,7 +100,7 @@ export function statusBadge(status: string): string {
 function empty(title: string, detail: string): string {
   return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
     <h3 class="font-bold">${escapeHtml(title)}</h3>
-    <p class="mt-2 text-sm text-base-content/55">${escapeHtml(detail)}</p>
+    <p class="mt-2 text-sm text-muted">${escapeHtml(detail)}</p>
   </div>`;
 }
 
@@ -208,7 +208,7 @@ export function inboxView(
                 <span class="badge badge-sm shrink-0 ${group.kind === "stalled" ? "badge-error" : "badge-warning"} badge-outline">${escapeHtml(state.label)}</span>
                 <span class="truncate font-semibold" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
               </div>
-              <p class="line-clamp-1 text-sm text-base-content/55">${escapeHtml(state.detail)}</p>
+              <p class="line-clamp-1 text-sm text-muted">${escapeHtml(state.detail)}</p>
             </td>
             <td class="text-right">${
               run
@@ -256,7 +256,7 @@ export function searchResultsView(hits: SearchHit[]): string {
           <span class="badge badge-ghost badge-sm">${hit.kind === "execution" ? "Run" : "Work item"}</span>
           <span class="font-semibold">${escapeHtml(hit.title)}</span>
         </div>
-        ${hit.snippet ? `<p class="mt-1 text-xs text-base-content/60">${escapeHtml(hit.snippet)}</p>` : ""}
+        ${hit.snippet ? `<p class="mt-1 text-xs text-muted">${escapeHtml(hit.snippet)}</p>` : ""}
       </button>`
     )
     .join("")}</div>`;
@@ -309,8 +309,8 @@ function toolPart(part: Extract<SnapshotPart, { kind: "tool" }>): string {
   return `<details class="my-2 rounded-lg border border-base-content/10 bg-base-200/60 px-3 py-2 text-sm">
     <summary class="cursor-pointer font-semibold">${escapeHtml(state)} · ${escapeHtml(name)}</summary>
     <div class="mt-2 grid gap-2">
-      ${input !== "None" ? `<div><div class="text-xs font-bold uppercase text-base-content/45">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
-      ${result !== "None" ? `<div><div class="text-xs font-bold uppercase text-base-content/45">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
+      ${input !== "None" ? `<div><div class="text-xs font-bold uppercase text-muted">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
+      ${result !== "None" ? `<div><div class="text-xs font-bold uppercase text-muted">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
     </div>
   </details>`;
 }
@@ -372,7 +372,7 @@ function conversationView(
         ? "The agent is working…"
         : "No conversation was recorded for this run.");
     return `<div class="chat chat-start">
-      <div class="chat-header mb-1 text-xs text-base-content/50">Agent</div>
+      <div class="chat-header mb-1 text-xs text-muted">Agent</div>
       <div class="chat-bubble border border-base-300 bg-base-100 text-base-content">${escapeHtml(fallback)}</div>
     </div>`;
   }
@@ -380,7 +380,7 @@ function conversationView(
     .map((message) => {
       const user = message.role === "user";
       return `<div class="chat ${user ? "chat-end" : "chat-start"}">
-        <div class="chat-header mb-1 text-xs text-base-content/50">
+        <div class="chat-header mb-1 text-xs text-muted">
           ${user ? "You" : "Agent"}${message.timestamp ? ` · ${escapeHtml(when(message.timestamp))}` : ""}
         </div>
         <div class="chat-bubble max-w-[88%] ${
@@ -425,7 +425,7 @@ export function runView(input: {
   return `<div class="mb-5 flex flex-wrap items-start justify-between gap-3">
       <div>${statusBadge(execution.status)}
         <h2 class="mt-2 text-xl font-bold">${escapeHtml(item?.title ?? "Run")}</h2>
-        <p class="text-sm text-base-content/55">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</p>
+        <p class="text-sm text-muted">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</p>
       </div>
       <div class="flex gap-2">
         ${
@@ -441,7 +441,7 @@ export function runView(input: {
           title="Deletes the receipt, its files, and the agent conversation">Delete</button>
       </div>
     </div>
-    <div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-xs text-base-content/60">
+    <div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-xs text-muted">
       Document files: local · Model: ${escapeHtml(model)} · Bees cloud: coordination metadata only
       <span class="ml-3">Usage: ${escapeHtml(usageSummary(execution))}</span>
       ${
@@ -472,7 +472,7 @@ export function runView(input: {
                 busy ? "disabled" : ""
               }></textarea>
             <div class="mt-2 flex items-center justify-between gap-3">
-              <p class="text-xs text-base-content/50">Enter to send · Shift+Enter for a new line</p>
+              <p class="text-xs text-muted">Enter to send · Shift+Enter for a new line</p>
               <button class="btn btn-primary btn-sm" type="submit" ${busy ? "disabled" : ""}>Send</button>
             </div>
           </form>
@@ -490,7 +490,7 @@ export function runView(input: {
                     )}</h4>${statusBadge(output.status)}</div></div>
                     ${
                       output.reason
-                        ? `<p class="mt-2 text-xs text-base-content/60"><span class="font-bold">Asked for instead:</span> ${escapeHtml(
+                        ? `<p class="mt-2 text-xs text-muted"><span class="font-bold">Asked for instead:</span> ${escapeHtml(
                             output.reason
                           )}</p>`
                         : ""
@@ -498,10 +498,10 @@ export function runView(input: {
                     ${
                       preview
                         ? `<div class="mt-3 grid gap-2 lg:grid-cols-2">
-                            <div><div class="mb-1 text-xs font-bold text-base-content/45">Before</div><pre class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-base-200 p-2 text-xs">${escapeHtml(
+                            <div><div class="mb-1 text-xs font-bold text-muted">Before</div><pre class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-base-200 p-2 text-xs">${escapeHtml(
                               preview.before ?? "(new file or binary)"
                             )}</pre></div>
-                            <div><div class="mb-1 text-xs font-bold text-base-content/45">After</div><pre class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-base-200 p-2 text-xs">${escapeHtml(
+                            <div><div class="mb-1 text-xs font-bold text-muted">After</div><pre class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-base-200 p-2 text-xs">${escapeHtml(
                               preview.after ?? "(binary file)"
                             )}</pre></div>
                           </div>${preview.truncated ? `<p class="mt-2 text-xs text-warning">Preview truncated to 256 KB.</p>` : ""}`
@@ -520,7 +520,7 @@ export function runView(input: {
 
 export function schedulesView(items: WorkItem[], schedules: Schedule[], executions: Execution[]): string {
   return `<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-base-content/60">Runs while Bees is open and this computer is awake. Task-plan schedules create one catch-up occurrence after downtime.</p>
+      <p class="text-sm text-muted">Runs while Bees is open and this computer is awake. Task-plan schedules create one catch-up occurrence after downtime.</p>
       <button class="btn btn-primary btn-sm" data-action="new-schedule">New schedule</button>
     </div>
     ${
@@ -538,7 +538,7 @@ export function schedulesView(items: WorkItem[], schedules: Schedule[], executio
                 : "rerun item";
               return `<article class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(schedule.name)}</h3>
-                  <p class="text-sm text-base-content/55">${escapeHtml(itemName(items, schedule.workItemId))} · ${escapeHtml(
+                  <p class="text-sm text-muted">${escapeHtml(itemName(items, schedule.workItemId))} · ${escapeHtml(
                     schedule.recurrence
                   )} · ${escapeHtml(behavior)} · ${escapeHtml(schedule.timezone)}</p>
                   <p class="mt-1 text-xs">Next: ${when(schedule.nextRunAt)}</p></div>
@@ -596,11 +596,11 @@ export function workItemView(input: {
   return `${stages ? stageProgressStrip(stages, item.stageId) : ""}
     <div class="rounded-box border border-base-300 bg-base-100 p-5 mb-5"><p>${escapeHtml(
       item.description || "No description."
-    )}</p><dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-base-content/45">Status</dt><dd>${escapeHtml(
+    )}</p><dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-muted">Status</dt><dd>${escapeHtml(
       workItemConditionLabel(workItemCondition(item, runs))
-    )}</dd></div><div><dt class="text-base-content/45">Files</dt><dd>${escapeHtml(
+    )}</dd></div><div><dt class="text-muted">Files</dt><dd>${escapeHtml(
       item.logicalFiles.join(", ") || "None"
-    )}</dd></div><div><dt class="text-base-content/45">Last checkpoint</dt><dd>${when(
+    )}</dd></div><div><dt class="text-muted">Last checkpoint</dt><dd>${when(
       item.checkpointAt
     )}</dd></div></dl></div>
     <div class="grid gap-3">${
@@ -612,7 +612,7 @@ export function workItemView(input: {
               return `<details class="rounded-box border border-base-300 bg-base-100" ${pending ? "open" : ""}>
                 <summary class="flex cursor-pointer flex-wrap items-center gap-2 p-4 font-semibold">
                   ${statusBadge(run.status)}
-                  <span class="text-sm font-normal text-base-content/55">${when(run.startedAt ?? run.createdAt)}</span>
+                  <span class="text-sm font-normal text-muted">${when(run.startedAt ?? run.createdAt)}</span>
                   ${pending ? `<span class="badge badge-warning badge-sm">Needs you</span>` : ""}
                 </summary>
                 <div class="border-t border-base-300 p-4">${runView({

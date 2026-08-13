@@ -24,13 +24,14 @@ import { LAST_VIEW_KEY, RESTORABLE_VIEWS, type BoardItemTab, type View } from ".
 export function createAppShell(host: MainHost) {
   // daisyUI themes that ship a dark color-scheme (drive the native colorScheme + toggle icon).
   const DARK_THEMES = new Set<string>([
+    "bees-dark",
     "dark", "synthwave", "halloween", "forest", "aqua", "black", "luxury",
     "dracula", "business", "night", "coffee", "dim", "sunset", "abyss"
   ]);
 
-  const LIGHT_DEFAULT: ThemePreset = "emerald";
+  const LIGHT_DEFAULT: ThemePreset = "bees";
 
-  const DARK_DEFAULT: ThemePreset = "forest";
+  const DARK_DEFAULT: ThemePreset = "bees-dark";
 
   const LIGHT_DEFAULT_KEY = "ui_light_theme_preset";
 
@@ -391,7 +392,7 @@ export function createAppShell(host: MainHost) {
         <div class="flex flex-wrap items-center gap-3 rounded-box border border-primary/30 bg-primary/5 px-5 py-4">
           <div class="min-w-0 flex-1">
             <strong class="block text-sm">Prefer to be shown?</strong>
-            <span class="text-sm text-base-content/60">The guided tour walks the same setup inside the app, one control at a time.</span>
+            <span class="text-sm text-muted">The guided tour walks the same setup inside the app, one control at a time.</span>
           </div>
           <button class="btn btn-primary btn-sm" data-action="start-tour">Start the guided tour</button>
         </div>

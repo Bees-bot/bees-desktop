@@ -7,7 +7,7 @@
     <script>
       (() => {
         document.documentElement.dataset.theme =
-          localStorage.getItem("bees-theme-preset") || "emerald";
+          localStorage.getItem("bees-theme-preset") || "bees";
       })();
     </script>
     <title>Bees</title>
@@ -30,7 +30,7 @@
             </button>
           </div>
           <div class="min-w-0 flex-1">
-            <p id="view-context" class="truncate text-[11px] font-medium uppercase tracking-[.06em] text-base-content/50">Local workspace</p>
+            <p id="view-context" class="truncate text-[11px] font-medium uppercase tracking-[.06em] text-muted">Local workspace</p>
             <h1 id="view-title" class="truncate text-lg font-semibold tracking-[-.01em]">Work board</h1>
           </div>
           <button class="btn btn-square btn-ghost btn-sm mr-1" id="assistant-toggle" aria-label="Assistant" title="Assistant">
@@ -109,7 +109,7 @@
            class="pointer-events-auto absolute w-80 max-w-[calc(100vw-1rem)] rounded-box border border-base-300 bg-base-100 shadow-2xl">
         <div id="tour-arrow" aria-hidden="true"></div>
         <header class="border-b border-base-300 px-4 py-3">
-          <p id="tour-progress" class="text-[10px] font-bold uppercase tracking-widest text-base-content/45"></p>
+          <p id="tour-progress" class="text-[10px] font-bold uppercase tracking-widest text-muted"></p>
           <h2 id="tour-title" class="text-sm font-semibold"></h2>
         </header>
         <div id="tour-body" class="markdown-viewer max-h-72 overflow-y-auto px-4 py-3 text-sm"></div>
