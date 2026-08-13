@@ -109,14 +109,14 @@ export interface RunHost {
   startRun(request: RustRunRequest): Promise<void>;
   resumeRun(request: RustRunRequest, submissionId: string): Promise<void>;
   stopRun(request: RustRunRequest, submissionId: string): Promise<void>;
-  awaitSettled(executionId: string): Promise<SettledRun>;
+  awaitSettled(executionId: string, signal?: AbortSignal): Promise<SettledRun>;
 }
 
 export const tauriRunHost: RunHost = {
   startRun: (request) => invoke("start_run", { request }),
   resumeRun: (request, submissionId) => invoke("resume_run", { request, submissionId }),
   stopRun: (request, submissionId) => invoke("stop_run", { request, submissionId }),
-  awaitSettled: (executionId) =>
+  awaitSettled: (executionId, signal) =>
     new Promise<SettledRun>((resolve) => {
       // Rust has already written the receipt by the time this fires; the event only says
       // "look again". Losing it costs a notification, never the transaction.
@@ -125,6 +125,12 @@ export const tauriRunHost: RunHost = {
         void stop.then((unlisten) => unlisten());
         resolve(event.payload);
       });
+      // The subscription is opened just before hand-over, and hand-over can fail. Without this the
+      // listener stayed for the life of the window, comparing every later run against an id that
+      // could never arrive — one more each time a start failed, in an app built to stay open.
+      // The promise is left unsettled rather than rejected: by this point nothing awaits it, and
+      // rejecting an abandoned promise only trades a leak for an unhandled rejection.
+      signal?.addEventListener("abort", () => void stop.then((unlisten) => unlisten()), { once: true });
     })
 };
 
@@ -254,6 +260,8 @@ export class RunCoordinator {
     const deliveryId = crypto.randomUUID();
     let workspacePath = "";
     let handedOff = false;
+    /** Cancels the settle subscription if the run never reaches Rust. Null until it is opened. */
+    let handOver: AbortController | null = null;
     try {
       workspacePath = request.projectWorkItemId
         ? await this.workspaces.projectWorkspace(request.projectWorkItemId)
@@ -324,7 +332,10 @@ export class RunCoordinator {
 
       const { baseUrl, token = "" } = await this.launchRuntime();
       // Hand over. From here the run belongs to Rust, whatever happens to this window.
-      const settled = this.host.awaitSettled(executionId);
+      // The subscription has to exist before startRun so the event cannot arrive between them,
+      // which means a startRun that throws leaves one behind unless it is cancelled.
+      handOver = new AbortController();
+      const settled = this.host.awaitSettled(executionId, handOver.signal);
       await this.host.startRun({
         executionId,
         deliveryId,

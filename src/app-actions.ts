@@ -2634,49 +2634,72 @@ export function createMainActions(host: MainHost) {
       : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(area.value)}</pre>`;
   });
 
+  /** Forms with a write already in flight. Outside the listener so it survives between events. */
+  const submitting = new WeakSet<HTMLFormElement>();
+
   host.shell.app.addEventListener("submit", (event) => {
+    const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+    /**
+     * Runs one submission per form at a time. Every branch below hands its work to a floating
+     * promise, so a double-click on Create — or Enter pressed twice before the write returned —
+     * ran the whole handler again and produced two work items from one submission. The assistant
+     * form further down already guarded itself this way; this is that guard, for all of them.
+     *
+     * Re-enabling a button that render() has since replaced is harmless, and the WeakSet lets a
+     * discarded form be collected without bookkeeping.
+     */
+    const once = (form: HTMLFormElement, run: () => Promise<unknown>): void => {
+      if (submitting.has(form)) return;
+      submitting.add(form);
+      if (submitter) submitter.disabled = true;
+      void run()
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          submitting.delete(form);
+          if (submitter) submitter.disabled = false;
+        });
+    };
+
     const newItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-new-item]");
     if (newItemForm) {
       event.preventDefault();
-      void submitNewItem(new FormData(newItemForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(newItemForm, () => submitNewItem(new FormData(newItemForm)));
       return;
     }
     const tourForm = (event.target as Element).closest<HTMLFormElement>("form[data-tour-form]");
     if (tourForm) {
       event.preventDefault();
-      void saveTourMarkdown(String(new FormData(tourForm).get("markdown") ?? ""))
-        .catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(tourForm, () => saveTourMarkdown(String(new FormData(tourForm).get("markdown") ?? "")));
       return;
     }
     const definitionForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-form]");
     if (definitionForm) {
       event.preventDefault();
-      void saveProcessDefinition(new FormData(definitionForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(definitionForm, () => saveProcessDefinition(new FormData(definitionForm)));
       return;
     }
     const approvalPlanForm = (event.target as Element).closest<HTMLFormElement>("form[data-approval-plan-form]");
     if (approvalPlanForm) {
       event.preventDefault();
-      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
-      void submitApprovalPlan(approvalPlanForm, submitter).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(approvalPlanForm, () => submitApprovalPlan(approvalPlanForm, submitter));
       return;
     }
     const boardItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-item-form]");
     if (boardItemForm) {
       event.preventDefault();
-      void saveBoardItem(boardItemForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(boardItemForm, () => saveBoardItem(boardItemForm));
       return;
     }
     const boardFileForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-file-form]");
     if (boardFileForm) {
       event.preventDefault();
-      void saveBoardFile(new FormData(boardFileForm)).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(boardFileForm, () => saveBoardFile(new FormData(boardFileForm)));
       return;
     }
     const agentsForm = (event.target as Element).closest<HTMLFormElement>("form[data-process-agents]");
     if (agentsForm) {
       event.preventDefault();
-      void saveProcessAgents(agentsForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(agentsForm, () => saveProcessAgents(agentsForm));
       return;
     }
     const processForm = (event.target as Element).closest<HTMLFormElement>("form");
@@ -2685,7 +2708,7 @@ export function createMainActions(host: MainHost) {
       : undefined;
     if (processForm && renderer) {
       event.preventDefault();
-      void renderer.handleSubmit(processForm).catch((error) => host.shell.showNotice(errorText(error), "error"));
+      once(processForm, () => renderer.handleSubmit(processForm));
       return;
     }
     const assistant = (event.target as Element).closest<HTMLFormElement>("form[data-overview-assistant]");
