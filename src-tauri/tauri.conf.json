@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run build:flue && npm run prepare:flue && npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build && npm run prepare:flue",
+    "beforeBuildCommand": "npm run build && npm run prepare:flue && npm run prepare:bridge",
     "frontendDist": "../dist"
   },
   "app": {
@@ -64,7 +64,8 @@
       "../flue-runtime/project/start.mjs": "flue-runtime/project/start.mjs",
       "../flue-runtime/project/workflow": "flue-runtime/project/workflow",
       "../llama-runtime": "llama-runtime",
-      "../services/knowledge-worker/bees_knowledge_worker": "knowledge-worker/bees_knowledge_worker"
+      "../services/knowledge-worker/bees_knowledge_worker": "knowledge-worker/bees_knowledge_worker",
+      "../services/api-bridge/bridge.mjs": "api-bridge/bridge.mjs"
     }
   }
 }

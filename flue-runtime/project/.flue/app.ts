@@ -90,8 +90,8 @@ app.post("/connections/discover", async (context) => {
     teamId?: string;
     id?: string;
   }>();
-  if (!input.name || !input.url || !input.secretRef || !input.teamId || !input.id) {
-    return context.json({ error: "name, url, teamId, id and secretRef are required" }, 400);
+  if (!input.name || !input.url || !input.teamId || !input.id) {
+    return context.json({ error: "name, url, teamId and id are required" }, 400);
   }
   let connection;
   try {
@@ -100,10 +100,16 @@ app.post("/connections/discover", async (context) => {
       name,
       url: input.url,
       transport: input.transport ?? "streamable-http",
-      auth: () => connectionSecret(input.secretRef!, {
-        teamId: input.teamId!,
-        connectionId: input.id!
-      })
+      // A public API carries no credential, so there is none to ask the broker for. The run path
+      // already treats it as optional; discovery refusing it was the only thing in the way.
+      ...(input.secretRef
+        ? {
+          auth: () => connectionSecret(input.secretRef!, {
+            teamId: input.teamId!,
+            connectionId: input.id!
+          })
+        }
+        : {})
     });
     return context.json({
       tools: connection.tools.map(({ name: toolName, description }) => ({

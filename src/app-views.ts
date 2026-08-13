@@ -2195,7 +2195,7 @@ export function createMainViews(host: MainHost) {
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">MCP servers</h2>
         <p class="text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
-        <div class="flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button></div>
+        <div class="flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
       </div></section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${list}</ul></section>
     </div>`;

@@ -11,6 +11,7 @@ import {
   isAutoChoice,
   resolveModelChoice
 } from "./assistant.js";
+import { withBridgeUrl } from "./api-bridge.js";
 import {
   mcpConnectionForAgent
 } from "./connections.js";
@@ -728,14 +729,15 @@ export function createRunController(host: MainHost) {
     }
   }
 
-  function runComposition(agent: Agent): {
+  // Async so a bridged connection's process is up before the run is handed an address.
+  async function runComposition(agent: Agent): Promise<{
     capabilities: ReturnType<typeof selectedAgentCapabilities>;
     mcpConnections: McpConnection[];
     delegates: Array<{
       agent: Agent;
       skillRefs: string[];
     }>;
-  } {
+  }> {
     const helpers = (agent.config.delegateRefs ?? []).map((id) => {
       const helper = host.workspaceController.agents.find((candidate) => candidate.id === id);
       if (!helper || helper.id === agent.id)
@@ -754,12 +756,16 @@ export function createRunController(host: MainHost) {
       ...helpers.flatMap(({ agent: helper }) => selectedAgentCapabilities(host.workspaceController.registries, helper.config).filter(({ kind }) => kind === "skill"))
     ];
     const seen = new Set<string>();
-    const selectedConnections = (agent.config.mcpConnectionRefs ?? []).map((id) => {
-      const connection = host.workspaceController.mcpConnections.find((candidate) => candidate.id === id);
-      if (!connection)
-        throw new Error("A selected MCP connection is unavailable");
-      return mcpConnectionForAgent(connection, agent.config);
-    });
+    const selectedConnections = await Promise.all(
+      (agent.config.mcpConnectionRefs ?? []).map(async (id) => {
+        const connection = host.workspaceController.mcpConnections.find((candidate) => candidate.id === id);
+        if (!connection)
+          throw new Error("A selected MCP connection is unavailable");
+        // Start the bridge first: a bridged connection has no address yet, and narrowing it to the
+        // agent's allowlist validates the one it does not have.
+        return mcpConnectionForAgent(await withBridgeUrl(connection), agent.config);
+      })
+    );
     return {
       capabilities: selected.filter(({ ref }) => !seen.has(ref) && Boolean(seen.add(ref))),
       mcpConnections: [...selectedConnections, ...(host.session.knowledgeConnection ? [host.session.knowledgeConnection] : [])],
@@ -821,9 +827,9 @@ export function createRunController(host: MainHost) {
     throw new Error(`[${decision.policyId}] ${decision.reason}`);
   }
 
-  async function projectToolsByPolicy(agent: Agent, composition: ReturnType<typeof runComposition>): Promise<{
+  async function projectToolsByPolicy(agent: Agent, composition: Awaited<ReturnType<typeof runComposition>>): Promise<{
     agent: Agent;
-    composition: ReturnType<typeof runComposition>;
+    composition: Awaited<ReturnType<typeof runComposition>>;
   }> {
     const toolAllowed = async (tool: Record<string, unknown>): Promise<boolean> => (await controlDecision(controlInput("tool.expose", { type: "tool", id: String(tool.id ?? ""), attributes: {} }, { agentId: agent.id, tool }))).decision === "allow";
     const browserConfigured = agent.config.toolRefs?.includes(BROWSER_TOOL_REF) ?? true;
@@ -891,9 +897,9 @@ export function createRunController(host: MainHost) {
     };
   }
 
-  function projectToolsByGoalEffect(effect: GoalTaskEffect | undefined, agent: Agent, composition: ReturnType<typeof runComposition>): {
+  function projectToolsByGoalEffect(effect: GoalTaskEffect | undefined, agent: Agent, composition: Awaited<ReturnType<typeof runComposition>>): {
     agent: Agent;
-    composition: ReturnType<typeof runComposition>;
+    composition: Awaited<ReturnType<typeof runComposition>>;
   } {
     if (!effect || effect === "external_write")
       return { agent, composition };
@@ -1028,7 +1034,7 @@ export function createRunController(host: MainHost) {
       registry.plugin.skills.some(({ path }) => path === `skills/${slug}/SKILL.md`));
     const proposalAgent = { ...editor, config: { ...editor.config, proposalStageId: stage.id } };
     await host.session.ensureKnowledgeConnection();
-    const composition = runComposition(proposalAgent);
+    const composition = await runComposition(proposalAgent);
     await host.runCoordinator.start({
       // The item rides along for context only: `proposalStageId` keeps this run out of its lifecycle.
       item: { ...item, logicalFiles: current ? [destination] : [] },
@@ -1101,7 +1107,7 @@ export function createRunController(host: MainHost) {
    */
   async function prepareProcessAgentTurn(role: string, item: WorkItem, projectMode: boolean): Promise<{
     agent: Agent;
-    composition: ReturnType<typeof runComposition>;
+    composition: Awaited<ReturnType<typeof runComposition>>;
     teamRoot: string;
   }> {
     const source = host.workspaceController.agents.find(({ config }) => config.role === role);
@@ -1128,7 +1134,7 @@ export function createRunController(host: MainHost) {
       await host.localModels.requireRunning(agent.config.model);
     }
     await host.session.ensureKnowledgeConnection();
-    let composition = runComposition(agent);
+    let composition = await runComposition(agent);
     const projected = await projectToolsByPolicy(agent, composition);
     agent = projected.agent;
     composition = projected.composition;
@@ -1382,7 +1388,7 @@ export function createRunController(host: MainHost) {
       const fileLocations = await referencedFileLocations(item);
       let composition = continuation
         ? { capabilities: [], mcpConnections: [], delegates: [] }
-        : runComposition(runAgent);
+        : await runComposition(runAgent);
       if (!continuation) {
         const projected = await projectToolsByPolicy(runAgent, composition);
         runAgent = projected.agent;

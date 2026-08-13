@@ -50,7 +50,7 @@ fn loopback_token() -> Result<String, String> {
     Ok(token)
 }
 
-fn bundled_binary(name: &str) -> Result<PathBuf, String> {
+pub fn bundled_binary(name: &str) -> Result<PathBuf, String> {
     let extension = if cfg!(windows) { ".exe" } else { "" };
     let path = std::env::current_exe()
         .map_err(|error| error.to_string())?

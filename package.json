@@ -18,7 +18,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm test && npm run build",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "prepare:bridge": "node scripts/prepare-api-bridge.mjs"
   },
   "dependencies": {
     "@flue/sdk": "2.0.0",

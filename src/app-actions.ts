@@ -15,6 +15,9 @@ import {
   removeAiConnection,
   type AiProvider
 } from "./ai-connections.js";
+import { withBridgeUrl } from "./api-bridge.js";
+import { discoverApi } from "./api-discovery.js";
+import { specFromCurl } from "./spec-from-curl.js";
 import type { EditorField, FileSource } from "./app-views.js";
 import { executeBeesUiCommand, refElement, snapshotBeesUi } from "./assistant-ui.js";
 import {
@@ -661,21 +664,25 @@ export function createMainActions(host: MainHost) {
 
   async function discoverMcpConnection(connection: McpConnection): Promise<McpConnection> {
     const { baseUrl, token } = await host.ensureFlueRuntime();
+    const reachable = await withBridgeUrl(connection);
     const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify(connection)
+      // A public API has nothing in the vault, so it is asked for nothing.
+      body: JSON.stringify(
+        reachable.authType === "none" ? { ...reachable, secretRef: undefined } : reachable
+      )
     });
     const body = (await response.json()) as {
       tools?: McpConnection["tools"];
       error?: string;
     };
     if (!response.ok || !body.tools) {
-      const failed = withMcpHealth(connection, connection.tools, body.error ?? `HTTP ${response.status}`);
+      const failed = withMcpHealth(reachable, connection.tools, body.error ?? `HTTP ${response.status}`);
       await saveMcpConnection(host.repository, failed);
       throw new Error(failed.lastError ?? "MCP discovery failed");
     }
-    const discovered = withMcpHealth(connection, body.tools);
+    const discovered = withMcpHealth(reachable, body.tools);
     const data = await edit(`Tools from ${connection.name}`, [
       {
         name: "allowedTools",
@@ -692,6 +699,8 @@ export function createMainActions(host: MainHost) {
     ], "Save allowlist");
     const saved = {
       ...discovered,
+      // The port belongs to this run of the bridge, so storing it only shows a dead one later.
+      url: connection.url,
       allowedTools: data ? data.getAll("allowedTools").map(String) : discovered.allowedTools,
       updatedAt: new Date().toISOString()
     };
@@ -700,6 +709,97 @@ export function createMainActions(host: MainHost) {
   }
 
   /** `found` prefills the form from a registry search; typing the endpoint by hand still works. */
+  /**
+   * Connect an API that ships no MCP server, from a request that already works.
+   *
+   * The curl is the specification: it names the address, the parameters and the credential, and it
+   * has been proved by whoever pasted it. Bees writes the document, keeps the key in the vault and
+   * runs the bridge, so nothing has to be written by hand.
+   */
+  async function addApiFromCurl(): Promise<void> {
+    const data = await edit("Connect an API", [
+      { name: "name", label: "Name", placeholder: "Freelancer projects" },
+      {
+        name: "curl",
+        label: "An address, or a request that works",
+        type: "textarea",
+        placeholder: "https://api.example.com\n\nor\n\ncurl 'https://api.example.com/v1/things?limit=5' -H 'Authorization: Bearer abc'",
+        hint: "An address on its own gets every endpoint the API will admit to. A curl gets that one endpoint, and carries its key."
+      },
+      { name: "offline", label: "When unavailable", type: "toggle", value: "required", options: [{ label: "Fail the run", value: "required" }, { label: "Continue without it", value: "optional" }] }
+    ]);
+    if (!data)
+      return;
+    const { baseUrl, token } = await host.ensureFlueRuntime().catch(() => ({ baseUrl: "", token: "" }));
+    void baseUrl; void token;
+    const modelUrl = await invoke<string>("local_model_base_url").catch(() => "");
+    if (!modelUrl)
+      throw new Error("Turn on a local AI model under Preferences → AI first. Bees uses it once to name the endpoint.");
+    // The endpoint is called in Rust: the plugin's scope names the hosts Bees knows, and the whole
+    // point here is one it does not. The model runs on loopback, which the scope already allows.
+    const input = String(data.get("curl") ?? "").trim();
+    const name = String(data.get("name") ?? "");
+    const teamId = host.workspaceController.workspace.teamId;
+    const optional = data.get("offline") === "optional";
+    let connection: McpConnection;
+    let secret: string | undefined;
+    let note: string;
+
+    if (/^https?:\/\/\S+$/.test(input)) {
+      // An address alone: ask the API what it offers rather than describing one request.
+      const found = await discoverApi(input, (address) =>
+        invoke<{ status: number; body: string }>("probe_api_endpoint", {
+          request: { url: address, method: "GET", headers: {} }
+        }));
+      if (found.kind === "none") {
+        throw new Error(
+          `${found.how}. Paste a working curl for one of its endpoints instead.`
+        );
+      }
+      connection = newMcpConnection({
+        teamId, name, url: "", authType: "none", optional,
+        bridge: {
+          specUrl: found.specUrl ?? "",
+          ...(found.spec ? { spec: found.spec } : {}),
+          baseUrl: new URL(input).origin,
+          tools: "all"
+        }
+      });
+      note = `Connected ${name}: ${found.how}.`;
+    }
+    else {
+      const generated = await specFromCurl(
+        input,
+        modelUrl,
+        async (request, url) => (await invoke<{ status: number }>("probe_api_endpoint", {
+          request: { url: url.toString(), method: request.method, headers: request.headers }
+        })).status,
+        tauriFetch
+      );
+      secret = generated.secret;
+      connection = newMcpConnection({
+        teamId, name, url: "", authType: generated.secret ? "api-key" : "none", optional,
+        bridge: {
+          specUrl: "",
+          spec: generated.spec,
+          baseUrl: generated.baseUrl,
+          ...(generated.headerName ? { headerName: generated.headerName } : {}),
+          tools: "all"
+        }
+      });
+      note = generated.verified
+        ? `Connected ${name}`
+        : `Connected ${name}. The request was not repeated, because sending it again would do it.`;
+    }
+    if (secret) {
+      await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
+    }
+    await saveMcpConnection(host.repository, connection);
+    await discoverMcpConnection(connection);
+    await host.workspaceController.refresh();
+    host.shell.showNotice(note, "success");
+  }
+
   async function addApiKeyMcp(found?: McpRegistryServer): Promise<void> {
     const data = await edit(found ? `Connect ${found.title}` : "Add MCP connection", [
       { name: "name", label: "Name", placeholder: "Linear", value: found?.title ?? "" },
@@ -1909,6 +2009,10 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "add-mcp-api") {
         await addApiKeyMcp();
+        return;
+      }
+      if (action === "add-mcp-from-curl") {
+        await addApiFromCurl();
         return;
       }
       if (action === "add-mcp-oauth") {

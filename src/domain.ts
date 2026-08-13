@@ -495,11 +495,26 @@ export interface McpTool {
   readOnly: boolean;
 }
 
+/** An API with no MCP server of its own, served as tools from its OpenAPI document. */
+export interface McpBridge {
+  /** Empty when the document is held in `spec` rather than fetched. */
+  specUrl: string;
+  /** The document itself, for an API that publishes none and had one written from a request. */
+  spec?: string;
+  /** Where the API lives, which the document does not always say. */
+  baseUrl: string;
+  headerName?: string;
+  /** `all` is one tool per endpoint; `explicit` narrows to `toolIds`; `dynamic` uses meta-tools. */
+  tools?: "all" | "explicit" | "dynamic";
+  toolIds?: string[];
+}
+
 export interface McpConnection {
   id: string;
   teamId: string;
   name: string;
   url: string;
+  bridge?: McpBridge;
   transport: "streamable-http" | "sse";
   authType: "none" | "api-key" | "oauth";
   secretRef: string;

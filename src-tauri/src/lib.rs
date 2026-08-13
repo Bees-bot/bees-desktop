@@ -18,7 +18,7 @@ use processes::software_project::{
     software_project_select_folder, software_project_snapshot, software_project_workspace,
 };
 use runs::{resume_run, run_is_active, start_run, stop_run, RunService};
-use workflow_runtime::{ensure_local_workflow_runtime, WorkflowRuntimeManager};
+use workflow_runtime::{bundled_binary, ensure_local_workflow_runtime, WorkflowRuntimeManager};
 use rusqlite::{
     params_from_iter, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension,
 };
@@ -162,6 +162,12 @@ fn write_secret(secret_ref: &str, secret: &str) -> Result<(), String> {
     vault_entry(secret_ref)?
         .set_password(secret)
         .map_err(|error| error.to_string())
+}
+
+fn read_secret(secret_ref: &str) -> Result<String, String> {
+    vault_entry(secret_ref)?
+        .get_password()
+        .map_err(|_| "The connection credential is unavailable.".to_string())
 }
 
 fn credential_client() -> Result<reqwest::blocking::Client, String> {
@@ -310,8 +316,17 @@ fn json_connection_matches(
     connection_id: &str,
     secret_ref: &str,
 ) -> bool {
-    value.as_array().is_some_and(|connections| {
-        connections.iter().any(|connection| {
+    json_connection(value, team_id, connection_id, secret_ref).is_some()
+}
+
+fn json_connection<'a>(
+    value: &'a JsonValue,
+    team_id: Option<&str>,
+    connection_id: &str,
+    secret_ref: &str,
+) -> Option<&'a JsonValue> {
+    value.as_array().and_then(|connections| {
+        connections.iter().find(|connection| {
             json_text(connection, "id") == connection_id
                 && team_id.is_none_or(|team| json_text(connection, "teamId") == team)
                 && json_text(connection, "secretRef") == secret_ref
@@ -326,7 +341,8 @@ fn json_text<'a>(value: &'a JsonValue, key: &str) -> &'a str {
         .unwrap_or_default()
 }
 
-fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Result<(), String> {
+/// Whether this connection carries no credential at all, once it is known to be a real one.
+fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Result<bool, String> {
     let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| "forbidden".to_string())?;
     let stored: Option<String> = connection
@@ -341,16 +357,17 @@ fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Res
         .as_deref()
         .and_then(|value| serde_json::from_str(value).ok())
         .unwrap_or(JsonValue::Null);
-    if !json_connection_matches(
+    let Some(entry) = json_connection(
         &catalog,
         Some(&request.team_id),
         &request.connection_id,
         &request.secret_ref,
-    ) {
+    ) else {
         return Err("forbidden".into());
-    }
+    };
+    let keyless = json_text(entry, "authType") == "none";
     if request.discovery {
-        return Ok(());
+        return Ok(keyless);
     }
     let execution_id = request.execution_id.as_deref().ok_or("forbidden")?;
     let result: Option<String> = connection
@@ -384,7 +401,7 @@ fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Res
     {
         return Err("forbidden".into());
     }
-    Ok(())
+    Ok(keyless)
 }
 
 fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, String> {
@@ -420,7 +437,12 @@ fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, S
                 .ok_or_else(|| "unauthorized".to_string())
                 .and_then(|()| broker_secret_request(path))
                 .and_then(|request| {
-                    broker_authorized(&database_path, &request)?;
+                    // A connection to an API that needs no key has no vault entry, and asking for
+                    // one answers "credential unavailable" for a credential that was never meant
+                    // to exist.
+                    if broker_authorized(&database_path, &request)? {
+                        return Ok(String::new());
+                    }
                     connection_token(&request.secret_ref)
                 });
             let (status, body) = match result {
@@ -727,6 +749,176 @@ fn bundled_knowledge_worker(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         return Err("The Bees knowledge worker is missing. Reinstall Bees.".into());
     }
     Ok(worker)
+}
+
+struct ManagedApiBridge {
+    child: Sidecar,
+    fingerprint: String,
+    url: String,
+}
+
+struct ApiBridgeManager(Mutex<BTreeMap<String, ManagedApiBridge>>);
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiBridgeRequest {
+    connection_id: String,
+    spec_url: String,
+    /// The document itself, when the API publishes none.
+    spec: Option<String>,
+    base_url: String,
+    header_name: Option<String>,
+    secret_ref: Option<String>,
+    /// `all` for one tool per endpoint, `explicit` with `tool_ids`, or `dynamic` for meta-tools.
+    tools: Option<String>,
+    tool_ids: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiProbe {
+    url: String,
+    method: String,
+    headers: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiAnswer {
+    status: u16,
+    body: String,
+}
+
+/// Call an address once, for proving a pasted request works or reading what an API says it offers.
+///
+/// Here rather than through the HTTP plugin: the address is one nobody has seen before, and the
+/// plugin's scope would have to name every host on the internet to allow it. That scope is what
+/// stops anything running in the window from reaching wherever it likes, and it is worth keeping.
+#[tauri::command]
+async fn probe_api_endpoint(request: ApiProbe) -> Result<ApiAnswer, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = credential_client()?;
+        let method = reqwest::Method::from_bytes(request.method.to_uppercase().as_bytes())
+            .map_err(|_| "unsupported HTTP method".to_string())?;
+        let mut call = client.request(method, &request.url);
+        for (name, value) in &request.headers {
+            call = call.header(name, value);
+        }
+        let response = call.send().map_err(|error| error.to_string())?;
+        let status = response.status().as_u16();
+        // Enough for any document worth serving, and a ceiling on what one answer can cost.
+        let body = response.text().unwrap_or_default().chars().take(4_000_000).collect();
+        Ok(ApiAnswer { status, body })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Where the running local model answers, for the one call that names a generated endpoint.
+#[tauri::command]
+fn local_model_base_url(app: tauri::AppHandle) -> Result<String, String> {
+    let routes = local_models::local_model_routes(&app)?;
+    routes
+        .get("active")
+        .or_else(|| routes.values().next())
+        .map(|route| route.url.trim_end_matches("/v1").to_string())
+        .ok_or_else(|| "No local model is running.".to_string())
+}
+
+fn bundled_api_bridge(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let packaged = app.path().resource_dir().map_err(|error| error.to_string())?;
+    [
+        packaged.join("api-bridge/bridge.mjs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../services/api-bridge/bridge.mjs"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .ok_or_else(|| "The Bees API bridge is missing. Reinstall Bees.".to_string())
+}
+
+#[tauri::command]
+async fn ensure_api_bridge(
+    app: tauri::AppHandle,
+    request: ApiBridgeRequest,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ensure_api_bridge_blocking(&app, request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn ensure_api_bridge_blocking(
+    app: &tauri::AppHandle,
+    request: ApiBridgeRequest,
+) -> Result<String, String> {
+    let node = bundled_binary("bees-node")?;
+    let bridge = bundled_api_bridge(app)?;
+    let secret = request.secret_ref.as_deref().map(read_secret).transpose()?;
+    // The key is in here because the bridge reads it once at startup: rotating it must replace
+    // the process, not wait for the next restart.
+    let fingerprint = serde_json::to_string(&serde_json::json!({
+        "specUrl": &request.spec_url,
+        "spec": &request.spec,
+        "base": &request.base_url,
+        "header": &request.header_name,
+        "tools": &request.tools,
+        "toolIds": &request.tool_ids,
+        "secret": &secret,
+    }))
+    .map_err(|error| error.to_string())?;
+
+    let manager = app.state::<ApiBridgeManager>();
+    let mut running = manager.0.lock().map_err(|error| error.to_string())?;
+    if let Some(existing) = running.get_mut(&request.connection_id) {
+        if existing.fingerprint == fingerprint && existing.child.alive()? {
+            return Ok(existing.url.clone());
+        }
+        running.remove(&request.connection_id);
+    }
+
+    let port = available_loopback_port()?;
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let logs = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    fs::create_dir_all(&logs).map_err(|error| error.to_string())?;
+    let log_path = logs.join("api-bridge.log");
+    let log = open_rotating_log(&log_path)?;
+    let errors = log.try_clone().map_err(|error| error.to_string())?;
+
+    let mut command = Command::new(node);
+    command.env_clear();
+    inherit_runtime_environment(&mut command);
+    command
+        .arg(&bridge)
+        .args(["--transport", "http", "--host", "127.0.0.1", "--path", "/mcp"])
+        .args(["--port", &port.to_string()])
+        .args(["--api-base-url", &request.base_url])
+        .args(["--tools", request.tools.as_deref().unwrap_or("all")]);
+    // A written document goes through the environment: a spec is far past what an argument holds.
+    match request.spec.as_deref() {
+        Some(document) => { command.env("OPENAPI_SPEC_INLINE", document); }
+        None => { command.args(["--openapi-spec", &request.spec_url]); }
+    }
+    for id in request.tool_ids.iter().flatten() {
+        command.args(["--tool", id]);
+    }
+    // Environment, not an argument: command lines are readable from `ps`.
+    if let (Some(name), Some(value)) = (request.header_name.as_deref(), secret.as_deref()) {
+        command.env("API_HEADERS", format!("{name}:{value}"));
+    }
+
+    let mut child = Sidecar::new(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(errors))
+            .spawn()
+            .map_err(|error| format!("The API bridge could not start: {error}"))?,
+    );
+    wait_until_ready(&mut child, &url, &log_path, "The API bridge")?;
+    running.insert(
+        request.connection_id,
+        ManagedApiBridge { child, fingerprint, url: url.clone() },
+    );
+    Ok(url)
 }
 
 fn knowledge_state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -3638,6 +3830,7 @@ pub fn run() {
             app.manage(start_credential_broker(database_path)?);
             app.manage(FlueManager(Mutex::new(None)));
             app.manage(KnowledgeWorkerManager(Mutex::new(None)));
+            app.manage(ApiBridgeManager(Mutex::new(BTreeMap::new())));
             // Clear any llama-server orphaned by a prior crash/restart before the manager takes over.
             reap_orphan_llama_servers();
             app.manage(LocalModelManager::default());
@@ -3695,6 +3888,9 @@ pub fn run() {
             ensure_flue_runtime,
             ensure_local_workflow_runtime,
             ensure_knowledge_worker,
+            ensure_api_bridge,
+            local_model_base_url,
+            probe_api_endpoint,
             restart_flue_runtime,
             detect_cli_tools,
             set_cli_tool_path,

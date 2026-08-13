@@ -50,13 +50,16 @@ export function newMcpConnection(input: {
   authType: McpConnection["authType"];
   transport?: McpConnection["transport"];
   optional?: boolean;
+  bridge?: McpConnection["bridge"];
 }): McpConnection {
   const timestamp = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
     teamId: requiredText(input.teamId, "Team", 120),
     name: requiredText(input.name, "Connection name", 80),
-    url: secureMcpUrl(input.url),
+    // A bridged connection has no address until its process starts, so there is none to check.
+    url: input.bridge ? "" : secureMcpUrl(input.url),
+    ...(input.bridge ? { bridge: input.bridge } : {}),
     transport: input.transport ?? "streamable-http",
     authType: input.authType,
     secretRef: crypto.randomUUID(),

@@ -16,3 +16,4 @@ runtime/
 *.db-wal
 coverage/
 .DS_Store
+services/api-bridge/bridge.mjs
