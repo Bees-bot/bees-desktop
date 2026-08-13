@@ -20,10 +20,6 @@
 
   --color-primary: oklch(53% 0.108 155);
   --color-primary-content: oklch(99% 0 0);
-  --color-secondary: oklch(45% 0.028 152);
-  --color-secondary-content: oklch(99% 0 0);
-  --color-accent: oklch(53% 0.108 155);
-  --color-accent-content: oklch(99% 0 0);
   --color-neutral: oklch(32% 0.012 152);
   --color-neutral-content: oklch(99% 0 0);
 
@@ -58,10 +54,6 @@
 
   --color-primary: oklch(72% 0.124 155);
   --color-primary-content: oklch(18% 0.010 152);
-  --color-secondary: oklch(72% 0.020 152);
-  --color-secondary-content: oklch(18% 0.010 152);
-  --color-accent: oklch(72% 0.124 155);
-  --color-accent-content: oklch(18% 0.010 152);
   --color-neutral: oklch(30% 0.010 152);
   --color-neutral-content: oklch(93% 0.006 152);
 
@@ -111,12 +103,8 @@ body {
   line-height: 1.45;
 }
 
-/*
- * The one secondary text colour. There were seven — base-content at 40, 45, 50, 55, 60, 70 and 75
- * percent, picked per call site — and measured against base-200 every value below 62% fell under
- * the 4.5:1 minimum, so most of the app's metadata, captions and helper text was failing contrast.
- * 65% clears it on both surfaces in both themes with margin to spare.
- */
+/* One secondary colour, not the seven picked per call site. Against base-200 everything under 62%
+   failed 4.5:1, so most metadata and helper text was under it; 65% clears both themes. */
 .text-muted { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); }
 
 /* Overlay scrollbars: a track only appears while a region is actually scrolling. */
@@ -235,31 +223,21 @@ button, input, textarea, select { font: inherit; }
   color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
 }
 /* Soft tints instead of solid fills: state should read at a glance without shouting. */
-.badge-warning {
-  border-color: color-mix(in oklab, var(--color-warning) 30%, transparent);
-  background: color-mix(in oklab, var(--color-warning) 12%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-warning) 55%, var(--color-base-content));
-}
-.badge-success {
-  border-color: color-mix(in oklab, var(--color-success) 30%, transparent);
-  background: color-mix(in oklab, var(--color-success) 12%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-success) 55%, var(--color-base-content));
-}
-.badge-error {
-  border-color: color-mix(in oklab, var(--color-error) 30%, transparent);
-  background: color-mix(in oklab, var(--color-error) 10%, var(--color-base-100));
-  color: color-mix(in oklab, var(--color-error) 55%, var(--color-base-content));
+.badge-warning { --tint: var(--color-warning); }
+.badge-success { --tint: var(--color-success); }
+.badge-error   { --tint: var(--color-error); }
+.badge-warning, .badge-success, .badge-error {
+  border-color: color-mix(in oklab, var(--tint) 30%, transparent);
+  background: color-mix(in oklab, var(--tint) 12%, var(--color-base-100));
+  color: color-mix(in oklab, var(--tint) 55%, var(--color-base-content));
 }
 
 .alert { border-radius: var(--radius-box); font-size: var(--text-body); }
-.alert-warning {
-  border: 1px solid color-mix(in oklab, var(--color-warning) 30%, transparent);
-  background: color-mix(in oklab, var(--color-warning) 10%, var(--color-base-100));
-  color: var(--color-base-content);
-}
-.alert-error {
-  border: 1px solid color-mix(in oklab, var(--color-error) 30%, transparent);
-  background: color-mix(in oklab, var(--color-error) 8%, var(--color-base-100));
+.alert-warning { --tint: var(--color-warning); }
+.alert-error   { --tint: var(--color-error); }
+.alert-warning, .alert-error {
+  border: 1px solid color-mix(in oklab, var(--tint) 30%, transparent);
+  background: color-mix(in oklab, var(--tint) 10%, var(--color-base-100));
   color: var(--color-base-content);
 }
 
