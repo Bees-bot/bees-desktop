@@ -58,7 +58,8 @@ function staticResponses() {
     "plugin:deep-link|get_current": null,
     "plugin:updater|check": null,
     "plugin:notification|is_permission_granted": true,
-    "plugin:dialog|confirm": true
+    "plugin:dialog|confirm": true,
+    "plugin:dialog|ask": true
   };
 }
 
