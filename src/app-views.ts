@@ -1084,23 +1084,28 @@ export function createMainViews(host: MainHost) {
               ]
             }
             : field);
-        const sections = (["basics", "instructions", "capabilities"] as const)
-          .map((step) => {
-            const group = fields.filter((field) => field.step === step);
-            if (!group.length)
-              return "";
-            // Collapsed sections still submit their inputs, so `scopedFormData` reads them either way.
-            return `<details class="min-w-0 rounded-box border border-base-300 p-4" ${step === "basics" ? "open" : ""}>
-              <summary class="cursor-pointer text-xs font-semibold text-muted">${step}</summary>
-              <div class="mt-4 grid min-w-0 gap-4">${group
-                .map((field) => editorFieldHtml({ ...field, name: `${agent.id}:${field.name}` }))
-                .join("")}</div>
-            </details>`;
-          })
-          .join("");
-        return `<section class="grid min-w-0 gap-3 p-5" data-agent-pane="${host.shell.escapeHtml(agent.id)}" ${agent.id === host.shell.configAgentId ? "" : "hidden"}>
-          <h3 class="font-bold">${host.shell.escapeHtml(agent.name || "Untitled agent")}</h3>
-          ${sections}
+        const renderStep = (step: string, defaultOpen: boolean) => {
+          const group = fields.filter((field) => field.step === step);
+          if (!group.length)
+            return "";
+          return `<details class="min-w-0 rounded-box border border-base-300 p-4" ${defaultOpen ? "open" : ""}>
+            <summary class="cursor-pointer text-xs font-semibold text-muted">${step}</summary>
+            <div class="mt-4 grid min-w-0 gap-4">${group
+              .map((field) => editorFieldHtml({ ...field, name: `${agent.id}:${field.name}` }))
+              .join("")}</div>
+          </details>`;
+        };
+
+        const leftContent = [
+          renderStep("basics", true),
+          renderStep("capabilities", false)
+        ].join("");
+        const rightContent = renderStep("instructions", true);
+
+        return `<section class="grid min-w-0 gap-5 p-5 lg:grid-cols-2" data-agent-pane="${host.shell.escapeHtml(agent.id)}" ${agent.id === host.shell.configAgentId ? "" : "hidden"}>
+          <div class="col-span-full"><h3 class="font-bold">${host.shell.escapeHtml(agent.name || "Untitled agent")}</h3></div>
+          <div class="grid content-start gap-3">${leftContent}</div>
+          <div class="grid content-start gap-3">${rightContent}</div>
         </section>`;
       })
       .join("");
