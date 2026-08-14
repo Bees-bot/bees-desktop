@@ -82,6 +82,7 @@ import {
   errorText,
   formatBoardFilters,
   isProposal,
+  itemTree,
   logicalFileReference,
   parseBoardFilters,
   rootItemId
@@ -2334,7 +2335,26 @@ export function createMainActions(host: MainHost) {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(button.dataset.team);
         const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id);
-        if (item && await edit(`Archive "${item.title}"?`, [], "Archive")) {
+        const tree = item ? itemTree(host.workspaceController.teamItems, item.id) : [];
+        const treeIds = new Set(tree.map(({ id }) => id));
+        const activeExecutions = host.runs.executions.filter(({ workItemId, status }) =>
+          treeIds.has(workItemId) && (status === "queued" || status === "running"));
+        const impact = [
+          activeExecutions.length
+            ? `${activeExecutions.length} active run${activeExecutions.length === 1 ? "" : "s"} will be stopped.`
+            : "",
+          tree.length > 1
+            ? `${tree.length - 1} subtask${tree.length === 2 ? "" : "s"} will also be archived.`
+            : "",
+          "The task will appear in Completed Runs with an Archived outcome."
+        ].filter(Boolean).join(" ");
+        if (item && await edit(`Archive "${item.title}"?`, [
+          { name: "impact", label: "", type: "note", value: impact }
+        ], activeExecutions.length ? "Stop and archive" : "Archive")) {
+          for (const execution of activeExecutions)
+            await host.runCoordinator.stop(execution.id);
+          for (const workItemId of new Set(activeExecutions.map(({ workItemId }) => workItemId)))
+            await host.runs.releaseClaim(workItemId).catch(() => undefined);
           await host.workflowRuntime.command(item.id, { type: "archive" });
           if (host.shell.boardItemId === item.id)
             host.shell.boardItemId = "";

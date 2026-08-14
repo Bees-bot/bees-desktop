@@ -208,24 +208,28 @@ export function runsView(items: WorkItem[], executions: Execution[], processes: 
       const tree = itemTree(items, item.id);
       const ids = new Set(tree.map(({ id }) => id));
       const steps = executions.filter(({ workItemId }) => ids.has(workItemId));
-      if (!item.isTerminal || tree.some(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt) ||
+      if ((!item.isTerminal && !item.archivedAt) ||
+        tree.some(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt) ||
         steps.some(({ status }) => status === "queued" || status === "running"))
         return [];
       const startedAt = steps.map(({ startedAt, createdAt }) => startedAt ?? createdAt).sort()[0] ?? item.createdAt;
-      const endedAt = steps.flatMap(({ endedAt }) => endedAt ? [endedAt] : []).sort().at(-1) ?? item.updatedAt;
-      return [{ item, startedAt, endedAt }];
+      const endedAt = item.archivedAt ??
+        steps.flatMap(({ endedAt }) => endedAt ? [endedAt] : []).sort().at(-1) ?? item.updatedAt;
+      return [{ item, startedAt, endedAt, outcome: item.archivedAt ? "Archived" : "Completed" }];
     })
     .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
-  if (!completed.length) return empty("No completed runs", "Finished runs will appear here.");
+  if (!completed.length) return empty("No finished runs", "Completed and archived tasks will appear here.");
   return `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table">
-      <thead><tr><th>Primary task</th><th>Process</th><th>Start time</th><th>End time</th></tr></thead>
+      <thead><tr><th>Primary task</th><th>Process</th><th>Outcome</th><th>Start time</th><th>End time</th></tr></thead>
       <tbody>${completed
-        .map(({ item, startedAt, endedAt }) => {
+        .map(({ item, startedAt, endedAt, outcome }) => {
           const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
           return `<tr>
             <td><button class="link link-hover text-left font-semibold" data-action="open-item" data-id="${item.id}">${escapeHtml(item.title)}</button></td>
-            <td>${escapeHtml(process)}</td><td>${when(startedAt)}</td><td>${when(endedAt)}</td>
+            <td>${escapeHtml(process)}</td>
+            <td><span class="badge badge-sm ${outcome === "Completed" ? "badge-success" : "badge-ghost"}">${outcome}</span></td>
+            <td>${when(startedAt)}</td><td>${when(endedAt)}</td>
           </tr>`;
         })
         .join("")}</tbody>

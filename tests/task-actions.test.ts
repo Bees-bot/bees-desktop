@@ -21,6 +21,9 @@ describe("task actions", () => {
     expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');
+    expect(actions).toContain('activeExecutions.length ? "Stop and archive" : "Archive"');
+    expect(actions).toContain("await host.runCoordinator.stop(execution.id)");
+    expect(actions).toContain("The task will appear in Completed Runs with an Archived outcome.");
     expect(runtime).toContain("handle.signal(archiveStateSignal");
     expect(workflow).toContain("commands = CONTINUE_AFTER_COMMANDS");
   });

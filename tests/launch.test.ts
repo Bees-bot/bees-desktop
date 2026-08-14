@@ -301,6 +301,33 @@ describe("lean launch modules", () => {
     expect(html.match(/<tbody>[\s\S]*?<tr>/g)).toHaveLength(1);
   });
 
+  it("shows an archived task as a finished run after its executions settle", () => {
+    const archivedAt = "2026-01-01T11:00:00.000Z";
+    const root = {
+      id: "root", processId: "process", parentId: null, title: "Archived task",
+      isTerminal: false, archivedAt, createdAt: "2026-01-01T08:00:00.000Z", updatedAt: archivedAt
+    } as WorkItem;
+    const child = {
+      ...root, id: "child", parentId: root.id, title: "Archived subtask"
+    } as WorkItem;
+    const settled = {
+      id: "execution", workItemId: child.id, status: "cancelled",
+      startedAt: "2026-01-01T09:00:00.000Z", endedAt: "2026-01-01T09:30:00.000Z",
+      createdAt: "2026-01-01T09:00:00.000Z"
+    } as Execution;
+    const process = { id: "process", name: "Launch process" } as Process;
+
+    const html = runsView([root, child], [settled], [process]);
+    expect(html).toContain("Archived task");
+    expect(html).toContain("Archived</span>");
+    expect(html).toContain(new Date(archivedAt).toLocaleString());
+    expect(html).toContain('data-action="open-item" data-id="root"');
+    expect(html).not.toContain("Archived subtask");
+
+    expect(runsView([root, child], [{ ...settled, status: "running" }], [process]))
+      .toContain("No finished runs");
+  });
+
   it("renders scheduled tasks with process names and cron expressions", () => {
     const item = { id: "task", processId: "process", title: "Send update" } as WorkItem;
     const process = { id: "process", name: "Outreach" } as Process;
