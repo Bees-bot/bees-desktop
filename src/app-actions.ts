@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -2499,7 +2499,7 @@ export function createMainActions(host: MainHost) {
         // Asked for only where the button reads "Delete". Archiving is reversible from
         // Team settings → Archived, but its work items go off the board either way.
         if (button.dataset.confirm && process &&
-          !(await ask(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`, { title: "Delete Process", kind: "warning" })))
+          !(await edit(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`, [], "Delete")))
           return;
         await host.repository.archiveProcess(button.dataset.id!);
         if (host.shell.configProcessId === button.dataset.id) {
@@ -2581,7 +2581,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "remove-file-location") {
-        if (!(await ask(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`, { title: "Remove Location", kind: "warning" })))
+        if (!(await edit(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`, [], "Remove")))
           return;
         await host.repository.deleteFileLocation(button.dataset.id!);
         await host.workspaceController.refresh();

@@ -1354,8 +1354,8 @@ export function createMainViews(host: MainHost) {
         <p class="mt-0.5 text-xs text-muted">${agents} agent${agents === 1 ? "" : "s"}</p>
       </div>
       <div class="flex flex-wrap items-center gap-1">
-        <button class="p-1.5 rounded-md text-muted hover:text-primary transition-colors" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Edit process" title="Edit process">${ACTION_ICONS.edit}</button>
-        <button class="p-1.5 rounded-md text-muted hover:text-error transition-colors" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Delete process" title="Delete process">${ACTION_ICONS.delete}</button>
+        <button class="p-1.5 text-muted hover:text-primary cursor-pointer border-none outline-none bg-transparent hover:bg-transparent transition-colors" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Edit process" title="Edit process">${ACTION_ICONS.edit}</button>
+        <button class="p-1.5 text-muted hover:text-error cursor-pointer border-none outline-none bg-transparent hover:bg-transparent transition-colors" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Delete process" title="Delete process">${ACTION_ICONS.delete}</button>
       </div>
     </article>`;
   }
