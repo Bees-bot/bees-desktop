@@ -879,11 +879,11 @@ export function createMainViews(host: MainHost) {
         <div class="flex flex-wrap items-center gap-2">
           ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
           <div class="dropdown dropdown-end">
-            <button tabindex="0" class="btn btn-ghost btn-sm border border-base-300" aria-haspopup="menu"
+            <button tabindex="0" class="p-1.5 rounded-md text-muted hover:text-primary cursor-pointer border-none outline-none bg-transparent hover:bg-transparent transition-colors" aria-haspopup="menu"
               aria-label="More process actions" title="More process actions">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>
+              <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
-            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
               <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Runs</button></li>
               <li><button data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">Schedules</button></li>
               <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit process</button></li>
