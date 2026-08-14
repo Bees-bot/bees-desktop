@@ -326,7 +326,7 @@ Target: the Preferences gear beside the Bees.bot name
 An agent cannot run without a model it can reach, and skipping this is where almost every
 "nothing happens when I press Run" comes from. Pick whichever you already have:
 
-- **AI Subscriptions** — Claude Code, Codex or opencode already signed in on this machine. Costs nothing new.
+- **AI Subscriptions** — bundled Codex, plus Claude Code when you explicitly choose its binary.
 - **Local AI** — download an on-device model, then Run it. No network, no bill.
 - **AI APIs** — a provider key.
 

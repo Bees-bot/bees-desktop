@@ -1,10 +1,23 @@
 // AI provider connection metadata for an organization. Rust stores credentials in the
 // operating-system credential vault; SQLite and synchronized metadata keep only `secretRef`.
 //
-// Codex and Claude Code are not here: they are driven through the CLIs the user has
-// installed (see cli-tools.ts and .flue/cli-provider.ts), which own their own login.
+// Codex and the optional Claude Code adapter are agent runtimes rather than model APIs,
+// so they stay separate (see cli-tools.ts and .flue/cli-provider.ts).
 
-export type AiProvider = "opencode-go" | "openrouter" | "openai" | "anthropic";
+export type AiProvider =
+  | "opencode-go"
+  | "openrouter"
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "mistral"
+  | "groq"
+  | "deepseek"
+  | "xai"
+  | "cerebras"
+  | "together"
+  | "fireworks"
+  | "openai-compatible";
 
 export type ApiKeyProvider = AiProvider;
 
@@ -14,13 +27,24 @@ export interface AiConnection {
   label: string;
   createdAt: string;
   secretRef: string;
+  /** Non-secret endpoint for a generic OpenAI-compatible connection. */
+  baseUrl?: string;
 }
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
   "opencode-go": "OpenCode Go",
   openrouter: "OpenRouter",
   openai: "OpenAI",
-  anthropic: "Anthropic"
+  anthropic: "Anthropic",
+  google: "Google Gemini",
+  mistral: "Mistral",
+  groq: "Groq",
+  deepseek: "DeepSeek",
+  xai: "xAI",
+  cerebras: "Cerebras",
+  together: "Together AI",
+  fireworks: "Fireworks AI",
+  "openai-compatible": "OpenAI-compatible"
 };
 
 /** Minimal slice of the repository this module needs — avoids an import cycle. */
@@ -52,13 +76,14 @@ export async function removeAiConnection(store: SettingsStore, orgId: string, id
   );
 }
 
-function newConnection(provider: AiProvider, label: string): AiConnection {
+function newConnection(provider: AiProvider, label: string, baseUrl?: string): AiConnection {
   return {
     id: crypto.randomUUID(),
     provider,
     label,
     secretRef: crypto.randomUUID(),
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(baseUrl ? { baseUrl } : {})
   };
 }
 
@@ -66,9 +91,28 @@ function newConnection(provider: AiProvider, label: string): AiConnection {
 
 export function connectApiKey(
   provider: ApiKeyProvider,
-  apiKey: string
+  apiKey: string,
+  baseUrl?: string
 ): { connection: AiConnection; secret: string } {
   const trimmed = apiKey.trim();
   if (!trimmed) throw new Error("API key is required");
-  return { connection: newConnection(provider, AI_PROVIDER_LABEL[provider]), secret: trimmed };
+  let endpoint: string | undefined;
+  if (provider === "openai-compatible") {
+    const raw = baseUrl?.trim();
+    if (!raw) throw new Error("Base URL is required");
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error("Base URL must be a valid http:// or https:// URL");
+    }
+    if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password) {
+      throw new Error("Base URL must be a valid http:// or https:// URL without credentials");
+    }
+    endpoint = parsed.toString().replace(/\/$/, "");
+  }
+  return {
+    connection: newConnection(provider, AI_PROVIDER_LABEL[provider], endpoint),
+    secret: trimmed
+  };
 }

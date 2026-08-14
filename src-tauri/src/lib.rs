@@ -1102,7 +1102,7 @@ fn ensure_knowledge_worker_blocking(
         *managed = None;
     }
 
-    let python = resolve_cli("python3").ok_or_else(|| {
+    let python = resolve_python().ok_or_else(|| {
         "Python 3 is required for local knowledge. Install Python 3 and the knowledge-worker dependencies."
             .to_string()
     })?;
@@ -1264,6 +1264,7 @@ fn bundled_flue_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), Stri
 struct StoredAiConnection {
     provider: String,
     secret_ref: String,
+    base_url: Option<String>,
 }
 
 fn provider_environment(
@@ -1291,6 +1292,15 @@ fn provider_environment(
             "openai" => "OPENAI_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
             "opencode-go" => "OPENCODE_API_KEY",
+            "google" => "GEMINI_API_KEY",
+            "mistral" => "MISTRAL_API_KEY",
+            "groq" => "GROQ_API_KEY",
+            "deepseek" => "DEEPSEEK_API_KEY",
+            "xai" => "XAI_API_KEY",
+            "cerebras" => "CEREBRAS_API_KEY",
+            "together" => "TOGETHER_API_KEY",
+            "fireworks" => "FIREWORKS_API_KEY",
+            "openai-compatible" => "BEES_OPENAI_COMPATIBLE_API_KEY",
             _ => continue,
         };
         if environment.contains_key(variable) {
@@ -1298,6 +1308,13 @@ fn provider_environment(
         }
         if let Ok(secret) = connection_token(&stored.secret_ref) {
             environment.insert(variable.to_string(), secret);
+            if stored.provider == "openai-compatible" {
+                if let Some(base_url) = stored.base_url.filter(|value| {
+                    value.starts_with("https://") || value.starts_with("http://")
+                }) {
+                    environment.insert("BEES_OPENAI_COMPATIBLE_BASE_URL".into(), base_url);
+                }
+            }
         }
     }
     Ok(environment)
@@ -1371,6 +1388,8 @@ fn ensure_flue_runtime_blocking(
     let capability_token = loopback_token()?;
     let capability_url = format!("http://127.0.0.1:{capability_port}");
     let state_dir = flue_state_dir(app)?;
+    let codex_home = state_dir.join("codex-home");
+    fs::create_dir_all(&codex_home).map_err(|error| error.to_string())?;
     let capability_child = spawn_capability_host(
         &node,
         &project_root,
@@ -1396,6 +1415,9 @@ fn ensure_flue_runtime_blocking(
         .env("BEES_CREDENTIAL_BROKER_TOKEN", &broker.token)
         // Run pointers and browser profiles are mutable runtime state, not build inputs.
         .env("BEES_STATE_DIR", &state_dir)
+        // The official SDK owns this directory. Keeping it separate means Codex can persist
+        // its supported login without loading or inspecting the user's personal Codex config.
+        .env("BEES_CODEX_HOME", &codex_home)
         // Trusted local modules live in a separate process with no provider or broker secrets.
         .env("BEES_CAPABILITY_HOST_URL", &capability_url)
         .env("BEES_CAPABILITY_TOKEN", &capability_token)
@@ -1428,16 +1450,15 @@ fn ensure_flue_runtime_blocking(
             )
             .map_err(|error| error.to_string())?,
         );
-    // A GUI app's PATH does not include the per-user bin dirs the CLIs install into, so
-    // resolve them here and hand the runtime absolute paths.
+    // External native agents are opt-in. Only paths explicitly chosen in Preferences reach
+    // the runtime; no login shell, default install location, or PATH scan runs at startup.
     let overrides = usable_cli_overrides(app);
-    let home = home_directory(app);
     let disabled = disabled_cli_tools(app);
     for tool in &CLI_TOOLS {
         if disabled.contains(tool.id) {
             continue;
         }
-        if let Some(found) = cli_tool_path(&overrides, home.as_deref(), tool) {
+        if let Some(found) = cli_tool_path(&overrides, tool) {
             command.env(tool.variable, found.path);
         }
     }
@@ -1536,12 +1557,11 @@ fn spawn_capability_host(
     Ok(child)
 }
 
-/// Absolute path to a CLI the user installed, or None when it is not on the machine.
-/// Resolved through a login shell because a GUI app inherits a bare PATH that misses the
-/// per-user bin dirs these CLIs install into (~/.local/bin, ~/.bun/bin, nvm, Homebrew).
-fn resolve_cli(name: &str) -> Option<String> {
+/// Absolute path to Python for the optional local knowledge worker. This is unrelated to
+/// model providers; native AI agents never use this login-shell lookup.
+fn resolve_python() -> Option<String> {
     let output = if cfg!(target_os = "windows") {
-        Command::new("where").arg(name).output().ok()?
+        Command::new("where").arg("python3").output().ok()?
     } else {
         // Launched from Finder there is no SHELL and no terminal PATH: launchd hands the app a
         // bare `/usr/bin:/bin`. The shell has to be interactive as well as login, because nvm,
@@ -1554,7 +1574,7 @@ fn resolve_cli(name: &str) -> Option<String> {
         // terminal (`npm run tauri:dev`) inherits that, so the probe drops it to see the same
         // PATH a shell of the user's own would have.
         Command::new(shell)
-            .args(["-ilc", &format!("command -v {name}")])
+            .args(["-ilc", "command -v python3"])
             .env_remove("npm_config_prefix")
             .env_remove("NPM_CONFIG_PREFIX")
             .output()
@@ -1567,23 +1587,6 @@ fn resolve_cli(name: &str) -> Option<String> {
         .map(str::trim)
         .find(|line| line.starts_with('/') && Path::new(line).exists())
         .map(str::to_string)
-        .or_else(|| bundled_cli(name))
-}
-
-/// A CLI that ships inside a desktop app instead of installing onto PATH. The Codex app was
-/// renamed ChatGPT and now carries `codex` in its bundle, so a machine with it installed has
-/// the CLI but nothing `command -v` can see.
-fn bundled_cli(name: &str) -> Option<String> {
-    if name != "codex" {
-        return None;
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    [
-        "/Applications/ChatGPT.app/Contents/Resources/codex".to_string(),
-        format!("{home}/Applications/ChatGPT.app/Contents/Resources/codex"),
-    ]
-    .into_iter()
-    .find(|path| Path::new(path).exists())
 }
 
 #[derive(Serialize)]
@@ -1622,138 +1625,29 @@ fn system_capacity(app: tauri::AppHandle) -> Result<SystemCapacity, String> {
 
 /// An agent CLI Bees can run through.
 struct CliTool {
-    /// Key the app uses for this tool, and the command's name on PATH.
+    /// Key the app uses for this tool.
     id: &'static str,
     /// Environment variable the Flue runtime reads this CLI's path from.
     variable: &'static str,
-    /// Where the CLI's own installer puts it. Checked before PATH, because a GUI app's
-    /// PATH misses the per-user bin dirs entirely and probing it costs a login shell.
-    /// A leading `~/` is the user's home directory.
-    default_path: &'static str,
-    /// What installs it, run through a login shell.
-    install: &'static str,
 }
 
-const CLI_TOOLS: [CliTool; 3] = [
+const CLI_TOOLS: [CliTool; 1] = [
     CliTool {
         id: "claude",
         variable: "BEES_CLAUDE_CLI",
-        default_path: "~/.local/bin/claude",
-        install: "curl -fsSL https://claude.ai/install.sh | bash",
-    },
-    CliTool {
-        id: "codex",
-        variable: "BEES_CODEX_CLI",
-        // The ChatGPT desktop app bundles the CLI; the standalone one comes from npm.
-        default_path: "/Applications/ChatGPT.app/Contents/Resources/codex",
-        install: "npm install -g @openai/codex",
-    },
-    CliTool {
-        id: "opencode",
-        variable: "BEES_OPENCODE_CLI",
-        default_path: "~/.opencode/bin/opencode",
-        install: "curl -fsSL https://opencode.ai/install | bash",
     },
 ];
 
-/// A CLI the app will run: where it is, whether the user picked it themselves, whether it is
-/// switched on, and what its own login file says about the account behind it.
+/// An explicitly configured CLI the app will run.
 #[derive(Serialize)]
 struct CliToolPath {
     path: String,
-    custom: bool,
     /// False once the user switches this CLI off by hand; runs stop being offered it.
     enabled: bool,
-    /// The plan the CLI is signed into, as its own login file reports it. `None` means that
-    /// file says nothing about an account — normally it has never been signed in.
-    plan: Option<String>,
-    /// The account the CLI is signed in as, for telling two logins apart.
-    account: Option<String>,
-}
-
-/// What a CLI's own login file says. The CLIs hold their own credentials; this only reads
-/// what they already wrote to disk — no network call, no keychain, no token is kept.
-#[derive(Default)]
-struct CliAccount {
-    plan: Option<String>,
-    email: Option<String>,
 }
 
 fn read_json_file(path: PathBuf) -> Option<JsonValue> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
-}
-
-/// A JWT's middle segment, which is plain base64url JSON. Unverified on purpose: the CLI
-/// wrote it locally and it is only read here to name the plan back to the user.
-fn jwt_claims(token: &str) -> Option<JsonValue> {
-    let payload = URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?;
-    serde_json::from_slice(&payload).ok()
-}
-
-fn cli_account(id: &str, home: Option<&Path>) -> CliAccount {
-    let Some(home) = home else {
-        return CliAccount::default();
-    };
-    match id {
-        "claude" => claude_account(home),
-        "codex" => codex_account(home),
-        "opencode" => opencode_account(home),
-        _ => None,
-    }
-    .unwrap_or_default()
-}
-
-/// `~/.claude.json` keeps the signed-in account; it is dropped on logout, so its absence is
-/// the "not signed in" signal.
-fn claude_account(home: &Path) -> Option<CliAccount> {
-    let file = read_json_file(home.join(".claude.json"))?;
-    let account = file.get("oauthAccount")?;
-    let text = |key: &str| account.get(key).and_then(JsonValue::as_str);
-    Some(CliAccount {
-        // The subscription shows up as the type of the personal organization behind it.
-        plan: Some(match text("organizationType") {
-            Some("claude_pro") => "Pro".to_string(),
-            Some("claude_max") => "Max".to_string(),
-            _ => text("organizationName").unwrap_or("Signed in").to_string(),
-        }),
-        email: text("emailAddress").map(str::to_string),
-    })
-}
-
-/// `~/.codex/auth.json` holds either a pasted API key or the ChatGPT login, whose id token
-/// carries the plan the subscription is on.
-fn codex_account(home: &Path) -> Option<CliAccount> {
-    let file = read_json_file(home.join(".codex").join("auth.json"))?;
-    if file.get("OPENAI_API_KEY").and_then(JsonValue::as_str).is_some_and(|key| !key.is_empty()) {
-        return Some(CliAccount { plan: Some("API key".into()), email: None });
-    }
-    let token = file.get("tokens")?.get("id_token")?.as_str()?;
-    let claims = jwt_claims(token)?;
-    let plan = claims
-        .get("https://api.openai.com/auth")
-        .and_then(|auth| auth.get("chatgpt_plan_type"))
-        .and_then(JsonValue::as_str)
-        .map(|plan| match plan {
-            "plus" => "Plus".to_string(),
-            "pro" => "Pro".to_string(),
-            other => other.to_string(),
-        });
-    Some(CliAccount {
-        plan: plan.or_else(|| Some("Signed in".into())),
-        email: claims.get("email").and_then(JsonValue::as_str).map(str::to_string),
-    })
-}
-
-/// `~/.local/share/opencode/auth.json` is a map of provider id to that provider's login, so
-/// its keys are the only thing there is to name back: opencode fronts several providers at
-/// once and has no single account or plan behind them.
-fn opencode_account(home: &Path) -> Option<CliAccount> {
-    let file = read_json_file(home.join(".local").join("share").join("opencode").join("auth.json"))?;
-    let providers: Vec<&str> = file.as_object()?.keys().map(String::as_str).collect();
-    if providers.is_empty() {
-        return None;
-    }
-    Some(CliAccount { plan: Some("Signed in".into()), email: Some(providers.join(", ")) })
 }
 
 fn cli_disabled_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1789,8 +1683,7 @@ fn stored_cli_overrides(app: &tauri::AppHandle) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The same picks, minus any whose file is gone: a binary that was moved or uninstalled
-/// falls back to PATH detection instead of failing every run that names the tool.
+/// The same picks, minus any whose file is gone. Missing means disconnected; there is no scan.
 fn usable_cli_overrides(app: &tauri::AppHandle) -> BTreeMap<String, String> {
     drop_missing_binaries(stored_cli_overrides(app))
 }
@@ -1802,57 +1695,27 @@ fn drop_missing_binaries(overrides: BTreeMap<String, String>) -> BTreeMap<String
         .collect()
 }
 
-/// `~/…` against the user's home directory; anything else is already absolute.
-fn expand_home(path: &str, home: Option<&Path>) -> Option<PathBuf> {
-    match path.strip_prefix("~/") {
-        Some(rest) => home.map(|home| home.join(rest)),
-        None => Some(PathBuf::from(path)),
-    }
-}
-
-/// The binary a CLI-backed provider runs: the user's own pick, then the location the CLI's
-/// installer uses, then whatever is on PATH.
+/// The binary an external provider runs. There is intentionally no fallback or detection.
 fn cli_tool_path(
     overrides: &BTreeMap<String, String>,
-    home: Option<&Path>,
     tool: &CliTool,
 ) -> Option<CliToolPath> {
-    let (path, custom) = match overrides.get(tool.id) {
-        Some(path) => (path.clone(), true),
-        None => {
-            let installed = expand_home(tool.default_path, home).filter(|path| path.is_file());
-            let path = match installed {
-                Some(path) => path.display().to_string(),
-                None => resolve_cli(tool.id)?,
-            };
-            (path, false)
-        }
-    };
-    // Switched on unless `detect_cli_tools` says otherwise; every other caller wants the path.
-    let account = cli_account(tool.id, home);
+    let path = overrides.get(tool.id)?.clone();
     Some(CliToolPath {
         path,
-        custom,
         enabled: true,
-        plan: account.plan,
-        account: account.email,
     })
 }
 
-fn home_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path().home_dir().ok()
-}
-
-/// Which agent CLIs this computer has, for the Preferences → Cloud connections list.
+/// External agent CLIs explicitly chosen under Preferences. This never scans the machine.
 #[tauri::command]
-fn detect_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
+fn configured_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
     let overrides = usable_cli_overrides(&app);
-    let home = home_directory(&app);
     let disabled = disabled_cli_tools(&app);
     CLI_TOOLS
         .iter()
         .filter_map(|tool| {
-            cli_tool_path(&overrides, home.as_deref(), tool).map(|mut found| {
+            cli_tool_path(&overrides, tool).map(|mut found| {
                 found.enabled = !disabled.contains(tool.id);
                 (tool.id.to_string(), found)
             })
@@ -1877,64 +1740,7 @@ fn set_cli_tool_enabled(app: tauri::AppHandle, tool: String, enabled: bool) -> R
     write_atomic(&cli_disabled_path(&app)?, &content)
 }
 
-/// Install a missing CLI with the installer its makers publish, and report where it landed.
-/// The install runs in a login shell so it uses the same node/brew/PATH setup a terminal has.
-#[tauri::command]
-async fn install_cli_tool(app: tauri::AppHandle, tool: String) -> Result<String, String> {
-    let spec = CLI_TOOLS
-        .iter()
-        .find(|candidate| candidate.id == tool)
-        .ok_or_else(|| format!("{tool} is not a command-line agent"))?;
-    if cfg!(target_os = "windows") {
-        return Err(format!(
-            "Bees cannot install {} for you on Windows. Install it yourself, then choose the binary here.",
-            spec.id
-        ));
-    }
-    let install = spec.install;
-    tauri::async_runtime::spawn_blocking(move || run_install(install))
-        .await
-        .map_err(|error| error.to_string())??;
-    let home = home_directory(&app);
-    cli_tool_path(&usable_cli_overrides(&app), home.as_deref(), spec)
-        .map(|found| found.path)
-        .ok_or_else(|| {
-            format!("{} installed, but Bees could not find the binary afterwards.", spec.id)
-        })
-}
-
-fn run_install(command: &str) -> Result<(), String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") { "/bin/zsh".into() } else { "/bin/sh".into() }
-    });
-    let output = Command::new(shell)
-        // Same shell flags and stripped npm variables as resolve_cli: the installer needs the
-        // PATH a shell of the user's own would have, not the bare one a GUI app inherits.
-        .args(["-ilc", command])
-        .env_remove("npm_config_prefix")
-        .env_remove("NPM_CONFIG_PREFIX")
-        .output()
-        .map_err(|error| format!("The installer could not start: {error}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    // Installers print progress on both streams; the last line said is the actionable one.
-    let text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stderr),
-        String::from_utf8_lossy(&output.stdout)
-    );
-    Err(text
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("The installer failed")
-        .trim()
-        .to_string())
-}
-
-/// Point a CLI-backed provider at a binary the user browsed to. An empty path drops the
-/// pick and goes back to PATH detection.
+/// Point an external provider at a binary the user browsed to. Empty disconnects it.
 #[tauri::command]
 fn set_cli_tool_path(app: tauri::AppHandle, tool: String, path: String) -> Result<(), String> {
     if !CLI_TOOLS.iter().any(|candidate| candidate.id == tool) {
@@ -3892,10 +3698,9 @@ pub fn run() {
             local_model_base_url,
             probe_api_endpoint,
             restart_flue_runtime,
-            detect_cli_tools,
+            configured_cli_tools,
             set_cli_tool_path,
             set_cli_tool_enabled,
-            install_cli_tool,
             system_capacity,
             oauth_start,
             oauth_await,
@@ -4092,64 +3897,6 @@ mod tests {
     }
 
     #[test]
-    fn cli_accounts_come_from_the_files_the_clis_write() {
-        let home = std::env::temp_dir().join(format!(
-            "bees-cli-account-{}",
-            loopback_token().expect("random name")
-        ));
-        fs::create_dir_all(home.join(".codex")).expect("home");
-
-        // Nothing written yet: no account, which is what "not signed in" looks like.
-        assert!(cli_account("claude", Some(&home)).plan.is_none());
-        assert!(cli_account("codex", Some(&home)).plan.is_none());
-        assert!(cli_account("opencode", Some(&home)).plan.is_none());
-
-        fs::write(
-            home.join(".claude.json"),
-            r#"{"oauthAccount":{"emailAddress":"someone@example.com","organizationType":"claude_max"}}"#,
-        )
-        .expect("claude config");
-        let claude = cli_account("claude", Some(&home));
-        assert_eq!(claude.plan.as_deref(), Some("Max"));
-        assert_eq!(claude.email.as_deref(), Some("someone@example.com"));
-
-        // The plan lives in the id token's claims, which are base64url with no padding.
-        let claims = URL_SAFE_NO_PAD.encode(
-            br#"{"email":"someone@example.com","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#,
-        );
-        fs::write(
-            home.join(".codex").join("auth.json"),
-            format!(r#"{{"auth_mode":"chatgpt","tokens":{{"id_token":"header.{claims}.signature"}}}}"#),
-        )
-        .expect("codex config");
-        let codex = cli_account("codex", Some(&home));
-        assert_eq!(codex.plan.as_deref(), Some("Plus"));
-        assert_eq!(codex.email.as_deref(), Some("someone@example.com"));
-
-        // A pasted key is read before the tokens: it is what the CLI would actually bill.
-        fs::write(
-            home.join(".codex").join("auth.json"),
-            r#"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-test"}"#,
-        )
-        .expect("codex key");
-        assert_eq!(cli_account("codex", Some(&home)).plan.as_deref(), Some("API key"));
-
-        // opencode holds one login per provider, so the providers are what gets named back.
-        let opencode = home.join(".local").join("share").join("opencode");
-        fs::create_dir_all(&opencode).expect("opencode home");
-        fs::write(
-            opencode.join("auth.json"),
-            r#"{"opencode":{"type":"api","key":"sk-test"},"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":0}}"#,
-        )
-        .expect("opencode config");
-        let opencode = cli_account("opencode", Some(&home));
-        assert_eq!(opencode.plan.as_deref(), Some("Signed in"));
-        assert_eq!(opencode.email.as_deref(), Some("anthropic, opencode"));
-
-        fs::remove_dir_all(&home).ok();
-    }
-
-    #[test]
     fn standing_feedback_can_be_undone() {
         let root = std::env::temp_dir().join(format!(
             "bees-skill-rule-{}",
@@ -4183,36 +3930,24 @@ mod tests {
     }
 
     #[test]
-    fn a_cli_resolves_by_pick_then_default_location_then_path() {
+    fn an_external_cli_uses_only_an_explicit_existing_pick() {
         let home = std::env::temp_dir().join(format!(
             "bees-cli-home-{}",
             loopback_token().expect("random name")
         ));
-        fs::create_dir_all(home.join(".local").join("bin")).expect("home");
-        let installed = home.join(".local").join("bin").join("claude");
-        fs::write(&installed, b"#!/bin/sh\n").expect("installed binary");
+        fs::create_dir_all(&home).expect("home");
         let chosen = home.join("my-claude");
         fs::write(&chosen, b"#!/bin/sh\n").expect("chosen binary");
         let claude = &CLI_TOOLS[0];
-        let codex = &CLI_TOOLS[1];
-
-        // The user's pick wins over the installer's location.
         let picked = BTreeMap::from([("claude".to_string(), chosen.display().to_string())]);
-        let found = cli_tool_path(&picked, Some(&home), claude).expect("chosen binary");
+        let found = cli_tool_path(&picked, claude).expect("chosen binary");
         assert_eq!(found.path, chosen.display().to_string());
-        assert!(found.custom);
-
-        // A pick whose file is gone is dropped, leaving the default location to answer.
         let stale = drop_missing_binaries(BTreeMap::from([(
             "claude".to_string(),
             "/nowhere/claude".to_string(),
         )]));
-        let found = cli_tool_path(&stale, Some(&home), claude).expect("default location");
-        assert_eq!(found.path, installed.display().to_string());
-        assert!(!found.custom);
-
-        // Nothing at the default location: PATH detection is the last word.
-        assert!(cli_tool_path(&stale, Some(&home), codex).is_none_or(|tool| !tool.custom));
+        assert!(cli_tool_path(&stale, claude).is_none());
+        assert!(cli_tool_path(&BTreeMap::new(), claude).is_none());
         fs::remove_dir_all(home).expect("cleanup");
     }
 

@@ -8,7 +8,12 @@ import { openSite } from "./browser.ts";
 import { cliProviderRoutes } from "./cli-provider.ts";
 import { connectionSecret } from "./credentials.ts";
 import { localModelRoutes, proxyLocalModelRequest } from "./local-provider.ts";
-import { LOCAL_PROVIDER, loopbackModel, registerCliProviders } from "./models.ts";
+import {
+  LOCAL_PROVIDER,
+  loopbackModel,
+  registerCliProviders,
+  registerOpenAICompatibleProvider
+} from "./models.ts";
 import { BeesRun } from "./agents/bees-run.ts";
 import { BeesAssistant } from "./agents/bees-assistant.ts";
 import { BeesCurator } from "./agents/bees-curator.ts";
@@ -40,6 +45,7 @@ setProvider(
 // need the port this process was started on — the desktop app passes it as BEES_SELF_URL.
 // Their per-run model ids are declared as the runs start; see `declareModel` in models.ts.
 registerCliProviders();
+registerOpenAICompatibleProvider();
 
 const app = new Hono();
 const localRoutes = localModelRoutes();
@@ -61,6 +67,7 @@ app.use("/agents/*", guardLoopback);
 app.use("/browser/*", guardLoopback);
 app.use("/local-model/*", guardLoopback);
 app.use("/cli/*", guardLoopback);
+app.use("/codex/*", guardLoopback);
 app.use("/connections/*", guardLoopback);
 
 app.all("/local-model/v1/*", (context) =>

@@ -19,7 +19,7 @@ import {
 } from "./assistant.js";
 import {
   CLI_TOOLS,
-  detectCliTools,
+  configuredCliTools,
   type CliToolPath
 } from "./cli-tools.js";
 import {
@@ -2085,48 +2085,50 @@ export function createMainViews(host: MainHost) {
   }
 
   /**
-   * Claude Code and Codex are used through the CLIs already installed on this computer:
-   * they hold their own login, so there is nothing to connect here — only whether Bees
-   * found them, and the model an agent names to run through one.
+   * Codex is bundled through its official SDK. Claude Code is deliberately explicit: Bees
+   * never scans PATH or reads another app's account files, so the user chooses its binary.
    */
   async function cliToolsSection(): Promise<string> {
-    const installed = await detectCliTools().catch(() => ({}) as Record<string, CliToolPath>);
+    const installed = await configuredCliTools().catch(() => ({}) as Record<string, CliToolPath>);
     const rows = CLI_TOOLS.map((tool) => {
       const found = installed[tool.id];
-      // The CLI's own login file says which account and plan it would bill; no account in it
-      // means it has never been signed in, and a run pointed at it would stop and ask.
-      const signIn = `Not signed in — run <code>${host.shell.escapeHtml(tool.id)}</code> in a terminal once`;
-      const account = found?.plan
-        ? `${host.shell.escapeHtml(found.plan)}${found.account ? ` · ${host.shell.escapeHtml(found.account)}` : ""}`
-        : signIn;
       return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
         <div class="min-w-0">
           <span class="block truncate font-semibold">${host.shell.escapeHtml(tool.label)}</span>
           <span class="text-xs text-muted">${found
-          ? `${account} · agent model <code>${host.shell.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.shell.escapeHtml(found.path)}</span>`
-          : `Not installed — <button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(tool.installUrl)}">install it</button>, or point Bees at it below`}</span>
+          ? `Explicitly configured · agent model <code>${host.shell.escapeHtml(tool.exampleModel)}</code> · <span class="truncate">${host.shell.escapeHtml(found.path)}</span>`
+          : `Optional · <button class="link" data-action="open-external" data-url="${host.shell.escapeHtml(tool.installUrl)}">install it</button>, then choose its binary`}</span>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           ${found
           ? `<input type="checkbox" class="toggle toggle-sm" data-action="toggle-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}" ${found.enabled ? "checked" : ""} aria-label="Use ${host.shell.escapeHtml(tool.label)} for runs">`
           : ""}
-          <span class="badge badge-sm ${!found ? "badge-ghost" : found.enabled ? "badge-success" : "badge-ghost"}">${found ? (found.enabled ? (found.custom ? "Chosen" : "Found") : "Off") : "Missing"}</span>
+          <span class="badge badge-sm ${!found ? "badge-ghost" : found.enabled ? "badge-success" : "badge-ghost"}">${found ? (found.enabled ? "Chosen" : "Off") : "Not configured"}</span>
           <button class="btn btn-ghost btn-xs" data-action="pick-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Choose…</button>
-          ${found?.custom
-          ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Use detected</button>`
-          : ""}
           ${found
-          ? ""
-          : `<button class="btn btn-outline btn-xs" data-action="install-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Install</button>`}
+          ? `<button class="btn btn-ghost btn-xs" data-action="clear-cli-tool" data-tool="${host.shell.escapeHtml(tool.id)}">Disconnect</button>`
+          : ""}
         </div>
       </li>`;
     }).join("");
     return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="border-b border-base-300 p-5">
         <h2 class="font-bold">AI Subscriptions</h2>
-        <p class="mt-1 text-sm text-muted">Runs pointed at these use the CLI on this computer, signed in with your own account. The CLI works in the run's workspace folder and bills whatever plan it is logged into.</p>
+        <p class="mt-1 text-sm text-muted">Codex is bundled and isolated from your personal Codex configuration. Claude Code remains optional and must be selected explicitly.</p>
       </header>
-      <ul class="divide-y divide-base-200 p-2">${rows}</ul>
+      <ul class="divide-y divide-base-200 p-2">
+        <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+          <div class="min-w-0">
+            <span class="block truncate font-semibold">Codex (ChatGPT)</span>
+            <span class="text-xs text-muted">Official SDK and bundled runtime · agent model <code>codex-cli/default</code></span>
+          </div>
+          <div class="flex shrink-0 items-center gap-1">
+            <span class="badge badge-success badge-sm">Included</span>
+            <button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>
+          </div>
+        </li>
+        ${rows}
+      </ul>
     </section>`;
   }
 
@@ -2402,7 +2404,7 @@ export function createMainViews(host: MainHost) {
       { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
       { id: "workspaces", label: "Workspaces", content: prefsWorkspacesContent },
       { id: "folder", label: "Root Folder", content: prefsFolderContent },
-      { id: "ai-subscriptions", label: "AI CLI", content: cliToolsSection },
+      { id: "ai-subscriptions", label: "AI Subscriptions", content: cliToolsSection },
       { id: "local-models", label: "Local AI", content: prefsLocalModelsContent },
       { id: "remote-models", label: "AI APIs", content: prefsRemoteModelsContent },
       { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
@@ -2465,7 +2467,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: selectedRef,
         options: modelOptions,
-        hint: "Auto picks the best AI installed on the computer running this stage: Codex, then Claude Code, then any other agent CLI, then the largest local model, then the largest remote one.",
+        hint: "Auto picks the best AI available on this computer: bundled Codex, then explicitly configured Claude Code, then the largest local model, then the largest remote one.",
         step: "instructions"
       },
       {

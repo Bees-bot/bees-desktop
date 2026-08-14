@@ -37,7 +37,7 @@ synchronized, and they apply across every workspace and team you are signed
 into. Credentials never leave the machine.
 
 - **Local AI** — on-device models. Download one, then Run it. No network, no per-token cost.
-- **AI Subscriptions** — agent CLIs detected on this computer, billed to the plan each is signed into.
+- **AI Subscriptions** — bundled Codex and optional agent runtimes you explicitly connect.
 - **AI APIs** — API keys for hosted providers.
 - **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
@@ -80,12 +80,10 @@ curation), **Browser**, **Archived**, and **Danger**.
 An agent cannot run without a model it can reach. Do this before building a
 process — most "nothing happens when I press Run" comes from skipping it.
 
-**Option A — an agent CLI you already pay for.** Install Claude Code, the
-Codex CLI or opencode, sign it in from your terminal, and it appears under
-**Preferences → AI Subscriptions** as \`claude-cli\`, \`codex-cli\` or
-\`opencode-cli\`. It bills your existing subscription, so frontier models cost you
-nothing new. Installing more than one unlocks the multi-vendor processes, where
-one vendor proposes and the other critiques.
+**Option A — a subscription you already pay for.** Codex is included through
+OpenAI's official SDK; select **Sign in** under **Preferences → AI Subscriptions**.
+Claude Code remains an optional external agent: install it and explicitly choose
+its binary there. Bees never scans your PATH or reads either tool's account files.
 
 **Option B — an on-device model.** **Preferences → Local AI**, select
 **Download**, then **Run**. Nothing leaves the machine and there is no bill.
@@ -99,10 +97,10 @@ naming a model this machine cannot reach is not eligible to run here, which is
 how work routes to the right laptop instead of failing on the wrong one.
 
 **Auto is the default on every process stage.** A stage left on *Auto* picks,
-at the moment it starts, the first of these that this computer has: Codex
-(ChatGPT), Claude Code, any other agent CLI, the largest downloaded local model,
-the largest remote model. Name a model on the stage instead and that model is
-used, with no substitution.
+at the moment it starts, the first of these that this computer has: bundled Codex
+(ChatGPT), explicitly configured Claude Code, the largest downloaded local model,
+the largest remote model. Name a model on the stage instead and that model is used,
+with no substitution.
 
 ## 6. Folder structure
 

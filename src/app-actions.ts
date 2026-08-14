@@ -45,8 +45,6 @@ import {
   type ModelChoice
 } from "./assistant.js";
 import {
-  CLI_TOOLS,
-  installCliTool,
   setCliToolPath,
   setCliToolEnabled
 } from "./cli-tools.js";
@@ -583,11 +581,18 @@ export function createMainActions(host: MainHost) {
   async function connectAiProvider(provider: AiProvider): Promise<void> {
     host.shell.showNotice(host.session.AI_PROVIDER_HINT[provider], "info");
     const data = await edit(`Connect ${AI_PROVIDER_LABEL[provider]}`, [
+      ...(provider === "openai-compatible"
+        ? [{ name: "baseUrl", label: "Base URL", type: "text" as const, placeholder: "https://api.example.com/v1" }]
+        : []),
       { name: "apiKey", label: "API key", type: "password", placeholder: "sk-..." }
     ]);
     if (!data)
       return;
-    const { connection, secret } = connectApiKey(provider, String(data.get("apiKey") ?? ""));
+    const { connection, secret } = connectApiKey(
+      provider,
+      String(data.get("apiKey") ?? ""),
+      String(data.get("baseUrl") ?? "")
+    );
     await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
     try {
       await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
@@ -2079,19 +2084,17 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice(warning ?? "MCP connection removed", warning ? "error" : "success");
         return;
       }
-      if (action === "install-cli-tool") {
-        const tool = CLI_TOOLS.find(({ id }) => id === button.dataset.tool);
-        if (!tool)
-          return;
-        // It downloads and runs the makers' own installer, so say whose before doing it.
-        const installerHost = new URL(tool.installUrl).host;
-        if (!(await edit(`Install ${tool.label} from ${installerHost}?`, [], "Install")))
-          return;
-        host.shell.showNotice(`Installing ${tool.label}…`, "info");
-        const path = await installCliTool(tool.id);
-        await host.flueProjectPort.restart();
-        await host.workspaceController.refresh();
-        host.shell.showNotice(`${tool.label} installed at ${path}`, "success");
+      if (action === "codex-login") {
+        const { baseUrl, token } = await host.ensureFlueRuntime();
+        host.shell.showNotice("Opening the Codex sign-in page…", "info");
+        const response = await tauriFetch(`${baseUrl}/codex/login`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` }
+        });
+        const result = await response.json() as { ok?: boolean; error?: string };
+        if (!response.ok || !result.ok) throw new Error(result.error ?? "Codex sign-in failed");
+        await host.assistant.refreshAssistantCatalog();
+        host.shell.showNotice("Codex is signed in", "success");
         return;
       }
       if (action === "toggle-cli-tool") {
@@ -2113,7 +2116,7 @@ export function createMainActions(host: MainHost) {
         // The path reaches the CLI providers as an environment variable set at launch.
         await host.flueProjectPort.restart();
         await host.workspaceController.refresh();
-        host.shell.showNotice(picked ? "AI subscription updated" : "Back to the detected CLI", "success");
+        host.shell.showNotice(picked ? "Claude Code path saved" : "Claude Code disconnected", "success");
         return;
       }
       if (action === "browse-local-model") {

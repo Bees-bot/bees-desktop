@@ -11,7 +11,20 @@ export default defineConfig({
       // Only providers Bees actually ships. Omitting this would bundle every pi-ai
       // built-in into the sidecar. Custom providers (bees-local, the CLI shims) are
       // registered with setProvider() in app.ts and are unaffected by this list.
-      providers: ["anthropic", "openai", "openrouter", "opencode-go"]
+      providers: [
+        "anthropic",
+        "cerebras",
+        "deepseek",
+        "fireworks",
+        "google",
+        "groq",
+        "mistral",
+        "openai",
+        "openrouter",
+        "opencode-go",
+        "together",
+        "xai"
+      ]
     })
   ],
   build: { sourcemap: false },
