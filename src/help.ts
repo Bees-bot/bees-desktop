@@ -158,7 +158,7 @@ team name:
 - **Goals** — a goal is planned into subtasks, worked one at a time, and reviewed. Good for marketing, research, operations, and anything you repeat.
 - **Code** — requirements, architecture, plan, implement, phase review, final review, done, against a local Git project.
 
-Or build your own: **Processes → New process**, then a name and an ordered list
+Or build your own: **Workflows → Create workflow**, then a name and an ordered list
 of statuses such as \`Brief, Draft, Review, Published\`.
 
 Order matters in two ways. A run that writes no status moves the item to the

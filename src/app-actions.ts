@@ -120,7 +120,7 @@ import {
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import { runReceipt } from "./run-receipt.js";
 import { FlueRuntime } from "./runtime.js";
-import { nextScheduleRun } from "./scheduler.js";
+import { nextScheduleStart } from "./scheduler.js";
 import {
   DEFAULT_TOUR,
   TOUR_MARKDOWN_KEY,
@@ -627,6 +627,8 @@ export function createMainActions(host: MainHost) {
       throw new Error(failed.lastError ?? "MCP discovery failed");
     }
     const discovered = withMcpHealth(reachable, body.tools);
+    // flue drops the server's readOnlyHint, so carry our own marks across a re-check
+    const wasReadOnly = new Set(connection.tools.filter(({ readOnly }) => readOnly).map(({ name }) => name));
     const data = await edit(`Tools from ${connection.name}`, [
       {
         name: "allowedTools",
@@ -639,12 +641,22 @@ export function createMainActions(host: MainHost) {
         checked: discovered.allowedTools.length
           ? discovered.allowedTools
           : discovered.tools.map(({ name }) => name)
+      },
+      {
+        name: "readOnlyTools",
+        label: "Read-only tools",
+        type: "checkboxes",
+        hint: "Tools that only read. A goal task planned as read or prepare keeps these and loses every other tool on this connection.",
+        options: discovered.tools.map(({ name }) => ({ label: name, value: name })),
+        checked: discovered.tools.filter(({ name }) => wasReadOnly.has(name)).map(({ name }) => name)
       }
     ], "Save allowlist");
+    const readOnly = new Set(data ? data.getAll("readOnlyTools").map(String) : [...wasReadOnly]);
     const saved = {
       ...discovered,
       // The port belongs to this run of the bridge, so storing it only shows a dead one later.
       url: connection.url,
+      tools: discovered.tools.map((tool) => ({ ...tool, readOnly: readOnly.has(tool.name) })),
       allowedTools: data ? data.getAll("allowedTools").map(String) : discovered.allowedTools,
       updatedAt: new Date().toISOString()
     };
@@ -1828,6 +1840,13 @@ export function createMainActions(host: MainHost) {
             value: "daily",
             options: ["hourly", "daily", "weekdays"].map((value) => ({ label: value, value }))
           },
+          {
+            name: "time",
+            label: "Time of day",
+            value: "07:00",
+            placeholder: "07:00",
+            hint: "Ignored by an hourly schedule, which runs an hour from now."
+          },
           { name: "timezone", label: "Timezone", value: timezone }
         ]);
         if (!data)
@@ -1846,7 +1865,7 @@ export function createMainActions(host: MainHost) {
         if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
           throw new Error("Choose an available goal worker role");
         }
-        const nextRunAt = nextScheduleRun(recurrence, new Date(), String(data.get("timezone"))).toISOString();
+        const nextRunAt = nextScheduleStart(recurrence, String(data.get("time")), new Date(), String(data.get("timezone"))).toISOString();
         await host.workflowRuntime.command(workItemId, {
           type: "upsert_schedule",
           schedule: {

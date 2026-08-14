@@ -7,8 +7,8 @@ Bees server.
 
 ## Development
 
-Requirements: Node.js 22.19+, npm 10+, Rust 1.84+, CMake on macOS, and Python
-3.11+ for local knowledge.
+Requirements: Node.js 22.5+ (`.nvmrc` pins the version CI uses), npm 10+, Rust
+1.84+, CMake on macOS, and Python 3.11+ for local knowledge.
 
 ```sh
 npm ci
@@ -41,9 +41,9 @@ The Bees server has no file-upload route. Workspace sync rejects file bytes,
 document contents, secrets, absolute paths, and path traversal. Use local
 models and local tools for fully offline or air-gapped operation.
 
-## Software Project process
+## The Code workflow
 
-Add **Software Project** from the process library to build new software or make
+Add **Code** from the bundled workflows to build new software or make
 a substantial fix, feature, refactor, or migration in existing software. Choose
 one local project folder first: an empty folder becomes a new Git project, while
 a folder with code must already be a clean Git repository on the intended base
