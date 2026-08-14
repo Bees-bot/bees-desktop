@@ -139,7 +139,7 @@ async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }>
   return { baseUrl: runtime.baseUrl, token: typeof runtime.token === "string" ? runtime.token : "" };
 }
 
-export type KnowledgeRuntimeInfo = { url: string; token: string; sourceCount: number; };
+export type KnowledgeRuntimeInfo = { url: string; token: string; };
 // Per-org branding (color + optional logo data URL), stored locally.
 // ponytail: local-only, so an admin's logo/color don't sync to other members — add a server
 // column + reconcile when shared branding matters.

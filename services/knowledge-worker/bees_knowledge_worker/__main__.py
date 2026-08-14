@@ -23,7 +23,11 @@ def parser() -> argparse.ArgumentParser:
 def load(path: str | None) -> tuple[WorkerConfig, IndexManager]:
     if not path:
         raise SystemExit("--config or BEES_KNOWLEDGE_CONFIG is required")
-    config = WorkerConfig.from_file(path)
+    try:
+        config = WorkerConfig.from_file(path)
+    except (OSError, ValueError) as error:
+        # a traceback buries the one line saying which field is wrong
+        raise SystemExit(f"{path}: {error}") from error
     return config, IndexManager(config, LlamaIndexBackend(config.embedding_model))
 
 

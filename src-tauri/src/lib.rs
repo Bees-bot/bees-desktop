@@ -716,7 +716,6 @@ struct FlueRuntimeInfo {
 struct KnowledgeRuntimeInfo {
     url: String,
     token: String,
-    source_count: usize,
 }
 
 /// 32 bytes of OS entropy, hex encoded.
@@ -1082,7 +1081,6 @@ fn ensure_knowledge_worker_blocking(
     team_id: &str,
 ) -> Result<KnowledgeRuntimeInfo, String> {
     let local = local_knowledge_configuration(app, organization_id, team_id)?;
-    let source_count = local.source_ids_by_team[team_id].len();
     let source_bytes = serde_json::to_vec(&serde_json::json!({
         "sources": &local.sources,
         "sourceIdsByTeam": &local.source_ids_by_team,
@@ -1096,7 +1094,6 @@ fn ensure_knowledge_worker_blocking(
             return Ok(KnowledgeRuntimeInfo {
                 url: worker.url.clone(),
                 token: worker.tokens_by_team[team_id].clone(),
-                source_count,
             });
         }
         *managed = None;
@@ -1195,11 +1192,7 @@ fn ensure_knowledge_worker_blocking(
         url: url.clone(),
         tokens_by_team: local.tokens_by_team,
     });
-    Ok(KnowledgeRuntimeInfo {
-        url,
-        token,
-        source_count,
-    })
+    Ok(KnowledgeRuntimeInfo { url, token })
 }
 
 fn inherit_runtime_environment(command: &mut Command) {

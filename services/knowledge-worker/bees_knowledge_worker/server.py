@@ -124,7 +124,20 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return
         self._send(HTTPStatus.OK, self.server.service.health())
 
+    def _read_body(self) -> bytes | None:
+        try:
+            length = int(self.headers.get("content-length", "0"))
+        except ValueError:
+            length = -1
+        if 0 < length <= self.maximum_body:
+            return self.rfile.read(length)
+        # body stays in the socket, so this connection is done
+        self.close_connection = True
+        return None
+
     def do_POST(self) -> None:
+        # read first: connection is persistent, and a body left behind reads as the next request
+        body = self._read_body()
         if self.path != "/mcp":
             self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -133,10 +146,9 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
         try:
-            length = int(self.headers.get("content-length", "0"))
-            if length <= 0 or length > self.maximum_body:
+            if body is None:
                 raise ValueError("MCP request size is invalid")
-            message = json.loads(self.rfile.read(length))
+            message = json.loads(body)
             status, response = self._handle_message(scope, message)
             self._send(status, response, {"mcp-session-id": "bees-knowledge"})
         except Exception as error:
@@ -172,10 +184,10 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if method == "tools/list":
             return HTTPStatus.OK, self._rpc(request_id, {"tools": [TOOL]})
         if method == "tools/call":
-            params = message.get("params")
-            if not isinstance(params, dict) or params.get("name") != "knowledge_search":
-                raise KnowledgeError("unknown knowledge tool")
             try:
+                params = message.get("params")
+                if not isinstance(params, dict) or params.get("name") != "knowledge_search":
+                    raise KnowledgeError("unknown knowledge tool")
                 output = self.server.service.call_search(scope, params.get("arguments", {}))
                 return HTTPStatus.OK, self._rpc(
                     request_id,

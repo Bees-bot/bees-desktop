@@ -141,6 +141,17 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _indexed_at(value: str | None) -> datetime | None:
+    """We write these aware; a hand-edited one may be naive, and comparing raises."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
 class IndexManager:
     def __init__(self, config: WorkerConfig, backend: IndexBackend):
         self.config = config
@@ -215,11 +226,7 @@ class IndexManager:
         for source in self.config.sources.values():
             if not source.enabled:
                 continue
-            status = self.status(source.id)
-            try:
-                indexed_at = datetime.fromisoformat(status.indexedAt) if status.indexedAt else None
-            except ValueError:
-                indexed_at = None
+            indexed_at = _indexed_at(self.status(source.id).indexedAt)
             if indexed_at is None or indexed_at <= cutoff:
                 try:
                     self.rebuild(source.id)
