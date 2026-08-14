@@ -1366,26 +1366,30 @@ export function createMainViews(host: MainHost) {
       ({ definition }) => !definition.moduleId || !libraryIds.has(definition.moduleId)
     );
     host.shell.setHeader("Processes", host.session.currentTeam()?.name);
-    host.shell.swap(`<section class="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
-        <div>
-          <h2 class="font-bold">Team's custom processes</h2>
-          <p class="mt-1 text-sm text-muted">Edit a process's statuses and agents, or delete one you no longer run.</p>
+    host.shell.swap(`<div class="grid lg:grid-cols-3 gap-6 h-[calc(100vh-8rem)]">
+      <section class="lg:col-span-2 flex flex-col rounded-box border border-base-300 bg-base-100 shadow-sm overflow-hidden">
+        <header class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
+          <div>
+            <h2 class="font-bold">Team's custom processes</h2>
+            <p class="mt-1 text-sm text-muted">Edit a process's statuses and agents, or delete one you no longer run.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+        </header>
+        <div class="flex-1 overflow-y-auto">
+          ${customProcesses.length
+          ? customProcesses.map(teamWorkflowRow).join("")
+          : `<p class="p-5 text-sm text-muted">No custom processes yet.</p>`}
         </div>
-        <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
-      </header>
-      ${customProcesses.length
-      ? customProcesses.map(teamWorkflowRow).join("")
-      : `<p class="p-5 text-sm text-muted">No custom processes yet.</p>`}
-    </section>
-    <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
-        <div>
-          <h2 class="font-bold">Process Library</h2>
-          <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
-        </div>
-      </header>
-      <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
+      </section>
+      
+      <section class="flex flex-col rounded-box border border-base-300 bg-base-100 shadow-sm overflow-hidden">
+        <header class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
+          <div>
+            <h2 class="font-bold">Process Library</h2>
+            <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
+          </div>
+        </header>
+        <div class="flex-1 overflow-y-auto p-5 grid gap-4 content-start">${PROCESS_LIBRARY.map((entry) => {
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
       const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent) ? "Auto" : `${agent.provider}/${agent.model}`))];
       return `<article class="card border border-base-300 bg-base-100">
@@ -1409,7 +1413,8 @@ export function createMainViews(host: MainHost) {
           </div>
         </article>`;
     }).join("")}</div>
-    </section>`);
+      </section>
+    </div>`);
   }
 
   const ACTION_ICONS = {
