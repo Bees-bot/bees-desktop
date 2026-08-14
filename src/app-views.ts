@@ -1037,6 +1037,15 @@ export function createMainViews(host: MainHost) {
       <label class="form-control mt-4 grid min-w-0 gap-1.5"><span class="label-text text-sm font-semibold">Ordered statuses</span>
         <input class="input input-bordered w-full" name="stages" value="${host.shell.escapeHtml(process ? process.stages.map(({ name }) => name).join(", ") : "To do, In progress, Done")}" required>
         <span class="text-xs text-muted">Comma separated, in order. The first status starts the work, the last one finishes it. A removed status needs its work items moved first.</span></label>
+      ${process ? `<fieldset class="mt-4 grid gap-2">
+        <legend class="text-sm font-semibold">Approved output folders</legend>
+        <p class="text-xs text-muted">Optional paths relative to the team folder. Bees routes files after the agent chooses a status and you approve its output.</p>
+        ${process.stages.map(({ id, name }) => `<label class="grid items-center gap-2 sm:grid-cols-[minmax(8rem,1fr)_minmax(12rem,2fr)]">
+          <span class="text-sm">${host.shell.escapeHtml(name)}</span>
+          <input class="input input-bordered input-sm w-full" name="outputFolder:${host.shell.escapeHtml(id)}"
+            value="${host.shell.escapeHtml(process.definition.outputFolders?.[id] ?? "")}" placeholder="ready-for-human-review">
+        </label>`).join("")}
+      </fieldset>` : ""}
     </form>`;
     if (!process) {
       host.shell.swap(`<div class="grid gap-4">${definition}

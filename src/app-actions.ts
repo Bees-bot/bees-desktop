@@ -198,10 +198,15 @@ export function createMainActions(host: MainHost) {
     // ends it. Nothing to mark up in the field.
     const names = String(data.get("stages") ?? "").split(",").map((value) => value.trim());
     const stages = names.map((name, index) => ({ name, isTerminal: index === names.length - 1 }));
+    const process = host.workspaceController.processes.find(({ id }) => id === host.shell.configProcessId);
     const input = {
       name: String(data.get("name") ?? ""),
       description: String(data.get("description") ?? ""),
-      stages
+      stages,
+      outputFolders: Object.fromEntries((process?.stages ?? []).map(({ id }) => [
+        id,
+        String(data.get(`outputFolder:${id}`) ?? "")
+      ]))
     };
     if (host.shell.configProcessId) {
       await host.repository.updateProcessDefinition(host.shell.configProcessId, input);

@@ -86,6 +86,18 @@ describe("runPrompt", () => {
     expect(prompt).toContain("write the chosen status ID");
   });
 
+  it("shows live status destinations without asking the agent to construct paths", () => {
+    const [draft, review] = stages("Draft", "Human review");
+    const prompt = runPrompt({
+      item,
+      agent,
+      teamRoot: "/team",
+      stages: [draft!, { ...review!, outputFolder: "ready-for-human-review" }]
+    });
+    expect(prompt).toContain("Human review: human review-id — approved files publish under ready-for-human-review/");
+    expect(prompt).toContain("Write files directly under outputs; Bees adds");
+  });
+
   it("supplies the strict Goals schema and external-action receipt contract", () => {
     const prompt = runPrompt({
       item: {

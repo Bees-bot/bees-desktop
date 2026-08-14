@@ -11,6 +11,7 @@ import {
   createId,
   defaultBoardFilters,
   logicalFileReferences,
+  logicalPath,
   logicalPaths,
   now,
   parseJson,
@@ -117,11 +118,22 @@ function synchronizedProcessDefinition(value: unknown): PersistedProcessDefiniti
     !definition.roleBindings.every(
       (binding) =>
         binding && typeof binding.role === "string" && typeof binding.stageId === "string"
-    )
+    ) ||
+    (definition.outputFolders !== undefined &&
+      (!definition.outputFolders ||
+        typeof definition.outputFolders !== "object" ||
+        Array.isArray(definition.outputFolders) ||
+        !Object.entries(definition.outputFolders).every(
+          ([stageId, folder]) => typeof stageId === "string" && typeof folder === "string"
+        )))
   ) {
     throw new Error("Process definition is invalid");
   }
-  return definition as PersistedProcessDefinition;
+  Object.values(definition.outputFolders ?? {}).forEach(logicalPath);
+  return {
+    ...(definition as Omit<PersistedProcessDefinition, "outputFolders">),
+    outputFolders: definition.outputFolders ?? {}
+  };
 }
 
 /**
@@ -839,7 +851,12 @@ export class LocalRepository {
 
   async updateProcessDefinition(
     id: string,
-    input: { name: string; description?: string; stages: Array<{ name: string; isTerminal: boolean }> }
+    input: {
+      name: string;
+      description?: string;
+      stages: Array<{ name: string; isTerminal: boolean }>;
+      outputFolders?: Record<string, string>;
+    }
   ): Promise<void> {
     const stages = input.stages.map((stage) => ({
       name: requiredText(stage.name, "Stage name", 80),
@@ -865,6 +882,17 @@ export class LocalRepository {
         throw new Error("Move work items out of removed stages before editing the process");
       }
     }
+    const currentIds = new Set(current.slice(0, stages.length).map(({ id: stageId }) => stageId));
+    const outputFolders = Object.fromEntries(
+      Object.entries(input.outputFolders ?? {}).flatMap(([stageId, folder]) => {
+        const value = folder.trim();
+        if (!value) return [];
+        if (!currentIds.has(stageId)) {
+          throw new Error("Output folders must belong to this process");
+        }
+        return [[stageId, logicalPath(value)]];
+      })
+    );
     const timestamp = now();
     await this.database.transaction([
       {
@@ -881,10 +909,12 @@ export class LocalRepository {
               SET definition_json = json_set(
                 definition_json,
                 '$.version',
-                COALESCE(json_extract(definition_json, '$.version'), 0) + 1
+                COALESCE(json_extract(definition_json, '$.version'), 0) + 1,
+                '$.outputFolders',
+                json(?)
               )
               WHERE process_id = ?`,
-        params: [id]
+        params: [JSON.stringify(outputFolders), id]
       },
       {
         sql: "UPDATE stages SET position = position + 10000 WHERE process_id = ?",
@@ -1639,6 +1669,17 @@ export class LocalRepository {
               ON CONFLICT(execution_id, logical_output) DO NOTHING`,
         params: [createId(), executionId, output, output, timestamp]
       }))
+    );
+  }
+
+  /** Applies a status route once, before the pending outputs are shown for approval. */
+  async routeExecutionOutputs(executionId: string, folder: string): Promise<void> {
+    const destination = logicalPath(folder);
+    await this.database.execute(
+      `UPDATE execution_outputs
+       SET logical_destination = ? || '/' || logical_output
+       WHERE execution_id = ? AND status = 'pending' AND logical_destination = logical_output`,
+      [destination, executionId]
     );
   }
 

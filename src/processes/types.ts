@@ -94,7 +94,8 @@ export function persistProcessDefinition(
     roleBindings: (template?.agents ?? []).map(({ role, state }) => ({
       role,
       stageId: stageId(state)
-    }))
+    })),
+    outputFolders: {}
   };
 }
 

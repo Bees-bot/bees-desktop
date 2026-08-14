@@ -165,6 +165,8 @@ export interface PersistedProcessDefinition {
   stateIds: Record<string, string>;
   capabilities: ProcessCapability[];
   roleBindings: Array<{ role: string; stageId: string }>;
+  /** Team-folder-relative destination for files approved after choosing each status. */
+  outputFolders?: Record<string, string>;
 }
 
 export interface Process {

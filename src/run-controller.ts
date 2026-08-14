@@ -535,6 +535,14 @@ export function createRunController(host: MainHost) {
       const statusId = typeof execution.result.statusId === "string" ? execution.result.statusId : undefined;
       if (execution.result.projectionState === "pending") {
         const projectedItem = await host.repository.getWorkItem(execution.workItemId);
+        if (execution.status === "completed" && outputs.length && projectedItem) {
+          const process = host.workspaceController.processes.find(({ id }) => id === projectedItem.processId);
+          const target = process ? processEngine.resolveTarget(process, projectedItem, statusId) : undefined;
+          const outputFolder = target ? process?.definition.outputFolders?.[target.id] : undefined;
+          if (outputFolder) {
+            await host.repository.routeExecutionOutputs(execution.id, outputFolder);
+          }
+        }
         if (execution.status !== "completed" && projectedItem) {
           await createRuntimeWait(projectedItem.id, {
             kind: "error",
@@ -1420,7 +1428,13 @@ export function createRunController(host: MainHost) {
           ? { executionId: continuation.execution.id, message: continuation.message }
           : {}),
         ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
-        stages: process.stages.map(({ id, name }) => ({ id, name })),
+        stages: process.stages.map(({ id, name }) => ({
+          id,
+          name,
+          ...(process.definition.outputFolders?.[id]
+            ? { outputFolder: process.definition.outputFolders[id] }
+            : {})
+        })),
         ...(taskPlan ? { taskPlan } : {}),
         ...(goalEffect ? { goalEffect } : {}),
         ...(hasTaskPlanCapability(process)

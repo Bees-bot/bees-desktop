@@ -44,7 +44,7 @@ export interface RunRequest {
   /** A human follow-up for the agent's existing item conversation. */
   message?: string;
   /** Database IDs and display labels for the status menu shown to the agent. */
-  stages: Array<Pick<Stage, "id" | "name">>;
+  stages: Array<Pick<Stage, "id" | "name"> & { outputFolder?: string }>;
   taskPlan?: TaskPlanRunContext;
   goalEffect?: GoalTaskEffect;
   workerRoles?: Array<{ role: string; purpose: string }>;
@@ -207,7 +207,11 @@ export function runPrompt({
           .join("\n")}`
       : "",
     menu.length
-      ? `Statuses:\n${menu.map(({ id, name }) => `- ${name}: ${id}`).join("\n")}\nWhen you are done, write the chosen status ID to outputs/${STATUS_OUTPUT} — the ID on its own, nothing else.`
+      ? `Statuses:\n${menu.map(({ id, name, outputFolder }) =>
+          `- ${name}: ${id}${outputFolder ? ` — approved files publish under ${outputFolder}/` : ""}`
+        ).join("\n")}\nWhen you are done, write the chosen status ID to outputs/${STATUS_OUTPUT} — the ID on its own, nothing else.${menu.some(({ outputFolder }) => outputFolder)
+          ? " Write files directly under outputs; Bees adds the chosen status's destination folder after approval."
+          : ""}`
       : ""
   ]
     .filter(Boolean)

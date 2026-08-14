@@ -146,6 +146,27 @@ describe("local repository", () => {
     });
   });
 
+  it("stores status output folders as relative process configuration", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const process = await createTestProcess(repository, local.teamId);
+    const review = process.stages[1]!;
+
+    await repository.updateProcessDefinition(process.id, {
+      name: process.name,
+      stages: process.stages.map(({ name, isTerminal }) => ({ name, isTerminal })),
+      outputFolders: { [review.id]: "ready-for-human-review" }
+    });
+
+    expect((await repository.listProcesses(local.teamId)).find(({ id }) => id === process.id)
+      ?.definition.outputFolders).toEqual({ [review.id]: "ready-for-human-review" });
+    await expect(repository.updateProcessDefinition(process.id, {
+      name: process.name,
+      stages: process.stages.map(({ name, isTerminal }) => ({ name, isTerminal })),
+      outputFolders: { [review.id]: "/private/resumes" }
+    })).rejects.toThrow("relative paths");
+  });
+
   it("restores an archived process with its stages", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
@@ -320,6 +341,33 @@ describe("local repository", () => {
       checkpointStageId: process.stages[0]!.id,
       logicalFiles: ["brief.md", "approved/revised.md"]
     });
+  });
+
+  it("routes pending outputs once under the chosen status folder", async () => {
+    const repository = new LocalRepository(new NodeDatabase());
+    const local = await repository.bootstrap();
+    const process = (await repository.listProcesses(local.teamId))[0]!;
+    const itemId = await repository.createWorkItem(process.id, {
+      stageId: process.stages[0]!.id,
+      title: "Sort resume"
+    });
+    const executionId = await repository.createExecution({
+      agentId: "agent",
+      config: { prompt: "Sort it." },
+      workItemId: itemId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(executionId, ["resume.pdf"]);
+
+    await repository.routeExecutionOutputs(executionId, "ready-for-human-review");
+    await repository.routeExecutionOutputs(executionId, "ready-for-human-review");
+
+    expect(await repository.listExecutionOutputs(executionId)).toEqual([
+      expect.objectContaining({
+        logicalOutput: "resume.pdf",
+        logicalDestination: "ready-for-human-review/resume.pdf"
+      })
+    ]);
   });
 
   it("creates approved subtasks without moving their Temporal-owned parent", async () => {
