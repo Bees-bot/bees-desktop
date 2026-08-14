@@ -15,5 +15,6 @@ runtime/
 *.db-shm
 *.db-wal
 coverage/
+graphify-out/
 .DS_Store
 services/api-bridge/bridge.mjs
