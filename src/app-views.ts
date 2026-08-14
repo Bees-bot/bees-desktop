@@ -2084,12 +2084,13 @@ export function createMainViews(host: MainHost) {
     </div>`;
   }
 
-  /**
-   * Codex is bundled through its official SDK. Claude Code is deliberately explicit: Bees
-   * never scans PATH or reads another app's account files, so the user chooses its binary.
-   */
+  /** Codex connects directly through pi-ai OAuth; Claude remains an explicit CLI choice. */
   async function cliToolsSection(): Promise<string> {
-    const installed = await configuredCliTools().catch(() => ({}) as Record<string, CliToolPath>);
+    const [installed, connections] = await Promise.all([
+      configuredCliTools().catch(() => ({}) as Record<string, CliToolPath>),
+      listAiConnections(host.repository, host.session.aiConnectionScope())
+    ]);
+    const codex = connections.find(({ provider }) => provider === "openai-codex");
     const rows = CLI_TOOLS.map((tool) => {
       const found = installed[tool.id];
       return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
@@ -2114,17 +2115,19 @@ export function createMainViews(host: MainHost) {
     return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="border-b border-base-300 p-5">
         <h2 class="font-bold">AI Subscriptions</h2>
-        <p class="mt-1 text-sm text-muted">Codex is bundled and isolated from your personal Codex configuration. Claude Code remains optional and must be selected explicitly.</p>
+        <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
       </header>
       <ul class="divide-y divide-base-200 p-2">
         <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
           <div class="min-w-0">
             <span class="block truncate font-semibold">Codex (ChatGPT)</span>
-            <span class="text-xs text-muted">Official SDK and bundled runtime · agent model <code>codex-cli/default</code></span>
+            <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
           </div>
           <div class="flex shrink-0 items-center gap-1">
-            <span class="badge badge-success badge-sm">Included</span>
-            <button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>
+            <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
+            ${codex
+              ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
+              : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
           </div>
         </li>
         ${rows}
@@ -2135,11 +2138,13 @@ export function createMainViews(host: MainHost) {
   async function prefsRemoteModelsContent(): Promise<string> {
     const connections = await listAiConnections(host.repository, host.session.aiConnectionScope());
     const providerButtons = (Object.keys(AI_PROVIDER_LABEL) as AiProvider[])
+      .filter((provider) => provider !== "openai-codex")
       .map((provider) => `<button class="btn btn-outline btn-sm" data-action="connect-ai" data-provider="${provider}">
           ${host.shell.escapeHtml(AI_PROVIDER_LABEL[provider])}</button>`)
       .join("");
-    const list = connections.length
-      ? connections
+    const cloudConnections = connections.filter(({ provider }) => provider !== "openai-codex");
+    const list = cloudConnections.length
+      ? cloudConnections
         .map((connection) => `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
               <div class="min-w-0">
                 <span class="block truncate font-semibold">${host.shell.escapeHtml(connection.label)}</span>
@@ -2467,7 +2472,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: selectedRef,
         options: modelOptions,
-        hint: "Auto picks the best AI available on this computer: bundled Codex, then explicitly configured Claude Code, then the largest local model, then the largest remote one.",
+        hint: "Auto picks the best AI available on this computer: connected Codex, then explicitly configured Claude Code, then the largest local model, then the largest remote one.",
         step: "instructions"
       },
       {
@@ -2578,7 +2583,7 @@ export function createMainViews(host: MainHost) {
         name: "environment",
         label: "Execution environment",
         type: "note",
-        value: "Runs in the local Bees workspace. File access is sandboxed and the host shell is disabled.",
+        value: "Runs local development tools through the bundled OS sandbox. Writes stay inside the Bees workspace.",
         step: "capabilities"
       }
     ];

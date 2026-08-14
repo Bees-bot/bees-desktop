@@ -13,7 +13,6 @@ import {
   type ModelOption
 } from "./assistant.js";
 import {
-  BUNDLED_AGENT_PROVIDERS,
   CLI_TOOLS,
   configuredCliTools,
   type CliToolPath
@@ -23,6 +22,7 @@ import {
   type SkillReview
 } from "./curator.js";
 import {
+  DEFAULT_CODEX_MODEL_ID,
   LOCAL_PROVIDER,
   type LocalModelProgress
 } from "./local-models.js";
@@ -84,8 +84,9 @@ export function createAssistantController(host: MainHost) {
   async function loadAssistantSettings(): Promise<void> {
     const stored = await host.repository.getSetting<ModelChoice | null>(ASSISTANT_MODEL_KEY, null);
     if (stored?.provider && stored.model) {
-      assistantModel =
-        stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
+      assistantModel = stored.provider === "codex-cli"
+        ? { provider: "openai-codex", model: DEFAULT_CODEX_MODEL_ID }
+        : stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
           ? { ...stored, model: stored.localModelId }
           : stored;
       hasUserModelChoice = true;
@@ -121,10 +122,7 @@ export function createAssistantController(host: MainHost) {
         .filter(({ runtime }) => runtime.running)
         .map(({ id }) => id),
       connectedProviders: [...new Set(aiConnections.map(({ provider }) => provider))],
-      cliProviders: [
-        ...BUNDLED_AGENT_PROVIDERS,
-        ...CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
-      ]
+      cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
     };
     if (!hasUserModelChoice)
       assistantModel = preferredModelChoice(assistantCatalog);

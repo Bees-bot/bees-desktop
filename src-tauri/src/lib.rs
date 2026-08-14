@@ -278,7 +278,8 @@ fn connection_token(secret_ref: &str) -> Result<String, String> {
 
 struct BrokerSecretRequest {
     secret_ref: String,
-    team_id: String,
+    team_id: Option<String>,
+    organization_id: Option<String>,
     connection_id: String,
     execution_id: Option<String>,
     discovery: bool,
@@ -295,12 +296,23 @@ fn broker_secret_request(path: &str) -> Result<BrokerSecretRequest, String> {
         .query_pairs()
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect::<BTreeMap<_, _>>();
-    let team_id = params.get("teamId").ok_or("forbidden")?.to_owned();
+    let team_id = params
+        .get("teamId")
+        .map(|value| safe_identifier(value, "team ID"))
+        .transpose()?;
+    let organization_id = params
+        .get("organizationId")
+        .map(|value| safe_identifier(value, "organization ID"))
+        .transpose()?;
+    if team_id.is_some() == organization_id.is_some() {
+        return Err("forbidden".into());
+    }
     let connection_id = params.get("connectionId").ok_or("forbidden")?.to_owned();
     let execution_id = params.get("executionId").cloned();
     Ok(BrokerSecretRequest {
         secret_ref: safe_identifier(secret_ref, "credential reference")?,
-        team_id: safe_identifier(&team_id, "team ID")?,
+        team_id,
+        organization_id,
         connection_id: safe_identifier(&connection_id, "connection ID")?,
         discovery: params.get("purpose").map(String::as_str) == Some("discovery")
             && execution_id.is_none(),
@@ -345,10 +357,33 @@ fn json_text<'a>(value: &'a JsonValue, key: &str) -> &'a str {
 fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Result<bool, String> {
     let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| "forbidden".to_string())?;
+    if let Some(organization_id) = request.organization_id.as_deref() {
+        let stored: Option<String> = connection
+            .query_row(
+                "SELECT value_json FROM settings WHERE key = ?1",
+                [format!("ai_connections:{organization_id}")],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| "forbidden".to_string())?;
+        let catalog = stored
+            .as_deref()
+            .and_then(|value| serde_json::from_str(value).ok())
+            .unwrap_or(JsonValue::Null);
+        return json_connection_matches(
+            &catalog,
+            None,
+            &request.connection_id,
+            &request.secret_ref,
+        )
+        .then_some(false)
+        .ok_or_else(|| "forbidden".to_string());
+    }
+    let team_id = request.team_id.as_deref().ok_or("forbidden")?;
     let stored: Option<String> = connection
         .query_row(
             "SELECT value_json FROM settings WHERE key = ?1",
-            [format!("mcp_connections:{}", request.team_id)],
+            [format!("mcp_connections:{team_id}")],
             |row| row.get(0),
         )
         .optional()
@@ -359,7 +394,7 @@ fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Res
         .unwrap_or(JsonValue::Null);
     let Some(entry) = json_connection(
         &catalog,
-        Some(&request.team_id),
+        Some(team_id),
         &request.connection_id,
         &request.secret_ref,
     ) else {
@@ -395,7 +430,7 @@ fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Res
                     .is_some_and(|tools| !tools.is_empty())
         })
     });
-    if json_text(&seed, "teamId") != request.team_id
+    if json_text(&seed, "teamId") != team_id
         || !has_granted_tools
         || !json_connection_matches(selected, None, &request.connection_id, &request.secret_ref)
     {
@@ -1262,6 +1297,7 @@ fn bundled_flue_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), Stri
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredAiConnection {
+    id: String,
     provider: String,
     secret_ref: String,
     base_url: Option<String>,
@@ -1287,6 +1323,17 @@ fn provider_environment(
         .unwrap_or_default();
     let mut environment = BTreeMap::new();
     for stored in connections {
+        if stored.provider == "openai-codex" {
+            if !environment.contains_key("BEES_OPENAI_CODEX_SECRET_REF") {
+                environment.insert("BEES_OPENAI_CODEX_SECRET_REF".into(), stored.secret_ref);
+                environment.insert("BEES_OPENAI_CODEX_CONNECTION_ID".into(), stored.id);
+                environment.insert(
+                    "BEES_OPENAI_CODEX_ORGANIZATION_ID".into(),
+                    organization_id.to_string(),
+                );
+            }
+            continue;
+        }
         let variable = match stored.provider.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "openai" => "OPENAI_API_KEY",
@@ -1388,8 +1435,6 @@ fn ensure_flue_runtime_blocking(
     let capability_token = loopback_token()?;
     let capability_url = format!("http://127.0.0.1:{capability_port}");
     let state_dir = flue_state_dir(app)?;
-    let codex_home = state_dir.join("codex-home");
-    fs::create_dir_all(&codex_home).map_err(|error| error.to_string())?;
     let capability_child = spawn_capability_host(
         &node,
         &project_root,
@@ -1415,9 +1460,6 @@ fn ensure_flue_runtime_blocking(
         .env("BEES_CREDENTIAL_BROKER_TOKEN", &broker.token)
         // Run pointers and browser profiles are mutable runtime state, not build inputs.
         .env("BEES_STATE_DIR", &state_dir)
-        // The official SDK owns this directory. Keeping it separate means Codex can persist
-        // its supported login without loading or inspecting the user's personal Codex config.
-        .env("BEES_CODEX_HOME", &codex_home)
         // Trusted local modules live in a separate process with no provider or broker secrets.
         .env("BEES_CAPABILITY_HOST_URL", &capability_url)
         .env("BEES_CAPABILITY_TOKEN", &capability_token)

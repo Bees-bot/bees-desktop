@@ -206,34 +206,6 @@ async function prepareTemporalRuntime() {
   }
 }
 
-function prepareCodexRuntime() {
-  const packageName = {
-    "aarch64-apple-darwin": "codex-darwin-arm64",
-    "x86_64-apple-darwin": "codex-darwin-x64",
-    "aarch64-unknown-linux-gnu": "codex-linux-arm64",
-    "x86_64-unknown-linux-gnu": "codex-linux-x64",
-    "aarch64-pc-windows-msvc": "codex-win32-arm64",
-    "x86_64-pc-windows-msvc": "codex-win32-x64"
-  }[target];
-  if (!packageName) throw new Error(`No bundled Codex runtime is configured for ${target}.`);
-  const codex = resolve(
-    desktopRoot,
-    "flue-runtime",
-    "node_modules",
-    "@openai",
-    packageName,
-    "vendor",
-    target.replace("unknown-linux-gnu", "unknown-linux-musl"),
-    "bin",
-    `codex${extension}`
-  );
-  if (!existsSync(codex)) {
-    throw new Error(`The Codex SDK runtime for ${target} is missing. Run npm ci on the target platform.`);
-  }
-  if (!target.includes("windows")) chmodSync(codex, 0o755);
-  signMacBinary(codex);
-}
-
 async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
   const [fileName, expectedSha256] = llamaSource;
   const url = `https://github.com/ggml-org/llama.cpp/archive/refs/tags/${llamaRelease}.tar.gz`;
@@ -389,5 +361,4 @@ async function prepareLlamaRuntime() {
 }
 
 await prepareTemporalRuntime();
-prepareCodexRuntime();
 await prepareLlamaRuntime();

@@ -16,12 +16,12 @@ import {
   type AiProvider
 } from "./ai-connections.js";
 import {
-  BUNDLED_AGENT_PROVIDERS,
   NATIVE_AGENT_TOOLS
 } from "./cli-tools.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
 import {
+  DEFAULT_CODEX_MODEL_ID,
   LOCAL_PROVIDER,
   MODEL_PROVIDERS,
   localModelParameterBillions,
@@ -561,7 +561,7 @@ export function modelCatalog(input: {
   }
 
   for (const tool of NATIVE_AGENT_TOOLS) {
-    if (!BUNDLED_AGENT_PROVIDERS.includes(tool.provider) && !input.cliInstalled[tool.id]?.enabled)
+    if (!input.cliInstalled[tool.id]?.enabled)
       continue;
     const models = MODEL_PROVIDERS.find(({ id }) => id === tool.provider)?.models ?? ["default"];
     for (const model of models) {
@@ -583,7 +583,7 @@ export function modelCatalog(input: {
 }
 
 /**
- * What "Auto" means, and the first-run default: bundled Codex, explicitly configured Claude
+ * What "Auto" means, and the first-run default: connected Codex, explicitly configured Claude
  * Code, then the biggest downloaded local model, then the biggest remote one.
  * `modelCatalog` already lists local models largest-first and each provider's own models
  * largest-first, so "first match wins" is the size order without a second sort.
@@ -591,7 +591,7 @@ export function modelCatalog(input: {
 export function preferredModelChoice(catalog: ModelOption[]): ModelChoice {
   const isCli = (provider: string): boolean => NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);
   return (
-    catalog.find(({ choice }) => choice.provider === "codex-cli" && choice.model === "default")
+    catalog.find(({ choice }) => choice.provider === "openai-codex" && choice.model === DEFAULT_CODEX_MODEL_ID)
       ?.choice ??
     catalog.find(({ choice }) => choice.provider === "claude-cli" && choice.model === "default")
       ?.choice ??
@@ -615,6 +615,13 @@ export function resolveModelChoice(
 ): ModelChoice {
   const provider = config.provider?.trim();
   const model = config.model?.trim();
+  // Existing agent files and preferences used the removed native shim. Keep them runnable.
+  if (provider === "codex-cli") {
+    return {
+      provider: "openai-codex",
+      model: !model || model === "default" ? DEFAULT_CODEX_MODEL_ID : model
+    };
+  }
   if (provider === AUTO_PROVIDER)
     return catalog.length ? preferredModelChoice(catalog) : active;
   return provider && model && !(provider === LOCAL_PROVIDER && model === "active")
