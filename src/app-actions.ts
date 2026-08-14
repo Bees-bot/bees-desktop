@@ -106,12 +106,13 @@ import {
   type PlannedTask
 } from "./processes/goals/index.js";
 import {
-  hasTaskPlanCapability
+  hasTaskPlanCapability,
+  taskPlanStages
 } from "./processes/goals/runtime.js";
 import {
+  PROCESS_LIBRARY_SELECTION_PREFIX,
   processLibraryEntry,
   processEngine,
-  processModuleById,
   type ProcessLibraryEntry
 } from "./processes/registry.js";
 import {
@@ -216,9 +217,9 @@ export function createMainActions(host: MainHost) {
   }
 
   /**
-   * Adds a bundled workflow to the team. With `copyName` it builds an independent copy instead:
+   * Materializes a Process Library workflow for the team. With `copyName` it builds an independent copy instead:
    * the team's one install of the module is left alone (or absent), so the copy can be edited
-   * freely and the bundled entry stays addable.
+   * freely and the library entry remains available.
    */
   async function installLibraryProcess(template: ProcessLibraryEntry, copyName?: string): Promise<Process> {
     const allProcesses = await host.repository.listProcesses(host.workspaceController.workspace.teamId, true);
@@ -299,14 +300,14 @@ export function createMainActions(host: MainHost) {
   }
 
   /**
-   * Copies a bundled workflow into the team under its own name. The bundled entry is a read-only
+   * Copies a Process Library workflow into the team under its own name. The library entry is a read-only
    * template, so this is how you get one you can change — including a second and third copy of
    * the same one, each with its own statuses and agents.
    */
   async function copyLibraryProcess(templateId: string): Promise<void> {
     const template = processLibraryEntry(templateId);
     if (!template)
-      throw new Error("That bundled process is unavailable");
+      throw new Error("That Process Library entry is unavailable");
     if (host.shell.view === "process")
       await commitProcessAgentEdits();
     const taken = new Set(host.workspaceController.processes.map(({ name }) => name.toLowerCase()));
@@ -326,74 +327,6 @@ export function createMainActions(host: MainHost) {
     host.shell.view = "process";
     await host.workspaceController.refresh();
     host.shell.showNotice(`Created ${process.name}`, "success");
-  }
-
-  async function addLibraryProcess(templateId: string): Promise<void> {
-    const template = processLibraryEntry(templateId);
-    if (!template)
-      throw new Error("That bundled process is unavailable");
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
-    if (!mapping?.localPath || mapping.missing) {
-      const data = await edit(`${template.name} system check`, [
-        {
-          name: "folder",
-          label: "",
-          type: "note",
-          value: "✕ This team needs an available folder before its agents can be added."
-        }
-      ], "Close", "Open team folder settings");
-      if (data?.get("__action") === "footer") {
-        host.shell.teamTab = "folder";
-        host.shell.view = "settings";
-        host.shell.render();
-      }
-      return;
-    }
-    await host.assistant.refreshAssistantCatalog();
-    const checks = template.agents.map((agent) => ({
-      agent,
-      eligibility: host.views.libraryAgentEligibility(agent)
-    }));
-    const data = await edit(`${template.name} system check`, [
-      {
-        name: "folder",
-        label: "",
-        type: "note",
-        value: `✓ Team folder: ${mapping.localPath}`
-      },
-      {
-        name: "contents",
-        label: "",
-        type: "note",
-        value: `✓ ${template.states.length} statuses, one dashboard, and ${template.agents.length} agents with instructions will be added.`
-      },
-      ...checks.map(({ agent, eligibility }, index) => ({
-        name: `agent-${index}`,
-        label: "",
-        type: "note" as const,
-        value: eligibility.active
-          ? `✓ ${agent.name}: ${agent.provider === AUTO_PROVIDER ? `Auto (${modelRef(eligibility.model)})` : `${agent.provider}/${agent.model}`} is available.`
-          : `✕ ${agent.name}: ${eligibility.reason}. Add the process, then change this model on its page.`
-      }))
-    ], "Add to team");
-    if (!data)
-      return;
-    const process = await installLibraryProcess(template);
-    const module = processModuleById(template.id);
-    if (module?.starter) {
-      await host.repository.setSetting(`${template.id}_workflow_seeded_${host.workspaceController.workspace.teamId}`, true);
-    }
-    host.workspaceController.activeProcess = process;
-    host.workspaceController.workspace.processId = process.id;
-    // Land on the new process's page: its agents are the thing to check after adding it.
-    host.shell.configProcessId = process.id;
-    host.shell.configAgentId = "";
-    host.shell.view = "process";
-    await host.workspaceController.refresh();
-    const unavailable = checks.filter(({ eligibility }) => !eligibility.active).length;
-    host.shell.showNotice(unavailable
-      ? `${template.name} added. Update ${unavailable} unavailable agent model${unavailable === 1 ? "" : "s"} on its process page.`
-      : `${template.name} added to this team`, unavailable ? "info" : "success");
   }
 
   /**
@@ -1024,15 +957,17 @@ export function createMainActions(host: MainHost) {
   let newItemParentId = "";
 
   async function createItem(stageId?: string, parentId = ""): Promise<void> {
-    if (!host.workspaceController.processes.length)
-      throw new Error("Add a process to this team first");
     if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
+    const process = host.workspaceController.activeProcess;
+    const plannedWorkStage = parentId && process
+      ? taskPlanStages(process)?.work.id
+      : undefined;
     newItemParentId = parentId;
-    host.shell.newItemStageId = stageId ?? "";
-    host.shell.newItemProcessId = stageId
-      ? host.workspaceController.activeProcess!.id
-      : host.workspaceController.activeProcess?.id ?? host.workspaceController.processes[0]!.id;
+    host.shell.newItemStageId = plannedWorkStage ?? stageId ?? "";
+    host.shell.newItemProcessId = host.shell.newItemStageId
+      ? process!.id
+      : process?.id ?? "";
     host.shell.newItemSources = await workItemFileSources();
     host.shell.view = "item-new";
     host.shell.render();
@@ -1060,37 +995,57 @@ export function createMainActions(host: MainHost) {
 
   async function submitNewItem(data: FormData): Promise<void> {
     const workflowId = String(data.get("workflow") ?? "");
-    const process = host.workspaceController.processes.find(({ id }) => id === workflowId) ??
-      host.workspaceController.activeProcess;
+    let process = host.workspaceController.processes.find(({ id }) => id === workflowId);
+    if (!process && workflowId.startsWith(PROCESS_LIBRARY_SELECTION_PREFIX)) {
+      const template = processLibraryEntry(workflowId.slice(PROCESS_LIBRARY_SELECTION_PREFIX.length));
+      if (template)
+        process = await installLibraryProcess(template);
+    }
     if (!process)
       throw new Error("Choose a process");
-    // The remembered column only applies to the workflow it came from; picking another one in
-    // the form starts the task at that workflow's first status instead.
-    const stageId = process.stages.some(({ id }) => id === host.shell.newItemStageId)
-      ? host.shell.newItemStageId
-      : process.stages[0]?.id;
-    if (!stageId)
-      throw new Error(`${process.name} has no statuses`);
     const parent = newItemParentId
       ? host.workspaceController.teamItems.find(({ id, processId }) =>
         id === newItemParentId && processId === process.id)
       : undefined;
     if (newItemParentId && !parent)
       throw new Error("The run this task belongs to is no longer available");
+    const taskPlan = parent ? taskPlanStages(process) : null;
+    const workerRole = String(data.get("workerRole") ?? "");
+    const worker = taskPlan
+      ? host.runs.taskWorkerRoles().find(({ role }) => role.toLowerCase() === workerRole.toLowerCase())
+      : undefined;
+    if (taskPlan && !worker)
+      throw new Error("Choose an available worker");
+    // The remembered column only applies to the workflow it came from; picking another one in
+    // the form starts the task at that workflow's first status instead. A task added to a planned
+    // run is already the plan's work, so it starts with its selected worker instead of replanning.
+    const stageId = taskPlan?.work.id ?? (process.stages.some(({ id }) => id === host.shell.newItemStageId)
+      ? host.shell.newItemStageId
+      : process.stages[0]?.id);
+    if (!stageId)
+      throw new Error(`${process.name} has no statuses`);
     const interactive = processEngine.isInteractive(process);
     const itemId = await host.repository.createWorkItem(process.id, {
       stageId,
       ...(parent ? { parentId: parent.id } : {}),
       title: String(data.get("title") ?? ""),
       description: String(data.get("description") ?? ""),
-      owner: String(data.get("owner") ?? ""),
+      ...(worker ? {
+        goal: {
+          key: `manual:${crypto.randomUUID()}`,
+          role: worker.role,
+          effect: "prepare",
+          planOutputId: null,
+          authorizedAt: new Date().toISOString(),
+          occurrenceOf: null
+        }
+      } : {}),
       logicalFiles: data.getAll("files").map(String)
     });
     // A child stays on the run it extended; a team-level task opens the new run it created.
     host.workspaceController.activeProcess = process;
     host.workspaceController.activeBoard =
-      host.workspaceController.boards.find(({ processId }) => processId === process.id) ??
-      host.workspaceController.activeBoard;
+      host.workspaceController.boards.find(({ processId }) => processId === process.id) ?? null;
     host.workspaceController.workspace.processId = process.id;
     host.shell.boardRootItemId = parent?.id ?? itemId;
     newItemParentId = "";
@@ -1212,7 +1167,7 @@ export function createMainActions(host: MainHost) {
     await host.repository.updateWorkItem(item.id, {
       title: String(data.get("title") ?? ""),
       description: String(data.get("description") ?? ""),
-      owner: String(data.get("owner") ?? ""),
+      owner: item.owner ?? "",
       logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
     });
     if (archived !== Boolean(item.archivedAt)) {
@@ -2397,7 +2352,6 @@ export function createMainActions(host: MainHost) {
         const data = await edit("Edit work item", [
           { name: "title", label: "Title", value: item.title },
           { name: "description", label: "Description", type: "textarea", value: item.description },
-          { name: "owner", label: "Owner", value: item.owner ?? "" },
           {
             name: "archived",
             label: "Archived",
@@ -2416,7 +2370,7 @@ export function createMainActions(host: MainHost) {
           await host.repository.updateWorkItem(item.id, {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
-            owner: String(data.get("owner") ?? ""),
+            owner: item.owner ?? "",
             logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
           });
           if (archived !== Boolean(item.archivedAt)) {
@@ -2447,10 +2401,6 @@ export function createMainActions(host: MainHost) {
       if (action === "close-process-editor") {
         host.shell.view = "board";
         host.shell.render();
-        return;
-      }
-      if (action === "add-library-process") {
-        await addLibraryProcess(button.dataset.template ?? "");
         return;
       }
       if (action === "copy-library-process") {
@@ -3028,7 +2978,11 @@ export function createMainActions(host: MainHost) {
 
   host.shell.newItem.addEventListener("click", () => {
     const rootId = host.shell.boardRootItemId;
-    void createItem(rootId ? host.workspaceController.activeProcess?.stages[0]?.id : undefined, rootId)
+    const process = host.workspaceController.activeProcess;
+    const firstTaskStage = process
+      ? taskPlanStages(process)?.work.id ?? process.stages[0]?.id
+      : undefined;
+    void createItem(rootId ? firstTaskStage : undefined, rootId)
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 
@@ -3448,7 +3402,6 @@ export function createMainActions(host: MainHost) {
     commitProcessAgentEdits,
     saveProcessDefinition,
     installLibraryProcess,
-    addLibraryProcess,
     copyLibraryProcess,
     loadAgents,
     writeAgent,

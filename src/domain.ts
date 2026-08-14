@@ -285,7 +285,7 @@ export interface GoalWorkMetadata {
   /** Existing agent role or agent name approved to execute this task. */
   role: string;
   effect: GoalTaskEffect;
-  /** Approval that authorized this task. Null only for schedule-created occurrences. */
+  /** Approval that authorized this task. Null for manually created or scheduled work. */
   planOutputId: string | null;
   authorizedAt: string;
   /** Standing goal used as the template for a scheduled occurrence. */

@@ -82,8 +82,10 @@ import {
   type LocalModelView
 } from "./local-models.js";
 import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
+import { taskPlanStages } from "./processes/goals/runtime.js";
 import {
   PROCESS_LIBRARY,
+  PROCESS_LIBRARY_SELECTION_PREFIX,
   processEngine,
   type ProcessLibraryEntry
 } from "./processes/registry.js";
@@ -449,18 +451,30 @@ export function createMainViews(host: MainHost) {
     }));
   }
 
+  function workItemClaimant(item: WorkItem, execution?: Execution): string {
+    const claim = item.runtime?.claim;
+    const agentId = claim?.agentId ?? execution?.agentId;
+    if (agentId) {
+      const agent = host.workspaceController.agents.find(({ id }) => id === agentId);
+      return `${agent?.name ?? "Unknown agent"} (agent)`;
+    }
+    if (!claim)
+      return "Unclaimed";
+    if (claim.machineId !== host.runs.runnerId)
+      return "Human on another device";
+    const user = host.session.currentUser();
+    return `${user?.name?.trim() || user?.email || "You"} (human)`;
+  }
+
   function workItemBadges(item: WorkItem): string {
     const execution = activeExecutionForItem(item.id, host.runs.executions);
-    const agent = execution
-      ? host.workspaceController.agents.find(({ id }) => id === execution.agentId)
-      : host.runs.agentForItem(item);
     const run = execution?.status === "running"
       ? "Running"
       : execution?.status === "queued"
         ? "Queued"
         : "Idle";
-    // Owner/agent are context, not state — render them as quiet meta text and only badge a
-    // run that is actually doing something; "Idle" on every card is noise.
+    // Claimant is context, not state — render it as quiet meta text and only badge a run that is
+    // actually doing something; "Idle" on every card is noise.
     const runBadge = run === "Idle"
       ? ""
       : `<span class="badge ${run === "Running" ? "badge-success" : "badge-warning"} badge-sm">${run}</span>`;
@@ -474,7 +488,8 @@ export function createMainViews(host: MainHost) {
       : children.length
         ? `<span class="badge badge-outline badge-sm">${children.length} task${children.length === 1 ? "" : "s"}</span>`
         : "";
-    return `<span class="min-w-0 truncate text-xs text-muted">${host.shell.escapeHtml(item.owner || "Unassigned")} · ${host.shell.escapeHtml(agent?.name || (execution ? "Unknown agent" : "No agent"))}</span>
+    const claimant = workItemClaimant(item, execution);
+    return `<span class="min-w-0 truncate text-xs text-muted">${host.shell.escapeHtml(claimant === "Unclaimed" ? claimant : `Claimed by ${claimant}`)}</span>
       ${runBadge}${subtaskBadge}`;
   }
 
@@ -488,12 +503,8 @@ export function createMainViews(host: MainHost) {
           <input class="input input-bordered w-full" name="title" value="${host.shell.escapeHtml(item.title)}" required></label>
         <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
           <textarea class="textarea textarea-bordered min-h-28 w-full" name="description">${host.shell.escapeHtml(item.description)}</textarea></label>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Owner</span>
-            <input class="input input-bordered w-full" name="owner" value="${host.shell.escapeHtml(item.owner ?? "")}"></label>
-          <label class="label cursor-pointer justify-start gap-3"><span class="label-text text-sm font-semibold">Archived</span>
-            <input class="toggle toggle-primary" type="checkbox" name="archived" value="archived" ${item.archivedAt ? "checked" : ""}></label>
-        </div>
+        <label class="label cursor-pointer justify-start gap-3"><span class="label-text text-sm font-semibold">Archived</span>
+          <input class="toggle toggle-primary" type="checkbox" name="archived" value="archived" ${item.archivedAt ? "checked" : ""}></label>
         <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">File references</span>
           <input class="input input-bordered w-full" name="files" value="${host.shell.escapeHtml(files.join(", "))}">
           <span class="text-xs text-muted">${host.shell.escapeHtml(fileReferenceHint(locations))}</span></label>
@@ -507,7 +518,7 @@ export function createMainViews(host: MainHost) {
         <div><dt class="text-muted">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description || "No description.")}</dd></div>
         <div class="grid gap-3 sm:grid-cols-2">
           <div><dt class="text-muted">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
-          <div><dt class="text-muted">Owner</dt><dd>${host.shell.escapeHtml(item.owner || "Unassigned")}</dd></div>
+          <div><dt class="text-muted">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
           <div><dt class="text-muted">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>
           <div><dt class="text-muted">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
         </div>
@@ -1356,9 +1367,8 @@ export function createMainViews(host: MainHost) {
     }, host.assistant.assistantModel, true, host.assistant.machineModelAvailability, host.assistant.assistantCatalog);
   }
 
-  /** One row per workflow this team already has — the only place to reach its editor by name. */
+  /** One row per custom workflow this team has — the only place to reach its editor by name. */
   function teamWorkflowRow(process: Process): string {
-    const board = host.workspaceController.boards.find(({ processId }) => processId === process.id);
     const statuses = process.stages.map(({ name }) => name).join(" → ");
     const agents = host.workspaceController.agents.filter(({ triggerStageId }) =>
       process.stages.some(({ id }) => id === triggerStageId)).length;
@@ -1366,10 +1376,9 @@ export function createMainViews(host: MainHost) {
       <div class="min-w-0">
         <h3 class="font-semibold">${host.shell.escapeHtml(process.name)}</h3>
         <p class="mt-0.5 truncate text-sm text-muted">${host.shell.escapeHtml(statuses)}</p>
-        <p class="mt-0.5 text-xs text-muted">${agents} agent${agents === 1 ? "" : "s"}${process.definition.moduleId ? " · Bundled" : ""}</p>
+        <p class="mt-0.5 text-xs text-muted">${agents} agent${agents === 1 ? "" : "s"}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        ${board ? `<button class="btn btn-ghost btn-sm border border-base-300" data-board="${board.id}">Open board</button>` : ""}
         <button class="btn btn-ghost btn-sm border border-base-300 text-error" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}">Delete</button>
         <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}">Edit</button>
       </div>
@@ -1377,28 +1386,31 @@ export function createMainViews(host: MainHost) {
   }
 
   function renderProcessLibrary(): void {
+    const libraryIds = new Set(PROCESS_LIBRARY.map(({ id }) => id));
+    const customProcesses = host.workspaceController.processes.filter(
+      ({ definition }) => !definition.moduleId || !libraryIds.has(definition.moduleId)
+    );
     host.shell.setHeader("Processes", host.session.currentTeam()?.name);
     host.shell.swap(`<section class="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
-          <h2 class="font-bold">In this team</h2>
+          <h2 class="font-bold">Team's custom processes</h2>
           <p class="mt-1 text-sm text-muted">Edit a process's statuses and agents, or delete one you no longer run.</p>
         </div>
         <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
       </header>
-      ${host.workspaceController.processes.length
-      ? host.workspaceController.processes.map(teamWorkflowRow).join("")
-      : `<p class="p-5 text-sm text-muted">No processes yet — add one below, or create your own.</p>`}
+      ${customProcesses.length
+      ? customProcesses.map(teamWorkflowRow).join("")
+      : `<p class="p-5 text-sm text-muted">No custom processes yet.</p>`}
     </section>
     <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
-          <h2 class="font-bold">Bundled</h2>
-          <p class="mt-1 text-sm text-muted">Curated processes bundled with Bees Desktop and available offline. Add one as-is, or take a copy you can change — copies land in this team above.</p>
+          <h2 class="font-bold">Process Library</h2>
+          <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
         </div>
       </header>
       <div class="grid gap-4 p-5 lg:grid-cols-2">${PROCESS_LIBRARY.map((entry) => {
-      const installed = host.workspaceController.processes.some(({ name }) => name.toLowerCase() === entry.name.toLowerCase());
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
       const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent) ? "Auto" : `${agent.provider}/${agent.model}`))];
       return `<article class="card border border-base-300 bg-base-100">
@@ -1406,7 +1418,7 @@ export function createMainViews(host: MainHost) {
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div><h3 class="card-title text-base">${host.shell.escapeHtml(entry.name)}</h3>
                 <p class="mt-1 text-sm text-muted">${host.shell.escapeHtml(entry.description)}</p></div>
-              <span class="badge badge-outline badge-sm">Bundled</span>
+              <span class="badge badge-outline badge-sm">Process Library</span>
             </div>
             <div class="flex flex-wrap gap-1.5">
               <span class="badge badge-ghost badge-sm">${entry.states.length} statuses</span>
@@ -1414,11 +1426,10 @@ export function createMainViews(host: MainHost) {
               ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
             ${unavailable
-          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. You can change them after adding.</p>`
+          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. Create a custom copy to change them.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
               <button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>
-              <button class="btn btn-primary btn-sm" data-action="add-library-process" data-template="${host.shell.escapeHtml(entry.id)}" ${installed ? "disabled" : ""}>${installed ? "Added to team" : "Add to team"}</button>
             </div>
           </div>
         </article>`;
@@ -2626,25 +2637,52 @@ export function createMainViews(host: MainHost) {
     const stage = host.workspaceController.activeProcess?.stages.find(({ id }) => id === host.shell.newItemStageId);
     // The workflow comes first: a task means nothing until you know which workflow runs it.
     // Fixed when the form was opened from a status column, since that column names one already.
-    const workflows = host.workspaceController.processes;
+    const libraryIds = new Set(PROCESS_LIBRARY.map(({ id }) => id));
+    const libraryWorkflows = PROCESS_LIBRARY.map(({ id, name }) => ({
+      id: host.workspaceController.processes.find(({ definition }) => definition.moduleId === id)?.id ??
+        `${PROCESS_LIBRARY_SELECTION_PREFIX}${id}`,
+      name
+    }));
+    const customWorkflows = host.workspaceController.processes.filter(
+      ({ definition }) => !definition.moduleId || !libraryIds.has(definition.moduleId)
+    );
+    const workflows = [...libraryWorkflows, ...customWorkflows];
     const selectedWorkflowId = host.shell.newItemProcessId || workflows[0]?.id || "";
+    const process = host.workspaceController.processes.find(({ id }) => id === selectedWorkflowId);
+    const parent = host.shell.boardRootItemId
+      ? host.workspaceController.teamItems.find(({ id, processId }) => id === host.shell.boardRootItemId && processId === process?.id)
+      : undefined;
+    const plannedStages = parent && process ? taskPlanStages(process) : null;
+    const workers = plannedStages ? host.runs.taskWorkerRoles() : [];
+    const workerField = !plannedStages
+      ? ""
+      : workers.length === 0
+        ? `<span class="label-text">Worker</span><div class="alert alert-warning text-sm">This process has no available worker. <button class="link" type="button" data-action="edit-process" data-id="${host.shell.escapeHtml(process!.id)}">Configure its agents</button>.</div>`
+        : workers.length === 1
+          ? `<label class="label-text" for="new-item-worker">Worker</label><p class="text-sm"><input type="hidden" id="new-item-worker" name="workerRole" value="${host.shell.escapeHtml(workers[0]!.role)}">${host.shell.escapeHtml(workers[0]!.agent.name)}</p>`
+          : `<label class="label-text" for="new-item-worker">Worker</label><select class="select select-bordered w-full" id="new-item-worker" name="workerRole" required>${workers
+            .map(({ role, agent }) => `<option value="${host.shell.escapeHtml(role)}">${host.shell.escapeHtml(agent.name)}</option>`)
+            .join("")}</select>`;
     host.shell.swap(`<form class="grid max-w-3xl grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-4" data-new-item>
         <label class="label-text" for="new-item-workflow">Process</label>
         ${stage
         ? `<p class="text-sm"><input type="hidden" name="workflow" value="${host.shell.escapeHtml(selectedWorkflowId)}">${host.shell.escapeHtml(workflows.find(({ id }) => id === selectedWorkflowId)?.name ?? "")}</p>`
-        : `<select class="select select-bordered w-full" id="new-item-workflow" name="workflow">${workflows
+        : `<select class="select select-bordered w-full" id="new-item-workflow" name="workflow"><optgroup label="Process Library">${libraryWorkflows
           .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === selectedWorkflowId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
-          .join("")}</select>`}
+          .join("")}</optgroup>${customWorkflows.length
+          ? `<optgroup label="Team's custom processes">${customWorkflows
+            .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === selectedWorkflowId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
+            .join("")}</optgroup>`
+          : ""}</select>`}
         <label class="label-text" for="new-item-title">Title</label>
         <input class="input input-bordered w-full" id="new-item-title" name="title" autofocus>
         <label class="label-text self-start pt-3" for="new-item-description">Description</label>
         <textarea class="textarea textarea-bordered min-h-40 w-full" id="new-item-description" name="description"></textarea>
-        <label class="label-text" for="new-item-owner">Owner</label>
-        <input class="input input-bordered w-full" id="new-item-owner" name="owner">
+        ${workerField}
         <span class="label-text self-start pt-2">Files</span>
         <div class="min-w-0">${filePickerHtml(host.shell.newItemSources)}</div>
         <div class="col-start-2 flex items-center gap-2">
-          <button class="btn btn-primary" type="submit">Create task</button>
+          <button class="btn btn-primary" type="submit" ${plannedStages && workers.length === 0 ? "disabled" : ""}>Create task</button>
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
           <span class="text-sm text-muted">${stage
         ? `Lands in ${host.shell.escapeHtml(stage.name)}`

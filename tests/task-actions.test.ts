@@ -27,10 +27,39 @@ describe("task actions", () => {
 
   it("adds dashboard tasks to the run currently being displayed", () => {
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
 
     expect(actions).toContain("await createItem(button.dataset.stage, host.shell.boardRootItemId)");
-    expect(actions).toContain("createItem(rootId ? host.workspaceController.activeProcess?.stages[0]?.id : undefined, rootId)");
+    expect(actions).toContain("createItem(rootId ? firstTaskStage : undefined, rootId)");
     expect(actions).toContain("...(parent ? { parentId: parent.id } : {})");
     expect(actions).toContain("host.shell.boardRootItemId = parent?.id ?? itemId");
+    expect(actions).toContain("role: worker.role");
+    expect(actions).toContain("effect: \"prepare\"");
+    expect(views).toContain('name="workerRole"');
+    expect(views).toContain("This process has no available worker");
+  });
+
+  it("shows claim ownership without editable owner fields", () => {
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+
+    expect(views).toContain("item.runtime?.claim");
+    expect(views).toContain("Claimed by");
+    expect(views).toContain("Human on another device");
+    expect(views).not.toContain('name="owner"');
+    expect(actions).not.toContain('name: "owner", label: "Owner"');
+    expect(actions).not.toContain('owner: String(data.get("owner")');
+  });
+
+  it("offers library processes directly when creating a task", () => {
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+
+    expect(views).toContain('<optgroup label="Process Library">');
+    expect(views).toContain("Team's custom processes");
+    expect(actions).toContain("workflowId.startsWith(PROCESS_LIBRARY_SELECTION_PREFIX)");
+    expect(actions).not.toContain('action === "add-library-process"');
+    expect(views).not.toContain("Open board");
+    expect(views).not.toContain("Bundled");
   });
 });
