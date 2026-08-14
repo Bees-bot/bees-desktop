@@ -15,7 +15,7 @@ import {
   schedulesView,
   searchResultsView
 } from "./launch-views.js";
-import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
+import type { MainHost, SettingsTab, TeamTab, ThemePreset } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
 import { type SearchHit } from "./repository.js";
 import { escalationGroups } from "./supervision.js";
@@ -100,9 +100,7 @@ export function createAppShell(host: MainHost) {
 
   let searchHits: SearchHit[] = [];
 
-  let prefsTab: PrefsTab = "theme";
-
-  let orgTab: OrgTab = "general";
+  let settingsTab: SettingsTab = "theme";
 
   let teamTab: TeamTab = "members";
 
@@ -381,11 +379,9 @@ export function createAppShell(host: MainHost) {
       swap(schedulesView(items, host.runs.schedules.filter(({ workItemId }) => ids.has(workItemId)), host.workspaceController.processes));
     }
     if (view === "settings")
+      void host.views.renderSettings();
+    if (view === "team-settings")
       void host.views.renderTeamSettings();
-    if (view === "org-settings")
-      void host.views.renderOrgSettings();
-    if (view === "preferences")
-      void host.views.renderPreferences();
     if (view === "getting-started") {
       setHeader("Getting Started", "Set up Bees on this computer");
       // The same ground as the page below, except pointed at the real controls. Offered here
@@ -467,10 +463,8 @@ export function createAppShell(host: MainHost) {
     set searchQuery(value: typeof searchQuery) { searchQuery = value; },
     get searchHits() { return searchHits; },
     set searchHits(value: typeof searchHits) { searchHits = value; },
-    get prefsTab() { return prefsTab; },
-    set prefsTab(value: typeof prefsTab) { prefsTab = value; },
-    get orgTab() { return orgTab; },
-    set orgTab(value: typeof orgTab) { orgTab = value; },
+    get settingsTab() { return settingsTab; },
+    set settingsTab(value: typeof settingsTab) { settingsTab = value; },
     get teamTab() { return teamTab; },
     set teamTab(value: typeof teamTab) { teamTab = value; },
     get lightDefaultTheme() { return lightDefaultTheme; },

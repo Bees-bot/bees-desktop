@@ -97,7 +97,7 @@ import {
   parseModelRef,
   thinkingOptionsForModel
 } from "./local-models.js";
-import type { KnowledgeRuntimeInfo, MainHost, OrgTab, PrefsTab, TeamTab } from "./main.js";
+import type { KnowledgeRuntimeInfo, MainHost, SettingsTab, TeamTab } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
 import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
@@ -1300,18 +1300,13 @@ export function createMainActions(host: MainHost) {
     try {
       if (button.dataset.view) {
         host.shell.view = button.dataset.view as View;
-        if (button.dataset.prefs)
-          host.shell.prefsTab = button.dataset.prefs as PrefsTab;
+        if (button.dataset.settingsTab)
+          host.shell.settingsTab = button.dataset.settingsTab as SettingsTab;
         host.shell.render();
         return;
       }
-      if (button.dataset.prefsTab) {
-        host.shell.prefsTab = button.dataset.prefsTab as PrefsTab;
-        host.shell.render();
-        return;
-      }
-      if (button.dataset.orgTab) {
-        host.shell.orgTab = button.dataset.orgTab as OrgTab;
+      if (button.dataset.settingsTab) {
+        host.shell.settingsTab = button.dataset.settingsTab as SettingsTab;
         host.shell.render();
         return;
       }
@@ -1503,7 +1498,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "open-folder-settings") {
-        host.shell.teamTab = "folder";
+        host.shell.settingsTab = "team-folder";
         host.shell.view = "settings";
         host.shell.render();
         return;
@@ -2199,8 +2194,8 @@ export function createMainActions(host: MainHost) {
         else {
           host.workspaceController.workspace.organizationId = "";
           host.session.activeUserId = "";
-          host.shell.view = "preferences";
-          host.shell.prefsTab = "workspaces";
+          host.shell.view = "settings";
+          host.shell.settingsTab = "workspaces";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Workspace deleted", "success");
@@ -2224,7 +2219,7 @@ export function createMainActions(host: MainHost) {
         }
         else {
           host.workspaceController.workspace.teamId = "";
-          host.shell.view = "preferences";
+          host.shell.view = "settings";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Team deleted", "success");
@@ -2245,7 +2240,7 @@ export function createMainActions(host: MainHost) {
         await host.api.startTeamTrial(token, host.workspaceController.workspace.organizationId);
         await host.session.reconcileServerOrgs();
         host.shell.view = "settings";
-        host.shell.teamTab = "members";
+        host.shell.settingsTab = "team-members";
         await host.workspaceController.refresh();
         host.shell.showNotice("Trial running for 30 days", "success");
         return;
@@ -2314,8 +2309,8 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "new-workspace") {
-        host.shell.view = "preferences";
-        host.shell.prefsTab = "workspaces";
+        host.shell.view = "settings";
+        host.shell.settingsTab = "workspaces";
         host.shell.render();
         return;
       }
@@ -2504,7 +2499,7 @@ export function createMainActions(host: MainHost) {
         // Asked for only where the button reads "Delete". Archiving is reversible from
         // Team settings → Archived, but its work items go off the board either way.
         if (button.dataset.confirm && process &&
-          !confirm(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`))
+          !(await edit(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`, [], "Delete")))
           return;
         await host.repository.archiveProcess(button.dataset.id!);
         if (host.shell.configProcessId === button.dataset.id) {
@@ -2586,7 +2581,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "remove-file-location") {
-        if (!confirm(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`))
+        if (!(await edit(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`, [], "Remove")))
           return;
         await host.repository.deleteFileLocation(button.dataset.id!);
         await host.workspaceController.refresh();

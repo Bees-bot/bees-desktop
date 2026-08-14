@@ -105,8 +105,8 @@ export function createAppBootstrap(host: MainHost) {
         if (payload.state === "ready" && host.localModels.wantedRunId === payload.modelId) {
           host.actions.runLocalModel(payload.modelId);
         }
-        if (payload.state !== "downloading" && host.shell.view === "preferences" && host.shell.prefsTab === "local-models") {
-          void host.views.renderPreferences();
+        if (payload.state !== "downloading" && host.shell.view === "settings" && host.shell.settingsTab === "local-models") {
+          void host.views.renderSettings();
         }
       });
       // Startup reaps orphaned servers, so a model left switched on is down until someone asks
