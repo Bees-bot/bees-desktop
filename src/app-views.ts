@@ -193,7 +193,6 @@ export function createMainViews(host: MainHost) {
     // .drawer-side clips.
     host.shell.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
         <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
-        <li><button data-action="start-tour">Guided tour</button></li>
         <li class="dropdown dropdown-top w-full">
           <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
             Help
@@ -2402,7 +2401,7 @@ export function createMainViews(host: MainHost) {
 
     if (host.shell.view !== "settings") return;
 
-    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
       <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
@@ -2444,7 +2443,7 @@ export function createMainViews(host: MainHost) {
 
     if (host.shell.view !== "team-settings") return;
 
-    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
       <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
         <ul class="menu menu-sm gap-0.5">
           <li><h2 class="menu-title">${host.shell.escapeHtml("Team settings")}</h2></li>
