@@ -81,7 +81,7 @@ import {
   thinkingOptionsForModel,
   type LocalModelView
 } from "./local-models.js";
-import type { MainHost, OrgTab, PrefsTab, TeamTab, ThemePreset } from "./main.js";
+import type { MainHost, SettingsTab, ThemePreset } from "./main.js";
 import { taskPlanStages } from "./processes/goals/runtime.js";
 import {
   PROCESS_LIBRARY,
@@ -132,50 +132,13 @@ export interface FileSource {
 }
 
 export function createMainViews(host: MainHost) {
-  /** A settings page: left sub-menu + right content. `attr` is the data-* used to switch tabs. */
-  function pageWithMenu(attr: string, items: {
-    id: string;
-    label: string;
-  }[], active: string, content: string): string {
-    return `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
-      <aside class="h-max rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
-        <ul class="menu menu-sm gap-0.5">${items
-        .map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === active)}" data-${attr}="${id}">${host.shell.escapeHtml(label)}</button></li>`)
-        .join("")}</ul>
-      </aside>
-      <section class="min-w-0">${content}</section>
-    </div>`;
-  }
 
-  /**
-   * One list per settings page: the menu entry and the thing it renders stay together, so a tab
-   * cannot be listed without a body or gain one it never shows. `stillHere` is re-checked after
-   * the await — the user can navigate away while a tab's content is still loading.
-   */
-  async function renderTabs<Id extends string>(attr: string, tabs: [
-    Tab<Id>,
-    ...Tab<Id>[]
-  ], active: Id, stillHere: () => boolean): Promise<void> {
-    const content = await (tabs.find(({ id }) => id === active) ?? tabs[0]).content();
-    if (!stillHere())
-      return;
-    host.shell.swap(pageWithMenu(attr, tabs, active, content));
-  }
 
   function gearIcon(): string {
     return `<svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>`;
   }
 
   /** Settings for the workspace named by the switcher beside it. */
-  function renderActiveOrg(): void {
-    const org = host.session.currentOrganization();
-    host.shell.orgStatus.innerHTML = org
-      ? `<button class="btn btn-square btn-ghost btn-sm" data-view="org-settings" aria-label="Workspace settings" title="Workspace settings">
-          ${gearIcon()}
-        </button>`
-      : "";
-  }
-
   /**
    * One process in the left menu — a single row. The name opens its board and always shows the open
    * task count plus run state (the avatar goes green while running). Actions ride an overlay on the
@@ -300,7 +263,6 @@ export function createMainViews(host: MainHost) {
           </button></li>
         </ul>
       </div>`;
-    renderActiveOrg();
     // No active org (e.g. all deleted): teams need an org to belong to, so show nothing here.
     if (!host.workspaceController.workspace.organizationId) {
       host.shell.teamNav.innerHTML = "";
@@ -340,7 +302,7 @@ export function createMainViews(host: MainHost) {
                         </button>
                         <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
                           <li><button data-action="browse-process-library" data-team="${team.id}">Processes</button></li>
-                          <li><button data-team-view="settings" data-team="${team.id}">Team settings</button></li>
+                          <li><button data-team-view="team-settings" data-team="${team.id}">Team settings</button></li>
                         </ul>
                       </div>
                     </div>
@@ -372,7 +334,7 @@ export function createMainViews(host: MainHost) {
     const prefs = document.querySelector<HTMLButtonElement>("#preferences-button");
     if (!prefs)
       return;
-    prefs.classList.toggle("btn-active", host.shell.view === "preferences");
+    prefs.classList.toggle("btn-active", host.shell.view === "settings");
     prefs.querySelector(".invite-badge")?.remove();
     if (!host.session.pendingInvitations.length)
       return;
@@ -1764,18 +1726,7 @@ export function createMainViews(host: MainHost) {
       </div></section>`;
   }
 
-  async function renderTeamSettings(): Promise<void> {
-    host.shell.setHeader("Team settings", host.session.currentTeam()?.name);
-    await renderTabs<TeamTab>("team-tab", [
-      { id: "members", label: "Members", content: teamMembersContent },
-      { id: "folder", label: "Folder", content: teamFolderContent },
-      { id: "integrations", label: "Integrations", content: teamIntegrationsContent },
-      { id: "browser", label: "Browser", content: teamBrowserContent },
-      { id: "archived", label: "Archived processes", content: teamArchivedContent },
-      { id: "danger", label: "Danger zone", content: teamDangerContent }
-    ], host.shell.teamTab, () => host.shell.view === "settings");
-  }
-
+  
   // ---- Workspace settings (tabbed: General / Members / Invites / Folder) ----
   function orgGeneralContent(): string {
     const connected = host.session.orgIsConnected();
@@ -2224,18 +2175,7 @@ export function createMainViews(host: MainHost) {
     </form>`;
   }
 
-  async function renderOrgSettings(): Promise<void> {
-    host.shell.setHeader("Workspace settings", host.session.currentOrganization()?.name);
-    await renderTabs<OrgTab>("org-tab", [
-      { id: "general", label: "General", content: orgGeneralContent },
-      { id: "members", label: "Members", content: orgMembersContent },
-      { id: "invites", label: "Invites", content: orgInvitesContent },
-      { id: "onboarding", label: "Onboarding", content: orgOnboardingContent },
-      { id: "folder", label: "Folder", content: orgWorkspaceContent },
-      { id: "knowledge", label: "Knowledge", content: orgKnowledgeContent }
-    ], host.shell.orgTab, () => host.shell.view === "org-settings");
-  }
-
+  
   // ---- Preferences (including sign-ins and workspaces) ----
   function prefsThemeContent(): string {
     const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
@@ -2396,19 +2336,116 @@ export function createMainViews(host: MainHost) {
       </div></section>`;
   }
 
-  async function renderPreferences(): Promise<void> {
-    host.shell.setHeader("Preferences", host.session.currentUser()?.email ?? "On this device");
-    await renderTabs<PrefsTab>("prefs-tab", [
-      { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
-      { id: "workspaces", label: "Workspaces", content: prefsWorkspacesContent },
-      { id: "folder", label: "Root Folder", content: prefsFolderContent },
-      { id: "ai-subscriptions", label: "AI CLI", content: cliToolsSection },
+    async function renderSettings(): Promise<void> {
+    host.shell.setHeader("Settings");
+
+    const org = host.session.currentOrganization();
+    const team = host.session.currentTeam();
+
+    const globalTabs = [
       { id: "local-models", label: "Local AI", content: prefsLocalModelsContent },
+      { id: "ai-subscriptions", label: "AI CLI", content: cliToolsSection },
       { id: "remote-models", label: "AI APIs", content: prefsRemoteModelsContent },
       { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
+      { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
+      { id: "workspaces", label: "Workspaces", content: prefsWorkspacesContent },
+      { id: "pref-folder", label: "Root Folder", content: prefsFolderContent },
       { id: "theme", label: "Theme", content: prefsThemeContent }
-    ], host.shell.prefsTab, () => host.shell.view === "preferences");
+    ];
+
+    const orgTabs = org ? [
+      { id: "org-general", label: "General", content: orgGeneralContent },
+      { id: "org-members", label: "Members", content: orgMembersContent },
+      { id: "org-invites", label: "Invites", content: orgInvitesContent },
+      { id: "org-onboarding", label: "Onboarding", content: orgOnboardingContent },
+      { id: "org-folder", label: "Folder", content: orgWorkspaceContent },
+      { id: "org-knowledge", label: "Knowledge", content: orgKnowledgeContent }
+    ] : [];
+
+    const groups = [
+      { title: "Global settings", tabs: globalTabs },
+      ...(org ? [{ title: "Workspace settings", tabs: orgTabs }] : []),
+    ];
+
+    let activeContent = "";
+    const activeId = host.shell.settingsTab;
+    for (const group of groups) {
+      const tab = group.tabs.find(t => t.id === activeId);
+      if (tab) {
+        activeContent = await tab.content();
+        break;
+      }
+    }
+
+    if (!activeContent && groups.length > 0) {
+      const firstGroup = groups[0];
+      if (firstGroup && firstGroup.tabs.length > 0) {
+        const firstTab = firstGroup.tabs[0];
+        if (firstTab) {
+          host.shell.settingsTab = firstTab.id as any;
+          const content = await firstTab.content();
+          activeContent = content ?? "";
+        }
+      }
+    }
+
+    if (host.shell.view !== "settings") return;
+
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
+      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+        <ul class="menu menu-sm gap-0.5">
+          ${groups.map(({ title, tabs }) => `
+            <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
+            ${tabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.settingsTab)}" data-settings-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
+          `).join("")}
+        </ul>
+      </aside>
+      <section class="min-w-0">${activeContent}</section>
+    </div>`;
+
+    host.shell.swap(menuHtml);
   }
+
+  async function renderTeamSettings(): Promise<void> {
+    const team = host.session.currentTeam();
+    host.shell.setHeader("Team settings", team?.name);
+
+    if (!team) return;
+
+    const teamTabs = [
+      { id: "members", label: "Members", content: teamMembersContent },
+      { id: "folder", label: "Folder", content: teamFolderContent },
+      { id: "integrations", label: "Integrations", content: teamIntegrationsContent },
+      { id: "browser", label: "Browser", content: teamBrowserContent },
+      { id: "archived", label: "Archived processes", content: teamArchivedContent },
+      { id: "danger", label: "Danger zone", content: teamDangerContent }
+    ];
+
+    let activeContent = "";
+    const activeId = host.shell.teamTab;
+    const tab = teamTabs.find(t => t.id === activeId);
+    if (tab) {
+      activeContent = await tab.content();
+    } else if (teamTabs[0]) {
+      host.shell.teamTab = teamTabs[0].id as any;
+      activeContent = (await teamTabs[0].content()) ?? "";
+    }
+
+    if (host.shell.view !== "team-settings") return;
+
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[190px_1fr]">
+      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+        <ul class="menu menu-sm gap-0.5">
+          <li><h2 class="menu-title">${host.shell.escapeHtml("Team settings")}</h2></li>
+          ${teamTabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.teamTab)}" data-team-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
+        </ul>
+      </aside>
+      <section class="min-w-0">${activeContent}</section>
+    </div>`;
+
+    host.shell.swap(menuHtml);
+  }
+
 
   function agentEditorFields(agent?: Agent): EditorField[] {
     const config = agent?.config;
@@ -2872,10 +2909,7 @@ export function createMainViews(host: MainHost) {
   }
 
   return {
-    pageWithMenu,
-    renderTabs,
-    gearIcon,
-    renderActiveOrg,
+            gearIcon,
     taskNavItem,
     teamTaskNav,
     renderSidebarHelp,
@@ -2913,7 +2947,6 @@ export function createMainViews(host: MainHost) {
     teamBrowserContent,
     teamArchivedContent,
     teamDangerContent,
-    renderTeamSettings,
     orgGeneralContent,
     orgMembersContent,
     orgInvitesContent,
@@ -2927,13 +2960,13 @@ export function createMainViews(host: MainHost) {
     cliToolsSection,
     prefsRemoteModelsContent,
     prefsMcpServersContent,
-    renderOrgSettings,
     orgOnboardingContent,
     prefsThemeContent,
     prefsSigninsContent,
     prefsWorkspacesContent,
     prefsCreateOrgContent,
-    renderPreferences,
+    renderSettings,
+    renderTeamSettings,
     agentEditorFields,
     checkboxOptions,
     editorFieldHtml,

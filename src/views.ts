@@ -15,8 +15,7 @@ export type View =
   | "run"
   | "schedules"
   | "settings"
-  | "org-settings"
-  | "preferences"
+  | "team-settings"
   | "getting-started";
 
 /**
@@ -31,8 +30,7 @@ export const RESTORABLE_VIEWS = new Set<View>([
   "runs",
   "process-library",
   "settings",
-  "org-settings",
-  "preferences",
+  "team-settings",
   "getting-started"
 ]);
 
@@ -49,8 +47,7 @@ export const PARENT_VIEW: Partial<Record<View, View>> = {
   "process-library": "board",
   schedules: "board",
   settings: "overview",
-  "org-settings": "overview",
-  preferences: "overview"
+  "team-settings": "overview"
 };
 
 export const LAST_VIEW_KEY = "ui_last_view";

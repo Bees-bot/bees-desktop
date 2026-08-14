@@ -456,8 +456,8 @@ export function createSessionController(host: MainHost) {
     }
     host.workspaceController.workspace.organizationId = "";
     activeUserId = "";
-    host.shell.view = "preferences";
-    host.shell.prefsTab = "workspaces";
+    host.shell.view = "settings";
+    host.shell.settingsTab = "workspaces";
     await host.workspaceController.refresh();
     return true;
   }
@@ -516,8 +516,8 @@ export function createSessionController(host: MainHost) {
    * straight away. Otherwise land on the invites tab so they can sign in and accept there.
    */
   async function handleInviteLink(id: string): Promise<void> {
-    host.shell.view = "preferences";
-    host.shell.prefsTab = "workspaces";
+    host.shell.view = "settings";
+    host.shell.settingsTab = "workspaces";
     for (const account of accounts.values()) {
       const invitations = await host.api.myInvitations(account.token).then((r) => r.invitations).catch(() => []);
       if (!invitations.some((invitation) => invitation.id === id))
@@ -659,7 +659,7 @@ export function createSessionController(host: MainHost) {
     host.workspaceController.workspace.teamId = organizationTeams[0]?.id ?? "";
     host.workspaceController.activeBoard = null;
     host.workspaceController.activeProcess = null;
-    host.shell.view = organizationTeams.length ? "overview" : "preferences";
+    host.shell.view = organizationTeams.length ? "overview" : "settings";
     await host.assistant.refreshAssistantCatalog();
     await host.workspaceController.refresh();
   }

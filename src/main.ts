@@ -86,16 +86,10 @@ import {
 } from "./workspaces.js";
 import { WorkflowRuntimeClient } from "./workflow-runtime.js";
 
-export type PrefsTab =
-  | "theme"
-  | "local-models"
-  | "ai-subscriptions"
-  | "remote-models"
-  | "mcp-servers"
-  | "signins"
-  | "workspaces"
-  | "folder";
-export type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge" | "onboarding";
+export type SettingsTab =
+  | "theme" | "local-models" | "ai-subscriptions" | "remote-models" | "mcp-servers" | "signins" | "workspaces" | "pref-folder"
+  | "org-general" | "org-members" | "org-invites" | "org-folder" | "org-knowledge" | "org-onboarding"
+  | "team-members" | "team-folder" | "team-integrations" | "team-browser" | "team-archived" | "team-danger";
 export type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
 // The two Bees themes first, then every daisyUI v5 built-in (keep in sync with styles.css).
 const THEMES = [
@@ -232,9 +226,7 @@ export interface AppShell {
   openRunItemId: string;
   openRunStepId: string;
   orgRow: HTMLElement;
-  orgStatus: HTMLElement;
-  orgTab: OrgTab;
-  prefsTab: PrefsTab;
+  settingsTab: SettingsTab;
   render: () => void;
   saveDefaultTheme: (mode: 'light' | 'dark', preset: ThemePreset) => Promise<void>;
   saveTheme: (preset: ThemePreset) => Promise<void>;
@@ -247,6 +239,7 @@ export interface AppShell {
   swap: (content: string) => void;
   teamNav: HTMLElement;
   teamTab: TeamTab;
+
   themePreset: ThemePreset;
   themePresets: { id: ThemePreset; name: string; }[];
   view: View;
