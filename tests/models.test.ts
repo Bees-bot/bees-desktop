@@ -52,28 +52,21 @@ describe("Bees-owned model limits", () => {
 
   it("leaves the default alone where it already fits", async () => {
     const { compactionFor } = await load({ active: 32_768 });
-    // 200k and 400k CLI windows, and any cloud model, are all wide enough for the default.
+    // The 200k CLI window and cloud models are wide enough for the default.
     expect(compactionFor("claude-cli/sonnet")).toBeUndefined();
-    expect(compactionFor("codex-cli/default")).toBeUndefined();
     expect(compactionFor("anthropic/claude-opus-5")).toBeUndefined();
     // 32768 / 4 is over 8000, so the local model stops needing an override too.
     expect(compactionFor("bees-local/active")).toBeUndefined();
   });
 
-  it("maps thinking levels onto what each CLI actually accepts", async () => {
+  it("maps thinking levels onto what Claude Code accepts", async () => {
     const { loopbackModel } = await load();
-    // Neither CLI can switch reasoning off, so "off" lands on its floor rather than
+    // Claude cannot switch reasoning off, so "off" lands on its floor rather than
     // silently sending nothing and letting the CLI's own config decide.
     expect(loopbackModel("claude-cli", "default").thinkingLevelMap).toMatchObject({
       off: "low",
       minimal: "low",
       max: "max"
-    });
-    // codex has no "max"; claude has no "minimal". Neither may be passed through raw.
-    expect(loopbackModel("codex-cli", "default").thinkingLevelMap).toMatchObject({
-      off: "minimal",
-      minimal: "minimal",
-      max: "xhigh"
     });
   });
 
@@ -88,15 +81,15 @@ describe("Bees-owned model limits", () => {
       "../flue-runtime/node_modules/@flue/runtime/dist/internal.mjs"
     );
     registerCliProviders();
-    expect(() => resolveModel("codex-cli/default@run-1")).toThrow(/Unknown model ID/);
-    expect(declareModel("codex-cli/default@run-1")).toBe("codex-cli/default@run-1");
+    expect(() => resolveModel("claude-cli/default@run-1")).toThrow(/Unknown model ID/);
+    expect(declareModel("claude-cli/default@run-1")).toBe("claude-cli/default@run-1");
     // Declared with the CLI's real limits, not a zero-metadata placeholder: a 0 window would
     // switch compaction off, and the shim re-sends the whole transcript every turn.
-    expect(resolveModel("codex-cli/default@run-1").contextWindow).toBe(400_000);
+    expect(resolveModel("claude-cli/default@run-1").contextWindow).toBe(200_000);
     // The baseline id and other runs keep working — registration accumulates, never replaces.
-    expect(declareModel("codex-cli/default@run-2")).toBe("codex-cli/default@run-2");
-    expect(resolveModel("codex-cli/default@run-1").id).toBe("default@run-1");
-    expect(resolveModel("codex-cli/default").id).toBe("default");
+    expect(declareModel("claude-cli/default@run-2")).toBe("claude-cli/default@run-2");
+    expect(resolveModel("claude-cli/default@run-1").id).toBe("default@run-1");
+    expect(resolveModel("claude-cli/default").id).toBe("default");
   });
 
   it("asks the local model for thinking through its chat template", async () => {

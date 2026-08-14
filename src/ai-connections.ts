@@ -1,12 +1,13 @@
 // AI provider connection metadata for an organization. Rust stores credentials in the
 // operating-system credential vault; SQLite and synchronized metadata keep only `secretRef`.
 //
-// Codex and the optional Claude Code adapter are agent runtimes rather than model APIs,
-// so they stay separate (see cli-tools.ts and .flue/cli-provider.ts).
+// Claude Code remains an optional agent runtime. Codex is a normal pi-ai provider whose
+// ChatGPT OAuth credential is stored in the same OS vault as API keys.
 
 export type AiProvider =
   | "opencode-go"
   | "openrouter"
+  | "openai-codex"
   | "openai"
   | "anthropic"
   | "google"
@@ -19,7 +20,8 @@ export type AiProvider =
   | "fireworks"
   | "openai-compatible";
 
-export type ApiKeyProvider = AiProvider;
+export type OAuthProvider = "openai-codex";
+export type ApiKeyProvider = Exclude<AiProvider, OAuthProvider>;
 
 export interface AiConnection {
   id: string;
@@ -34,6 +36,7 @@ export interface AiConnection {
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
   "opencode-go": "OpenCode Go",
   openrouter: "OpenRouter",
+  "openai-codex": "Codex (ChatGPT)",
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google Gemini",
@@ -114,5 +117,17 @@ export function connectApiKey(
   return {
     connection: newConnection(provider, AI_PROVIDER_LABEL[provider], endpoint),
     secret: trimmed
+  };
+}
+
+/** Persist a provider-owned OAuth credential without treating it as an API key. */
+export function connectOAuthCredential(
+  provider: OAuthProvider,
+  credential: string
+): { connection: AiConnection; secret: string } {
+  if (!credential.trim()) throw new Error("OAuth credential is required");
+  return {
+    connection: newConnection(provider, AI_PROVIDER_LABEL[provider]),
+    secret: credential
   };
 }

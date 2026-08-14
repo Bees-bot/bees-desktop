@@ -19,6 +19,7 @@ export default defineConfig({
         "google",
         "groq",
         "mistral",
+        "openai-codex",
         "openai",
         "openrouter",
         "opencode-go",

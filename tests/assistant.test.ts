@@ -289,17 +289,27 @@ describe("model catalog", () => {
     expect(catalog.some(({ choice }) => choice.provider === "openai")).toBe(false);
   });
 
-  it("defaults to bundled Codex and offers explicitly configured Claude", () => {
+  it("prefers connected Codex and offers explicitly configured Claude", () => {
     const local = [
       localModel("small", "ready", "Small 3B"),
       localModel("large", "ready", "Large 70B")
     ];
     const catalog = (cliInstalled: Record<string, { enabled: boolean }>) =>
-      modelCatalog({ local, connections: [], cliInstalled, extras: [] });
+      modelCatalog({
+        local,
+        connections: [{
+          id: "codex",
+          provider: "openai-codex",
+          label: "Codex",
+          createdAt: "",
+          secretRef: "oauth"
+        }],
+        cliInstalled,
+        extras: []
+      });
 
     expect(preferredModelChoice(catalog({ claude: { enabled: true } }))).toMatchObject({
-      provider: "codex-cli",
-      model: "default"
+      provider: "openai-codex"
     });
     expect(catalog({ claude: { enabled: true } }).some(
       ({ choice }) => choice.provider === "claude-cli"
@@ -309,10 +319,11 @@ describe("model catalog", () => {
     )).toBe(false);
   });
 
-  it("keeps connected remote models available beside bundled Codex", () => {
+  it("keeps connected remote models available beside connected Codex", () => {
     const catalog = modelCatalog({
       local: [],
       connections: [
+        { id: "0", provider: "openai-codex", label: "Codex", createdAt: "", secretRef: "oauth" },
         { id: "1", provider: "anthropic", label: "Anthropic", createdAt: "", secretRef: "s" }
       ],
       cliInstalled: {},
@@ -322,10 +333,9 @@ describe("model catalog", () => {
       choice.provider === "anthropic" && choice.model === "claude-opus-5"
     )).toBe(true);
     expect(preferredModelChoice(catalog)).toMatchObject({
-      provider: "codex-cli",
-      model: "default"
+      provider: "openai-codex"
     });
-    expect(preferredModelChoice(catalog.filter(({ choice }) => choice.provider !== "codex-cli"))).toMatchObject({
+    expect(preferredModelChoice(catalog.filter(({ choice }) => choice.provider !== "openai-codex"))).toMatchObject({
       provider: "anthropic",
       model: "claude-opus-5"
     });
@@ -340,7 +350,7 @@ describe("model catalog", () => {
       extras: []
     });
     expect(resolveModelChoice(AUTO_MODEL_CHOICE, latest, catalog)).toMatchObject({
-      provider: "codex-cli",
+      provider: "claude-cli",
       model: "default"
     });
     // Nothing installed yet: Auto has nothing to pick from, so the global choice still applies.
@@ -350,14 +360,14 @@ describe("model catalog", () => {
         { name: "Auto agent", config: { prompt: "Work.", ...AUTO_MODEL_CHOICE } },
         latest,
         true,
-        { localModelIds: [], connectedProviders: [], cliProviders: ["codex-cli", "claude-cli"] },
+        { localModelIds: [], connectedProviders: [], cliProviders: ["claude-cli"] },
         catalog
       )
-    ).toMatchObject({ active: true, model: { provider: "codex-cli" } });
+    ).toMatchObject({ active: true, model: { provider: "claude-cli" } });
   });
 
   it("resolves active through the latest choice but leaves named models pinned", () => {
-    const latest = { provider: "codex-cli", model: "default" };
+    const latest = { provider: "openai-codex", model: "gpt-5.4" };
     expect(resolveModelChoice({ provider: "bees-local", model: "active" }, latest)).toBe(latest);
     expect(resolveModelChoice({}, latest)).toBe(latest);
     expect(
@@ -373,7 +383,7 @@ describe("model catalog", () => {
     const availability = {
       localModelIds: ["local-1"],
       connectedProviders: ["openai"],
-      cliProviders: ["codex-cli"]
+      cliProviders: []
     };
 
     expect(

@@ -1,5 +1,5 @@
-// Native agent runtimes. Codex ships through the official SDK; Claude Code remains an
-// explicit opt-in adapter because its subscription login is owned by its external CLI.
+// Optional native agent runtimes. Codex is a direct pi-ai OAuth provider; Claude Code is
+// the only external CLI adapter and is configured explicitly rather than discovered.
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -24,18 +24,7 @@ export const CLI_TOOLS: CliTool[] = [
   }
 ];
 
-export const BUNDLED_AGENT_TOOLS: CliTool[] = [
-  {
-    id: "codex",
-    provider: "codex-cli",
-    label: "Codex (ChatGPT)",
-    exampleModel: "codex-cli/default",
-    installUrl: "https://developers.openai.com/codex"
-  }
-];
-
-export const NATIVE_AGENT_TOOLS: CliTool[] = [...BUNDLED_AGENT_TOOLS, ...CLI_TOOLS];
-export const BUNDLED_AGENT_PROVIDERS = BUNDLED_AGENT_TOOLS.map(({ provider }) => provider);
+export const NATIVE_AGENT_TOOLS: CliTool[] = CLI_TOOLS;
 
 export function isCliProvider(provider: string | undefined): boolean {
   return NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);

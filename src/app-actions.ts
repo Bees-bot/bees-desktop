@@ -11,8 +11,10 @@ import {
   AI_PROVIDER_LABEL,
   addAiConnection,
   connectApiKey,
+  connectOAuthCredential,
   listAiConnections,
   removeAiConnection,
+  type ApiKeyProvider,
   type AiProvider
 } from "./ai-connections.js";
 import { withBridgeUrl } from "./api-bridge.js";
@@ -578,7 +580,7 @@ export function createMainActions(host: MainHost) {
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
   }
 
-  async function connectAiProvider(provider: AiProvider): Promise<void> {
+  async function connectAiProvider(provider: ApiKeyProvider): Promise<void> {
     host.shell.showNotice(host.session.AI_PROVIDER_HINT[provider], "info");
     const data = await edit(`Connect ${AI_PROVIDER_LABEL[provider]}`, [
       ...(provider === "openai-compatible"
@@ -2001,7 +2003,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "connect-ai") {
-        await connectAiProvider(button.dataset.provider as AiProvider);
+        await connectAiProvider(button.dataset.provider as ApiKeyProvider);
         return;
       }
       if (action === "remove-ai-connection") {
@@ -2081,13 +2083,35 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "codex-login") {
         const { baseUrl, token } = await host.ensureFlueRuntime();
-        host.shell.showNotice("Opening the Codex sign-in page…", "info");
-        const response = await tauriFetch(`${baseUrl}/codex/login`, {
+        host.shell.showNotice("Starting Codex sign-in…", "info");
+        const started = await tauriFetch(`${baseUrl}/oauth/openai-codex/start`, {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
         });
-        const result = await response.json() as { ok?: boolean; error?: string };
-        if (!response.ok || !result.ok) throw new Error(result.error ?? "Codex sign-in failed");
+        const device = await started.json() as {
+          verificationUri?: string;
+          userCode?: string;
+          error?: string;
+        };
+        if (!started.ok || !device.verificationUri || !device.userCode)
+          throw new Error(device.error ?? "Codex sign-in failed");
+        await openUrl(device.verificationUri);
+        host.shell.showNotice(`Enter Codex code ${device.userCode} in your browser`, "info");
+        const completed = await tauriFetch(`${baseUrl}/oauth/openai-codex/await`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` }
+        });
+        const result = await completed.json() as { credential?: string; error?: string };
+        if (!completed.ok || !result.credential)
+          throw new Error(result.error ?? "Codex sign-in failed");
+        const { connection, secret } = connectOAuthCredential("openai-codex", result.credential);
+        await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
+        try {
+          await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
+        } catch (error) {
+          await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
+          throw error;
+        }
         await host.assistant.refreshAssistantCatalog();
         host.shell.showNotice("Codex is signed in", "success");
         return;

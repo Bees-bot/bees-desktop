@@ -629,6 +629,7 @@ export function createSessionController(host: MainHost) {
   const AI_PROVIDER_HINT: Record<AiProvider, string> = {
     "opencode-go": "Paste the API key from opencode.ai/auth.",
     openrouter: "Paste an OpenRouter API key (openrouter.ai/keys).",
+    "openai-codex": "Sign in with the ChatGPT account that has your Codex subscription.",
     openai: "Paste an OpenAI API key (platform.openai.com/api-keys), then use openai/<model>.",
     anthropic: "Paste an Anthropic API key (console.anthropic.com), then use anthropic/<model>.",
     google: "Paste a Gemini API key, then use google/<model>.",
@@ -646,6 +647,7 @@ export function createSessionController(host: MainHost) {
   const AI_PROVIDER_MODEL_PREFIX: Record<AiProvider, string> = {
     "opencode-go": "opencode-go/",
     openrouter: "openrouter/",
+    "openai-codex": "openai-codex/",
     openai: "openai/",
     anthropic: "anthropic/",
     google: "google/",

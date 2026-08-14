@@ -6,9 +6,9 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.73",
     "@earendil-works/pi-ai": "0.83.0",
     "@flue/runtime": "2.0.0",
-    "@openai/codex-sdk": "0.147.0",
     "@temporalio/client": "1.22.0",
     "@temporalio/common": "1.22.0",
     "@temporalio/worker": "1.22.0",

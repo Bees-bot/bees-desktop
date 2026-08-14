@@ -93,7 +93,7 @@ describe("model thinking options", () => {
     expect(values("openai", "gpt-5.6-sol")).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
     expect(values("openai", "gpt-5.4")).toEqual(["", "off", "low", "medium", "high", "xhigh"]);
     expect(values("opencode-go", "glm-5.2")).toEqual(["", "high", "max"]);
-    expect(values("codex-cli", "default")).toEqual(["", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(values("openai-codex", "gpt-5.4")).toEqual(["", "off", "minimal", "low", "medium", "high", "xhigh"]);
     expect(thinkingOptionsForModel({ provider: "bees-local", model: "active" }).map(({ label }) => label)).toEqual([
       "Automatic",
       "Off",

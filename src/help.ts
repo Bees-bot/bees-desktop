@@ -37,7 +37,7 @@ synchronized, and they apply across every workspace and team you are signed
 into. Credentials never leave the machine.
 
 - **Local AI** — on-device models. Download one, then Run it. No network, no per-token cost.
-- **AI Subscriptions** — bundled Codex and optional agent runtimes you explicitly connect.
+- **AI Subscriptions** — Codex through ChatGPT sign-in and optional agent runtimes you explicitly connect.
 - **AI APIs** — API keys for hosted providers.
 - **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
@@ -80,10 +80,11 @@ curation), **Browser**, **Archived**, and **Danger**.
 An agent cannot run without a model it can reach. Do this before building a
 process — most "nothing happens when I press Run" comes from skipping it.
 
-**Option A — a subscription you already pay for.** Codex is included through
-OpenAI's official SDK; select **Sign in** under **Preferences → AI Subscriptions**.
+**Option A — a subscription you already pay for.** Connect Codex directly with
+**Sign in** under **Preferences → AI Subscriptions**.
 Claude Code remains an optional external agent: install it and explicitly choose
-its binary there. Bees never scans your PATH or reads either tool's account files.
+its binary there. Bees never scans your PATH or reads either tool's account files,
+and every command it launches runs through the bundled sandbox runtime.
 
 **Option B — an on-device model.** **Preferences → Local AI**, select
 **Download**, then **Run**. Nothing leaves the machine and there is no bill.
@@ -97,7 +98,7 @@ naming a model this machine cannot reach is not eligible to run here, which is
 how work routes to the right laptop instead of failing on the wrong one.
 
 **Auto is the default on every process stage.** A stage left on *Auto* picks,
-at the moment it starts, the first of these that this computer has: bundled Codex
+at the moment it starts, the first of these that this computer has: connected Codex
 (ChatGPT), explicitly configured Claude Code, the largest downloaded local model,
 the largest remote model. Name a model on the stage instead and that model is used,
 with no substitution.
@@ -143,8 +144,9 @@ under \`/workspace/inputs/<location name>\`.
 **The run workspace.** An agent never sees your disk. Each run gets a fresh
 sandbox with \`/workspace/inputs\` (staged copies of the item's files) and
 \`/workspace/outputs\` (everything it writes, including \`.status\`). File access is
-confined there and the host shell is disabled. Nothing reaches the team folder
-until you approve it.
+confined there. Commands can use local development tools through the bundled OS
+sandbox, with network access limited to common package registries. Nothing reaches
+the team folder until you approve it.
 
 ## 7. Your first process
 
