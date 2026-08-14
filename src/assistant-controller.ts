@@ -13,8 +13,9 @@ import {
   type ModelOption
 } from "./assistant.js";
 import {
+  BUNDLED_AGENT_PROVIDERS,
   CLI_TOOLS,
-  detectCliTools,
+  configuredCliTools,
   type CliToolPath
 } from "./cli-tools.js";
 import {
@@ -107,7 +108,7 @@ export function createAssistantController(host: MainHost) {
     const [local, aiConnections, cliInstalled] = await Promise.all([
       host.localModels.list().catch(() => []),
       listAiConnections(host.repository, host.session.aiConnectionScope()).catch(() => []),
-      detectCliTools().catch(() => ({} as Record<string, CliToolPath>))
+      configuredCliTools().catch(() => ({} as Record<string, CliToolPath>))
     ]);
     assistantCatalog = modelCatalog({
       local,
@@ -120,7 +121,10 @@ export function createAssistantController(host: MainHost) {
         .filter(({ runtime }) => runtime.running)
         .map(({ id }) => id),
       connectedProviders: [...new Set(aiConnections.map(({ provider }) => provider))],
-      cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
+      cliProviders: [
+        ...BUNDLED_AGENT_PROVIDERS,
+        ...CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
+      ]
     };
     if (!hasUserModelChoice)
       assistantModel = preferredModelChoice(assistantCatalog);

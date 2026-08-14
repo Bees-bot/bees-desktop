@@ -35,7 +35,7 @@ function staticResponses() {
     default_workspace_root: "/Users/demo/Bees",
     validate_directory: true,
     ensure_directory: null,
-    detect_cli_tools: [],
+    configured_cli_tools: {},
     plugin_catalog: [],
     search_mcp_registry: [],
     list_agent_files: [],

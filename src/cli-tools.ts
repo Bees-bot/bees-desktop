@@ -1,12 +1,10 @@
-// Agent CLIs installed on this computer (Claude Code, Codex, opencode). They sign in
-// themselves and run their own agent loop, so Bees never holds a credential for them — a run
-// reaches one through the `claude-cli` / `codex-cli` / `opencode-cli` providers the Flue app
-// registers, which loop back into the runtime and spawn the CLI in the run's workspace.
+// Native agent runtimes. Codex ships through the official SDK; Claude Code remains an
+// explicit opt-in adapter because its subscription login is owned by its external CLI.
 
 import { invoke } from "@tauri-apps/api/core";
 
 export interface CliTool {
-  /** Key returned by `detect_cli_tools`, and the CLI's command name. */
+  /** Key returned by `configured_cli_tools`. */
   id: string;
   /** Provider id an agent names in its model, e.g. `claude-cli/sonnet`. */
   provider: string;
@@ -23,48 +21,38 @@ export const CLI_TOOLS: CliTool[] = [
     label: "Claude Code",
     exampleModel: "claude-cli/sonnet",
     installUrl: "https://claude.com/claude-code"
-  },
-  {
-    id: "codex",
-    provider: "codex-cli",
-    // Shipped as the Codex CLI, now also bundled inside the ChatGPT desktop app.
-    label: "Codex (ChatGPT)",
-    exampleModel: "codex-cli/default",
-    installUrl: "https://developers.openai.com/codex"
-  },
-  {
-    id: "opencode",
-    provider: "opencode-cli",
-    // Signed in against whatever provider the user connected it to — their own API keys, or
-    // the opencode Go subscription.
-    label: "opencode",
-    exampleModel: "opencode-cli/default",
-    installUrl: "https://opencode.ai/go"
   }
 ];
 
+export const BUNDLED_AGENT_TOOLS: CliTool[] = [
+  {
+    id: "codex",
+    provider: "codex-cli",
+    label: "Codex (ChatGPT)",
+    exampleModel: "codex-cli/default",
+    installUrl: "https://developers.openai.com/codex"
+  }
+];
+
+export const NATIVE_AGENT_TOOLS: CliTool[] = [...BUNDLED_AGENT_TOOLS, ...CLI_TOOLS];
+export const BUNDLED_AGENT_PROVIDERS = BUNDLED_AGENT_TOOLS.map(({ provider }) => provider);
+
 export function isCliProvider(provider: string | undefined): boolean {
-  return CLI_TOOLS.some((tool) => tool.provider === provider);
+  return NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);
 }
 
 export interface CliToolPath {
   path: string;
-  /** The user browsed to this binary; false means it was found on PATH. */
-  custom: boolean;
   /** False once the user switches this CLI off by hand; runs stop being offered it. */
   enabled: boolean;
-  /** Plan the CLI's own login file reports, e.g. `Pro`. Missing means it is not signed in. */
-  plan?: string | null;
-  /** Account the CLI is signed in as. */
-  account?: string | null;
 }
 
-/** The CLIs this computer can run, keyed by tool id. Missing = not installed and not picked. */
-export function detectCliTools(): Promise<Record<string, CliToolPath>> {
-  return invoke("detect_cli_tools");
+/** Explicitly configured external CLIs, keyed by tool id. Bees never scans PATH. */
+export function configuredCliTools(): Promise<Record<string, CliToolPath>> {
+  return invoke("configured_cli_tools");
 }
 
-/** Point a tool at a binary of the user's choosing; an empty path goes back to detection. */
+/** Point a tool at a binary of the user's choosing; an empty path disconnects it. */
 export function setCliToolPath(id: string, path: string): Promise<void> {
   return invoke("set_cli_tool_path", { tool: id, path });
 }
@@ -72,9 +60,4 @@ export function setCliToolPath(id: string, path: string): Promise<void> {
 /** Switch a CLI off or on by hand, without forgetting the binary it is pointed at. */
 export function setCliToolEnabled(id: string, enabled: boolean): Promise<void> {
   return invoke("set_cli_tool_enabled", { tool: id, enabled });
-}
-
-/** Run the CLI's own installer. Resolves to where the binary landed. */
-export function installCliTool(id: string): Promise<string> {
-  return invoke("install_cli_tool", { tool: id });
 }

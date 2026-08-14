@@ -13,4 +13,17 @@ describe("AI connection credentials", () => {
   it("rejects an empty key", () => {
     expect(() => connectApiKey("anthropic", "  ")).toThrow("API key is required");
   });
+
+  it("stores a validated non-secret OpenAI-compatible endpoint", () => {
+    const { connection, secret } = connectApiKey(
+      "openai-compatible",
+      " key ",
+      "https://models.example.test/v1/"
+    );
+    expect(secret).toBe("key");
+    expect(connection.baseUrl).toBe("https://models.example.test/v1");
+    expect(() => connectApiKey("openai-compatible", "key", "file:///tmp/model"))
+      .toThrow("http:// or https://");
+    expect(JSON.stringify(connection)).not.toContain("key");
+  });
 });

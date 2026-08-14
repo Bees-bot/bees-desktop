@@ -630,7 +630,16 @@ export function createSessionController(host: MainHost) {
     "opencode-go": "Paste the API key from opencode.ai/auth.",
     openrouter: "Paste an OpenRouter API key (openrouter.ai/keys).",
     openai: "Paste an OpenAI API key (platform.openai.com/api-keys), then use openai/<model>.",
-    anthropic: "Paste an Anthropic API key (console.anthropic.com), then use anthropic/<model>."
+    anthropic: "Paste an Anthropic API key (console.anthropic.com), then use anthropic/<model>.",
+    google: "Paste a Gemini API key, then use google/<model>.",
+    mistral: "Paste a Mistral API key, then use mistral/<model>.",
+    groq: "Paste a Groq API key, then use groq/<model>.",
+    deepseek: "Paste a DeepSeek API key, then use deepseek/<model>.",
+    xai: "Paste an xAI API key, then use xai/<model>.",
+    cerebras: "Paste a Cerebras API key, then use cerebras/<model>.",
+    together: "Paste a Together AI API key, then use together/<model>.",
+    fireworks: "Paste a Fireworks AI API key, then use fireworks/<model>.",
+    "openai-compatible": "Enter an OpenAI-compatible /v1 endpoint and its API key."
   };
 
   /** Model prefix an agent must use for each connection, shown beside the connection. */
@@ -638,7 +647,16 @@ export function createSessionController(host: MainHost) {
     "opencode-go": "opencode-go/",
     openrouter: "openrouter/",
     openai: "openai/",
-    anthropic: "anthropic/"
+    anthropic: "anthropic/",
+    google: "google/",
+    mistral: "mistral/",
+    groq: "groq/",
+    deepseek: "deepseek/",
+    xai: "xai/",
+    cerebras: "cerebras/",
+    together: "together/",
+    fireworks: "fireworks/",
+    "openai-compatible": "openai-compatible/"
   };
 
   function aiConnectionScope(): string {

@@ -289,7 +289,7 @@ describe("model catalog", () => {
     expect(catalog.some(({ choice }) => choice.provider === "openai")).toBe(false);
   });
 
-  it("defaults to Codex, then Claude, then the largest downloaded local model", () => {
+  it("defaults to bundled Codex and offers explicitly configured Claude", () => {
     const local = [
       localModel("small", "ready", "Small 3B"),
       localModel("large", "ready", "Large 70B")
@@ -297,22 +297,19 @@ describe("model catalog", () => {
     const catalog = (cliInstalled: Record<string, { enabled: boolean }>) =>
       modelCatalog({ local, connections: [], cliInstalled, extras: [] });
 
-    expect(preferredModelChoice(catalog({ codex: { enabled: true }, claude: { enabled: true } }))).toMatchObject({
+    expect(preferredModelChoice(catalog({ claude: { enabled: true } }))).toMatchObject({
       provider: "codex-cli",
       model: "default"
     });
-    expect(preferredModelChoice(catalog({ claude: { enabled: true } }))).toMatchObject({
-      provider: "claude-cli",
-      model: "default"
-    });
-    expect(preferredModelChoice(catalog({}))).toMatchObject({ localModelId: "large" });
-    // Switched off by hand: installed, but no longer offered to runs.
-    expect(preferredModelChoice(catalog({ claude: { enabled: false } }))).toMatchObject({
-      localModelId: "large"
-    });
+    expect(catalog({ claude: { enabled: true } }).some(
+      ({ choice }) => choice.provider === "claude-cli"
+    )).toBe(true);
+    expect(catalog({ claude: { enabled: false } }).some(
+      ({ choice }) => choice.provider === "claude-cli"
+    )).toBe(false);
   });
 
-  it("falls through to a remote model when nothing runs on this computer", () => {
+  it("keeps connected remote models available beside bundled Codex", () => {
     const catalog = modelCatalog({
       local: [],
       connections: [
@@ -321,8 +318,14 @@ describe("model catalog", () => {
       cliInstalled: {},
       extras: []
     });
-    // MODEL_PROVIDERS lists each provider's models largest-first, so the first is the biggest.
+    expect(catalog.some(({ choice }) =>
+      choice.provider === "anthropic" && choice.model === "claude-opus-5"
+    )).toBe(true);
     expect(preferredModelChoice(catalog)).toMatchObject({
+      provider: "codex-cli",
+      model: "default"
+    });
+    expect(preferredModelChoice(catalog.filter(({ choice }) => choice.provider !== "codex-cli"))).toMatchObject({
       provider: "anthropic",
       model: "claude-opus-5"
     });
@@ -337,7 +340,7 @@ describe("model catalog", () => {
       extras: []
     });
     expect(resolveModelChoice(AUTO_MODEL_CHOICE, latest, catalog)).toMatchObject({
-      provider: "claude-cli",
+      provider: "codex-cli",
       model: "default"
     });
     // Nothing installed yet: Auto has nothing to pick from, so the global choice still applies.
@@ -347,10 +350,10 @@ describe("model catalog", () => {
         { name: "Auto agent", config: { prompt: "Work.", ...AUTO_MODEL_CHOICE } },
         latest,
         true,
-        { localModelIds: [], connectedProviders: [], cliProviders: ["claude-cli"] },
+        { localModelIds: [], connectedProviders: [], cliProviders: ["codex-cli", "claude-cli"] },
         catalog
       )
-    ).toMatchObject({ active: true, model: { provider: "claude-cli" } });
+    ).toMatchObject({ active: true, model: { provider: "codex-cli" } });
   });
 
   it("resolves active through the latest choice but leaves named models pinned", () => {

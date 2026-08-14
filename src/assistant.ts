@@ -15,7 +15,10 @@ import {
   type AiConnection,
   type AiProvider
 } from "./ai-connections.js";
-import { CLI_TOOLS } from "./cli-tools.js";
+import {
+  BUNDLED_AGENT_PROVIDERS,
+  NATIVE_AGENT_TOOLS
+} from "./cli-tools.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
 import {
@@ -50,7 +53,7 @@ export const AUTO_PROVIDER = "auto";
 /**
  * "Let Bees pick." A stage carrying this is resolved at run time by `preferredModelChoice`
  * against whatever this machine can run right now, so a workflow keeps working on a computer
- * that has a different set of CLIs, keys, and downloaded models than the one it was built on.
+ * that has a different set of native agents, keys, and downloaded models than the one it was built on.
  */
 export const AUTO_MODEL_CHOICE: ModelChoice = { provider: AUTO_PROVIDER, model: AUTO_PROVIDER };
 
@@ -516,13 +519,13 @@ export function sameChoice(left: ModelChoice, right: ModelChoice): boolean {
 
 /**
  * Everything this machine can actually run right now: downloaded local models, models from
- * providers with a stored key, and CLIs that are installed. Anything the user typed in for a
+ * providers with a stored key, and native agents available here. Anything the user typed in for a
  * provider that ships no catalog (OpenAI, OpenRouter) rides along in `extras`.
  */
 export function modelCatalog(input: {
   local: LocalModelView[];
   connections: AiConnection[];
-  /** Keyed by CLI tool id. Missing, or switched off by hand, means runs cannot use it. */
+  /** Keyed by optional external-agent id. Missing or off means runs cannot use it. */
   cliInstalled: Record<string, { enabled?: boolean } | undefined>;
   extras: ModelChoice[];
 }): ModelOption[] {
@@ -557,8 +560,9 @@ export function modelCatalog(input: {
     }
   }
 
-  for (const tool of CLI_TOOLS) {
-    if (!input.cliInstalled[tool.id]?.enabled) continue;
+  for (const tool of NATIVE_AGENT_TOOLS) {
+    if (!BUNDLED_AGENT_PROVIDERS.includes(tool.provider) && !input.cliInstalled[tool.id]?.enabled)
+      continue;
     const models = MODEL_PROVIDERS.find(({ id }) => id === tool.provider)?.models ?? ["default"];
     for (const model of models) {
       options.push({ group: tool.label, label: model, choice: { provider: tool.provider, model } });
@@ -579,13 +583,13 @@ export function modelCatalog(input: {
 }
 
 /**
- * What "Auto" means, and the first-run default: Codex, then Claude Code, then any other agent
- * CLI installed here, then the biggest downloaded local model, then the biggest remote one.
+ * What "Auto" means, and the first-run default: bundled Codex, explicitly configured Claude
+ * Code, then the biggest downloaded local model, then the biggest remote one.
  * `modelCatalog` already lists local models largest-first and each provider's own models
  * largest-first, so "first match wins" is the size order without a second sort.
  */
 export function preferredModelChoice(catalog: ModelOption[]): ModelChoice {
-  const isCli = (provider: string): boolean => CLI_TOOLS.some((tool) => tool.provider === provider);
+  const isCli = (provider: string): boolean => NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);
   return (
     catalog.find(({ choice }) => choice.provider === "codex-cli" && choice.model === "default")
       ?.choice ??
@@ -634,7 +638,7 @@ export interface EffectiveAgentEligibility {
 }
 
 /**
- * Whether an agent can accept new work on this machine. Cloud connections and CLI installs prove
+ * Whether an agent can accept new work on this machine. Cloud and native connections prove
  * the local route exists; the provider still has final say on account access to a named model.
  */
 export function effectiveAgentEligibility(
@@ -661,11 +665,11 @@ export function effectiveAgentEligibility(
         };
   }
 
-  const cli = CLI_TOOLS.find(({ provider }) => provider === model.provider);
+  const cli = NATIVE_AGENT_TOOLS.find(({ provider }) => provider === model.provider);
   if (cli && !availability.cliProviders.includes(model.provider)) {
     return {
       active: false,
-      reason: `${cli.label} is not installed on this machine`,
+      reason: `${cli.label} is not configured on this machine`,
       model
     };
   }

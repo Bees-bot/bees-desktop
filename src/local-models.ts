@@ -1,9 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
+import { CEREBRAS_MODELS } from "@earendil-works/pi-ai/providers/cerebras.models";
+import { DEEPSEEK_MODELS } from "@earendil-works/pi-ai/providers/deepseek.models";
+import { FIREWORKS_MODELS } from "@earendil-works/pi-ai/providers/fireworks.models";
+import { GOOGLE_MODELS } from "@earendil-works/pi-ai/providers/google.models";
+import { GROQ_MODELS } from "@earendil-works/pi-ai/providers/groq.models";
+import { MISTRAL_MODELS } from "@earendil-works/pi-ai/providers/mistral.models";
 import { OPENAI_MODELS } from "@earendil-works/pi-ai/providers/openai.models";
 import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
 import { OPENROUTER_MODELS } from "@earendil-works/pi-ai/providers/openrouter.models";
+import { TOGETHER_MODELS } from "@earendil-works/pi-ai/providers/together.models";
+import { XAI_MODELS } from "@earendil-works/pi-ai/providers/xai.models";
 import type { ThinkingLevel } from "./domain.js";
 
 export const LOCAL_PROVIDER_MODEL = "bees-local/active";
@@ -13,7 +21,7 @@ export const LOCAL_PROVIDER = "bees-local";
 
 /**
  * Providers a run can name. The value is the pi-ai provider id Flue resolves against,
- * which is not always the id we use for a stored connection (Codex is `openai-codex`).
+ * which is also the id stored for direct provider connections.
  * A provider that isn't listed still works — the agent dropdown keeps whatever its file
  * already had, and custom models can be added through the assistant model picker.
  */
@@ -24,11 +32,10 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
     label: "Anthropic",
     models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]
   },
-  // Backed by the CLIs installed on this computer, not by a stored credential. `default`
-  // passes no --model, so the CLI uses whatever it is configured for — the durable choice,
-  // since a pinned name goes stale and a Codex model the account cannot use fails the run.
+  // Native agent runtimes, not plain chat APIs. `default` leaves model selection to the
+  // subscription runtime, which is more durable than pinning a name the account may not expose.
   { id: "claude-cli", label: "Claude Code (CLI)", models: ["default", "sonnet", "opus", "haiku"] },
-  { id: "codex-cli", label: "Codex (CLI)", models: ["default"] },
+  { id: "codex-cli", label: "Codex (bundled)", models: ["default"] },
   // Deliberately short: every id the provider's pi-ai catalog carries works, and custom
   // ids can be added through the assistant model picker.
   {
@@ -45,14 +52,32 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
     id: "opencode-go",
     label: "OpenCode Go",
     models: ["kimi-k3", "glm-5.2", "deepseek-v4-pro", "qwen3.7-max", "minimax-m3", "grok-4.5"]
-  }
+  },
+  { id: "google", label: "Google Gemini", models: Object.keys(GOOGLE_MODELS) },
+  { id: "mistral", label: "Mistral", models: Object.keys(MISTRAL_MODELS) },
+  { id: "groq", label: "Groq", models: Object.keys(GROQ_MODELS) },
+  { id: "deepseek", label: "DeepSeek", models: Object.keys(DEEPSEEK_MODELS) },
+  { id: "xai", label: "xAI", models: Object.keys(XAI_MODELS) },
+  { id: "cerebras", label: "Cerebras", models: Object.keys(CEREBRAS_MODELS) },
+  { id: "together", label: "Together AI", models: Object.keys(TOGETHER_MODELS) },
+  { id: "fireworks", label: "Fireworks AI", models: Object.keys(FIREWORKS_MODELS) },
+  // Custom ids are added through the model picker and declared to pi-ai at run time.
+  { id: "openai-compatible", label: "OpenAI-compatible", models: [] }
 ];
 
 const PI_MODEL_CATALOGS = {
   anthropic: ANTHROPIC_MODELS,
+  cerebras: CEREBRAS_MODELS,
+  deepseek: DEEPSEEK_MODELS,
+  fireworks: FIREWORKS_MODELS,
+  google: GOOGLE_MODELS,
+  groq: GROQ_MODELS,
+  mistral: MISTRAL_MODELS,
   openai: OPENAI_MODELS,
   "opencode-go": OPENCODE_GO_MODELS,
-  openrouter: OPENROUTER_MODELS
+  openrouter: OPENROUTER_MODELS,
+  together: TOGETHER_MODELS,
+  xai: XAI_MODELS
 } as unknown as Record<string, Record<string, Model<Api>>>;
 
 const THINKING_LABELS: Record<ThinkingLevel, string> = {

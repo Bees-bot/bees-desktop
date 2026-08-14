@@ -10,6 +10,7 @@ import type { CompactionConfig } from "@flue/runtime";
 import { CLI_PROVIDERS, type CliProvider } from "./cli-provider.ts";
 
 const selfUrl = process.env.BEES_SELF_URL ?? "http://127.0.0.1:1";
+export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 /**
  * Used when a local model is not in the map below — it started outside this runtime's view,
@@ -81,26 +82,6 @@ const CLI_MODELS: Record<CliProvider, { contextWindow: number; maxTokens: number
       max: "xhigh"
     }
   },
-  // opencode fronts many models at once and each one carries its own window, so this is the
-  // floor across the curated list rather than any one model's ceiling.
-  //
-  // Its reasoning knob (`run --variant`) takes names the *model* declares, not a fixed
-  // scale, so there is nothing to map a thinkingLevel onto that holds across models: `null`
-  // sends no effort at all and leaves the model on its own default. Name the variants here
-  // if Bees ever pins opencode to one model.
-  "opencode-cli": {
-    contextWindow: 200_000,
-    maxTokens: 32_000,
-    thinking: {
-      off: null,
-      minimal: null,
-      low: null,
-      medium: null,
-      high: null,
-      xhigh: null,
-      max: null
-    }
-  }
 };
 
 function isCliProvider(provider: string): provider is CliProvider {
@@ -181,6 +162,8 @@ const declaredCliModels = new Map<CliProvider, Set<string>>(
   CLI_PROVIDERS.map((provider) => [provider, new Set(["default"])])
 );
 
+const declaredCompatibleModels = new Set<string>();
+
 /** pi-ai resolves auth per request; these endpoints are loopback, so the key is a constant. */
 function loopbackAuth(name: string) {
   const key = process.env.BEES_FLUE_TOKEN ?? "";
@@ -204,6 +187,49 @@ export function registerCliProviders(): void {
   for (const provider of CLI_PROVIDERS) registerCliProvider(provider);
 }
 
+function compatibleModel(id: string): Model<"openai-completions"> {
+  return {
+    id,
+    name: `${OPENAI_COMPATIBLE_PROVIDER}/${id}`,
+    api: "openai-completions",
+    provider: OPENAI_COMPATIBLE_PROVIDER,
+    baseUrl: process.env.BEES_OPENAI_COMPATIBLE_BASE_URL ?? "http://127.0.0.1:1/v1",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    // A generic endpoint cannot advertise capabilities. Conservative limits compact early
+    // instead of overflowing a smaller server; a future endpoint discovery API can replace them.
+    contextWindow: 32_768,
+    maxTokens: 8_192,
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false
+    }
+  };
+}
+
+/** Register a configurable OpenAI-compatible endpoint without adding another transport. */
+export function registerOpenAICompatibleProvider(): void {
+  const apiKey = process.env.BEES_OPENAI_COMPATIBLE_API_KEY ?? "";
+  const baseUrl = process.env.BEES_OPENAI_COMPATIBLE_BASE_URL ?? "";
+  if (!apiKey || !/^https?:\/\//.test(baseUrl)) return;
+  setProvider(
+    createProvider({
+      id: OPENAI_COMPATIBLE_PROVIDER,
+      name: "OpenAI-compatible",
+      baseUrl,
+      auth: {
+        apiKey: {
+          name: "OpenAI-compatible API key",
+          resolve: async () => ({ auth: { apiKey }, source: "Bees credential vault" })
+        }
+      },
+      models: [...declaredCompatibleModels].map(compatibleModel),
+      api: openAICompletionsApi()
+    })
+  );
+}
+
 /**
  * Declare a `provider/model` reference before an agent runs on it, and return it unchanged.
  * Only the CLI providers need this — every other model id is static and already declared.
@@ -211,6 +237,14 @@ export function registerCliProviders(): void {
 export function declareModel(ref: string): string {
   const slash = ref.indexOf("/");
   const provider = slash === -1 ? "" : ref.slice(0, slash);
+  if (provider === OPENAI_COMPATIBLE_PROVIDER) {
+    const id = ref.slice(slash + 1);
+    if (!declaredCompatibleModels.has(id)) {
+      declaredCompatibleModels.add(id);
+      registerOpenAICompatibleProvider();
+    }
+    return ref;
+  }
   if (!isCliProvider(provider)) return ref;
   const declared = declaredCliModels.get(provider)!;
   const id = ref.slice(slash + 1);
@@ -253,6 +287,7 @@ export function modelForInstance(id: string): string {
   if (!hex || hex.length % 2 !== 0 || !/^[0-9a-f]+$/.test(hex)) return DEFAULT_INSTANCE_MODEL;
   const ref = Buffer.from(hex, "hex").toString("utf8");
   if (!/^[A-Za-z0-9._-]+\/\S+$/.test(ref)) return DEFAULT_INSTANCE_MODEL;
+  if (ref.startsWith(`${OPENAI_COMPATIBLE_PROVIDER}/`)) return declareModel(ref);
   // CLI-backed providers loop back into this runtime and can only tell runs apart by the
   // instance id smuggled onto the model name — same contract a generated agent uses.
   return CLI_PROVIDERS.some((provider) => ref.startsWith(`${provider}/`))
