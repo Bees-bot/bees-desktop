@@ -1353,9 +1353,9 @@ export function createMainViews(host: MainHost) {
         <p class="mt-0.5 truncate text-sm text-muted">${host.shell.escapeHtml(statuses)}</p>
         <p class="mt-0.5 text-xs text-muted">${agents} agent${agents === 1 ? "" : "s"}</p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button class="btn btn-ghost btn-sm border border-base-300 text-error" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}">Delete</button>
-        <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}">Edit</button>
+      <div class="flex flex-wrap items-center gap-1">
+        <button class="btn btn-square btn-ghost btn-sm text-muted hover:bg-transparent hover:text-primary" data-action="edit-process" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Edit process" title="Edit process">${ACTION_ICONS.edit}</button>
+        <button class="btn btn-square btn-ghost btn-sm text-muted hover:bg-transparent hover:text-error" data-action="archive-process" data-confirm="1" data-id="${host.shell.escapeHtml(process.id)}" aria-label="Delete process" title="Delete process">${ACTION_ICONS.delete}</button>
       </div>
     </article>`;
   }
@@ -1373,7 +1373,7 @@ export function createMainViews(host: MainHost) {
             <h2 class="font-bold">Team's custom processes</h2>
             <p class="mt-1 text-sm text-muted">Edit a process's statuses and agents, or delete one you no longer run.</p>
           </div>
-          <button class="btn btn-primary btn-sm" data-action="new-process">Create process</button>
+          <button class="btn btn-primary btn-sm" data-action="new-process">${ACTION_ICONS.add} Create process</button>
         </header>
         <div class="flex-1 overflow-y-auto">
           ${customProcesses.length
