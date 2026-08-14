@@ -17,10 +17,20 @@ describe("task actions", () => {
     expect(views).toContain('type="checkbox" name="${host.shell.escapeHtml(name)}" value="archived"');
     expect(actions).toContain('label: "Archived"');
     expect(actions).toContain('type: "switch"');
-    expect(views).toContain("Archived tasks (${archived.length})");
+    expect(views).toContain("Currently running");
+    expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');
     expect(runtime).toContain("handle.signal(archiveStateSignal");
     expect(workflow).toContain("commands = CONTINUE_AFTER_COMMANDS");
+  });
+
+  it("adds dashboard tasks to the run currently being displayed", () => {
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+
+    expect(actions).toContain("await createItem(button.dataset.stage, host.shell.boardRootItemId)");
+    expect(actions).toContain("createItem(rootId ? host.workspaceController.activeProcess?.stages[0]?.id : undefined, rootId)");
+    expect(actions).toContain("...(parent ? { parentId: parent.id } : {})");
+    expect(actions).toContain("host.shell.boardRootItemId = parent?.id ?? itemId");
   });
 });

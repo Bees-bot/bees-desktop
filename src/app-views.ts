@@ -28,6 +28,7 @@ import {
 } from "./connections.js";
 import {
   conversationToSnapshotV1,
+  lastAssistantText,
   type BeesConversationSnapshotV1
 } from "./conversation-snapshot.js";
 import {
@@ -187,7 +188,6 @@ export function createMainViews(host: MainHost) {
     const active = host.shell.view === "board" &&
       host.workspaceController.activeBoard?.id === board.id &&
       host.shell.boardRootItemId === item.id;
-    const running = host.runs.runningProcesses.has(process.id);
     const icon = (action: string, label: string, svg: string, extra = ""): string =>
       `<button class="sidebar-icon-btn ${extra}" data-action="${action}" data-id="${host.shell.escapeHtml(item.id)}" data-team="${teamId}" title="${host.shell.escapeHtml(label)}" aria-label="${host.shell.escapeHtml(label)}">${svg}</button>`;
     return `<li class="group relative" style="list-style:none">
@@ -206,33 +206,16 @@ export function createMainViews(host: MainHost) {
     </li>`;
   }
 
-  /**
-   * A team's task rows. Finished tasks fold into a collapsed "Done" group rather than sitting in
-   * the list forever — reaching a terminal status does not archive anything, so without this the
-   * menu only ever grows. "Clear" archives them, which is what takes them out for good; they stay
-   * on the board and can be set back to Active from the card.
-   */
+  /** One primary task per active run; planned and manually added subtasks stay under that row. */
   function teamTaskNav(teamId: string): string {
     const rows = (host.workspaceController.dashboardsByTeam.get(teamId) ?? [])
-      .flatMap(({ board, process, roots }) => roots.map(({ item, open }) => ({ board, process, item, open })));
-    if (!rows.length)
-      return `<li><p class="px-2 py-1 text-xs text-muted">No tasks yet — use + above.</p></li>`;
-    const row = ({ board, process, item, open }: (typeof rows)[number]): string =>
-      taskNavItem(teamId, board, process, item, open);
-    // Open subtasks keep a task in the live list even when its own status is terminal — a parent
-    // can reach the end while its tree is still working.
-    const isDone = ({ item, open }: (typeof rows)[number]): boolean => item.isTerminal && !open;
-    const done = rows.filter(isDone);
-    return rows.filter((entry) => !isDone(entry)).map(row).join("") +
-      (done.length
-        ? `<li><details>
-              <summary class="text-muted">Done <span class="badge badge-ghost badge-xs">${done.length}</span></summary>
-              <ul>
-                ${done.map(row).join("")}
-                <li><button class="text-xs text-muted" data-action="archive-done" data-team="${teamId}">Clear from menu</button></li>
-              </ul>
-            </details></li>`
-        : "");
+      .flatMap(({ board, process, roots }) => roots
+        .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
+        .map(({ item, open }) => ({ board, process, item, open })));
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-semibold text-muted">Currently running</p></li>
+      ${rows.length
+        ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
+        : '<li style="list-style:none"><p class="px-2 py-1 text-xs text-muted">No tasks running.</p></li>'}`;
   }
 
   /**
@@ -362,22 +345,12 @@ export function createMainViews(host: MainHost) {
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">What do you want to do today?</span></button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}Inbox${selected && inboxCount
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
-              .flatMap(({ board, process, roots }) => roots.filter(({ item }) => !item.archivedAt).map(({ item, open }) => taskNavItem(team.id, board, process, item, open)))
-              .join("")}
-                    ${(host.workspaceController.dashboardsByTeam.get(team.id) ?? []).some(({ roots }) => roots.some(({ item }) => !item.archivedAt))
-              ? ""
-              : `<li style="list-style:none"><p class="px-2 py-1 text-xs text-muted">No tasks yet — use + above.</p></li>`}
-                    ${(() => {
-          const archived = (host.workspaceController.dashboardsByTeam.get(team.id) ?? [])
-            .flatMap(({ board, process, roots }) => roots.filter(({ item }) => item.archivedAt).map(({ item, open }) => taskNavItem(team.id, board, process, item, open)));
-          return archived.length
-            ? `<li><details><summary class="text-xs text-muted">Archived tasks (${archived.length})</summary><ul>${archived.join("")}</ul></details></li>`
-            : "";
-        })()}
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled tasks</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "runs" ? " task-nav-btn--active" : ""}" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span class="min-w-0 truncate">Completed Runs</span></button></li>
+                    ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
         })
@@ -544,18 +517,7 @@ export function createMainViews(host: MainHost) {
 
   /** Last thing the agent said in a run — the summary a reviewer needs before approving. */
   function lastAssistantSummary(run: Execution): string {
-    const snapshot = conversationFor(run);
-    for (const message of [...(snapshot?.messages ?? [])].reverse()) {
-      if (message.role !== "assistant")
-        continue;
-      const text = message.parts
-        .flatMap((part) => (part.kind === "text" ? [part.text] : []))
-        .join("\n")
-        .trim();
-      if (text)
-        return text;
-    }
-    return "";
+    return lastAssistantText(conversationFor(run));
   }
 
   /**

@@ -67,8 +67,8 @@ files, or credentials mixing.
 A team is where the work lives: processes, boards, work items, agents, and one
 folder on disk. Add one with **+** beside *Teams*. Hover a team for its
 processes, new-task, and settings buttons. Under each team, the left menu lists
-that team's top-level tasks — opening one shows the board for that task's own
-run of its process.
+the primary task once for each currently running process run — opening one
+shows that run's board. Planned or manually added subtasks stay inside it.
 
 Team settings: **Members**, **Folder**, **Integrations** (Agent Plugins and skill
 curation), **Browser**, **Archived**, and **Danger**.
@@ -173,8 +173,8 @@ human waiting status last.
 4. **Approve** copies the file into the team folder and adds it to the item's file list, so the next run can read it. **Reject** asks what should be different next time, and that reason is passed to the retry verbatim.
 5. Once every proposed file is decided, the run checkpoints and the card moves on.
 
-Everything needing your attention also collects in the **Inbox** in this
-sidebar, so you do not have to watch boards.
+Everything needing your attention also collects under **Tasks waiting on you**
+in this sidebar, so you do not have to watch boards.
 
 ## 9. Or just ask
 

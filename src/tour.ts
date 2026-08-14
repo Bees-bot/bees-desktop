@@ -357,12 +357,12 @@ reviewing agent has to judge the result against later — so write it properly.
 
 Target: the New task button on the team row
 
-## Press Run, then watch the Inbox
+## Press Run, then watch Tasks waiting on you
 **Run** starts the *process*, not one task: from then on every item landing on a status with
 an agent starts itself. Anything needing a person — an approval, a rejected file, a stuck run —
-collects in the Inbox.
+collects under Tasks waiting on you.
 
-Target: the Inbox item under the team
+Target: the Tasks waiting on you item under the team
 
 ## Or just ask
 The **Assistant** takes plain language and proposes processes, statuses, agents and tasks as

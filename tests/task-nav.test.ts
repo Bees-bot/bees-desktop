@@ -27,24 +27,23 @@ function navFor(roots: Array<{ id: string; title: string; isTerminal: boolean; o
 }
 
 describe("left menu task rows", () => {
-  it("folds finished tasks into the Done group and leaves live ones in the list", () => {
+  it("shows one primary task per active run under the label", () => {
     const nav = navFor([
       { id: "live", title: "Live task", isTerminal: false, open: 1 },
       { id: "finished", title: "Finished task", isTerminal: true, open: 0 },
-      // Terminal status but its subtree is still working: stays visible, or the open work hides.
       { id: "wrapping-up", title: "Wrapping up", isTerminal: true, open: 2 }
     ]);
-    const [live, done] = nav.split("<details>");
 
-    expect(live).toContain("Live task");
-    expect(live).toContain("Wrapping up");
-    expect(live).not.toContain("Finished task");
-    expect(done).toContain("Finished task");
-    expect(done).toContain('data-action="archive-done"');
+    expect(nav).toContain("Currently running");
+    expect(nav).toContain("Live task");
+    // The primary task has finished, but its run still has open child work.
+    expect(nav).toContain("Wrapping up");
+    expect(nav).not.toContain("Finished task");
   });
 
-  it("shows no Done group when nothing has finished", () => {
-    expect(navFor([{ id: "live", title: "Live task", isTerminal: false, open: 1 }]))
-      .not.toContain("archive-done");
+  it("shows an empty running state instead of completed tasks", () => {
+    const nav = navFor([{ id: "finished", title: "Finished task", isTerminal: true, open: 0 }]);
+    expect(nav).toContain("No tasks running.");
+    expect(nav).not.toContain("Finished task");
   });
 });

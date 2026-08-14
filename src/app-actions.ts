@@ -1017,14 +1017,18 @@ export function createMainActions(host: MainHost) {
 
   /**
    * A new task is a page, not a dialog: the file picker below needs the room. Called with a
-   * stage from a board column, which fixes the workflow; called without one from the team's +,
-   * which leaves the workflow to the form's picker.
+   * stage from a board column or a scoped run, which fixes the workflow; called without one from
+   * the team's +, which leaves the workflow to the form's picker.
    */
-  async function createItem(stageId?: string): Promise<void> {
+  // Empty for the team-level New task action; set to the displayed run when adding from its board.
+  let newItemParentId = "";
+
+  async function createItem(stageId?: string, parentId = ""): Promise<void> {
     if (!host.workspaceController.processes.length)
       throw new Error("Add a process to this team first");
     if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
+    newItemParentId = parentId;
     host.shell.newItemStageId = stageId ?? "";
     host.shell.newItemProcessId = stageId
       ? host.workspaceController.activeProcess!.id
@@ -1067,21 +1071,29 @@ export function createMainActions(host: MainHost) {
       : process.stages[0]?.id;
     if (!stageId)
       throw new Error(`${process.name} has no statuses`);
+    const parent = newItemParentId
+      ? host.workspaceController.teamItems.find(({ id, processId }) =>
+        id === newItemParentId && processId === process.id)
+      : undefined;
+    if (newItemParentId && !parent)
+      throw new Error("The run this task belongs to is no longer available");
     const interactive = processEngine.isInteractive(process);
     const itemId = await host.repository.createWorkItem(process.id, {
       stageId,
+      ...(parent ? { parentId: parent.id } : {}),
       title: String(data.get("title") ?? ""),
       description: String(data.get("description") ?? ""),
       owner: String(data.get("owner") ?? ""),
       logicalFiles: data.getAll("files").map(String)
     });
-    // Land on the new task's own board scope, which is also the nav row it just created.
+    // A child stays on the run it extended; a team-level task opens the new run it created.
     host.workspaceController.activeProcess = process;
     host.workspaceController.activeBoard =
       host.workspaceController.boards.find(({ processId }) => processId === process.id) ??
       host.workspaceController.activeBoard;
     host.workspaceController.workspace.processId = process.id;
-    host.shell.boardRootItemId = itemId;
+    host.shell.boardRootItemId = parent?.id ?? itemId;
+    newItemParentId = "";
     host.shell.view = "board";
     await host.workspaceController.refresh();
     // Interactive workflows begin in their renderer, where the next human action is available.
@@ -1331,6 +1343,8 @@ export function createMainActions(host: MainHost) {
       if (button.dataset.teamView) {
         const teamId = button.dataset.team!;
         const nextView = button.dataset.teamView as View;
+        if (nextView === "schedules")
+          host.shell.configProcessId = "";
         // Otherwise navigating into a collapsed team lands on a page whose sidebar section is shut.
         host.shell.expandTeam(teamId);
         if (teamId !== host.workspaceController.workspace.teamId)
@@ -1548,7 +1562,7 @@ export function createMainActions(host: MainHost) {
         host.runs.dismissedRunIds.add(button.dataset.id!);
         await host.repository.setSetting(host.runs.DISMISSED_RUNS_KEY, [...host.runs.dismissedRunIds]);
         host.shell.render();
-        host.shell.showNotice("Run dismissed from Inbox", "success");
+        host.shell.showNotice("Run dismissed", "success");
         return;
       }
       if (action === "stop-run") {
@@ -1571,6 +1585,54 @@ export function createMainActions(host: MainHost) {
         // may no longer be safe to reuse, so it is linked, never mutated or resumed.
         if (execution)
           await host.runs.runItem(execution.workItemId, false, undefined, execution.id);
+        return;
+      }
+      if (action === "preview-inbox-output") {
+        const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
+        const execution = output ? await host.repository.getExecution(output.executionId) : null;
+        const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+        const panel = host.shell.app.querySelector<HTMLElement>("[data-inbox-output-preview]");
+        const title = panel?.querySelector<HTMLElement>("[data-inbox-output-preview-title]");
+        const body = panel?.querySelector<HTMLElement>("[data-inbox-output-preview-body]");
+        const approve = panel?.querySelector<HTMLButtonElement>("[data-inbox-output-preview-approve]");
+        if (!output || !execution?.workspaceRef || !mapping || !panel || !title || !body || !approve)
+          throw new Error("File preview is unavailable");
+        const preview = await host.workspaces.preview(execution.workspaceRef, output.logicalOutput, mapping.localPath, output.logicalDestination);
+        title.textContent = output.logicalDestination;
+        body.replaceChildren();
+        if (preview.after === null) {
+          body.textContent = "Preview unavailable for this binary file.";
+        }
+        else if (/\.mdx?$/i.test(output.logicalOutput)) {
+          body.innerHTML = renderMarkdown(preview.after);
+        }
+        else {
+          const pre = document.createElement("pre");
+          pre.className = "whitespace-pre-wrap break-words text-xs";
+          pre.textContent = preview.after;
+          body.append(pre);
+        }
+        if (preview.truncated) {
+          const note = document.createElement("p");
+          note.className = "mt-3 text-xs text-warning";
+          note.textContent = "Preview truncated to 256 KB.";
+          body.append(note);
+        }
+        approve.dataset.id = output.id;
+        approve.setAttribute("aria-label", `Approve ${output.logicalDestination}`);
+        approve.disabled = execution.status === "queued" || execution.status === "running";
+        panel.hidden = false;
+        for (const control of host.shell.app.querySelectorAll<HTMLElement>('[data-action="preview-inbox-output"]'))
+          control.setAttribute("aria-expanded", String(control === button));
+        panel.scrollIntoView({ block: "nearest" });
+        return;
+      }
+      if (action === "close-inbox-output-preview") {
+        const panel = host.shell.app.querySelector<HTMLElement>("[data-inbox-output-preview]");
+        if (panel)
+          panel.hidden = true;
+        for (const control of host.shell.app.querySelectorAll<HTMLElement>('[data-action="preview-inbox-output"]'))
+          control.setAttribute("aria-expanded", "false");
         return;
       }
       if (action === "preview-output") {
@@ -2302,7 +2364,7 @@ export function createMainActions(host: MainHost) {
           await editDashboard(board);
       }
       if (action === "new-item-in-stage")
-        await createItem(button.dataset.stage);
+        await createItem(button.dataset.stage, host.shell.boardRootItemId);
       if (action === "new-task") {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(button.dataset.team);
@@ -2441,20 +2503,6 @@ export function createMainActions(host: MainHost) {
       if (action === "toggle-team") {
         host.shell.toggleTeamCollapsed(button.dataset.team!);
         host.views.renderNavigation();
-        return;
-      }
-      if (action === "archive-done") {
-        const teamId = button.dataset.team!;
-        const done = (host.workspaceController.dashboardsByTeam.get(teamId) ?? [])
-          .flatMap(({ roots }) => roots.filter(({ item, open }) => item.isTerminal && !open).map(({ item }) => item));
-        if (!done.length ||
-          !confirm(`Clear ${done.length} finished task${done.length === 1 ? "" : "s"} from the menu? They are archived, stay on the board, and can be set back to Active from the card.`))
-          return;
-        // One command per task: archiving a task takes its subtask tree with it, so only the
-        // roots the menu shows are sent.
-        for (const item of done)
-          await host.workflowRuntime.command(item.id, { type: "archive" });
-        await host.workspaceController.refresh();
         return;
       }
       if (action === "archive-process") {
@@ -2883,15 +2931,6 @@ export function createMainActions(host: MainHost) {
 
   // Inline org branding controls save on change (no popup).
   document.addEventListener("change", (event) => {
-    const inboxFilter = (event.target as Element).closest<HTMLInputElement>("[data-inbox-filter]");
-    if (inboxFilter) {
-      if (inboxFilter.checked)
-        host.shell.inboxProcessFilter.delete(inboxFilter.value);
-      else
-        host.shell.inboxProcessFilter.add(inboxFilter.value);
-      host.shell.render();
-      return;
-    }
     const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
     if (themeDefault && host.shell.isThemePreset(themeDefault.value)) {
       const mode = themeDefault.dataset.themeDefault;
@@ -2987,7 +3026,11 @@ export function createMainActions(host: MainHost) {
     })();
   });
 
-  host.shell.newItem.addEventListener("click", () => void createItem().catch((error) => host.shell.showNotice(errorText(error), "error")));
+  host.shell.newItem.addEventListener("click", () => {
+    const rootId = host.shell.boardRootItemId;
+    void createItem(rootId ? host.workspaceController.activeProcess?.stages[0]?.id : undefined, rootId)
+      .catch((error) => host.shell.showNotice(errorText(error), "error"));
+  });
 
   host.shell.viewBack.addEventListener("click", () => {
     const parent = PARENT_VIEW[host.shell.view];

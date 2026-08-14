@@ -217,8 +217,6 @@ export interface AppShell {
   dialogTitle: HTMLElement;
   escapeHtml: (value: unknown) => string;
   formatBytes: (bytes: number) => string;
-  /** Workflow ids hidden from the Inbox table. Empty means every workflow shows. */
-  inboxProcessFilter: Set<string>;
   isThemePreset: (value: unknown) => value is ThemePreset;
   lightDefaultTheme: ThemePreset;
   loadTheme: () => Promise<void>;

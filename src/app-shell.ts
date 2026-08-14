@@ -100,9 +100,6 @@ export function createAppShell(host: MainHost) {
 
   let searchHits: SearchHit[] = [];
 
-  /** Workflow ids hidden from the Inbox table. Empty means every workflow shows. */
-  let inboxProcessFilter = new Set<string>();
-
   let prefsTab: PrefsTab = "theme";
 
   let orgTab: OrgTab = "general";
@@ -348,14 +345,12 @@ export function createAppShell(host: MainHost) {
       ));
     }
     if (view === "inbox") {
-      setHeader("Inbox", host.session.currentTeam()?.name);
+      setHeader("Tasks waiting on you", host.session.currentTeam()?.name);
       swap(inboxView(
         escalationGroups(host.runs.supervise(), host.workspaceController.teamItems),
         host.runs.executions,
-        host.workspaceController.processes,
-        host.session.currentOrganization()?.name ?? "—",
-        host.session.currentTeam()?.name ?? "—",
-        inboxProcessFilter
+        host.runs.executionOutputs,
+        host.workspaceController.processes
       ));
     }
     if (view === "board")
@@ -371,17 +366,19 @@ export function createAppShell(host: MainHost) {
     if (view === "item-new")
       host.views.renderNewItem();
     if (view === "runs") {
-      setHeader("Runs", host.session.currentTeam()?.name);
-      swap(`${host.views.searchBox()}${searchQuery.trim() ? searchResultsView(searchHits) : runsView(host.workspaceController.teamItems, host.runs.executions)}`);
+      setHeader("Completed Runs", host.session.currentTeam()?.name);
+      swap(`${host.views.searchBox()}${searchQuery.trim() ? searchResultsView(searchHits) : runsView(host.workspaceController.teamItems, host.runs.executions, host.workspaceController.processes)}`);
     }
     if (view === "run")
       void host.views.renderRunDetail();
     if (view === "schedules") {
       const process = host.workspaceController.processes.find(({ id }) => id === configProcessId);
-      setHeader("Schedules", process?.name ?? host.session.currentTeam()?.name);
+      setHeader(process ? "Schedules" : "Scheduled tasks", process?.name ?? host.session.currentTeam()?.name);
+      if (!process)
+        viewBack.hidden = true;
       const items = host.scheduleItems();
       const ids = new Set(items.map(({ id }) => id));
-      swap(schedulesView(items, host.runs.schedules.filter(({ workItemId }) => ids.has(workItemId)), host.runs.executions));
+      swap(schedulesView(items, host.runs.schedules.filter(({ workItemId }) => ids.has(workItemId)), host.workspaceController.processes));
     }
     if (view === "settings")
       void host.views.renderTeamSettings();
@@ -470,8 +467,6 @@ export function createAppShell(host: MainHost) {
     set searchQuery(value: typeof searchQuery) { searchQuery = value; },
     get searchHits() { return searchHits; },
     set searchHits(value: typeof searchHits) { searchHits = value; },
-    get inboxProcessFilter() { return inboxProcessFilter; },
-    set inboxProcessFilter(value: typeof inboxProcessFilter) { inboxProcessFilter = value; },
     get prefsTab() { return prefsTab; },
     set prefsTab(value: typeof prefsTab) { prefsTab = value; },
     get orgTab() { return orgTab; },

@@ -49,6 +49,19 @@ export function emptySnapshot(): BeesConversationSnapshotV1 {
   return { version: 1, capturedAt: new Date().toISOString(), messages: [] };
 }
 
+/** Last thing the agent said — the summary a reviewer needs before approving. */
+export function lastAssistantText(snapshot: BeesConversationSnapshotV1 | null): string {
+  for (const message of [...(snapshot?.messages ?? [])].reverse()) {
+    if (message.role !== "assistant") continue;
+    const value = message.parts
+      .flatMap((part) => part.kind === "text" ? [part.text] : [])
+      .join("\n")
+      .trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 /**
  * Normalise a settled receipt. Rust writes the raw Flue conversation
  * (`{ v: 1, messages, settlements }`); the UI reduces it without needing the sidecar.

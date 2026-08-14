@@ -5,12 +5,13 @@ import type {
   Schedule,
   WorkItem
 } from "./domain.js";
-import { workItemCondition, workItemConditionLabel } from "./domain.js";
+import { itemTree, workItemCondition, workItemConditionLabel } from "./domain.js";
 import { modelRef } from "./local-models.js";
-import type {
-  BeesConversationSnapshotV1,
-  SnapshotMessage,
-  SnapshotPart
+import {
+  lastAssistantText,
+  type BeesConversationSnapshotV1,
+  type SnapshotMessage,
+  type SnapshotPart
 } from "./conversation-snapshot.js";
 import type { OutputPreview } from "./workspaces.js";
 import type { SearchHit } from "./repository.js";
@@ -141,99 +142,92 @@ export function overviewView(
     </section>`;
 }
 
-/** Checkbox dropdown to hide selected workflows' items from the Inbox table. */
-function inboxWorkflowFilter(processes: Process[], excluded: ReadonlySet<string>): string {
-  if (!processes.length) return "";
-  return `<div class="dropdown mb-3">
-    <button class="btn btn-sm" tabindex="0">Process<span class="badge badge-ghost badge-sm">${
-      processes.length - excluded.size
-    }/${processes.length}</span></button>
-    <ul tabindex="0" class="dropdown-content menu menu-sm z-10 mt-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-      ${processes
-        .map(
-          ({ id, name }) => `<li><label class="flex cursor-pointer items-center gap-2 px-1 py-1">
-            <input class="checkbox checkbox-sm" type="checkbox" data-inbox-filter value="${id}" ${
-              excluded.has(id) ? "" : "checked"
-            }>
-            <span class="truncate">${escapeHtml(name)}</span>
-          </label></li>`
-        )
-        .join("")}
-    </ul>
-  </div>`;
-}
-
 /**
  * One row per work item that owes a person an answer, newest cause first. `escalationGroups`
- * decides what is stuck and how it reads; this view only flattens its groups into a table and
- * lets the workflow dropdown hide rows — a new state still shows up here without this changing.
+ * decides what is stuck and how it reads; pending outputs supply the inline approval controls.
  */
 export function inboxView(
   groups: EscalationGroup[],
   executions: Execution[],
-  processes: Process[],
-  org: string,
-  team: string,
-  excludedProcessIds: ReadonlySet<string>
+  outputs: ExecutionOutput[],
+  processes: Process[]
 ): string {
-  const filter = inboxWorkflowFilter(processes, excludedProcessIds);
-  const rows = groups.flatMap((group) => group.escalations.map((escalation) => ({ group, ...escalation })))
-    .filter(({ item }) => !excludedProcessIds.has(item.processId));
+  const rows = groups.flatMap((group) => group.escalations.map((escalation) => ({ group, ...escalation })));
   if (!rows.length) {
-    return `${filter}${empty("Inbox clear", "Work that is stuck, waiting, or failed will appear here.")}`;
+    return empty("Nothing waiting on you", "Work that needs your attention will appear here.");
   }
-  const failedRun = (itemId: string): Execution | undefined =>
-    executions.find(
-      ({ workItemId, status }) =>
-        workItemId === itemId && (status === "failed" || status === "interrupted")
-    );
-  // An auto layout widens a column to its longest cell, so `truncate` below never clipped anything.
-  return `${filter}<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
-    <table class="table table-zebra table-fixed">
+  return `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <table class="table table-zebra">
       <thead><tr>
-        <th class="w-32">Org</th><th class="w-32">Team</th><th class="w-40">Process</th>
-        <th>Details</th><th class="w-44"></th>
+        <th>Process</th><th>Task name</th><th>Approval message</th><th>Files</th><th>Approval</th>
       </tr></thead>
       <tbody>${rows
-        .map(({ group, item, state }) => {
-          const run = group.reason === "run-failed" ? failedRun(item.id) : undefined;
-          const workflow = processes.find(({ id }) => id === item.processId)?.name ?? "—";
-          return `<tr class="cursor-pointer hover" data-action="open-item" data-id="${item.id}">
-            <td class="truncate" title="${escapeHtml(org)}">${escapeHtml(org)}</td>
-            <td class="truncate" title="${escapeHtml(team)}">${escapeHtml(team)}</td>
-            <td class="truncate" title="${escapeHtml(workflow)}">${escapeHtml(workflow)}</td>
-            <td class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="badge badge-sm shrink-0 ${group.kind === "stalled" ? "badge-error" : "badge-warning"} badge-outline">${escapeHtml(state.label)}</span>
-                <span class="truncate font-semibold" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
-              </div>
-              <p class="line-clamp-1 text-sm text-muted">${escapeHtml(state.detail)}</p>
-            </td>
-            <td class="text-right">${
-              run
-                ? `<button class="btn btn-ghost btn-xs" data-action="dismiss-run" data-id="${run.id}">Dismiss</button>
-                   <button class="btn btn-ghost btn-xs" data-action="open-run" data-id="${run.id}">Open run</button>`
-                : ""
-            }</td>
+        .map(({ item, state }) => {
+          const itemRuns = executions.filter(({ workItemId }) => workItemId === item.id);
+          const pending = outputs.filter(({ executionId, status }) =>
+            status === "pending" && itemRuns.some(({ id }) => id === executionId));
+          const reviewRun = [...itemRuns]
+            .filter(({ id }) => pending.some(({ executionId }) => executionId === id))
+            .sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt))[0];
+          const message = lastAssistantText(reviewRun?.conversationSnapshot ?? null) || state.detail;
+          const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
+          return `<tr>
+            <td class="font-semibold">${escapeHtml(process)}</td>
+            <td><button class="link link-hover text-left font-semibold" data-action="open-item" data-id="${item.id}">${escapeHtml(item.title)}</button></td>
+            <td class="max-w-md whitespace-pre-wrap text-sm"><p class="line-clamp-3">${escapeHtml(message)}</p></td>
+            <td>${pending.length
+              ? `<div class="flex flex-wrap gap-1">${pending.map((output) =>
+                `<button class="link link-hover text-sm" data-action="preview-inbox-output" data-id="${output.id}" aria-controls="inbox-output-preview" aria-expanded="false">${escapeHtml(output.logicalDestination)}</button>`).join("")}</div>`
+              : "—"}</td>
+            <td><div class="flex flex-wrap justify-end gap-1">${pending.map((output) => {
+              const run = itemRuns.find(({ id }) => id === output.executionId);
+              const busy = run?.status === "queued" || run?.status === "running";
+              return `<button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" aria-label="Approve ${escapeHtml(output.logicalDestination)}" ${busy ? "disabled" : ""}>Approve</button>`;
+            }).join("")}</div></td>
           </tr>`;
         })
         .join("")}</tbody>
     </table>
-  </div>`;
+  </div>
+  <section id="inbox-output-preview" data-inbox-output-preview hidden class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <header class="flex items-center justify-between gap-3 border-b border-base-300 p-4">
+      <h2 class="min-w-0 truncate font-bold" data-inbox-output-preview-title>File preview</h2>
+      <div class="flex shrink-0 gap-2">
+        <button class="btn btn-success btn-sm" data-action="approve-output" data-inbox-output-preview-approve>Approve</button>
+        <button class="btn btn-ghost btn-sm" data-action="close-inbox-output-preview">Close</button>
+      </div>
+    </header>
+    <article class="markdown-viewer max-h-[60vh] overflow-auto p-4 text-sm" data-inbox-output-preview-body></article>
+  </section>`;
 }
 
-export function runsView(items: WorkItem[], executions: Execution[]): string {
-  if (!executions.length) return empty("No run history", "Run a work item to create the first entry.");
+export function runsView(items: WorkItem[], executions: Execution[], processes: Process[]): string {
+  const completed = items
+    .filter(({ parentId }) => !parentId)
+    .flatMap((item) => {
+      const tree = itemTree(items, item.id);
+      const ids = new Set(tree.map(({ id }) => id));
+      const steps = executions.filter(({ workItemId }) => ids.has(workItemId));
+      if (!item.isTerminal || tree.some(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt) ||
+        steps.some(({ status }) => status === "queued" || status === "running"))
+        return [];
+      const startedAt = steps.map(({ startedAt, createdAt }) => startedAt ?? createdAt).sort()[0] ?? item.createdAt;
+      const endedAt = steps.flatMap(({ endedAt }) => endedAt ? [endedAt] : []).sort().at(-1) ?? item.updatedAt;
+      return [{ item, startedAt, endedAt }];
+    })
+    .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
+  if (!completed.length) return empty("No completed runs", "Finished runs will appear here.");
   return `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table">
-      <thead><tr><th>Work item</th><th>Status</th><th>Started</th><th>Duration</th><th></th></tr></thead>
-      <tbody>${executions
-        .map(
-          (run) => `<tr><td class="font-semibold">${escapeHtml(itemName(items, run.workItemId))}</td><td>${statusBadge(
-            run.status
-          )}</td><td>${when(run.startedAt ?? run.createdAt)}</td><td>${duration(run)}</td>
-          <td class="text-right"><button class="btn btn-ghost btn-xs" data-action="open-run" data-id="${run.id}">Open</button></td></tr>`
-        )
+      <thead><tr><th>Primary task</th><th>Process</th><th>Start time</th><th>End time</th></tr></thead>
+      <tbody>${completed
+        .map(({ item, startedAt, endedAt }) => {
+          const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
+          return `<tr>
+            <td><button class="link link-hover text-left font-semibold" data-action="open-item" data-id="${item.id}">${escapeHtml(item.title)}</button></td>
+            <td>${escapeHtml(process)}</td><td>${when(startedAt)}</td><td>${when(endedAt)}</td>
+          </tr>`;
+        })
         .join("")}</tbody>
     </table>
   </div>`;
@@ -516,49 +510,54 @@ export function runView(input: {
     </div>`;
 }
 
-export function schedulesView(items: WorkItem[], schedules: Schedule[], executions: Execution[]): string {
+function cronSchedule(schedule: Schedule): string {
+  const date = new Date(schedule.nextRunAt);
+  if (Number.isNaN(date.getTime())) return schedule.recurrence;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: schedule.timezone,
+      hourCycle: "h23",
+      hour: "numeric",
+      minute: "numeric"
+    }).formatToParts(date);
+  }
+  catch {
+    return schedule.recurrence;
+  }
+  const part = (type: "hour" | "minute"): number => Number(parts.find((value) => value.type === type)?.value ?? 0);
+  const minute = part("minute");
+  if (schedule.recurrence === "hourly") return `${minute} * * * *`;
+  const hour = part("hour");
+  return schedule.recurrence === "weekdays"
+    ? `${minute} ${hour} * * 1-5`
+    : `${minute} ${hour} * * *`;
+}
+
+export function schedulesView(items: WorkItem[], schedules: Schedule[], processes: Process[]): string {
   return `<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
       <p class="text-sm text-muted">Runs while Bees is open and this computer is awake. Task-plan schedules create one catch-up occurrence after downtime.</p>
       <button class="btn btn-primary btn-sm" data-action="new-schedule">New schedule</button>
     </div>
     ${
       schedules.length
-        ? `<div class="grid gap-3">${schedules
+        ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
+            <table class="table">
+              <thead><tr><th>Task name</th><th>Process name</th><th>Cron schedule</th><th></th></tr></thead>
+              <tbody>${schedules
             .map((schedule) => {
-              const occurrenceIds = new Set(
-                items.filter(({ goal }) => goal?.occurrenceOf === schedule.workItemId).map(({ id }) => id)
-              );
-              const recent = executions.filter(
-                ({ workItemId }) => workItemId === schedule.workItemId || occurrenceIds.has(workItemId)
-              ).slice(0, 3);
-              const behavior = schedule.mode === "spawn_goal"
-                ? `new task-plan occurrence · ${schedule.role}`
-                : "rerun item";
-              return `<article class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body p-4">
-                <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(schedule.name)}</h3>
-                  <p class="text-sm text-muted">${escapeHtml(itemName(items, schedule.workItemId))} · ${escapeHtml(
-                    schedule.recurrence
-                  )} · ${escapeHtml(behavior)} · ${escapeHtml(schedule.timezone)}</p>
-                  <p class="mt-1 text-xs">Next: ${when(schedule.nextRunAt)}</p></div>
-                  <div class="flex gap-2"><button class="btn btn-primary btn-xs" data-action="run-schedule" data-id="${schedule.id}">Run now</button>
-                    <button class="btn btn-ghost btn-xs" data-action="toggle-schedule" data-id="${schedule.id}">${
-                      schedule.enabled ? "Pause" : "Enable"
-                    }</button><button class="btn btn-ghost btn-xs text-error" data-action="delete-schedule" data-id="${schedule.id}">Remove</button></div>
-                </div>
-                ${
-                  recent.length
-                    ? `<div class="mt-3 flex flex-wrap gap-2">${recent
-                        .map(
-                          (run) => `<button class="badge badge-ghost gap-1" data-action="open-run" data-id="${run.id}">${statusBadge(
-                            run.status
-                          )} ${when(run.createdAt)}</button>`
-                        )
-                        .join("")}</div>`
-                    : ""
-                }
-              </div></article>`;
+              const item = items.find(({ id }) => id === schedule.workItemId);
+              const process = processes.find(({ id }) => id === item?.processId)?.name ?? "—";
+              return `<tr>
+                <td><div class="font-semibold">${escapeHtml(item?.title ?? "Unknown task")}</div><div class="text-xs text-muted">${escapeHtml(schedule.name)}</div></td>
+                <td>${escapeHtml(process)}</td>
+                <td><code>${escapeHtml(cronSchedule(schedule))}</code><div class="text-xs text-muted">${escapeHtml(schedule.timezone)} · next ${when(schedule.nextRunAt)}</div></td>
+                <td><div class="flex justify-end gap-2"><button class="btn btn-primary btn-xs" data-action="run-schedule" data-id="${schedule.id}">Run now</button>
+                  <button class="btn btn-ghost btn-xs" data-action="toggle-schedule" data-id="${schedule.id}">${schedule.enabled ? "Pause" : "Enable"}</button>
+                  <button class="btn btn-ghost btn-xs text-error" data-action="delete-schedule" data-id="${schedule.id}">Remove</button></div></td>
+              </tr>`;
             })
-            .join("")}</div>`
+            .join("")}</tbody></table></div>`
         : empty("No schedules", "Add a recurrence to any existing work item.")
     }`;
 }

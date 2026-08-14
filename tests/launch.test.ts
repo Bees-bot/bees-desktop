@@ -1,12 +1,12 @@
 import { conversationToSnapshotV1 } from "../src/conversation-snapshot.js";
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import type { Agent, Execution, ExecutionOutput, Process, Registry, WorkItem } from "../src/domain.js";
+import type { Agent, Execution, ExecutionOutput, Process, Registry, Schedule, WorkItem } from "../src/domain.js";
 import { runtimeAgentName } from "../src/flue-project.js";
 import { registryCapabilities } from "../src/registries.js";
 import { buildBeesRunInitialData } from "../src/run-config.js";
 import { runReceipt } from "../src/run-receipt.js";
-import { inboxView, overviewView, runView } from "../src/launch-views.js";
+import { inboxView, overviewView, runsView, runView, schedulesView } from "../src/launch-views.js";
 import { escalationGroups } from "../src/supervision.js";
 import { renderMarkdown } from "../src/markdown.js";
 import type { RuntimeEvent } from "../src/runtime.js";
@@ -142,7 +142,7 @@ describe("lean launch modules", () => {
     expect(receipt).not.toContain("SECRET");
   });
 
-  it("dismisses a failed run from attention views without removing its history", () => {
+  it("shows only in-context task details and inline approvals", () => {
     const execution = {
       id: "failed-run",
       agentId: "agent",
@@ -207,10 +207,11 @@ describe("lean launch modules", () => {
       ]),
       [item]
     );
-    expect(inboxView(failed, [execution], [process], "Acme", "Growth", new Set())).toContain('data-action="dismiss-run"');
-    // A dismissed failure is one a person has answered for: the sweep stops reporting it, so
-    // the inbox has nothing to render rather than filtering runs itself.
-    expect(inboxView([], [execution], [process], "Acme", "Growth", new Set())).toContain("Inbox clear");
+    const failedView = inboxView(failed, [execution], [], [process]);
+    expect(failedView).toContain("Onboarding campaign");
+    expect(failedView).toContain("Runtime unavailable");
+    expect(failedView).not.toMatch(/<th[^>]*>Org<|<th[^>]*>Team</);
+    expect(inboxView([], [execution], [], [process])).toContain("Nothing waiting on you");
     // A step only a person can start belongs here too — it produces no run at all, so a
     // run-shaped inbox never mentioned it and the work looked like nothing was wrong.
     const waiting = inboxView(
@@ -224,14 +225,48 @@ describe("lean launch modules", () => {
         [item]
       ),
       [execution],
-      [process],
-      "Acme",
-      "Growth",
-      new Set()
+      [],
+      [process]
     );
-    expect(waiting).not.toContain("Inbox clear");
-    expect(waiting).toContain("Waiting on you");
+    expect(waiting).not.toContain("Nothing waiting on you");
+    expect(waiting).toContain("Requirements");
     expect(waiting).toContain('data-action="open-item" data-id="item"');
+
+    const approvalExecution = {
+      ...execution,
+      id: "approval-run",
+      status: "completed",
+      conversationSnapshot: {
+        version: 1,
+        capturedAt: "2026-01-01T00:00:02.000Z",
+        messages: [{
+          id: "summary",
+          role: "assistant",
+          parts: [{ kind: "text", text: "The campaign brief is ready for review." }]
+        }]
+      }
+    } satisfies Execution;
+    const output = {
+      id: "pending-output",
+      executionId: approvalExecution.id,
+      logicalOutput: "brief.md",
+      logicalDestination: "campaign/brief.md",
+      status: "pending",
+      reason: null,
+      createdAt: "",
+      decidedAt: null
+    } satisfies ExecutionOutput;
+    const approval = inboxView(escalationGroups(new Map([[
+      item.id,
+      { kind: "waiting", reason: "approval-pending", label: "Waiting for your approval", detail: "1 file to review" }
+    ]]), [item]), [approvalExecution], [output], [{ ...process, name: "Goals" }]);
+    expect(approval).toContain("Goals");
+    expect(approval).toContain("The campaign brief is ready for review.");
+    expect(approval).toContain("campaign/brief.md");
+    expect(approval).toContain('data-action="preview-inbox-output" data-id="pending-output"');
+    expect(approval).toContain('id="inbox-output-preview"');
+    expect(approval).toContain("data-inbox-output-preview-approve");
+    expect(approval).toContain('data-action="approve-output" data-id="pending-output"');
   });
 
   it("renders the team assistant without context dropdowns", () => {
@@ -242,6 +277,43 @@ describe("lean launch modules", () => {
     expect(html).not.toContain("<select");
     expect(html).not.toMatch(/Running|Needs attention|Completed/);
     expect(html).toContain(">Go</button>");
+  });
+
+  it("groups completed child work under one primary task", () => {
+    const root = {
+      id: "root", processId: "process", parentId: null, title: "Primary task",
+      isTerminal: true, archivedAt: null, createdAt: "2026-01-01T08:00:00.000Z", updatedAt: "2026-01-01T10:00:00.000Z"
+    } as WorkItem;
+    const child = {
+      ...root, id: "child", parentId: root.id, title: "Added task"
+    } as WorkItem;
+    const execution = {
+      id: "execution", workItemId: child.id, status: "completed",
+      startedAt: "2026-01-01T09:00:00.000Z", endedAt: "2026-01-01T09:30:00.000Z",
+      createdAt: "2026-01-01T09:00:00.000Z"
+    } as Execution;
+    const process = { id: "process", name: "Launch process" } as Process;
+
+    const html = runsView([root, child], [execution], [process]);
+    expect(html).toContain("Primary task");
+    expect(html).toContain("Launch process");
+    expect(html).not.toContain("Added task");
+    expect(html.match(/<tbody>[\s\S]*?<tr>/g)).toHaveLength(1);
+  });
+
+  it("renders scheduled tasks with process names and cron expressions", () => {
+    const item = { id: "task", processId: "process", title: "Send update" } as WorkItem;
+    const process = { id: "process", name: "Outreach" } as Process;
+    const schedule = {
+      id: "schedule", workItemId: item.id, name: "Weekday update", recurrence: "weekdays",
+      timezone: "UTC", nextRunAt: "2026-01-01T09:15:00.000Z", enabled: true
+    } as Schedule;
+
+    const html = schedulesView([item], [schedule], [process]);
+    expect(html).toContain("Task name");
+    expect(html).toContain("Send update");
+    expect(html).toContain("Outreach");
+    expect(html).toContain("15 9 * * 1-5");
   });
 
   it("renders a run as a readable conversation with a follow-up box", () => {
