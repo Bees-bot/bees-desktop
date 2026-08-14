@@ -416,6 +416,16 @@ export class LocalRepository {
   constructor(private readonly database: Database) {}
 
   async bootstrap(): Promise<LocalWorkspace> {
+    await this.database.execute(
+      `UPDATE organizations SET name = ?, updated_at = ?
+       WHERE name = ? AND updated_at = created_at
+         AND EXISTS (
+           SELECT 1 FROM teams
+           WHERE teams.organization_id = organizations.id
+             AND teams.name = ? AND teams.created_at = organizations.created_at
+         )`,
+      ["My workspace", now(), "Local org", "Marketing"]
+    );
     const existing = await this.database.query<Row>(
       `SELECT o.id AS organizationId, t.id AS teamId, p.id AS processId
        FROM organizations o
@@ -444,7 +454,7 @@ export class LocalRepository {
     await this.database.transaction([
       {
         sql: "INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        params: [organizationId, "Local org", timestamp, timestamp]
+        params: [organizationId, "My workspace", timestamp, timestamp]
       },
       {
         sql: "INSERT INTO teams (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -494,7 +504,7 @@ export class LocalRepository {
     const timestamp = now();
     await this.database.execute(
       "INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-      [id, requiredText(name, "Organization name", 120), timestamp, timestamp]
+      [id, requiredText(name, "Workspace name", 120), timestamp, timestamp]
     );
     return id;
   }
@@ -529,7 +539,7 @@ export class LocalRepository {
   async renameOrganization(id: string, name: string): Promise<void> {
     await this.database.execute(
       "UPDATE organizations SET name = ?, updated_at = ? WHERE id = ?",
-      [requiredText(name, "Organization name", 120), now(), id]
+      [requiredText(name, "Workspace name", 120), now(), id]
     );
   }
 
@@ -593,7 +603,7 @@ export class LocalRepository {
     await this.database.execute(
       `INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
-      [id, requiredText(name, "Organization name", 120), timestamp, timestamp]
+      [id, requiredText(name, "Workspace name", 120), timestamp, timestamp]
     );
   }
 
@@ -1263,7 +1273,7 @@ export class LocalRepository {
         [input.teamId]
       );
       if (stringValue(team[0]?.organizationId) !== input.organizationId) {
-        throw new Error("The linked location team must belong to the organization");
+        throw new Error("The linked location team must belong to the workspace");
       }
     }
     const available = input.teamId
@@ -2212,7 +2222,7 @@ export class LocalRepository {
         version: Date.parse(stringValue(row.updatedAt)),
         deleted: Boolean(row.deletedAt),
         payload: {
-          organizationId: stringValue(row.organizationId),
+          workspaceId: stringValue(row.organizationId),
           teamId: nullableString(row.teamId),
           name: stringValue(row.name),
           updatedAt: stringValue(row.updatedAt)
@@ -2283,7 +2293,7 @@ export class LocalRepository {
     const { recordId, payload } = record;
     if (record.recordType === "file_location") {
       const updatedAt = requiredText(payload.updatedAt, "File location update time");
-      const organizationId = requiredText(payload.organizationId, "Organization identifier");
+      const organizationId = requiredText(payload.workspaceId, "Workspace identifier");
       const teamId = typeof payload.teamId === "string" ? payload.teamId : null;
       if (teamId) {
         const team = await this.database.query<Row>(
@@ -2291,7 +2301,7 @@ export class LocalRepository {
           [teamId]
         );
         if (stringValue(team[0]?.organizationId) !== organizationId) {
-          throw new Error("The linked location team does not belong to the organization");
+          throw new Error("The linked location team does not belong to the workspace");
         }
       }
       const current = await this.database.query<Row>(

@@ -18,8 +18,8 @@ export const HELP_PAGES: { label: string; url: string }[] = [
 
 export const GETTING_STARTED = `# Getting started
 
-Bees is a desktop application. It works alone and offline; a team adds an
-organization so coordination — never documents — is shared.
+Bees is a desktop application. It works alone and offline; workspaces organize
+teams and can share coordination — never documents — with invited teammates.
 
 ## 1. Join the community first
 
@@ -33,7 +33,7 @@ someone who has already solved them.
 
 Open **Preferences** from the gear beside the Bees.bot name at the top of this
 sidebar. These settings belong to this computer and this person. They are never
-synchronized, and they apply across every organization and team you are signed
+synchronized, and they apply across every workspace and team you are signed
 into. Credentials never leave the machine.
 
 - **Local AI** — on-device models. Download one, then Run it. No network, no per-token cost.
@@ -41,26 +41,28 @@ into. Credentials never leave the machine.
 - **AI APIs** — API keys for hosted providers.
 - **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
-- **Orgs** — create a local or connected organization, and accept invitations.
-- **Root Folder** — the folder every organization and team folder is created under.
+- **Workspaces** — create a workspace, keep it on this device if needed, and accept invitations.
+- **Root Folder** — the folder every workspace and team folder is created under.
 - **Theme** — appearance, including the light and dark presets the toolbar toggle switches between.
 
-## 3. Organizations
+## 3. Workspaces
 
-An organization owns teams, people, licensing, and policy. There are two kinds:
+A workspace owns teams, people, licensing, and policy. New workspaces are ready
+for teammates by default, even if you start on your own.
 
-- **Local** — records live in SQLite on this computer only. No account, no teammates, nothing syncs.
-- **Connected** — shared coordination, invited members with owner/admin/member roles, central policy and audit. Requires a sign-in.
+Turn on **Keep this workspace on this device only** during creation when you
+need a private, device-only workspace. Only you can use it, nothing syncs, and
+you cannot add team members to it later.
 
-Documents stay local in both cases. Files never sync.
+Documents always stay on your devices. Files never sync through Bees.
 
-Organizations are the badges at the top of the sidebar. Select **+** to add one,
-or the gear on an organization for its settings: **General**, **Members**,
+Workspaces are the badges at the top of the sidebar. Select **+** to add one,
+or the gear on a workspace for its settings: **General**, **Members**,
 **Invitations**, **Folder**, and **Knowledge**.
 
-You can be signed into several accounts and several organizations at once — the
-company, a side project with a friend, a purely local one — without their work,
-files, or credentials mixing.
+You can be signed into several accounts and several workspaces at once — the
+company, a side project with a friend, or one kept on this device — without
+their work, files, or credentials mixing.
 
 ## 4. Teams
 
@@ -109,7 +111,7 @@ The workspace root is set at **Preferences → Root Folder** and defaults to
 
 \`\`\`
 <root folder>/
-  <organization name>/
+  <workspace name>/
     <team name>/          the team folder
       agents/             one JSON file per agent
       plugins/team-skills/
@@ -128,7 +130,7 @@ skills and remote MCP servers available in the agent editor. Streamable HTTP
 and legacy SSE servers are supported; stdio entries are skipped.
 
 **Overriding a team folder.** A team folder defaults to
-\`<organization folder>/<team name>\`. When the real folder is elsewhere on this
+\`<workspace folder>/<team name>\`. When the real folder is elsewhere on this
 machine — inside Google Drive, OneDrive, Dropbox, a Git checkout, a network
 share — open **Team settings → Folder** and select **Choose override**. This is
 per machine: the same team can be one path on your laptop and another on a

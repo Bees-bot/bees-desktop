@@ -2,7 +2,7 @@
 
 Bees is a privacy-first desktop application for coordinating AI-assisted work.
 Files, credentials, agent execution, and physical paths stay on the user's
-machine. Connected organizations synchronize coordination metadata with the
+machine. Shared workspaces synchronize coordination metadata with the
 Bees server.
 
 ## Development
@@ -37,7 +37,7 @@ python3 -m pip install -e services/knowledge-worker
 
 ## Data boundary
 
-The Bees server has no file-upload route. Connected sync rejects file bytes,
+The Bees server has no file-upload route. Workspace sync rejects file bytes,
 document contents, secrets, absolute paths, and path traversal. Use local
 models and local tools for fully offline or air-gapped operation.
 

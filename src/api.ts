@@ -4,6 +4,14 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { WorkItemCommand, WorkItemRuntimeState } from "./workflow-runtime.js";
 
+type ServerWorkItemRuntimeState = Omit<WorkItemRuntimeState, "organizationId"> & {
+  workspaceId: string;
+};
+
+function localRuntime({ workspaceId, ...runtime }: ServerWorkItemRuntimeState): WorkItemRuntimeState {
+  return { ...runtime, organizationId: workspaceId };
+}
+
 /**
  * Where this build points unless something overrides it. Production, because that is what
  * every end user connects to — running against a local API is the special case, and the dev
@@ -36,7 +44,7 @@ export interface SessionUser {
   name?: string;
 }
 
-export interface ServerOrganization {
+export interface ServerWorkspace {
   id: string;
   name: string;
   role?: "owner" | "admin" | "member";
@@ -50,9 +58,9 @@ export interface PricingPlan {
   /** Charged per team, per interval. */
   priceCents: number;
   interval: "month" | "year";
-  /** Teams an org gets before any payment is needed. */
+  /** Teams a workspace gets before any payment is needed. */
   freeTeams: number;
-  /** Connected organizations have no charges or team limits while the beta is active. */
+  /** Invite-ready workspaces have no charges or team limits while the beta is active. */
   freeDuringBeta: boolean;
   features: string[];
 }
@@ -95,14 +103,14 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
 
 export interface ServerTeam {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   name: string;
 }
 
 export interface PendingInvitation {
   id: string;
-  organizationId: string;
-  organizationName: string;
+  workspaceId: string;
+  workspaceName: string;
   role: "owner" | "admin" | "member";
   expiresAt: string;
 }
@@ -116,9 +124,9 @@ export interface TeamMember {
   joinedAt: string;
 }
 
-export interface OrgMembership {
+export interface WorkspaceMembership {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   userId: string;
   email?: string;
   role: "owner" | "admin" | "member";
@@ -167,14 +175,14 @@ export class ApiClient {
     token: string | null,
     path: string,
     init: RequestInit = {},
-    organizationId?: string
+    workspaceId?: string
   ): Promise<T> {
     const response = await apiFetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
         "content-type": "application/json",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(organizationId ? { "x-organization-id": organizationId } : {}),
+        ...(workspaceId ? { "x-workspace-id": workspaceId } : {}),
         ...init.headers
       }
     });
@@ -230,8 +238,8 @@ export class ApiClient {
     return { user: body.user, token };
   }
 
-  listOrganizations(token: string): Promise<{ organizations: ServerOrganization[] }> {
-    return this.request(token, "/api/organizations");
+  listWorkspaces(token: string): Promise<{ workspaces: ServerWorkspace[] }> {
+    return this.request(token, "/api/workspaces");
   }
 
   /** An account's linked sign-in methods (email/password + social providers). */
@@ -253,12 +261,12 @@ export class ApiClient {
     return [...providers].map((provider) => ({ provider }));
   }
 
-  /** Members of an organization (admin view). */
-  listMemberships(token: string, organizationId: string): Promise<{ memberships: OrgMembership[] }> {
+  /** Members of a workspace (admin view). */
+  listMemberships(token: string, organizationId: string): Promise<{ memberships: WorkspaceMembership[] }> {
     return this.request(token, "/api/memberships", {}, organizationId);
   }
 
-  /** Remove a member from the organization (admin only; owner cannot be removed). */
+  /** Remove a member from the workspace (admin only; owner cannot be removed). */
   removeMember(token: string, organizationId: string, userId: string): Promise<{ ok: true }> {
     return this.request(
       token,
@@ -268,8 +276,8 @@ export class ApiClient {
     );
   }
 
-  /** Invite someone to the organization by email. */
-  createOrgInvitation(
+  /** Invite someone to the workspace by email. */
+  createWorkspaceInvitation(
     token: string,
     organizationId: string,
     email: string,
@@ -283,8 +291,8 @@ export class ApiClient {
     );
   }
 
-  createOrganization(token: string, name: string): Promise<{ organization: ServerOrganization }> {
-    return this.request(token, "/api/organizations", { method: "POST", body: JSON.stringify({ name }) });
+  createWorkspace(token: string, name: string): Promise<{ workspace: ServerWorkspace }> {
+    return this.request(token, "/api/workspaces", { method: "POST", body: JSON.stringify({ name }) });
   }
 
   /** The single plan ($/team/month) and how many teams are free. */
@@ -293,21 +301,21 @@ export class ApiClient {
   }
 
   /**
-   * Start checkout for an org that wants teams beyond the free tier. Returns the URL to open in
+   * Start checkout for a workspace that wants teams beyond the free tier. Returns the URL to open in
    * a browser; the license activates once the webhook lands, so callers re-list on return.
    */
   checkout(token: string, organizationId: string): Promise<{ url: string }> {
     return this.request(
       token,
       "/api/checkout",
-      { method: "POST", body: JSON.stringify({ organizationId }) },
+      { method: "POST", body: JSON.stringify({ workspaceId: organizationId }) },
       organizationId
     );
   }
 
   /**
    * Dev-only: when the server runs Stripe in stub mode the checkout URL carries the completed
-   * event as a query param; replay it against the webhook so the org provisions without a real
+   * event as a query param; replay it against the webhook so the workspace provisions without a real
    * browser round-trip. Returns false for real (non-stub) URLs — open those in a browser.
    * ponytail: dev shortcut, gated on the stub_event marker the stub billing adds.
    */
@@ -321,29 +329,29 @@ export class ApiClient {
     return true;
   }
 
-  renameOrganization(
+  renameWorkspace(
     token: string,
     organizationId: string,
     name: string
-  ): Promise<{ organization: ServerOrganization }> {
+  ): Promise<{ workspace: ServerWorkspace }> {
     return this.request(
       token,
-      "/api/organizations",
+      "/api/workspaces",
       { method: "PATCH", body: JSON.stringify({ name }) },
       organizationId
     );
   }
 
-  deleteOrganization(token: string, organizationId: string): Promise<{ ok: boolean }> {
-    return this.request(token, "/api/organizations", { method: "DELETE" }, organizationId);
+  deleteWorkspace(token: string, organizationId: string): Promise<{ ok: boolean }> {
+    return this.request(token, "/api/workspaces", { method: "DELETE" }, organizationId);
   }
 
-  /** Pending org-level invitations (admin view). */
-  listOrgInvitations(
+  /** Pending workspace-level invitations (admin view). */
+  listWorkspaceInvitations(
     token: string,
     organizationId: string
   ): Promise<{ invitations: { id: string; email: string; role: string; expiresAt: string }[] }> {
-    return this.request(token, "/api/organizations/invitations", {}, organizationId);
+    return this.request(token, "/api/workspaces/invitations", {}, organizationId);
   }
 
   /** Pending invites for the account's email. */
@@ -354,7 +362,7 @@ export class ApiClient {
   acceptMyInvitation(
     token: string,
     invitationId: string
-  ): Promise<{ membership: { organizationId: string } }> {
+  ): Promise<{ membership: { workspaceId: string } }> {
     return this.request(token, "/api/invitations/mine/accept", {
       method: "POST",
       body: JSON.stringify({ invitationId })
@@ -460,31 +468,33 @@ export class ApiClient {
     });
   }
 
-  workItemRuntime(
+  async workItemRuntime(
     token: string,
     organizationId: string,
     workItemId: string
   ): Promise<{ runtime: WorkItemRuntimeState }> {
-    return this.request(
+    const result = await this.request<{ runtime: ServerWorkItemRuntimeState }>(
       token,
       `/api/work-items/${encodeURIComponent(workItemId)}/runtime`,
       {},
       organizationId
     );
+    return { runtime: localRuntime(result.runtime) };
   }
 
-  commandWorkItem(
+  async commandWorkItem(
     token: string,
     organizationId: string,
     workItemId: string,
     command: WorkItemCommand
   ): Promise<{ runtime: WorkItemRuntimeState }> {
-    return this.request(
+    const result = await this.request<{ runtime: ServerWorkItemRuntimeState }>(
       token,
       `/api/work-items/${encodeURIComponent(workItemId)}/runtime`,
       { method: "POST", body: JSON.stringify(command) },
       organizationId
     );
+    return { runtime: localRuntime(result.runtime) };
   }
 
 }

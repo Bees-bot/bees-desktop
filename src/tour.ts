@@ -1,6 +1,6 @@
 // The onboarding wizard: a coach mark that walks a new user through the app.
 //
-// An administrator writes the steps as Markdown (Organization settings -> Onboarding). Each
+// An administrator writes the steps as Markdown (Workspace settings -> Onboarding). Each
 // step names something to do, not a selector — the assistant reads the live semantic UI
 // snapshot and decides which control the arrow belongs on, so a step survives the button
 // moving, being renamed, or living behind a tab.
@@ -256,7 +256,7 @@ export function createTour(deps: TourDeps) {
     stop();
     const loaded = await deps.loadSteps();
     if (!loaded.length) {
-      deps.onError("The onboarding wizard has no steps yet — add one in Organization settings → Onboarding.");
+      deps.onError("The onboarding wizard has no steps yet — add one in Workspace settings → Onboarding.");
       return;
     }
     steps = loaded;
@@ -333,7 +333,7 @@ An agent cannot run without a model it can reach, and skipping this is where alm
 Target: the AI Subscriptions tab in Preferences
 
 ## Pick where files live
-Every organization and team folder is created under one root, \`<home>/Bees\` unless you change
+Every workspace and team folder is created under one root, \`<home>/Bees\` unless you change
 it. Agents never see the rest of your disk.
 
 Target: the Root Folder tab in Preferences

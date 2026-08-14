@@ -139,7 +139,7 @@ describe("metadata synchronization", () => {
     expect(secondCode.definition).toEqual(firstCode.definition);
   });
 
-  it("keeps first-pull cursors independent between connected organizations", async () => {
+  it("keeps first-pull cursors independent between shared workspaces", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const first = await repository.bootstrap();
     const secondOrganizationId = await repository.createOrganization("Second connected org");
@@ -153,7 +153,7 @@ describe("metadata synchronization", () => {
       version: 1,
       deleted: false,
       payload: {
-        organizationId: secondOrganizationId,
+        workspaceId: secondOrganizationId,
         teamId: null,
         name: "Second org drive",
         updatedAt: "2026-08-08T12:00:00.000Z"

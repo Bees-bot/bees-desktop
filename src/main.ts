@@ -10,7 +10,7 @@ import {
   ApiClient,
   type AuthResult,
   type PendingInvitation,
-  type ServerOrganization,
+  type ServerWorkspace,
   type SessionUser
 } from "./api.js";
 import { createMainActions } from "./app-actions.js";
@@ -93,7 +93,7 @@ export type PrefsTab =
   | "remote-models"
   | "mcp-servers"
   | "signins"
-  | "orgs"
+  | "workspaces"
   | "folder";
 export type OrgTab = "general" | "members" | "invites" | "folder" | "knowledge" | "onboarding";
 export type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
@@ -258,7 +258,7 @@ export interface SessionController {
   accounts: Map<string, { user: SessionUser; token: string; }>;
   activeConnectionValid: () => boolean;
   activeOrgTeamEnabled: () => boolean;
-  activeServerOrg: () => ServerOrganization | undefined;
+  activeServerOrg: () => ServerWorkspace | undefined;
   activeUserId: string;
   aiConnectionScope: () => string;
   brandingFor: (orgId: string) => OrgBranding;
@@ -267,8 +267,7 @@ export interface SessionController {
   connect: (orgId: string, user: SessionUser, token: string) => Promise<void>;
   connectedOrgs: Set<string>;
   connections: Set<string>;
-  createConnectedOrg: () => Promise<void>;
-  createLocalOrg: () => Promise<void>;
+  createWorkspace: () => Promise<void>;
   createServerTeam: (name: string) => Promise<string | null>;
   currentOrganization: () => Organization | undefined;
   currentTeam: () => Team | undefined;
@@ -299,7 +298,7 @@ export interface SessionController {
   routeDeepLink: (urls: string[]) => void;
   saveBranding: () => Promise<void>;
   saveKnowledgePolicy: (policy: KnowledgePolicy | null) => Promise<void>;
-  serverOrgs: Map<string, ServerOrganization>;
+  serverOrgs: Map<string, ServerWorkspace>;
   setBrandingValue: (orgId: string, patch: OrgBranding) => Promise<void>;
   signInUser: () => Promise<AuthResult | null>;
   signOutAccount: (userId: string) => Promise<void>;

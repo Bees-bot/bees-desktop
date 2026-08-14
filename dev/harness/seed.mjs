@@ -31,7 +31,7 @@ export function seedStatements() {
   };
 
   insert("organizations", "id, name, created_at, updated_at", [
-    ["org-local", "Local org", at(9000), at(9000)],
+    ["org-local", "My workspace", at(9000), at(9000)],
     ["org-acme", "Acme Robotics International", at(8000), at(8000)]
   ]);
 

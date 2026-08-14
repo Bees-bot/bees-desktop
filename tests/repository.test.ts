@@ -18,6 +18,20 @@ async function createTestProcess(repository: LocalRepository, teamId: string) {
 }
 
 describe("local repository", () => {
+  it("renames the legacy starter workspace", async () => {
+    const database = new NodeDatabase();
+    const repository = new LocalRepository(database);
+    const local = await repository.bootstrap();
+    await database.execute("UPDATE organizations SET name = ? WHERE id = ?", ["Local org", local.organizationId]);
+
+    await repository.bootstrap();
+
+    expect(await repository.listOrganizations()).toContainEqual({
+      id: local.organizationId,
+      name: "My workspace"
+    });
+  });
+
   it("provisions Goals for the starter team and leaves later teams ready for the library", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();

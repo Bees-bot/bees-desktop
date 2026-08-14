@@ -10,7 +10,7 @@ export const KNOWLEDGE_POLICY_KEY = "knowledge";
 export const KNOWLEDGE_CONNECTION_ID = "knowledge";
 export const KNOWLEDGE_TOOL: McpTool = {
   name: "knowledge_search",
-  description: "Search organization documents available to this team and return cited evidence.",
+  description: "Search workspace documents available to this team and return cited evidence.",
   readOnly: true
 };
 

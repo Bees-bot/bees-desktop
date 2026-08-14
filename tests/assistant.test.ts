@@ -73,9 +73,9 @@ describe("parsing a turn", () => {
   it("parses generic approved Bees operations and only opaque UI refs", () => {
     expect(
       parseTurn(
-        '{"reply":"I can do that in Bees.","actions":[{"type":"operate_bees","goal":"Create a local organization called Acme"}]}'
+        '{"reply":"I can do that in Bees.","actions":[{"type":"operate_bees","goal":"Create a private workspace called Acme"}]}'
       ).actions
-    ).toEqual([{ type: "operate_bees", goal: "Create a local organization called Acme" }]);
+    ).toEqual([{ type: "operate_bees", goal: "Create a private workspace called Acme" }]);
     expect(parseBeesUiCommand('{"command":{"op":"click","ref":"u3"}}')).toEqual({
       op: "click",
       ref: "u3"

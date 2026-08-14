@@ -115,7 +115,7 @@ export interface EditorField {
   name: string;
   label: string;
   value?: string;
-  type?: "text" | "password" | "textarea" | "select" | "toggle" | "switch" | "checkboxes" | "color" | "file" | "note";
+  type?: "text" | "password" | "textarea" | "select" | "toggle" | "switch" | "checkboxes" | "color" | "file" | "note" | "workspace-privacy";
   placeholder?: string;
   options?: EditorOption[];
   checked?: string[];
@@ -166,11 +166,11 @@ export function createMainViews(host: MainHost) {
     return `<svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.94 4.61 10.06 4.24 10.14 1.46h3.72l.08 2.78 1.12.37 1.06.53 2.02-1.9 2.62 2.62-1.9 2.02.53 1.06.37 1.12 2.78.08v3.72l-2.78.08-.37 1.12-.53 1.06 1.9 2.02-2.62 2.62-2.02-1.9-1.06.53-1.12.37-.08 2.78h-3.72l-.08-2.78-1.12-.37-1.06-.53-2.02 1.9-2.62-2.62 1.9-2.02-.53-1.06-.37-1.12-2.78-.08v-3.72l2.78-.08.37-1.12.53-1.06-1.9-2.02 2.62-2.62 2.02 1.9ZM12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" clip-rule="evenodd"></path></svg>`;
   }
 
-  /** Settings for the organization named by the switcher beside it. */
+  /** Settings for the workspace named by the switcher beside it. */
   function renderActiveOrg(): void {
     const org = host.session.currentOrganization();
     host.shell.orgStatus.innerHTML = org
-      ? `<button class="btn btn-square btn-ghost btn-sm" data-view="org-settings" aria-label="Organization settings" title="Organization settings">
+      ? `<button class="btn btn-square btn-ghost btn-sm" data-view="org-settings" aria-label="Workspace settings" title="Workspace settings">
           ${gearIcon()}
         </button>`
       : "";
@@ -246,8 +246,8 @@ export function createMainViews(host: MainHost) {
 
   function renderNavigation(): void {
     renderSidebarHelp();
-    // One menu item per connection (org × account), so the same org shows twice if two accounts are
-    // in it. Local orgs get one item with no account; the secondary label disambiguates them.
+    // One menu item per connection (workspace × account), so the same workspace shows twice if two
+    // accounts are in it. Device-only workspaces get one item with no account.
     type Icon = {
       orgId: string;
       userId: string;
@@ -264,7 +264,7 @@ export function createMainViews(host: MainHost) {
     }
     for (const org of host.workspaceController.organizations) {
       if (!host.session.orgIsConnected(org.id))
-        icons.push({ orgId: org.id, userId: "", name: org.name, email: "local" });
+        icons.push({ orgId: org.id, userId: "", name: org.name, email: "On this device" });
     }
     icons.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
     const selected = icons.find(({ orgId, userId }) =>
@@ -276,9 +276,9 @@ export function createMainViews(host: MainHost) {
         : `<span class="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style="background:${host.shell.escapeHtml(branding.color || host.session.defaultOrgColor(name))}">${host.shell.escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
     };
     host.shell.orgRow.innerHTML = `<div class="dropdown w-full">
-        <button tabindex="0" class="btn btn-ghost btn-sm w-full justify-start gap-2 px-2" aria-haspopup="menu" aria-label="Switch organization" title="Switch organization">
+        <button tabindex="0" class="btn btn-ghost btn-sm w-full justify-start gap-2 px-2" aria-haspopup="menu" aria-label="Switch workspace" title="Switch workspace">
           ${selected ? avatar(selected) : ""}
-          <span class="min-w-0 flex-1 truncate text-left">${host.shell.escapeHtml(selected?.name ?? "Choose organization")}</span>
+          <span class="min-w-0 flex-1 truncate text-left">${host.shell.escapeHtml(selected?.name ?? "Choose workspace")}</span>
           <svg viewBox="0 0 24 24" class="size-4 shrink-0 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
         </button>
         <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mt-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
@@ -294,9 +294,9 @@ export function createMainViews(host: MainHost) {
               </button></li>`;
           }).join("")}
           ${icons.length ? '<li class="my-1 border-t border-base-300" aria-hidden="true"></li>' : ""}
-          <li><button class="gap-2" data-action="new-organization">
+          <li><button class="gap-2" data-action="new-workspace">
             <span class="grid size-6 place-items-center text-lg" aria-hidden="true">+</span>
-            Create organization
+            Create workspace
           </button></li>
         </ul>
       </div>`;
@@ -358,7 +358,7 @@ export function createMainViews(host: MainHost) {
         })
           .join("")
         : `<div class="mx-2 rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-muted">
-              Add a team to this organization.
+              Add a team to this workspace.
             </div>`}`;
     renderPrefsButton();
   }
@@ -366,7 +366,7 @@ export function createMainViews(host: MainHost) {
   /**
    * The Preferences button in the sidebar header, badged with the number of org invitations waiting
    * for any pooled account — otherwise an invite is only visible to someone who happens to open the
-   * Orgs tab or click the emailed link.
+   * Workspaces tab or click the emailed link.
    */
   function renderPrefsButton(): void {
     const prefs = document.querySelector<HTMLButtonElement>("#preferences-button");
@@ -1492,29 +1492,29 @@ export function createMainViews(host: MainHost) {
     return `${trigger?.process.name ?? "No process"} - ${trigger?.stageName ?? "No trigger"} - ${agent.name}`;
   }
 
-  /** Why a local org can't do this, plus the way out. `upgrade` adds the button to create a connected org. */
-  function localOrgNotice(message: string, upgrade = false): string {
-    return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center text-sm text-muted">${host.shell.escapeHtml(message)}${upgradeButton(upgrade, "mt-4")}</div>`;
+  /** Why a device-only workspace can't do this, plus the way out. */
+  function deviceOnlyWorkspaceNotice(message: string, offerAnother = false): string {
+    return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center text-sm text-muted">${host.shell.escapeHtml(message)}${createAnotherWorkspaceButton(offerAnother, "mt-4")}</div>`;
   }
 
-  /** Button that starts the connected-org purchase flow. Empty unless `show`. */
-  function upgradeButton(show: boolean, extraClass = ""): string {
+  /** Button that creates another workspace. Empty unless `show`. */
+  function createAnotherWorkspaceButton(show: boolean, extraClass = ""): string {
     return show
-      ? `<div class="${extraClass}"><button class="btn btn-primary btn-sm" data-action="create-connected-org">Create a connected org</button></div>`
+      ? `<div class="${extraClass}"><button class="btn btn-primary btn-sm" data-action="create-workspace">Create another workspace</button></div>`
       : "";
   }
 
-  const LOCAL_ORG_UPGRADE_HINT = "You're using a local organization. Use a connected organization to invite teammates and synchronize across devices.";
+  const DEVICE_ONLY_WORKSPACE_HINT = "This workspace is on this device only. You cannot add team members to it later. Create another workspace to invite teammates and sync across devices.";
 
-  const CONNECTED_ORG_BETA_COPY = "Connected organizations are free during beta. We may introduce paid organization plans later, with advance notice. You'll never be charged automatically.";
+  const WORKSPACE_BETA_COPY = "Workspaces are free during beta. We may introduce paid workspace plans later, with advance notice. You'll never be charged automatically.";
 
   // ---- Team settings (tabbed: Members / Folder / Integrations) ----
   async function teamMembersContent(): Promise<string> {
     const token = host.session.orgToken();
     if (!token)
-      return localOrgNotice(host.session.orgIsConnected() ? "Sign in to manage team members." : LOCAL_ORG_UPGRADE_HINT, !host.session.orgIsConnected());
+      return deviceOnlyWorkspaceNotice(host.session.orgIsConnected() ? "Sign in to manage team members." : DEVICE_ONLY_WORKSPACE_HINT, !host.session.orgIsConnected());
     if (!host.session.activeOrgTeamEnabled())
-      return localOrgNotice("Team features are off for this organization.");
+      return deviceOnlyWorkspaceNotice("Team features are off for this workspace.");
     const orgId = host.workspaceController.workspace.organizationId;
     const [{ teams: serverTeams }, { plan }] = await Promise.all([
       host.api.listTeams(token, orgId),
@@ -1530,7 +1530,7 @@ export function createMainViews(host: MainHost) {
     const planSummary = plan.freeDuringBeta
       ? `<div class="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
           <span class="badge badge-primary badge-sm">Free during beta</span>
-          <span>${host.shell.escapeHtml(CONNECTED_ORG_BETA_COPY)}</span>
+          <span>${host.shell.escapeHtml(WORKSPACE_BETA_COPY)}</span>
         </div>`
       : `<p class="mt-1 text-sm text-muted">${serverTeams.length} of ${plan.freeTeams} free teams used — $${(plan.priceCents / 100).toFixed(2)}/${plan.interval} per team after that.${trialEnds && trialEnds > new Date()
         ? ` Trial runs to ${trialEnds.toLocaleDateString()}.`
@@ -1599,7 +1599,7 @@ export function createMainViews(host: MainHost) {
       .map((location) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-4">
         <div class="min-w-0">
           <div class="flex items-center gap-2"><span class="font-semibold">${host.shell.escapeHtml(location.name)}</span>
-            <span class="badge badge-ghost badge-sm">${location.teamId ? "Team" : "Organization"}</span></div>
+            <span class="badge badge-ghost badge-sm">${location.teamId ? "Team" : "Workspace"}</span></div>
           <code class="mt-1 block break-all text-xs text-muted">${host.shell.escapeHtml(location.localPath || "Not mapped on this machine")}</code>
           ${location.missing ? '<p class="mt-1 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
         </div>
@@ -1648,7 +1648,7 @@ export function createMainViews(host: MainHost) {
       <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div><h2 class="card-title text-base">Linked file locations</h2>
-            <p class="mt-1 text-sm text-muted">Organization locations are inherited. Team locations can point anywhere on this machine, including different Google Drive folders.</p></div>
+            <p class="mt-1 text-sm text-muted">Workspace locations are inherited. Team locations can point anywhere on this machine, including different Google Drive folders.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-team-location">Add team location</button>
         </div>
         <div class="grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
@@ -1776,7 +1776,7 @@ export function createMainViews(host: MainHost) {
     ], host.shell.teamTab, () => host.shell.view === "settings");
   }
 
-  // ---- Organization settings (tabbed: General / Members / Invites / Folder) ----
+  // ---- Workspace settings (tabbed: General / Members / Invites / Folder) ----
   function orgGeneralContent(): string {
     const connected = host.session.orgIsConnected();
     const user = host.session.currentUser();
@@ -1792,7 +1792,7 @@ export function createMainViews(host: MainHost) {
              <button class="btn btn-ghost btn-sm text-error" data-action="sign-out">Sign out</button>
            </div>`
         : `<div class="flex flex-wrap items-center gap-2">
-             <span class="w-full text-sm text-muted">Signed out of this organization.</span>
+             <span class="w-full text-sm text-muted">Signed out of this workspace.</span>
              ${social}
              <button class="btn btn-outline btn-sm" data-action="signin-email">Email sign in</button>
              <button class="btn btn-outline btn-sm" data-action="signup-email">Create account</button>
@@ -1800,19 +1800,19 @@ export function createMainViews(host: MainHost) {
     return `<div class="space-y-5">
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-base">${connected ? "Connected organization" : "Local organization"}</h2>
+          <h2 class="card-title text-base">${connected ? "Workspace" : "Private workspace"}</h2>
           <div class="flex flex-wrap gap-2">
-            <span class="badge ${connected ? "badge-success" : "badge-ghost"}">${connected ? "Connected" : "Local"}</span>
+            <span class="badge ${connected ? "badge-success" : "badge-ghost"}">${connected ? "Ready for teammates" : "On this device"}</span>
             ${connected ? '<span class="badge badge-primary">Free during beta</span>' : ""}
           </div>
         </div>
         <p class="text-sm text-muted">${connected
-        ? `Server-backed. Users and agents on different machines can coordinate on the same work items here. ${host.shell.escapeHtml(CONNECTED_ORG_BETA_COPY)}`
-        : "Bees Desktop is free. Work stays on this machine unless you use a connected organization."}</p>
-        ${authBlock}${upgradeButton(!connected)}
+        ? `Start on your own or invite teammates to coordinate across devices. ${host.shell.escapeHtml(WORKSPACE_BETA_COPY)}`
+        : "Only you can use this workspace. It stays on this device, and you cannot add team members to it later."}</p>
+        ${authBlock}${createAnotherWorkspaceButton(!connected)}
       </div></section>
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Organization name</h2>
+        <h2 class="card-title text-base">Workspace name</h2>
         <div class="flex items-center gap-2">
           <code class="flex-1 break-all rounded-box bg-base-200 p-3 text-sm">${host.shell.escapeHtml(host.session.currentOrganization()?.name ?? "")}</code>
           <button class="btn btn-outline btn-sm" data-action="rename-org">Rename</button>
@@ -1822,7 +1822,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex items-center gap-3">
           ${host.session.orgLogoPreview(host.workspaceController.workspace.organizationId, host.session.currentOrganization()?.name ?? "")}
           <div class="flex-1"><h2 class="card-title text-base">Branding</h2>
-            <p class="text-sm text-muted">Logo and color shown in the organization switcher.</p></div>
+            <p class="text-sm text-muted">Logo and color shown in the workspace switcher.</p></div>
           ${host.session.brandingFor(host.workspaceController.workspace.organizationId).logo
         ? `<button class="btn btn-ghost btn-sm" data-action="remove-logo">Remove logo</button>`
         : ""}
@@ -1837,8 +1837,8 @@ export function createMainViews(host: MainHost) {
       </div></section>
       <section class="card border border-error/40 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base text-error">Danger zone</h2>
-        <p class="text-sm text-muted">Deletes this organization and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
-        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete organization</button></div>
+        <p class="text-sm text-muted">Deletes this workspace and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
+        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete workspace</button></div>
       </div></section>
     </div>`;
   }
@@ -1846,15 +1846,15 @@ export function createMainViews(host: MainHost) {
   async function orgMembersContent(): Promise<string> {
     const token = host.session.orgToken();
     if (!host.session.orgIsConnected())
-      return localOrgNotice(LOCAL_ORG_UPGRADE_HINT, true);
+      return deviceOnlyWorkspaceNotice(DEVICE_ONLY_WORKSPACE_HINT, true);
     if (!token)
-      return localOrgNotice("Sign in to manage organization members.");
+      return deviceOnlyWorkspaceNotice("Sign in to manage workspace members.");
     let memberships;
     try {
       ({ memberships } = await host.api.listMemberships(token, host.workspaceController.workspace.organizationId));
     }
     catch {
-      return `<div class="p-8 text-center text-sm text-muted">Only organization admins can view members.</div>`;
+      return `<div class="p-8 text-center text-sm text-muted">Only workspace admins can view members.</div>`;
     }
     return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="border-b border-base-300 p-5"><h2 class="font-bold">Members</h2></header>
@@ -1875,7 +1875,7 @@ export function createMainViews(host: MainHost) {
   async function orgInvitesContent(): Promise<string> {
     const connected = host.session.orgIsConnected();
     if (!connected)
-      return localOrgNotice(LOCAL_ORG_UPGRADE_HINT, true);
+      return deviceOnlyWorkspaceNotice(DEVICE_ONLY_WORKSPACE_HINT, true);
     let pending: {
       email: string;
       role: string;
@@ -1883,14 +1883,14 @@ export function createMainViews(host: MainHost) {
     const token = host.session.orgToken();
     try {
       if (token)
-        pending = (await host.api.listOrgInvitations(token, host.workspaceController.workspace.organizationId)).invitations; // 403 for non-admins
+        pending = (await host.api.listWorkspaceInvitations(token, host.workspaceController.workspace.organizationId)).invitations; // 403 for non-admins
     }
     catch {
       // not an admin, or none — leave the list empty
     }
     return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="flex items-center justify-between gap-3 border-b border-base-300 p-5">
-          <div><h2 class="font-bold">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this organization.</p></div>
+          <div><h2 class="font-bold">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
           <button class="btn btn-primary btn-sm" data-action="invite-org-member">Invite someone</button>
         </header>
         <ul class="divide-y divide-base-200 p-2">${pending.length
@@ -1904,12 +1904,12 @@ export function createMainViews(host: MainHost) {
       </section>`;
   }
 
-  /** Preferences → Folder: the root all org/team folders default under. */
+  /** Preferences → Folder: the root all workspace/team folders default under. */
   async function prefsFolderContent(): Promise<string> {
     const globalPath = await host.repository.getSetting("global_local_path", "");
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">Root Folder</h2>
-        <p class="text-sm text-muted">Every organization gets a folder at <code>&lt;root-folder&gt;/&lt;org-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
+        <p class="text-sm text-muted">Every workspace gets a folder at <code>&lt;root-folder&gt;/&lt;workspace-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
         <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
         <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
       </div></section>`;
@@ -1919,16 +1919,16 @@ export function createMainViews(host: MainHost) {
     const orgPath = await host.repository.getOrgFolder(host.workspaceController.workspace.organizationId);
     const locations = (await checkedFileLocations(await host.repository.listOrganizationFileLocations(host.workspaceController.workspace.organizationId))).filter(({ teamId }) => !teamId);
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Primary organization folder</h2>
-        <p class="text-sm text-muted">This organization's folder. Team folders resolve to <code>&lt;org folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
+        <h2 class="card-title text-base">Primary workspace folder</h2>
+        <p class="text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
         <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
         <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
       </div></section>
       <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="card-title text-base">Linked organization locations</h2>
-            <p class="mt-1 text-sm text-muted">Add as many organization-wide locations as needed. Every team can reference them.</p></div>
-          <button class="btn btn-primary btn-sm" data-action="add-org-location">Add organization location</button>
+          <div><h2 class="card-title text-base">Linked workspace locations</h2>
+            <p class="mt-1 text-sm text-muted">Add as many workspace-wide locations as needed. Every team can reference them.</p></div>
+          <button class="btn btn-primary btn-sm" data-action="add-org-location">Add workspace location</button>
         </div>
         <div class="grid gap-2">${fileLocationRows(locations, () => true)}</div>
         <p class="text-xs text-muted">Each machine maps the shared location ID to its own local folder. Bees Cloud does not synchronize absolute paths or document files.</p>
@@ -1953,18 +1953,18 @@ export function createMainViews(host: MainHost) {
       ? sources
         .map((source) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
               <span>${host.shell.escapeHtml(source.name)}</span>
-              <span class="badge badge-sm ${source.teamId ? "badge-ghost" : "badge-primary"}">${source.teamId ? "This team" : "Organization"}</span>
+              <span class="badge badge-sm ${source.teamId ? "badge-ghost" : "badge-primary"}">${source.teamId ? "This team" : "Workspace"}</span>
             </li>`)
         .join("")
-      : `<li class="px-3 py-5 text-sm text-muted">No mapped organization or team folders are available on this machine.</li>`;
+      : `<li class="px-3 py-5 text-sm text-muted">No mapped workspace or team folders are available on this machine.</li>`;
     const active = policy
       ? `<span class="badge badge-success">${policy.mode === "local" ? "Local" : "Remote"}</span>`
       : `<span class="badge badge-ghost">Off</span>`;
     const detail = !policy
-      ? "Choose local indexing on each machine or one organization-controlled remote worker."
+      ? "Choose local indexing on each machine or one workspace-controlled remote worker."
       : policy.mode === "local"
         ? `This machine indexes ${sources.length} available source${sources.length === 1 ? "" : "s"}. Each source has its own local index.`
-        : `All bees use one organization-controlled endpoint: <code class="break-all">${host.shell.escapeHtml(policy.url)}</code>`;
+        : `All bees use one workspace-controlled endpoint: <code class="break-all">${host.shell.escapeHtml(policy.url)}</code>`;
     return `<div class="space-y-5">
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3"><h2 class="card-title text-base">Knowledge mode</h2>${active}</div>
@@ -1978,7 +1978,7 @@ export function createMainViews(host: MainHost) {
         <p class="text-xs text-muted">Indexes rebuild in full once a day. A failed rebuild keeps the previous index. Bees Cloud stores only the mode and remote URL, never files, chunks, embeddings, paths, or credentials.</p>
       </div></section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.shell.escapeHtml(host.session.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-muted">Organization sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
+        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.shell.escapeHtml(host.session.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-muted">Workspace sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
         <ul class="divide-y divide-base-200 p-2">${sourceRows}</ul>
       </section>
     </div>`;
@@ -2152,7 +2152,7 @@ export function createMainViews(host: MainHost) {
     return `<div class="space-y-5">
       <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
         <h2 class="card-title text-base">Cloud connections</h2>
-        <p class="text-sm text-muted">Give the current organization's agents access to hosted AI. These connections can be active at the same time.</p>
+        <p class="text-sm text-muted">Give the current workspace's agents access to hosted AI. These connections can be active at the same time.</p>
         <div class="flex flex-wrap gap-2">${providerButtons}</div>
       </div></section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
@@ -2225,7 +2225,7 @@ export function createMainViews(host: MainHost) {
   }
 
   async function renderOrgSettings(): Promise<void> {
-    host.shell.setHeader("Organization settings", host.session.currentOrganization()?.name);
+    host.shell.setHeader("Workspace settings", host.session.currentOrganization()?.name);
     await renderTabs<OrgTab>("org-tab", [
       { id: "general", label: "General", content: orgGeneralContent },
       { id: "members", label: "Members", content: orgMembersContent },
@@ -2236,7 +2236,7 @@ export function createMainViews(host: MainHost) {
     ], host.shell.orgTab, () => host.shell.view === "org-settings");
   }
 
-  // ---- Preferences (tabbed: Mode / Theme / Sign-ins / Org invites / Create org) ----
+  // ---- Preferences (including sign-ins and workspaces) ----
   function prefsThemeContent(): string {
     const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
       .join("");
@@ -2270,7 +2270,7 @@ export function createMainViews(host: MainHost) {
   }
 
   async function prefsSigninsContent(): Promise<string> {
-    const description = `<p class="text-sm text-muted">You can sign in with multiple user IDs. Each user ID can belong to multiple organizations, and you can work across all of them at the same time.</p>`;
+    const description = `<p class="text-sm text-muted">You can sign in with multiple user IDs. Each user ID can belong to multiple workspaces, and you can work across all of them at the same time.</p>`;
     const sso = Object.entries(host.session.providerLabel)
       .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
       .join("");
@@ -2310,7 +2310,7 @@ export function createMainViews(host: MainHost) {
    * twice — once per account. Each row's action already knows its account, so Login binds that
    * exact account with no prompt. Derived per account from its own memberships + invites.
    */
-  async function prefsOrgsContent(): Promise<string> {
+  async function prefsWorkspacesContent(): Promise<string> {
     // Two calls per pooled account, only while this tab is open. Fine for a handful of accounts.
     const perAccount = await Promise.all([...host.session.accounts.values()].map(async (account) => {
       // A failure here used to render as an empty list, which reads as "you have no organizations"
@@ -2319,8 +2319,8 @@ export function createMainViews(host: MainHost) {
         ? "Session expired — sign in again"
         : `Could not reach the server (${errorText(error)})`;
       const [orgs, invites] = await Promise.all([
-        host.api.listOrganizations(account.token)
-          .then((r) => ({ ok: true as const, value: r.organizations }))
+        host.api.listWorkspaces(account.token)
+          .then((r) => ({ ok: true as const, value: r.workspaces }))
           .catch((error: unknown) => ({ ok: false as const, reason: failed(error) })),
         host.api.myInvitations(account.token)
           .then((r) => r.invitations)
@@ -2339,7 +2339,7 @@ export function createMainViews(host: MainHost) {
       const email = account.user.email;
       if (!orgResult.ok) {
         rows.push({
-          name: "Organizations unavailable",
+          name: "Workspaces unavailable",
           account: email,
           // The only badge holding unbounded text; measured 465px in a 304px row.
           button: `<span class="badge badge-error badge-sm max-w-56 truncate" title="${host.shell.escapeHtml(orgResult.reason)}">${host.shell.escapeHtml(orgResult.reason)}</span>`
@@ -2358,22 +2358,22 @@ export function createMainViews(host: MainHost) {
       }
       for (const invite of invites) {
         rows.push({
-          name: invite.organizationName,
+          name: invite.workspaceName,
           account: email,
           button: `<button class="btn btn-primary btn-xs" data-action="accept-invite" data-id="${invite.id}" data-account="${acct(account.user.id)}">Accept</button>`
         });
       }
     }
-    // Local orgs have no account, but still belong in "all orgs".
+    // Device-only workspaces have no account, but still belong in the list.
     for (const org of host.workspaceController.organizations) {
       if (host.session.orgIsConnected(org.id))
         continue;
-      rows.push({ name: org.name, account: "Local", button: `<span class="badge badge-ghost badge-sm">Local</span>` });
+      rows.push({ name: org.name, account: "On this device", button: `<span class="badge badge-ghost badge-sm">Device only</span>` });
     }
     rows.sort((a, b) => a.name.localeCompare(b.name) || a.account.localeCompare(b.account));
     return `<div class="space-y-5">${prefsCreateOrgContent()}<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Organizations</h2>
-          <p class="mt-1 text-sm text-muted">Each organization per account. Log in or out of any without leaving the others.</p></header>
+        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Workspaces</h2>
+          <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p></header>
         <ul class="divide-y divide-base-200 p-2">${rows.length
         ? rows
           .map((row) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
@@ -2382,32 +2382,30 @@ export function createMainViews(host: MainHost) {
                 ${row.button}
               </li>`)
           .join("")
-        : `<li class="px-3 py-6 text-center text-sm text-muted">No organizations yet.</li>`}</ul>
+        : `<li class="px-3 py-6 text-center text-sm text-muted">No workspaces yet.</li>`}</ul>
       </section></div>`;
   }
 
   function prefsCreateOrgContent(): string {
     return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Create an organization</h2>
-        <p class="text-sm text-muted"><strong>Local</strong>: Bees Desktop is free, and work stays on this machine.</p>
-        <p class="text-sm text-muted"><strong>Connected</strong>: free during beta; users and agents on different machines can coordinate on the same work items (needs a sign-in).</p>
-        <div class="card-actions justify-end gap-2">
-          <button class="btn btn-outline btn-sm" data-action="create-local-org">New local org</button>
-          <button class="btn btn-primary btn-sm" data-action="create-connected-org">New connected org</button>
+        <h2 class="card-title text-base">Create a workspace</h2>
+        <p class="text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
+        <div class="card-actions justify-end">
+          <button class="btn btn-primary btn-sm" data-action="create-workspace">Create workspace</button>
         </div>
       </div></section>`;
   }
 
   async function renderPreferences(): Promise<void> {
-    host.shell.setHeader("Preferences", host.session.currentUser()?.email ?? "Local");
+    host.shell.setHeader("Preferences", host.session.currentUser()?.email ?? "On this device");
     await renderTabs<PrefsTab>("prefs-tab", [
+      { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
+      { id: "workspaces", label: "Workspaces", content: prefsWorkspacesContent },
+      { id: "folder", label: "Root Folder", content: prefsFolderContent },
+      { id: "ai-subscriptions", label: "AI CLI", content: cliToolsSection },
       { id: "local-models", label: "Local AI", content: prefsLocalModelsContent },
-      { id: "ai-subscriptions", label: "AI Subscriptions", content: cliToolsSection },
       { id: "remote-models", label: "AI APIs", content: prefsRemoteModelsContent },
       { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
-      { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
-      { id: "orgs", label: "Orgs", content: prefsOrgsContent },
-      { id: "folder", label: "Root Folder", content: prefsFolderContent },
       { id: "theme", label: "Theme", content: prefsThemeContent }
     ], host.shell.prefsTab, () => host.shell.view === "preferences");
   }
@@ -2604,6 +2602,20 @@ export function createMainViews(host: MainHost) {
   function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint }: EditorField): string {
     if (type === "note")
       return `<p class="text-sm text-muted">${host.shell.escapeHtml(value)}</p>`;
+    if (type === "workspace-privacy")
+      return `<details data-workspace-privacy class="rounded-box border border-base-300 bg-base-200/40">
+        <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold">Make it private</summary>
+        <div class="grid gap-4 border-t border-base-300 px-4 py-4">
+          <label class="flex cursor-pointer items-center justify-between gap-4">
+            <span><strong class="block text-sm">Make this workspace private</strong><span class="text-xs text-muted">Keep it on this device only.</span></span>
+            <input class="toggle toggle-primary" type="checkbox" name="${host.shell.escapeHtml(name)}" value="true" aria-label="${host.shell.escapeHtml(label)}">
+          </label>
+          <div data-workspace-privacy-acknowledgements class="grid gap-3" hidden>
+            <label class="flex cursor-pointer items-start gap-3 text-sm"><input class="checkbox checkbox-sm mt-0.5" type="checkbox" name="acknowledgeNoMembers" value="true"><span>I acknowledge I won’t be able to add team members.</span></label>
+            <label class="flex cursor-pointer items-start gap-3 text-sm"><input class="checkbox checkbox-sm mt-0.5" type="checkbox" name="acknowledgeNoConversion" value="true"><span>I acknowledge I won’t be able to convert this workspace later.</span></label>
+          </div>
+        </div>
+      </details>`;
     let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}">`;
     if (type === "textarea") {
       control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}">${host.shell.escapeHtml(value)}</textarea>`;
@@ -2619,7 +2631,7 @@ export function createMainViews(host: MainHost) {
         .join("")}</div>`;
     }
     if (type === "switch") {
-      control = `<input class="toggle toggle-primary" type="checkbox" name="${host.shell.escapeHtml(name)}" value="archived" aria-label="${host.shell.escapeHtml(label)}" ${value === "archived" ? "checked" : ""}>`;
+      control = `<input class="toggle toggle-primary" type="checkbox" name="${host.shell.escapeHtml(name)}" value="true" aria-label="${host.shell.escapeHtml(label)}" ${value === "true" ? "checked" : ""}>`;
     }
     if (type === "checkboxes") {
       // A plugin collection can install well over a hundred skills, and a single MCP server
@@ -2888,10 +2900,10 @@ export function createMainViews(host: MainHost) {
     triggerContext,
     stageName,
     agentRelation,
-    localOrgNotice,
-    upgradeButton,
-    LOCAL_ORG_UPGRADE_HINT,
-    CONNECTED_ORG_BETA_COPY,
+    deviceOnlyWorkspaceNotice,
+    createAnotherWorkspaceButton,
+    DEVICE_ONLY_WORKSPACE_HINT,
+    WORKSPACE_BETA_COPY,
     teamMembersContent,
     checkedFileLocations,
     fileLocationRows,
@@ -2919,7 +2931,7 @@ export function createMainViews(host: MainHost) {
     orgOnboardingContent,
     prefsThemeContent,
     prefsSigninsContent,
-    prefsOrgsContent,
+    prefsWorkspacesContent,
     prefsCreateOrgContent,
     renderPreferences,
     agentEditorFields,

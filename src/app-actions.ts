@@ -438,7 +438,7 @@ export function createMainActions(host: MainHost) {
 
   async function configureRemoteKnowledge(): Promise<void> {
     const current = await host.session.loadKnowledgePolicy();
-    const data = await edit("Organization knowledge worker", [
+    const data = await edit("Workspace knowledge worker", [
       {
         name: "url",
         label: "Single HTTPS MCP URL",
@@ -482,7 +482,7 @@ export function createMainActions(host: MainHost) {
       await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
     }
     host.session.knowledgeConnection = null;
-    host.shell.showNotice("Organization knowledge disabled", "success");
+    host.shell.showNotice("Workspace knowledge disabled", "success");
   }
 
   async function refreshLocalModelRows(): Promise<void> {
@@ -863,8 +863,10 @@ export function createMainActions(host: MainHost) {
   function edit(titleText: string, fields: EditorField[], submitLabel = "Save", footerLabel = ""): Promise<FormData | null> {
     host.shell.dialogTitle.textContent = titleText;
     const saveButton = host.shell.dialog.querySelector<HTMLButtonElement>("#editor-save");
-    if (saveButton)
+    if (saveButton) {
       saveButton.textContent = submitLabel;
+      saveButton.disabled = false;
+    }
     host.shell.dialogFooter.innerHTML = footerLabel
       ? `<button class="link link-primary text-sm" type="submit" name="__action" value="footer">${host.shell.escapeHtml(footerLabel)}</button>`
       : "";
@@ -906,6 +908,24 @@ export function createMainActions(host: MainHost) {
         }
       });
     }
+    const privacy = host.shell.dialogFields.querySelector<HTMLElement>("[data-workspace-privacy]");
+    const privateToggle = privacy?.querySelector<HTMLInputElement>('input[name="deviceOnly"]');
+    const acknowledgements = privacy?.querySelector<HTMLElement>("[data-workspace-privacy-acknowledgements]");
+    const acknowledgementBoxes = [...(acknowledgements?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])];
+    const updatePrivacy = (): void => {
+      const enabled = privateToggle?.checked ?? false;
+      if (acknowledgements)
+        acknowledgements.hidden = !enabled;
+      for (const checkbox of acknowledgementBoxes) {
+        checkbox.disabled = !enabled;
+        checkbox.required = enabled;
+      }
+      if (saveButton)
+        saveButton.disabled = enabled && !acknowledgementBoxes.every(({ checked }) => checked);
+    };
+    privateToggle?.addEventListener("change", updatePrivacy);
+    acknowledgementBoxes.forEach((checkbox) => checkbox.addEventListener("change", updatePrivacy));
+    updatePrivacy();
     linkModelThinking();
     host.shell.dialog.showModal();
     const focusFirstField = (): void => {
@@ -1915,9 +1935,9 @@ export function createMainActions(host: MainHost) {
         if (!account)
           return;
         const { membership } = await host.api.acceptMyInvitation(account.token, button.dataset.id!);
-        await host.session.connect(membership.organizationId, account.user, account.token);
-        await host.session.switchConnection(membership.organizationId, account.user.id);
-        host.shell.showNotice("Joined organization", "success");
+        await host.session.connect(membership.workspaceId, account.user, account.token);
+        await host.session.switchConnection(membership.workspaceId, account.user.id);
+        host.shell.showNotice("Joined workspace", "success");
         return;
       }
       if (action === "login-org") {
@@ -1935,7 +1955,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "invite-org-member") {
-        const data = await edit("Invite to organization", [
+        const data = await edit("Invite to workspace", [
           { name: "email", label: "Email", placeholder: "teammate@example.com" },
           {
             name: "role",
@@ -1951,37 +1971,33 @@ export function createMainActions(host: MainHost) {
         if (data) {
           const token = host.session.orgToken();
           if (!token)
-            throw new Error("Sign in to this organization first");
-          await host.api.createOrgInvitation(token, host.workspaceController.workspace.organizationId, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
+            throw new Error("Sign in to this workspace first");
+          await host.api.createWorkspaceInvitation(token, host.workspaceController.workspace.organizationId, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
           host.shell.showNotice("Invitation sent", "success");
         }
         return;
       }
-      if (action === "create-local-org") {
-        await host.session.createLocalOrg();
-        return;
-      }
-      if (action === "create-connected-org") {
-        await host.session.createConnectedOrg();
+      if (action === "create-workspace") {
+        await host.session.createWorkspace();
         return;
       }
       if (action === "rename-org") {
         const org = host.session.currentOrganization();
         if (!org)
           return;
-        const data = await edit("Rename organization", [
-          { name: "name", label: "Organization name", value: org.name }
+        const data = await edit("Rename workspace", [
+          { name: "name", label: "Workspace name", value: org.name }
         ]);
         const name = String(data?.get("name") ?? "").trim();
         if (!name)
           return;
         const renameToken = host.session.orgToken();
         if (host.session.orgIsConnected() && renameToken)
-          await host.api.renameOrganization(renameToken, org.id, name);
+          await host.api.renameWorkspace(renameToken, org.id, name);
         await host.repository.renameOrganization(org.id, name);
         await host.session.reconcileServerOrgs().catch(() => { });
         await host.workspaceController.refresh();
-        host.shell.showNotice("Organization renamed", "success");
+        host.shell.showNotice("Workspace renamed", "success");
         return;
       }
       if (action === "connect-ai") {
@@ -2155,7 +2171,7 @@ export function createMainActions(host: MainHost) {
         const org = host.session.currentOrganization();
         if (!org)
           return;
-        const data = await edit(`Delete "${org.name}"?`, [{ name: "confirm", label: "Type the organization name to confirm", placeholder: org.name }], "Delete");
+        const data = await edit(`Delete "${org.name}"?`, [{ name: "confirm", label: "Type the workspace name to confirm", placeholder: org.name }], "Delete");
         if (!data)
           return;
         if (String(data.get("confirm") ?? "").trim() !== org.name) {
@@ -2164,7 +2180,7 @@ export function createMainActions(host: MainHost) {
         }
         const deleteToken = host.session.orgToken();
         if (host.session.orgIsConnected() && deleteToken)
-          await host.api.deleteOrganization(deleteToken, org.id);
+          await host.api.deleteWorkspace(deleteToken, org.id);
         for (const key of [...host.session.connections]) {
           if (host.session.connParts(key).orgId === org.id)
             host.session.connections.delete(key);
@@ -2181,10 +2197,10 @@ export function createMainActions(host: MainHost) {
           host.workspaceController.workspace.organizationId = "";
           host.session.activeUserId = "";
           host.shell.view = "preferences";
-          host.shell.prefsTab = "orgs";
+          host.shell.prefsTab = "workspaces";
           await host.workspaceController.refresh();
         }
-        host.shell.showNotice("Organization deleted", "success");
+        host.shell.showNotice("Workspace deleted", "success");
         return;
       }
       if (action === "delete-team") {
@@ -2222,7 +2238,7 @@ export function createMainActions(host: MainHost) {
       if (action === "start-team-trial") {
         const token = host.session.orgToken();
         if (!token)
-          throw new Error("Sign in to this organization first");
+          throw new Error("Sign in to this workspace first");
         await host.api.startTeamTrial(token, host.workspaceController.workspace.organizationId);
         await host.session.reconcileServerOrgs();
         host.shell.view = "settings";
@@ -2263,7 +2279,7 @@ export function createMainActions(host: MainHost) {
         if (data) {
           const token = host.session.orgToken();
           if (!token)
-            throw new Error("Sign in to this organization first");
+            throw new Error("Sign in to this workspace first");
           const { invitation } = await host.api.createTeamInvitation(token, host.workspaceController.workspace.organizationId, button.dataset.team!, String(data.get("email") ?? ""), String(data.get("role") ?? "member") as "admin" | "member");
           host.shell.showNotice(`Invite created. Share this token: ${invitation.token}`, "success");
         }
@@ -2272,8 +2288,8 @@ export function createMainActions(host: MainHost) {
       if (action === "remove-org-member") {
         const token = host.session.orgToken();
         if (!token)
-          throw new Error("Sign in to this organization first");
-        const confirmed = await edit(`Remove ${button.dataset.email} from the organization?`, [], "Remove");
+          throw new Error("Sign in to this workspace first");
+        const confirmed = await edit(`Remove ${button.dataset.email} from the workspace?`, [], "Remove");
         if (!confirmed)
           return;
         await host.api.removeMember(token, host.workspaceController.workspace.organizationId, button.dataset.user!);
@@ -2284,7 +2300,7 @@ export function createMainActions(host: MainHost) {
       if (action === "promote-team-member") {
         const token = host.session.orgToken();
         if (!token)
-          throw new Error("Sign in to this organization first");
+          throw new Error("Sign in to this workspace first");
         await host.api.setTeamMemberRole(token, host.workspaceController.workspace.organizationId, button.dataset.team!, button.dataset.user!, "admin");
         host.shell.render();
         return;
@@ -2294,9 +2310,9 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
-      if (action === "new-organization") {
+      if (action === "new-workspace") {
         host.shell.view = "preferences";
-        host.shell.prefsTab = "orgs";
+        host.shell.prefsTab = "workspaces";
         host.shell.render();
         return;
       }
@@ -2306,7 +2322,7 @@ export function createMainActions(host: MainHost) {
         const data = await edit("New team", [{ name: "name", label: "Team name" }]);
         if (data) {
           const name = String(data.get("name") ?? "");
-          // Connected orgs are billed per team, so the server owns the count — register there first,
+          // Shared workspaces are billed per team, so the server owns the count — register there first,
           // then reuse the id it assigned so other desktops resolve the same team.
           let serverTeamId: string | undefined;
           if (host.session.orgIsConnected()) {
@@ -2381,7 +2397,7 @@ export function createMainActions(host: MainHost) {
             name: "archived",
             label: "Archived",
             type: "switch",
-            value: item.archivedAt ? "archived" : "active"
+            value: item.archivedAt ? "true" : "false"
           },
           {
             name: "files",
@@ -2391,7 +2407,7 @@ export function createMainActions(host: MainHost) {
           }
         ]);
         if (data) {
-          const archived = data.get("archived") === "archived";
+          const archived = data.get("archived") === "true";
           await host.repository.updateWorkItem(item.id, {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
@@ -2542,7 +2558,7 @@ export function createMainActions(host: MainHost) {
             label: "Location name",
             value: selected.split(/[\\/]/).filter(Boolean).at(-1) ?? "Shared files",
             hint: action === "add-org-location"
-              ? "Available to every team in this organization."
+              ? "Available to every team in this workspace."
               : "Available only to this team."
           }
         ], "Add");

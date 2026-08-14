@@ -116,7 +116,7 @@ export function createAppBootstrap(host: MainHost) {
         .find(({ id, runtime }) => id === host.localModels.wantedRunId && runtime.state === "ready");
       if (wanted)
         host.actions.runLocalModel(wanted.id);
-      await step("Preparing organization folders", () => host.workspaceController.ensureOrgFolders(), undefined);
+      await step("Preparing workspace folders", () => host.workspaceController.ensureOrgFolders(), undefined);
       host.runs.runnerId = await step("Reading this device's id", () => host.repository.getSetting("runner_id", ""), "");
       if (!host.runs.runnerId) {
         host.runs.runnerId = crypto.randomUUID();

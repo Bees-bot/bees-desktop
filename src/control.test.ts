@@ -56,7 +56,7 @@ describe("private control", () => {
       action: "model.invoke",
       subject: { userId: "maya", roles: ["member"], teamIds: ["legal"] },
       resource: { type: "model", id: "external/demo-model", attributes: {} },
-      context: { organizationId: "northstar", teamId: "legal", deviceId: "device", agentId: "reviewer" },
+      context: { workspaceId: "northstar", teamId: "legal", deviceId: "device", agentId: "reviewer" },
       activeExceptionPolicyIds: []
     };
     expect(activeExceptionPolicyIds(control, input)).toEqual(["restricted-model"]);

@@ -228,7 +228,7 @@ export function createRunController(host: MainHost) {
   }
 
   function syncService(): MetadataSyncService {
-    return new MetadataSyncService(host.repository, new HttpSyncTransport(apiBaseUrl(), "x-organization-id", host.session.orgToken));
+    return new MetadataSyncService(host.repository, new HttpSyncTransport(apiBaseUrl(), "x-workspace-id", host.session.orgToken));
   }
 
   const BACKGROUND_SYNC_MS = 30000;
@@ -791,7 +791,7 @@ export function createRunController(host: MainHost) {
       },
       resource,
       context: {
-        organizationId: host.workspaceController.workspace.organizationId,
+        workspaceId: host.workspaceController.workspace.organizationId,
         ...(host.workspaceController.workspace.teamId ? { teamId: host.workspaceController.workspace.teamId } : {}),
         deviceId: runnerId,
         ...context

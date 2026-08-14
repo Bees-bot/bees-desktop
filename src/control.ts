@@ -26,7 +26,7 @@ export interface PolicyInput {
   subject: { userId: string; roles: string[]; teamIds: string[] };
   resource: { type: string; id?: string; attributes: Record<string, unknown> };
   context: {
-    organizationId: string;
+    workspaceId: string;
     teamId?: string;
     deviceId: string;
     agentId?: string;
@@ -433,7 +433,7 @@ export async function syncControl(
         subject: { userId: identity.userId, roles: [], teamIds: [] },
         resource: { type: "control", attributes: {} },
         context: {
-          organizationId: identity.organizationId,
+          workspaceId: identity.organizationId,
           deviceId: identity.deviceId
         },
         activeExceptionPolicyIds: []

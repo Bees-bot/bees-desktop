@@ -8,7 +8,7 @@ import {
   ApiError,
   type AuthResult,
   type PendingInvitation,
-  type ServerOrganization,
+  type ServerWorkspace,
   type SessionUser
 } from "./api.js";
 import {
@@ -66,7 +66,7 @@ export function createSessionController(host: MainHost) {
     const token = orgToken(organizationId);
     if (orgIsConnected(organizationId)) {
       if (!token)
-        throw new Error("Sign in to change this organization's knowledge mode");
+        throw new Error("Sign in to change this workspace's knowledge mode");
       await host.api.putPolicy(token, organizationId, KNOWLEDGE_POLICY_KEY, policy);
     }
     await cacheKnowledgePolicy(host.repository, organizationId, policy);
@@ -98,7 +98,7 @@ export function createSessionController(host: MainHost) {
     }
     else {
       if (!existing) {
-        throw new Error("Add the remote worker token for this team under Organization → Knowledge");
+        throw new Error("Add the remote worker token for this team under Workspace → Knowledge");
       }
       connection = managedKnowledgeConnection(host.workspaceController.workspace.teamId, policy.url, existing);
     }
@@ -147,10 +147,10 @@ export function createSessionController(host: MainHost) {
   let orgBranding: Record<string, OrgBranding> = {};
 
   // Server orgs by id, so the UI knows which local orgs are team-enabled (req 3).
-  let serverOrgs = new Map<string, ServerOrganization>();
+  let serverOrgs = new Map<string, ServerWorkspace>();
 
   // Org invitations waiting for any pooled account, refreshed by reconcileServerOrgs. Only the count
-  // is used (the Preferences badge); the Orgs tab re-fetches its own rows when it renders.
+  // is used (the Preferences badge); the Workspaces tab re-fetches its own rows when it renders.
   let pendingInvitations: PendingInvitation[] = [];
 
   const SEEN_CONNECTIONS_KEY = "seen_org_connections";
@@ -173,7 +173,7 @@ export function createSessionController(host: MainHost) {
     return host.workspaceController.teams.find(({ id }) => id === host.workspaceController.workspace.teamId);
   }
 
-  function activeServerOrg(): ServerOrganization | undefined {
+  function activeServerOrg(): ServerWorkspace | undefined {
     return serverOrgs.get(host.workspaceController.workspace.organizationId);
   }
 
@@ -232,9 +232,9 @@ export function createSessionController(host: MainHost) {
     const droppedFrom = new Set<string>(); // orgs an account got removed from server-side
     let accountsChanged = false;
     for (const { user, token } of accounts.values()) {
-      let remote: ServerOrganization[];
+      let remote: ServerWorkspace[];
       try {
-        ({ organizations: remote } = await host.api.listOrganizations(token));
+        ({ workspaces: remote } = await host.api.listWorkspaces(token));
       }
       catch (error) {
         // A rejected token is signed out, not offline. Keeping it made the UI claim the account
@@ -250,7 +250,7 @@ export function createSessionController(host: MainHost) {
       // pending invite can badge the UI without the user opening Preferences. Its own catch: a
       // failure here must not cost this account its orgs.
       invitations.push(...(await host.api.myInvitations(token).then((r) => r.invitations).catch(() => [])));
-      // listOrganizations only returns orgs the account still belongs to. A connection to any org
+      // listWorkspaces only returns workspaces the account still belongs to. A connection to any workspace
       // no longer in that set means this account was removed from it — drop the stale connection.
       const ids = new Set(remote.map((org) => org.id));
       for (const key of [...connections]) {
@@ -360,7 +360,7 @@ export function createSessionController(host: MainHost) {
     else {
       await host.workspaceController.refresh();
     }
-    host.shell.showNotice("Signed out of this organization", "success");
+    host.shell.showNotice("Signed out of this workspace", "success");
   }
 
   // ---- Sign-in primitives: authenticate (setting api.token) and return the user, no org binding. ----
@@ -425,7 +425,7 @@ export function createSessionController(host: MainHost) {
     return result;
   }
 
-  /** Is the active connection still openable? Local orgs always; connected orgs need the pair. */
+  /** Is the active workspace still openable? Device-only workspaces always are; shared ones need the account pair. */
   function activeConnectionValid(): boolean {
     const orgId = host.workspaceController.workspace.organizationId;
     if (!orgId)
@@ -437,7 +437,7 @@ export function createSessionController(host: MainHost) {
 
   /**
    * If the active connection just became unopenable (signed out), move to any remaining
-   * connection — or a local org, or Preferences → Orgs when none remain. Refreshes either way.
+   * connection — or a device-only workspace, or Preferences → Workspaces when none remain.
    * Returns true if it handled the refresh (caller then skips its own).
    */
   async function moveOffHidden(): Promise<boolean> {
@@ -457,7 +457,7 @@ export function createSessionController(host: MainHost) {
     host.workspaceController.workspace.organizationId = "";
     activeUserId = "";
     host.shell.view = "preferences";
-    host.shell.prefsTab = "orgs";
+    host.shell.prefsTab = "workspaces";
     await host.workspaceController.refresh();
     return true;
   }
@@ -517,15 +517,15 @@ export function createSessionController(host: MainHost) {
    */
   async function handleInviteLink(id: string): Promise<void> {
     host.shell.view = "preferences";
-    host.shell.prefsTab = "orgs";
+    host.shell.prefsTab = "workspaces";
     for (const account of accounts.values()) {
       const invitations = await host.api.myInvitations(account.token).then((r) => r.invitations).catch(() => []);
       if (!invitations.some((invitation) => invitation.id === id))
         continue;
       const { membership } = await host.api.acceptMyInvitation(account.token, id);
-      await connect(membership.organizationId, account.user, account.token);
-      await switchConnection(membership.organizationId, account.user.id);
-      host.shell.showNotice("Joined organization", "success");
+      await connect(membership.workspaceId, account.user, account.token);
+      await switchConnection(membership.workspaceId, account.user.id);
+      host.shell.showNotice("Joined workspace", "success");
       return;
     }
     await host.workspaceController.refresh();
@@ -552,7 +552,7 @@ export function createSessionController(host: MainHost) {
       else if (routeHost === "billing") {
         // Returned from Stripe checkout; the org appears once the webhook lands, so just refresh.
         if (path.replace(/^\//, "") === "success")
-          host.shell.showNotice("Payment received — setting up your organization…", "success");
+          host.shell.showNotice("Payment received — setting up your workspace…", "success");
         void reconcileServerOrgs().catch(fail);
       }
       else {
@@ -567,9 +567,9 @@ export function createSessionController(host: MainHost) {
   }
 
   /**
-   * Can we actually open this org right now? Local orgs always; connected orgs only while an
-   * account is signed into them. Logged-out connected orgs are hidden from the switcher — you
-   * log back in from Preferences → Orgs.
+   * Can we actually open this workspace right now? Device-only workspaces always; shared ones only
+   * while an account is signed in. Logged-out shared workspaces are hidden from the switcher — you
+   * log back in from Preferences → Workspaces.
    */
   function canConnectOrg(orgId: string): boolean {
     return !orgIsConnected(orgId) || orgHasConnection(orgId);
@@ -664,53 +664,65 @@ export function createSessionController(host: MainHost) {
     await host.workspaceController.refresh();
   }
 
-  async function createLocalOrg(): Promise<void> {
-    const data = await host.actions.edit("New local organization", [
-      { name: "name", label: "Organization name", placeholder: "My workspace" }
-    ]);
-    const name = String(data?.get("name") ?? "").trim();
-    if (!name)
-      return;
+  async function createDeviceOnlyWorkspace(name: string): Promise<void> {
     const id = await host.repository.createOrganization(name);
     await host.workspaceController.ensureOrgFolders();
     await host.workspaceController.switchOrganization(id);
-    host.shell.showNotice(`Created ${name} (local)`, "success");
+    host.shell.showNotice(`Created ${name} on this device`, "success");
   }
 
-  async function createConnectedOrg(): Promise<void> {
+  async function createInviteReadyWorkspace(name: string): Promise<void> {
     // Refresh first so an expired saved session triggers sign-in instead of a doomed create call.
     await reconcileServerOrgs();
     // The chosen account owns the org (becomes admin). Need at least one account to pick from.
     let pool = [...accounts.values()];
     if (pool.length === 0) {
-      const result = await promptSignIn("Sign in to create a connected organization");
+      const result = await promptSignIn("Sign in to create a workspace");
       if (!result)
         return;
       await rememberAccount(result.user, result.token);
       pool = [...accounts.values()];
     }
-    const data = await host.actions.edit("New connected organization", [
-      { name: "beta", label: "", type: "note", value: host.views.CONNECTED_ORG_BETA_COPY },
-      { name: "name", label: "Organization name", placeholder: "Acme Inc" },
+    let account = pool[0]!;
+    if (pool.length > 1) {
+      const data = await host.actions.edit("Create workspace", [
+        {
+          name: "admin",
+          label: "Workspace owner account",
+          type: "select",
+          value: pool[0]!.user.id,
+          options: pool.map(({ user }) => ({ label: user.email, value: user.id }))
+        }
+      ], "Create workspace");
+      if (!data)
+        return;
+      account = accounts.get(String(data.get("admin") ?? account.user.id)) ?? account;
+    }
+    const { workspace } = await host.api.createWorkspace(account.token, name);
+    await connect(workspace.id, account.user, account.token);
+    await reconcileServerOrgs().catch(() => { });
+    await switchConnection(workspace.id, account.user.id);
+    host.shell.showNotice(`Created ${name}`, "success");
+  }
+
+  async function createWorkspace(): Promise<void> {
+    const data = await host.actions.edit("Create workspace", [
+      { name: "name", label: "Workspace name", placeholder: "My workspace" },
       {
-        name: "admin",
-        label: "Org admin account",
-        type: "select",
-        value: pool[0]!.user.id,
-        options: pool.map(({ user }) => ({ label: user.email, value: user.id }))
+        name: "deviceOnly",
+        label: "Make this workspace private",
+        type: "workspace-privacy"
       }
-    ], "Create");
+    ], "Create workspace");
     const name = String(data?.get("name") ?? "").trim();
     if (!data || !name)
       return;
-    const account = accounts.get(String(data.get("admin")));
-    if (!account)
-      return;
-    const { organization } = await host.api.createOrganization(account.token, name);
-    await connect(organization.id, account.user, account.token);
-    await reconcileServerOrgs().catch(() => { });
-    await switchConnection(organization.id, account.user.id);
-    host.shell.showNotice(`Created ${name}`, "success");
+    if (data.get("deviceOnly") === "true") {
+      if (data.get("acknowledgeNoMembers") !== "true" || data.get("acknowledgeNoConversion") !== "true")
+        throw new Error("Acknowledge both private workspace limitations before continuing");
+      await createDeviceOnlyWorkspace(name);
+    } else
+      await createInviteReadyWorkspace(name);
   }
 
   /**
@@ -720,7 +732,7 @@ export function createSessionController(host: MainHost) {
   async function resolveTeamPaywall(message: string): Promise<boolean> {
     const token = orgToken();
     if (!token)
-      throw new Error("Sign in to this organization first");
+      throw new Error("Sign in to this workspace first");
     const choice = await host.actions.edit("More teams", [{ name: "explain", label: "", type: "note", value: message }], "Continue", "Or request or extend your trial by 30-days (unlimited teams)");
     if (!choice)
       return false;
@@ -749,7 +761,7 @@ export function createSessionController(host: MainHost) {
   async function createServerTeam(name: string): Promise<string | null> {
     const token = orgToken();
     if (!token)
-      throw new Error("Sign in to this organization first");
+      throw new Error("Sign in to this workspace first");
     try {
       return (await host.api.createTeam(token, host.workspaceController.workspace.organizationId, name)).team.id;
     }
@@ -888,8 +900,7 @@ export function createSessionController(host: MainHost) {
     AI_PROVIDER_MODEL_PREFIX,
     aiConnectionScope,
     switchConnection,
-    createLocalOrg,
-    createConnectedOrg,
+    createWorkspace,
     createServerTeam,
     restoreSession
   };

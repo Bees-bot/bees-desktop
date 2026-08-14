@@ -138,7 +138,7 @@ export class WorkflowRuntimeClient {
   async state(workItemId: string): Promise<WorkItemRuntimeState> {
     const scope = this.scope();
     if (scope.connected) {
-      if (!scope.token) throw new Error("Sign in to access this organization's processes");
+      if (!scope.token) throw new Error("Sign in to access this workspace's processes");
       return (await this.api.workItemRuntime(scope.token, scope.organizationId, workItemId)).runtime;
     }
     return (await this.localRequest<{ runtime: WorkItemRuntimeState }>(scope.organizationId, workItemId)).runtime;
@@ -147,7 +147,7 @@ export class WorkflowRuntimeClient {
   async command(workItemId: string, command: WorkItemCommand): Promise<WorkItemRuntimeState> {
     const scope = this.scope();
     if (scope.connected) {
-      if (!scope.token) throw new Error("Sign in to change this organization's processes");
+      if (!scope.token) throw new Error("Sign in to change this workspace's processes");
       return (await this.api.commandWorkItem(scope.token, scope.organizationId, workItemId, command)).runtime;
     }
     return (

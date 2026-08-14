@@ -11,7 +11,7 @@ afterEach(() => {
 
 it("reports an unreachable server instead of the webview's opaque TypeError", async () => {
   vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Load failed")));
-  await expect(new ApiClient("http://127.0.0.1:1").createOrganization("t", "Acme")).rejects.toThrow(
+  await expect(new ApiClient("http://127.0.0.1:1").createWorkspace("t", "Acme")).rejects.toThrow(
     new ApiError("Can't reach server", 0)
   );
 });
@@ -22,7 +22,7 @@ it("keeps HTTP errors and their status", async () => {
       new Response(JSON.stringify({ error: { message: "Sign in required" } }), { status: 401 })
     )
   );
-  await expect(new ApiClient("http://127.0.0.1:1").createOrganization("t", "Acme")).rejects.toThrow(
+  await expect(new ApiClient("http://127.0.0.1:1").createWorkspace("t", "Acme")).rejects.toThrow(
     "Sign in required"
   );
 });
@@ -34,12 +34,36 @@ it("routes through Tauri's HTTP plugin only inside a dev build's webview", async
   vi.stubGlobal("fetch", webviewFetch);
   vi.mocked(tauriFetch).mockResolvedValue(new Response("{}"));
 
-  await new ApiClient("https://app.bees.bot").createOrganization("t", "Acme");
+  await new ApiClient("https://app.bees.bot").createWorkspace("t", "Acme");
   expect(webviewFetch).toHaveBeenCalledOnce();
+  expect(webviewFetch).toHaveBeenCalledWith("https://app.bees.bot/api/workspaces", expect.anything());
   expect(tauriFetch).not.toHaveBeenCalled();
 
   vi.stubGlobal("__TAURI_INTERNALS__", {});
-  await new ApiClient("https://app.bees.bot").createOrganization("t", "Acme");
+  await new ApiClient("https://app.bees.bot").createWorkspace("t", "Acme");
   expect(webviewFetch).toHaveBeenCalledOnce();
   expect(tauriFetch).toHaveBeenCalledOnce();
+});
+
+it("scopes workspace requests with the workspace header", async () => {
+  const webviewFetch = vi.fn(() => Promise.resolve(new Response('{"teams":[]}')));
+  vi.stubGlobal("fetch", webviewFetch);
+
+  await new ApiClient("https://app.bees.bot").listTeams("t", "workspace-1");
+
+  expect(webviewFetch).toHaveBeenCalledWith("https://app.bees.bot/api/teams", expect.objectContaining({
+    headers: expect.objectContaining({ "x-workspace-id": "workspace-1" })
+  }));
+});
+
+it("maps the workspace runtime contract into the local runtime model", async () => {
+  vi.stubGlobal("fetch", () => Promise.resolve(new Response(JSON.stringify({
+    runtime: { workspaceId: "workspace-1", phase: "ready" }
+  }))));
+
+  const { runtime } = await new ApiClient("https://app.bees.bot")
+    .workItemRuntime("t", "workspace-1", "item-1");
+
+  expect(runtime).toMatchObject({ organizationId: "workspace-1", phase: "ready" });
+  expect(runtime).not.toHaveProperty("workspaceId");
 });
