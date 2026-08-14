@@ -1096,16 +1096,15 @@ export function createMainViews(host: MainHost) {
           </details>`;
         };
 
-        const leftContent = [
-          renderStep("basics", true),
-          renderStep("capabilities", false)
-        ].join("");
+        const leftContent = renderStep("basics", true);
         const rightContent = renderStep("instructions", true);
+        const bottomContent = renderStep("capabilities", false);
 
-        return `<section class="grid min-w-0 gap-5 p-5 lg:grid-cols-2" data-agent-pane="${host.shell.escapeHtml(agent.id)}" ${agent.id === host.shell.configAgentId ? "" : "hidden"}>
+        return `<section class="grid min-w-0 gap-5 p-5 lg:grid-cols-5" data-agent-pane="${host.shell.escapeHtml(agent.id)}" ${agent.id === host.shell.configAgentId ? "" : "hidden"}>
           <div class="col-span-full"><h3 class="font-bold">${host.shell.escapeHtml(agent.name || "Untitled agent")}</h3></div>
-          <div class="grid content-start gap-3">${leftContent}</div>
-          <div class="grid content-start gap-3">${rightContent}</div>
+          <div class="grid content-start gap-3 lg:col-span-2">${leftContent}</div>
+          <div class="grid content-start gap-3 lg:col-span-3">${rightContent}</div>
+          <div class="col-span-full grid content-start gap-3">${bottomContent}</div>
         </section>`;
       })
       .join("");
