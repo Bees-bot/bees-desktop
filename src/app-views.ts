@@ -257,7 +257,7 @@ export function createMainViews(host: MainHost) {
                 ${active ? '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>' : ""}
               </button></li>`;
           }).join("")}
-          ${icons.length ? '<li class="my-1 border-t border-base-300" aria-hidden="true"></li>' : ""}
+          ${icons.length ? '<li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>' : ""}
           <li><button class="gap-2" data-action="new-workspace">
             <span class="grid size-6 place-items-center text-lg" aria-hidden="true">+</span>
             Create workspace
@@ -292,6 +292,7 @@ export function createMainViews(host: MainHost) {
                       data-team-view="overview" data-team="${team.id}">
                       <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary shrink-0">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
                       <span class="truncate text-[13px]">${host.shell.escapeHtml(team.name)}</span>
+                      ${selected && inboxCount ? `<span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>` : ""}
                     </button>
                     <!-- Action icons always visible — no button bg, only icon color on hover. -->
                     <div class="flex shrink-0 items-center pr-1">
@@ -301,20 +302,21 @@ export function createMainViews(host: MainHost) {
                           aria-label="More actions for ${host.shell.escapeHtml(team.name)}" title="More actions">
                           <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
                         </button>
-                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-                          <li><button data-action="browse-process-library" data-team="${team.id}">Processes</button></li>
-                          <li><button data-team-view="team-settings" data-team="${team.id}">Team settings</button></li>
+                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13.5rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-xl">
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="browse-process-library" data-team="${team.id}">${ACTION_ICONS.workflows}<span>Processes</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span>Scheduled tasks</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Run history</span></button></li>
+                          <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="team-settings" data-team="${team.id}">${ACTION_ICONS.settings}<span>Team settings</span></button></li>
                         </ul>
                       </div>
                     </div>
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">What do you want to do today?</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Overview</span></button></li>
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled tasks</span></button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "runs" ? " task-nav-btn--active" : ""}" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span class="min-w-0 truncate">Completed Runs</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
@@ -871,11 +873,12 @@ export function createMainViews(host: MainHost) {
               aria-label="More process actions" title="More process actions">
               <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
-            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
-              <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Runs</button></li>
-              <li><button data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">Schedules</button></li>
-              <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit process</button></li>
-              <li><button data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button></li>
+            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.schedule}<span>Schedules</span></button></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>
+              <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">${ACTION_ICONS.settings}<span>Dashboard settings</span></button></li>
             </ul>
           </div>
         </div>
@@ -1426,7 +1429,8 @@ export function createMainViews(host: MainHost) {
     history: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path></svg>',
     schedule: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>',
     // A flow of connected stages, not a shelf of books: this opens the workflows, not a library.
-    workflows: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="5" rx="1.2"></rect><rect x="14" y="3" width="7" height="5" rx="1.2"></rect><rect x="8.5" y="16" width="7" height="5" rx="1.2"></rect><path d="M6.5 8v3.5h11V8M12 11.5V16"></path></svg>'
+    workflows: '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="5" rx="1.2"></rect><rect x="14" y="3" width="7" height="5" rx="1.2"></rect><rect x="8.5" y="16" width="7" height="5" rx="1.2"></rect><path d="M6.5 8v3.5h11V8M12 11.5V16"></path></svg>',
+    settings: '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
   } as const;
 
   function actionIconButton(action: string, label: string, icon: string, id?: string, classes = "btn-ghost", tooltip = "tooltip-left"): string {
