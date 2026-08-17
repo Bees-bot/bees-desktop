@@ -1390,7 +1390,7 @@ export function createMainViews(host: MainHost) {
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
-              <div><h3 class="card-title text-base">${host.shell.escapeHtml(entry.name)}</h3>
+              <div><h3 class="font-bold text-lg">${host.shell.escapeHtml(entry.name)}</h3>
                 <p class="mt-1 text-sm text-muted">${host.shell.escapeHtml(entry.description)}</p></div>
               <span class="badge badge-outline badge-sm">Process Library</span>
             </div>
@@ -1501,9 +1501,9 @@ export function createMainViews(host: MainHost) {
       : `<p class="mt-1 text-sm text-muted">${serverTeams.length} of ${plan.freeTeams} free teams used — $${(plan.priceCents / 100).toFixed(2)}/${plan.interval} per team after that.${trialEnds && trialEnds > new Date()
         ? ` Trial runs to ${trialEnds.toLocaleDateString()}.`
         : ""}</p>`;
-    return `<section class="space-y-4">
-      <header class="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="font-bold">Teams</h2><p class="mt-1 text-sm text-muted">Restricted membership — admins add teammates.</p>
+    return `<section>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 class="font-bold text-lg">Teams</h2><p class="mt-1 text-sm text-muted">Restricted membership — admins add teammates.</p>
           ${planSummary}
         </div>
         <div class="flex gap-2">
@@ -1512,7 +1512,8 @@ export function createMainViews(host: MainHost) {
         : `<button class="btn btn-ghost btn-sm" data-action="start-team-trial">${trialEnds && trialEnds > new Date() ? "Extend trial 30 days" : "Start 30-day trial"}</button>`}
           <button class="btn btn-primary btn-sm" data-action="new-server-team">New team</button>
         </div>
-      </header>
+      </div>
+      <div class="mt-4 space-y-4">
       ${serverTeams.length
         ? serverTeams
           .map((team, index) => {
@@ -1520,7 +1521,7 @@ export function createMainViews(host: MainHost) {
             const admin = isAdmin(members);
             return `<article class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
                   <div class="flex items-center justify-between gap-3">
-                    <h3 class="font-bold">${host.shell.escapeHtml(team.name)}</h3>
+                    <h3 class="font-bold text-lg">${host.shell.escapeHtml(team.name)}</h3>
                     ${admin
                 ? `<button class="btn btn-primary btn-xs" data-action="invite-team-member" data-team="${team.id}">Invite</button>`
                 : `<span class="badge badge-ghost badge-sm">Member</span>`}
@@ -1542,6 +1543,7 @@ export function createMainViews(host: MainHost) {
           })
           .join("")
         : `<div class="p-12 text-center text-sm text-muted">No teams yet. Create one — you'll be its admin.</div>`}
+      </div>
     </section>`;
   }
 
@@ -1594,32 +1596,33 @@ export function createMainViews(host: MainHost) {
     }
     const globalPath = await host.repository.getSetting("global_local_path", "");
     const locations = await checkedFileLocations(await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId));
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <div class="flex items-start justify-between gap-3">
-            <div><h2 class="card-title text-base">Primary team workspace</h2>
-            <p class="mt-1 text-sm text-muted">The default home for team files and all approved agent outputs.</p></div>
-            <span class="badge ${mapping?.override ? "badge-primary" : "badge-ghost"}">${mapping?.override ? "Override" : "Inherited"}</span>
-          </div>
-          <div class="mt-3 rounded-box bg-base-200 p-4">
-            <code class="break-all text-sm">${host.shell.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
-            ${mapping?.missing ? '<p class="mt-2 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
-          </div>
-          <div class="card-actions mt-3 justify-end">
-            ${mapping?.override ? '<button class="btn btn-ghost btn-sm" data-action="use-default-folder">Use default</button>' : ""}
-            <button class="btn btn-primary btn-sm" data-action="pick-folder">Choose override</button>
-          </div>
+    return `<div class="space-y-10">
+      <section>
+        <div class="flex items-start justify-between gap-3">
+          <div><h2 class="font-bold text-lg">Primary team workspace</h2>
+          <p class="mt-1 text-sm text-muted">The default home for team files and all approved agent outputs.</p></div>
+          <span class="badge ${mapping?.override ? "badge-primary" : "badge-ghost"}">${mapping?.override ? "Override" : "Inherited"}</span>
+        </div>
+        <div class="mt-4 rounded-box bg-base-200 p-4">
+          <code class="break-all text-sm">${host.shell.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
+          ${mapping?.missing ? '<p class="mt-2 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          ${mapping?.override ? '<button class="btn btn-ghost btn-sm" data-action="use-default-folder">Use default</button>' : ""}
+          <button class="btn btn-primary btn-sm" data-action="pick-folder">Choose override</button>
         </div>
       </section>
-      <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+
+      <section>
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="card-title text-base">Linked file locations</h2>
+          <div><h2 class="font-bold text-lg">Linked file locations</h2>
             <p class="mt-1 text-sm text-muted">Workspace locations are inherited. Team locations can point anywhere on this machine, including different Google Drive folders.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-team-location">Add team location</button>
         </div>
-        <div class="grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
-        <p class="text-xs text-muted">Only the location name, scope, ID, and relative file reference sync. Absolute folder paths stay on this machine.</p>
-      </div></section>`;
+        <div class="mt-4 grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
+        <p class="mt-2 text-xs text-muted">Only the location name, scope, ID, and relative file reference sync. Absolute folder paths stay on this machine.</p>
+      </section>
+    </div>`;
   }
 
   /**
@@ -1664,53 +1667,49 @@ export function createMainViews(host: MainHost) {
   }
 
   function teamIntegrationsContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h2 class="card-title text-base">Local integrations</h2>
-          <div class="mt-2 divide-y divide-base-300">
-            <div class="py-4">
-              <div class="flex items-center justify-between gap-4">
-                <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-muted">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
-                <div class="flex gap-2">
-                  <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
-                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="browse-catalog">Browse collections</button>
-                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
-                </div>
-              </div>
-              <div class="mt-3 grid gap-2">${host.workspaceController.registries.length
-        ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
-                          <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
-                            <div class="text-xs text-muted">${registry.plugin.manifest.version ? `v${host.shell.escapeHtml(registry.plugin.manifest.version)} · ` : ""}${registry.plugin.skills.length} skill(s) · ${registry.plugin.mcpServers.length} MCP server(s) · ${registry.plugin.fileCount} copied file(s)${registry.plugin.issues.length ? ` · ${registry.plugin.issues.length} warning(s)` : ""}</div>
-                            ${registry.plugin.issues.length ? `<div class="mt-1 text-xs text-warning">${registry.plugin.issues.map((issue) => host.shell.escapeHtml(issue)).join("<br>")}</div>` : ""}</div>
-                          <div class="flex gap-2"><button class="btn btn-ghost btn-xs" data-action="refresh-registry" data-id="${registry.id}">Refresh</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-registry" data-id="${registry.id}">Remove</button></div>
-                        </div>`)
-          .join("")
-        : `<p class="text-xs text-muted">No Agent Plugins installed.</p>`}</div>
+    return `<section>
+      <h2 class="font-bold text-lg">Local integrations</h2>
+      <div class="mt-4 divide-y divide-base-300">
+        <div class="py-4">
+          <div class="flex items-center justify-between gap-4">
+            <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-muted">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
+            <div class="flex gap-2">
+              <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
+              <button class="btn btn-ghost btn-sm border border-base-300" data-action="browse-catalog">Browse collections</button>
+              <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
             </div>
-            ${skillCurationContent()}
           </div>
+          <div class="mt-4 grid gap-2">${host.workspaceController.registries.length
+    ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
+                      <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
+                        <div class="text-xs text-muted">${registry.plugin.manifest.version ? `v${host.shell.escapeHtml(registry.plugin.manifest.version)} · ` : ""}${registry.plugin.skills.length} skill(s) · ${registry.plugin.mcpServers.length} MCP server(s) · ${registry.plugin.fileCount} copied file(s)${registry.plugin.issues.length ? ` · ${registry.plugin.issues.length} warning(s)` : ""}</div>
+                        ${registry.plugin.issues.length ? `<div class="mt-1 text-xs text-warning">${registry.plugin.issues.map((issue) => host.shell.escapeHtml(issue)).join("<br>")}</div>` : ""}</div>
+                      <div class="flex gap-2"><button class="btn btn-ghost btn-xs" data-action="refresh-registry" data-id="${registry.id}">Refresh</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-registry" data-id="${registry.id}">Remove</button></div>
+                    </div>`)
+      .join("")
+    : `<p class="text-xs text-muted">No Agent Plugins installed.</p>`}</div>
         </div>
-      </section>`;
+        ${skillCurationContent()}
+      </div>
+    </section>`;
   }
 
   function teamBrowserContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <div class="flex items-start justify-between gap-4">
-            <div><h2 class="card-title text-base">Browser</h2>
-            <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
-            <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
-          </div>
-        </div>
-      </section>`;
+    return `<section>
+      <div class="flex items-start justify-between gap-4">
+        <div><h2 class="font-bold text-lg">Browser</h2>
+        <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
+        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
+      </div>
+    </section>`;
   }
 
   async function teamArchivedContent(): Promise<string> {
     const archived = (await host.repository.listProcesses(host.workspaceController.workspace.teamId, true)).filter(({ archivedAt }) => archivedAt);
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body">
-        <h2 class="card-title text-base">Archived processes</h2>
+    return `<section>
+        <h2 class="font-bold text-lg">Archived processes</h2>
         <p class="mt-1 text-sm text-muted">Restoring brings back the process, its statuses, and its dashboards.</p>
-        <div class="mt-3 grid gap-2">${archived.length
+        <div class="mt-4 grid gap-2">${archived.length
         ? archived
           .map((process) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
                     <div><div class="font-semibold">${host.shell.escapeHtml(process.name)}</div>
@@ -1719,15 +1718,15 @@ export function createMainViews(host: MainHost) {
                   </div>`)
           .join("")
         : `<p class="text-xs text-muted">No archived processes.</p>`}</div>
-      </div></section>`;
+      </section>`;
   }
 
   function teamDangerContent(): string {
-    return `<section class="card border border-error/40 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base text-error">Danger zone</h2>
-        <p class="text-sm text-muted">Deletes this team and all its processes, dashboards, and work items on this machine. Cannot be undone.</p>
-        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-team">Delete team</button></div>
-      </div></section>`;
+    return `<section>
+        <h2 class="font-bold text-lg text-error">Danger zone</h2>
+        <p class="mt-1 text-sm text-muted">Deletes this team and all its processes, dashboards, and work items on this machine. Cannot be undone.</p>
+        <div class="mt-4 flex justify-end"><button class="btn btn-error btn-sm" data-action="delete-team">Delete team</button></div>
+      </section>`;
   }
 
   
@@ -1752,49 +1751,56 @@ export function createMainViews(host: MainHost) {
              <button class="btn btn-outline btn-sm" data-action="signin-email">Email sign in</button>
              <button class="btn btn-outline btn-sm" data-action="signup-email">Create account</button>
            </div>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<div class="space-y-10">
+      <section>
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-base">${connected ? "Workspace" : "Private workspace"}</h2>
+          <h2 class="font-bold text-lg">${connected ? "Workspace" : "Private workspace"}</h2>
           <div class="flex flex-wrap gap-2">
             <span class="badge ${connected ? "badge-success" : "badge-ghost"}">${connected ? "Ready for teammates" : "On this device"}</span>
             ${connected ? '<span class="badge badge-primary">Free during beta</span>' : ""}
           </div>
         </div>
-        <p class="text-sm text-muted">${connected
+        <p class="mt-1 text-sm text-muted">${connected
         ? `Start on your own or invite teammates to coordinate across devices. ${host.shell.escapeHtml(WORKSPACE_BETA_COPY)}`
         : "Only you can use this workspace. It stays on this device, and you cannot add team members to it later."}</p>
-        ${authBlock}${createAnotherWorkspaceButton(!connected)}
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Workspace name</h2>
-        <div class="flex items-center gap-2">
+        <div class="mt-4 space-y-4">
+          ${authBlock}${createAnotherWorkspaceButton(!connected)}
+        </div>
+      </section>
+
+      <section>
+        <h2 class="font-bold text-lg">Workspace name</h2>
+        <div class="mt-4 flex items-center gap-2">
           <code class="flex-1 break-all rounded-box bg-base-200 p-3 text-sm">${host.shell.escapeHtml(host.session.currentOrganization()?.name ?? "")}</code>
           <button class="btn btn-outline btn-sm" data-action="rename-org">Rename</button>
         </div>
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <div class="flex items-center gap-3">
+      </section>
+
+      <section>
+        <div class="flex items-start gap-3">
           ${host.session.orgLogoPreview(host.workspaceController.workspace.organizationId, host.session.currentOrganization()?.name ?? "")}
-          <div class="flex-1"><h2 class="card-title text-base">Branding</h2>
-            <p class="text-sm text-muted">Logo and color shown in the workspace switcher.</p></div>
+          <div class="flex-1">
+            <h2 class="font-bold text-lg">Branding</h2>
+            <p class="mt-1 text-sm text-muted">Logo and color shown in the workspace switcher.</p>
+          </div>
           ${host.session.brandingFor(host.workspaceController.workspace.organizationId).logo
         ? `<button class="btn btn-ghost btn-sm" data-action="remove-logo">Remove logo</button>`
         : ""}
         </div>
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Color</span>
             <input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color"
               data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}"></label>
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Logo</span>
             <input class="file-input file-input-bordered w-full" type="file" accept="image/*" data-branding="logo"></label>
         </div>
-      </div></section>
-      <section class="card border border-error/40 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base text-error">Danger zone</h2>
-        <p class="text-sm text-muted">Deletes this workspace and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
-        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete workspace</button></div>
-      </div></section>
+      </section>
+
+      <section>
+        <h2 class="font-bold text-lg text-error">Danger zone</h2>
+        <p class="mt-1 text-sm text-muted">Deletes this workspace and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
+        <div class="mt-4 flex justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete workspace</button></div>
+      </section>
     </div>`;
   }
 
@@ -1811,9 +1817,10 @@ export function createMainViews(host: MainHost) {
     catch {
       return `<div class="p-8 text-center text-sm text-muted">Only workspace admins can view members.</div>`;
     }
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Members</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${memberships
+    return `<section>
+        <h2 class="font-bold text-lg">Members</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${memberships
         .map((member) => `<li class="flex items-center gap-2 px-3 py-2 text-sm">
               <span class="flex-1 truncate">${host.shell.escapeHtml(member.userId === host.session.currentUser()?.id
           ? `${member.email ?? host.session.currentUser()?.email} (you)`
@@ -1824,6 +1831,7 @@ export function createMainViews(host: MainHost) {
             : ""}</span>
             </li>`)
         .join("")}</ul>
+        </div>
       </section>`;
   }
 
@@ -1843,12 +1851,13 @@ export function createMainViews(host: MainHost) {
     catch {
       // not an admin, or none — leave the list empty
     }
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="flex items-center justify-between gap-3 border-b border-base-300 p-5">
-          <div><h2 class="font-bold">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
+    return `<section>
+        <div class="flex items-start justify-between gap-3">
+          <div><h2 class="font-bold text-lg">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
           <button class="btn btn-primary btn-sm" data-action="invite-org-member">Invite someone</button>
-        </header>
-        <ul class="divide-y divide-base-200 p-2">${pending.length
+        </div>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${pending.length
         ? pending
           .map((invitation) => `<li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                 <span class="truncate">${host.shell.escapeHtml(invitation.email)}</span>
@@ -1856,38 +1865,41 @@ export function createMainViews(host: MainHost) {
               </li>`)
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-muted">No pending invitations.</li>`}</ul>
+        </div>
       </section>`;
   }
 
   /** Preferences → Folder: the root all workspace/team folders default under. */
   async function prefsFolderContent(): Promise<string> {
     const globalPath = await host.repository.getSetting("global_local_path", "");
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Root Folder</h2>
-        <p class="text-sm text-muted">Every workspace gets a folder at <code>&lt;root-folder&gt;/&lt;workspace-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
-        <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
-      </div></section>`;
+    return `<section>
+        <h2 class="font-bold text-lg">Root Folder</h2>
+        <p class="mt-1 text-sm text-muted">Every workspace gets a folder at <code>&lt;root-folder&gt;/&lt;workspace-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
+        <div class="mt-4 rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
+        <div class="mt-4 flex justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
+      </section>`;
   }
 
   async function orgWorkspaceContent(): Promise<string> {
     const orgPath = await host.repository.getOrgFolder(host.workspaceController.workspace.organizationId);
     const locations = (await checkedFileLocations(await host.repository.listOrganizationFileLocations(host.workspaceController.workspace.organizationId))).filter(({ teamId }) => !teamId);
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Primary workspace folder</h2>
-        <p class="text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
-        <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
-      </div></section>
-      <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">Primary workspace folder</h2>
+        <p class="mt-1 text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
+        <div class="mt-4 rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
+        <div class="mt-4 flex justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
+      </section>
+      <section>
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="card-title text-base">Linked workspace locations</h2>
+          <div><h2 class="font-bold text-lg">Linked workspace locations</h2>
             <p class="mt-1 text-sm text-muted">Add as many workspace-wide locations as needed. Every team can reference them.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-org-location">Add workspace location</button>
         </div>
-        <div class="grid gap-2">${fileLocationRows(locations, () => true)}</div>
-        <p class="text-xs text-muted">Each machine maps the shared location ID to its own local folder. Bees Cloud does not synchronize absolute paths or document files.</p>
-      </div></section>`;
+        <div class="mt-4 grid gap-2">${fileLocationRows(locations, () => true)}</div>
+        <p class="mt-2 text-xs text-muted">Each machine maps the shared location ID to its own local folder. Bees Cloud does not synchronize absolute paths or document files.</p>
+      </section>
+    </div>`;
   }
 
   async function orgKnowledgeContent(): Promise<string> {
@@ -1921,8 +1933,8 @@ export function createMainViews(host: MainHost) {
         ? `This machine indexes ${sources.length} available source${sources.length === 1 ? "" : "s"}. Each source has its own local index.`
         : `All bees use one workspace-controlled endpoint: <code class="break-all">${host.shell.escapeHtml(policy.url)}</code>`;
     return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <div class="flex items-center justify-between gap-3"><h2 class="card-title text-base">Knowledge mode</h2>${active}</div>
+      <section class="space-y-4">
+        <div class="flex items-center justify-between gap-3"><h2 class="font-bold text-lg">Knowledge mode</h2>${active}</div>
         <p class="text-sm text-muted">${detail}</p>
         ${host.session.knowledgeError ? `<p class="text-sm text-error">${host.shell.escapeHtml(host.session.knowledgeError)}</p>` : ""}
         <div class="card-actions justify-end gap-2">
@@ -1931,7 +1943,7 @@ export function createMainViews(host: MainHost) {
           ${policy ? '<button class="btn btn-ghost btn-sm text-error" data-action="knowledge-disable">Disable</button>' : ""}
         </div>
         <p class="text-xs text-muted">Indexes rebuild in full once a day. A failed rebuild keeps the previous index. Bees Cloud stores only the mode and remote URL, never files, chunks, embeddings, paths, or credentials.</p>
-      </div></section>
+      </section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.shell.escapeHtml(host.session.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-muted">Workspace sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
         <ul class="divide-y divide-base-200 p-2">${sourceRows}</ul>
@@ -2017,17 +2029,17 @@ export function createMainViews(host: MainHost) {
 
   async function prefsLocalModelsContent(): Promise<string> {
     const models = await host.localModels.list();
-    return `<div class="space-y-5">
+    return `<div class="space-y-10">
       <section>
-        <h2 class="font-bold">Local AI</h2>
+        <h2 class="font-bold text-lg">Local AI</h2>
         <p class="mt-1 text-sm text-muted">Turn on Download to fetch a model, then Run to serve it. Run as many as this computer's memory can hold. Models and chats stay on this device.</p>
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <input class="input input-bordered input-sm min-w-64 flex-1" data-local-model-source
             placeholder="https://huggingface.co/…/model.gguf" aria-label="Model link or file path">
           <button class="btn btn-outline btn-sm" data-action="browse-local-model">Browse…</button>
           <button class="btn btn-primary btn-sm" data-action="add-local-model">Add</button>
         </div>
-        <div class="mt-3 overflow-x-auto rounded-box border border-base-300 bg-base-100">
+        <div class="mt-4 overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
           <table class="table table-sm">
             <thead><tr><th>Model</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
             <tbody>${models.length
@@ -2067,26 +2079,26 @@ export function createMainViews(host: MainHost) {
         </div>
       </li>`;
     }).join("");
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <header class="border-b border-base-300 p-5">
-        <h2 class="font-bold">AI Subscriptions</h2>
-        <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
-      </header>
-      <ul class="divide-y divide-base-200 p-2">
-        <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
-          <div class="min-w-0">
-            <span class="block truncate font-semibold">Codex (ChatGPT)</span>
-            <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
-          </div>
-          <div class="flex shrink-0 items-center gap-1">
-            <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
-            ${codex
-              ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
-              : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
-          </div>
-        </li>
-        ${rows}
-      </ul>
+    return `<section>
+      <h2 class="font-bold text-lg">AI Subscriptions</h2>
+      <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
+      <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <ul class="divide-y divide-base-200 p-2">
+          <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+            <div class="min-w-0">
+              <span class="block truncate font-semibold">Codex (ChatGPT)</span>
+              <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
+              ${codex
+                ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
+                : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
+            </div>
+          </li>
+          ${rows}
+        </ul>
+      </div>
     </section>`;
   }
 
@@ -2111,15 +2123,17 @@ export function createMainViews(host: MainHost) {
             </li>`)
         .join("")
       : `<li class="px-3 py-6 text-center text-sm text-muted">No AI connections yet.</li>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Cloud connections</h2>
-        <p class="text-sm text-muted">Give the current workspace's agents access to hosted AI. These connections can be active at the same time.</p>
-        <div class="flex flex-wrap gap-2">${providerButtons}</div>
-      </div></section>
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Active connections</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${list}</ul>
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">Cloud connections</h2>
+        <p class="mt-1 text-sm text-muted">Give the current workspace's agents access to hosted AI. These connections can be active at the same time.</p>
+        <div class="mt-4 flex flex-wrap gap-2">${providerButtons}</div>
+      </section>
+      <section>
+        <h2 class="font-bold text-lg">Active connections</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${list}</ul>
+        </div>
       </section>
     </div>`;
   }
@@ -2135,13 +2149,15 @@ export function createMainViews(host: MainHost) {
           <div class="flex gap-1"><button class="btn btn-ghost btn-xs" data-action="test-mcp" data-id="${connection.id}">Test / allowlist</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-mcp" data-id="${connection.id}">Remove</button></div>
         </li>`).join("")
       : `<li class="px-3 py-6 text-center text-sm text-muted">No MCP servers yet.</li>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">MCP servers</h2>
-        <p class="text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
-        <div class="flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
-      </div></section>
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${list}</ul></section>
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">MCP servers</h2>
+        <p class="mt-1 text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
+        <div class="mt-4 flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${list}</ul>
+        </div>
+      </section>
     </div>`;
   }
 
@@ -2154,35 +2170,35 @@ export function createMainViews(host: MainHost) {
     const markdown = await host.repository.getSetting(TOUR_MARKDOWN_KEY, DEFAULT_TOUR);
     const steps = parseTour(markdown);
     const custom = markdown !== DEFAULT_TOUR;
-    return `<form data-tour-form class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<form data-tour-form class="space-y-10">
+      <section>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="card-title text-base">Onboarding wizard</h2>
+          <h2 class="font-bold text-lg">Onboarding wizard</h2>
           <span class="badge ${custom ? "badge-primary" : "badge-ghost"}">${custom ? "Customized" : "Default"} · ${steps.length} step${steps.length === 1 ? "" : "s"}</span>
         </div>
-        <p class="text-sm text-muted">A guided walkthrough for people new to Bees. One
+        <p class="mt-1 text-sm text-muted">A guided walkthrough for people new to Bees. One
           <code>##</code> heading per step; the Markdown under it is what the tooltip shows. An
           optional <code>Target:</code> line says which control the arrow belongs on — without one
           the assistant reads the step and decides. It looks at the live screen each time, so
           steps keep working when the interface moves.</p>
-        <p class="text-sm text-muted">People start it from <strong>Guided tour</strong>
+        <p class="mt-1 text-sm text-muted">People start it from <strong>Guided tour</strong>
           at the bottom of the left menu, or from Getting Started.</p>
-        <textarea class="textarea textarea-bordered min-h-96 w-full font-mono text-xs leading-relaxed"
+        <textarea class="mt-4 textarea textarea-bordered min-h-96 w-full font-mono text-xs leading-relaxed"
           name="markdown" spellcheck="false">${host.shell.escapeHtml(markdown)}</textarea>
-        <div class="flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <button class="btn btn-primary btn-sm" type="submit">Save</button>
           <button class="btn btn-outline btn-sm" type="button" data-action="start-tour">Preview it</button>
           <button class="btn btn-ghost btn-sm" type="button" data-action="reset-tour">Reset to default</button>
         </div>
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
-        <h3 class="font-semibold">Steps as they will run</h3>
-        <ol class="list-decimal space-y-1 pl-5 text-sm">${steps.length
+      </section>
+      <section>
+        <h3 class="font-bold text-lg">Steps as they will run</h3>
+        <ol class="mt-4 list-decimal space-y-1 pl-5 text-sm">${steps.length
         ? steps.map(({ title, target }) => `<li><strong>${host.shell.escapeHtml(title)}</strong>${target
           ? ` <span class="text-muted">— arrow on ${host.shell.escapeHtml(target)}</span>`
           : ` <span class="text-muted">— the assistant picks the control</span>`}</li>`).join("")
         : `<li class="list-none pl-0 text-muted">No <code>##</code> headings, so the wizard has nothing to show.</li>`}</ol>
-      </div></section>
+      </section>
     </form>`;
   }
 
@@ -2205,8 +2221,8 @@ export function createMainViews(host: MainHost) {
           </div>
         </button>`)
       .join("");
-    return `<section class="px-2 pb-8 pt-2">
-        <h2 class="mb-5 text-xl font-semibold">Theme</h2>
+    return `<section>
+        <h2 class="font-bold text-lg mb-5">Theme</h2>
         <div class="mb-8 grid gap-5 sm:grid-cols-2">
           <label class="form-control gap-1.5">
             <span class="text-sm font-medium text-base-content/80">Default Dark Theme</span>
@@ -2217,7 +2233,7 @@ export function createMainViews(host: MainHost) {
             <select class="select select-bordered w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
           </label>
         </div>
-        <h3 class="mb-4 font-semibold text-base-content/80">All available themes</h3>
+        <h3 class="mb-4 font-bold text-lg text-base-content/80">All available themes</h3>
         <div class="grid gap-4 sm:grid-cols-3">${themeCards}</div>
       </section>`;
   }
@@ -2227,16 +2243,16 @@ export function createMainViews(host: MainHost) {
     const sso = Object.entries(host.session.providerLabel)
       .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
       .join("");
-    const addBlock = `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
-        <h2 class="card-title text-base">Add a sign-in</h2>
-        <div class="flex flex-col gap-2">
+    const addBlock = `<section>
+        <h2 class="font-bold text-lg">Add a sign-in</h2>
+        <div class="mt-4 flex flex-col gap-2">
           ${sso}
           <button class="btn btn-outline btn-sm justify-start" data-action="signin-email">Sign in using an email</button>
           <button class="btn btn-outline btn-sm justify-start" data-action="signup-email">Create a new account using your email</button>
         </div>
-      </div></section>`;
+      </section>`;
     if (host.session.accounts.size === 0)
-      return `<div class="space-y-5">${description}${addBlock}</div>`;
+      return `<div class="space-y-10"><section>${description}</section>${addBlock}</div>`;
     const label = (provider: string): string => provider === "credential" ? "Email" : (host.session.providerLabel[provider] ?? provider);
     // One row per signed-in account. Every account is always active — no single active one.
     const rows = await Promise.all([...host.session.accounts.values()].map(async ({ user, token }) => {
@@ -2251,11 +2267,13 @@ export function createMainViews(host: MainHost) {
           <button class="btn btn-ghost btn-sm text-error" data-action="sign-out-account" data-id="${host.shell.escapeHtml(user.id)}">Sign out</button>
         </li>`;
     }));
-    const signedInBlock = `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Signed-in accounts</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${rows.length ? rows.join("") : `<li class="px-3 py-2 text-sm text-muted">No signed-in accounts.</li>`}</ul>
+    const signedInBlock = `<section>
+        <h2 class="font-bold text-lg">Signed-in accounts</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${rows.length ? rows.join("") : `<li class="px-3 py-2 text-sm text-muted">No signed-in accounts.</li>`}</ul>
+        </div>
       </section>`;
-    return `<div class="space-y-5">${description}${addBlock}${signedInBlock}</div>`;
+    return `<div class="space-y-10"><section>${description}</section>${addBlock}${signedInBlock}</div>`;
   }
 
   /**
@@ -2324,10 +2342,13 @@ export function createMainViews(host: MainHost) {
       rows.push({ name: org.name, account: "On this device", button: `<span class="badge badge-ghost badge-sm">Device only</span>` });
     }
     rows.sort((a, b) => a.name.localeCompare(b.name) || a.account.localeCompare(b.account));
-    return `<div class="space-y-5">${prefsCreateOrgContent()}<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Workspaces</h2>
-          <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p></header>
-        <ul class="divide-y divide-base-200 p-2">${rows.length
+    return `<div class="space-y-10">
+        ${prefsCreateOrgContent()}
+        <section>
+          <h2 class="font-bold text-lg">Workspaces</h2>
+          <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p>
+          <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+            <ul class="divide-y divide-base-200 p-2">${rows.length
         ? rows
           .map((row) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                 <div class="min-w-0"><strong class="block truncate">${host.shell.escapeHtml(row.name)}</strong>
@@ -2336,17 +2357,19 @@ export function createMainViews(host: MainHost) {
               </li>`)
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-muted">No workspaces yet.</li>`}</ul>
-      </section></div>`;
+          </div>
+        </section>
+      </div>`;
   }
 
   function prefsCreateOrgContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Create a workspace</h2>
-        <p class="text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
-        <div class="card-actions justify-end">
+    return `<section>
+        <h2 class="font-bold text-lg">Create a workspace</h2>
+        <p class="mt-1 text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
+        <div class="mt-4 flex justify-end">
           <button class="btn btn-primary btn-sm" data-action="create-workspace">Create workspace</button>
         </div>
-      </div></section>`;
+      </section>`;
   }
 
     async function renderSettings(): Promise<void> {
