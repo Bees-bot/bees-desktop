@@ -34,7 +34,7 @@ describe("left menu task rows", () => {
       { id: "wrapping-up", title: "Wrapping up", isTerminal: true, open: 2 }
     ]);
 
-    expect(nav).toContain("Currently running");
+    expect(nav).toContain("Active tasks");
     expect(nav).toContain("Live task");
     // The primary task has finished, but its run still has open child work.
     expect(nav).toContain("Wrapping up");
@@ -43,7 +43,7 @@ describe("left menu task rows", () => {
 
   it("shows an empty running state instead of completed tasks", () => {
     const nav = navFor([{ id: "finished", title: "Finished task", isTerminal: true, open: 0 }]);
-    expect(nav).toContain("No tasks running.");
+    expect(nav).toContain("All caught up");
     expect(nav).not.toContain("Finished task");
   });
 });

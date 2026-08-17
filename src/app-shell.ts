@@ -50,7 +50,7 @@ export function createAppShell(host: MainHost) {
   let activeItemId = "";
 
   /** Folded teams. Not persisted: folding one is a fact about right now, not a preference. */
-  const collapsedTeams = new Set<string>();
+  const expandedTeams = new Set<string>();
 
   // The kanban card expanded inline under the board, its active tab, and — inside the Files
   // tab — the file being previewed or edited. Empty `boardItemId` means no card is expanded.
@@ -386,19 +386,29 @@ export function createAppShell(host: MainHost) {
     if (view === "team-settings")
       void host.views.renderTeamSettings();
     if (view === "getting-started") {
-      setHeader("Getting Started", "Set up Bees on this computer");
-      // The same ground as the page below, except pointed at the real controls. Offered here
-      // rather than launched automatically: a tooltip that opens itself over an app nobody has
-      // looked at yet is something to dismiss, not something to follow.
-      swap(`<div class="mx-auto max-w-3xl space-y-4">
-        <div class="flex flex-wrap items-center gap-3 rounded-box border border-primary/30 bg-primary/5 px-5 py-4">
-          <div class="min-w-0 flex-1">
-            <strong class="block text-sm">Prefer to be shown?</strong>
-            <span class="text-sm text-muted">The guided tour walks the same setup inside the app, one control at a time.</span>
+      setHeader("", ""); // We'll rely on the hero section instead of the standard header
+      swap(`<div class="mx-auto max-w-4xl px-2 pb-20 pt-16">
+        <div class="mb-14 flex flex-col items-center space-y-6 text-center">
+          <div class="grid size-16 place-items-center rounded-2xl bg-primary/10 text-3xl font-bold text-primary ring-1 ring-inset ring-primary/20">
+            B
           </div>
-          <button class="btn btn-primary btn-sm" data-action="start-tour">Start the guided tour</button>
+          <div class="space-y-3">
+            <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">Welcome to Bees.bot</h1>
+            <p class="mx-auto max-w-2xl text-[15px] leading-relaxed text-base-content/70">
+              A secure, local-first agentic workspace. Let's get you set up so you can start delegating work to your AI agents.
+            </p>
+          </div>
+          <div class="pt-2">
+            <button class="btn btn-primary btn-wide shadow-sm" data-action="start-tour">
+              Start the guided tour
+            </button>
+            <p class="mt-3 text-xs text-muted">Highly recommended for new users.</p>
+          </div>
         </div>
-        <article class="markdown-viewer rounded-box border border-base-300 bg-base-100 px-6 py-5">${renderMarkdown(GETTING_STARTED)}</article>
+        
+        <article class="getting-started-content markdown-viewer">
+          ${renderMarkdown(GETTING_STARTED)}
+        </article>
       </div>`);
     }
   }
@@ -435,11 +445,11 @@ export function createAppShell(host: MainHost) {
     set boardRootItemId(value: typeof boardRootItemId) { boardRootItemId = value; },
     get boardTab() { return boardTab; },
     set boardTab(value: typeof boardTab) { boardTab = value; },
-    teamCollapsed: (teamId: string) => collapsedTeams.has(teamId),
+    teamCollapsed: (teamId: string) => !expandedTeams.has(teamId),
     toggleTeamCollapsed: (teamId: string) => {
-      if (!collapsedTeams.delete(teamId)) collapsedTeams.add(teamId);
+      if (!expandedTeams.delete(teamId)) expandedTeams.add(teamId);
     },
-    expandTeam: (teamId: string) => collapsedTeams.delete(teamId),
+    expandTeam: (teamId: string) => expandedTeams.add(teamId),
     get boardFileRef() { return boardFileRef; },
     set boardFileRef(value: typeof boardFileRef) { boardFileRef = value; },
     get boardFileEditing() { return boardFileEditing; },

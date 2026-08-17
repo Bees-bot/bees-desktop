@@ -15,7 +15,7 @@ describe("task actions", () => {
     expect(views).toContain('icon("archive-item", `Archive ${item.title}`');
     expect(actions).toContain('label: "Archived"');
     expect(actions).toContain('type: "switch"');
-    expect(views).toContain("Currently running");
+    expect(views).toContain("Active tasks");
     expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');

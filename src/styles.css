@@ -404,6 +404,26 @@ button, input, textarea, select { font: inherit; }
 .markdown-viewer a { color: var(--color-primary); text-decoration: underline; }
 .markdown-viewer hr { margin: 1.5rem 0; border-color: var(--color-base-300); }
 
+/* Getting Started specific enhancements */
+.getting-started-content {
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+.getting-started-content p {
+  color: color-mix(in oklab, var(--color-base-content) 85%, transparent);
+}
+.getting-started-content h2 {
+  font-size: 1.35rem;
+  margin-top: 2em;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-base-300);
+}
+.getting-started-content li {
+  margin-bottom: 0.5rem;
+}
+.getting-started-content strong {
+  color: var(--color-base-content);
+}
 /* ---------------------------------------------------------------- motion */
 
 button, .card, .menu button {
@@ -474,7 +494,6 @@ button, .card, .menu button {
   padding-right: 0;
   padding-top: 0.125rem;
   padding-bottom: 0.25rem;
-  border-left: 1px solid var(--color-base-300);
   list-style: none;
 }
 .team-sub-nav li { list-style: none; }

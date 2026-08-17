@@ -177,10 +177,13 @@ export function createMainViews(host: MainHost) {
       .flatMap(({ board, process, roots }) => roots
         .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
         .map(({ item, open }) => ({ board, process, item, open })));
-    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-semibold text-muted">Currently running</p></li>
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
-        : '<li style="list-style:none"><p class="px-2 py-1 text-xs text-muted">No tasks running.</p></li>'}`;
+        : `<li style="list-style:none" class="py-4 flex flex-col items-center justify-center gap-2 text-muted">
+             <svg class="size-5 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+             <span class="text-[11px]">All caught up</span>
+           </li>`}`;
   }
 
   /**
@@ -195,7 +198,7 @@ export function createMainViews(host: MainHost) {
         <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
         <li class="dropdown dropdown-top w-full">
           <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
-            Help
+            Documentation
             <svg viewBox="0 0 24 24" class="size-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </button>
           <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mb-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
@@ -2189,33 +2192,35 @@ export function createMainViews(host: MainHost) {
   function prefsThemeContent(): string {
     const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
       .join("");
-    const themeCards = host.shell.themePresets.map((preset) => `<button class="theme-card ${preset.id === host.shell.themePreset ? "selected" : ""}"
+    const themeCards = host.shell.themePresets.map((preset) => `<button class="overflow-hidden rounded-xl border ${preset.id === host.shell.themePreset ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-base-300 hover:border-base-content/30 hover:shadow-sm"} bg-base-100 text-left transition-all"
           data-action="set-theme-preset" data-theme-preset="${preset.id}"
           data-theme="${preset.id}" aria-pressed="${preset.id === host.shell.themePreset}">
-          <div class="theme-swatches">
-            <span style="background:var(--color-primary)"></span>
-            <span style="background:var(--color-secondary)"></span>
-            <span style="background:var(--color-accent)"></span>
-            <span style="background:var(--color-base-300)"></span>
+          <div class="flex h-12 w-full">
+            <span class="flex-1" style="background:var(--color-primary)"></span>
+            <span class="flex-1" style="background:var(--color-secondary)"></span>
+            <span class="flex-1" style="background:var(--color-accent)"></span>
+            <span class="flex-1" style="background:var(--color-neutral)"></span>
           </div>
-          <div><strong class="block text-sm">${preset.name}</strong></div>
+          <div class="bg-base-100 p-3">
+             <strong class="block text-sm font-medium">${preset.name}</strong>
+          </div>
         </button>`)
       .join("");
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Theme</h2>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="form-control gap-1">
-            <span class="text-sm font-medium">Default Dark Theme</span>
-            <select class="select w-full" data-theme-default="dark">${themeOptions(host.shell.darkDefaultTheme)}</select>
+    return `<section class="px-2 pb-8 pt-2">
+        <h2 class="mb-5 text-xl font-semibold">Theme</h2>
+        <div class="mb-8 grid gap-5 sm:grid-cols-2">
+          <label class="form-control gap-1.5">
+            <span class="text-sm font-medium text-base-content/80">Default Dark Theme</span>
+            <select class="select select-bordered w-full" data-theme-default="dark">${themeOptions(host.shell.darkDefaultTheme)}</select>
           </label>
-          <label class="form-control gap-1">
-            <span class="text-sm font-medium">Default Light Theme</span>
-            <select class="select w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
+          <label class="form-control gap-1.5">
+            <span class="text-sm font-medium text-base-content/80">Default Light Theme</span>
+            <select class="select select-bordered w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
           </label>
         </div>
-        <h3 class="mt-2 font-semibold">All themes</h3>
-        <div class="grid gap-3 sm:grid-cols-3">${themeCards}</div>
-      </div></section>`;
+        <h3 class="mb-4 font-semibold text-base-content/80">All available themes</h3>
+        <div class="grid gap-4 sm:grid-cols-3">${themeCards}</div>
+      </section>`;
   }
 
   async function prefsSigninsContent(): Promise<string> {
@@ -2401,7 +2406,7 @@ export function createMainViews(host: MainHost) {
     if (host.shell.view !== "settings") return;
 
     const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+      <aside class="h-max py-2">
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
             <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
@@ -2443,7 +2448,7 @@ export function createMainViews(host: MainHost) {
     if (host.shell.view !== "team-settings") return;
 
     const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+      <aside class="h-max py-2">
         <ul class="menu menu-sm gap-0.5">
           <li><h2 class="menu-title">${host.shell.escapeHtml("Team settings")}</h2></li>
           ${teamTabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.teamTab)}" data-team-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
