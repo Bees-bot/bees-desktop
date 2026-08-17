@@ -67,10 +67,12 @@ import {
 } from "./knowledge.js";
 import {
   approvalCard,
+  conversationView,
   duration,
   runView,
   statusBadge,
   taskPlanOutput,
+  usageSummary,
   when
 } from "./launch-views.js";
 import { renderMarkdown } from "./markdown.js";
@@ -180,9 +182,8 @@ export function createMainViews(host: MainHost) {
     return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
-        : `<li style="list-style:none" class="py-4 flex flex-col items-center justify-center gap-2 text-muted">
-             <svg class="size-5 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-             <span class="text-[11px]">All caught up</span>
+        : `<li style="list-style:none" class="px-2 py-1.5 text-xs text-base-content/40">
+             No active tasks
            </li>`}`;
   }
 
@@ -272,9 +273,11 @@ export function createMainViews(host: MainHost) {
     }
     // Only the active team has execution/agent state loaded, so only its row can show a live count.
     const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
-    host.shell.teamNav.innerHTML = `<div class="mb-2 flex items-center justify-between px-2">
-        <span class="text-[11px] font-semibold text-muted">Teams</span>
-        <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
+    host.shell.teamNav.innerHTML = `<div class="mb-2.5 flex items-center justify-between px-2 pt-1">
+        <span class="text-xs font-bold uppercase tracking-wider text-base-content/70">Teams</span>
+        <button class="btn btn-ghost btn-xs size-6 min-h-0 p-0 rounded-md text-base-content/60 hover:text-base-content hover:bg-base-200" data-action="new-team" aria-label="Add team" title="Add team">
+          <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
@@ -290,8 +293,8 @@ export function createMainViews(host: MainHost) {
                     </button>
                     <button type="button" class="min-w-0 flex-1 flex items-center gap-2 px-1 py-1.5 text-left bg-transparent border-0 cursor-pointer ${selected ? "font-semibold" : ""}"
                       data-team-view="overview" data-team="${team.id}">
-                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary shrink-0">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
-                      <span class="truncate text-[13px]">${host.shell.escapeHtml(team.name)}</span>
+                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary shrink-0">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
+                      <span class="truncate text-[13.5px] font-medium text-base-content">${host.shell.escapeHtml(team.name)}</span>
                       ${selected && inboxCount ? `<span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>` : ""}
                     </button>
                     <!-- Action icons always visible — no button bg, only icon color on hover. -->
@@ -472,7 +475,18 @@ export function createMainViews(host: MainHost) {
           ${item.checkpointAt ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>` : ""}
           <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
         </div>
-        ${files.length ? `<div class="mt-2"><dt class="text-xs font-semibold text-base-content/60 mb-1">Files</dt><dd>${host.shell.escapeHtml(files.join(", "))}</dd></div>` : ""}
+        ${item.logicalFiles.length ? `<div class="mt-2">
+          <dt class="text-xs font-semibold text-base-content/60 mb-2">Files</dt>
+          <dd class="flex flex-wrap gap-2">
+            ${item.logicalFiles.map((ref, idx) => `
+              <button class="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/5 px-2.5 py-1 text-xs font-mono font-medium text-primary hover:border-primary/50 hover:bg-primary/10 hover:shadow-xs transition-all cursor-pointer"
+                data-action="view-board-file" data-ref="${host.shell.escapeHtml(ref)}" title="View ${host.shell.escapeHtml(files[idx] ?? ref)}">
+                <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 text-primary" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>${host.shell.escapeHtml(files[idx] ?? ref)}</span>
+              </button>
+            `).join("")}
+          </dd>
+        </div>` : ""}
       </dl>`;
   }
 
@@ -626,30 +640,99 @@ export function createMainViews(host: MainHost) {
    *  when it is waiting on a person. */
   function boardItemConversation(item: WorkItem, runs: Execution[]): string {
     if (!runs.length)
-      return `<p class="text-sm text-muted">This item has not run yet.</p>`;
+      return `<div class="py-10 text-center text-sm text-base-content/40">This item has not run yet.</div>`;
     const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
-    return `<div class="grid gap-3">${ordered
-      .map((run) => {
-        const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === run.id);
-        const pending = outputs.some(({ status }) => status === "pending");
-        return `<details class="rounded-box border border-base-300 bg-base-100" ${pending ? "open" : ""}>
-            <summary class="flex cursor-pointer flex-wrap items-center gap-2 p-4 font-semibold">
-              ${statusBadge(run.status)}
-              <span class="text-sm font-normal text-muted">${when(run.startedAt ?? run.createdAt)}</span>
-              ${pending ? `<span class="badge badge-warning badge-sm">Needs you</span>` : ""}
-            </summary>
-            <div class="border-t border-base-300 p-4">${runView({
-              execution: run,
-              item,
-              outputs,
-              snapshot: conversationFor(run),
-              previews: host.runs.outputPreviews
-            })}</div>
-          </details>`;
-      })
-      .join("")}</div>`;
+    // Surface the run with pending output first, otherwise the latest.
+    const primary = ordered.find(r =>
+      host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending")
+    ) ?? ordered[0]!;
+    const conversation = conversationFor(primary);
+    const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === primary.id);
+    const pending = outputs.filter(({ status }) => status === "pending");
+    const busy = ["queued", "running"].includes(primary.status);
+    const taskPlan = taskPlanOutput(primary);
+    const model = String(primary.model?.id ?? primary.model?.model ?? "");
+    const usage = usageSummary(primary);
+
+    const runDot = (r: typeof primary) => {
+      if (r.status === "running") return `<span class="inline-block size-1.5 rounded-full bg-info animate-pulse"></span>`;
+      if (r.status === "completed") return `<span class="inline-block size-1.5 rounded-full bg-success"></span>`;
+      if (r.status === "failed" || r.status === "interrupted") return `<span class="inline-block size-1.5 rounded-full bg-error"></span>`;
+      return `<span class="inline-block size-1.5 rounded-full bg-base-content/25"></span>`;
+    };
+
+    const runStrip = ordered.length > 1
+      ? `<div class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          ${ordered.map(r => {
+            const isPrimary = r.id === primary.id;
+            const hasPending = host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending");
+            return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs shrink-0 transition-all ${
+              isPrimary
+                ? "border-primary/40 bg-primary/8 font-semibold text-primary"
+                : "border-base-300 text-base-content/50 hover:text-base-content hover:border-base-content/20"
+            }" data-action="open-run" data-id="${r.id}">
+              ${runDot(r)}
+              <span>${when(r.startedAt ?? r.createdAt)}</span>
+              ${hasPending ? `<span class="size-1.5 rounded-full bg-warning shrink-0"></span>` : ""}
+            </button>`;
+          }).join("")}
+        </div>`
+      : "";
+
+    // Compact meta + action bar
+    const metaBar = `<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/40">
+        ${statusBadge(primary.status)}
+        <span>${when(primary.startedAt ?? primary.createdAt)} · ${duration(primary)}</span>
+        ${model ? `<span>${host.shell.escapeHtml(model)}</span>` : ""}
+        ${usage !== "Not reported" ? `<span>${host.shell.escapeHtml(usage)}</span>` : ""}
+        ${primary.restartedFromExecutionId ? `<button class="link link-hover text-[11px]" data-action="open-run" data-id="${primary.restartedFromExecutionId}">Earlier run</button>` : ""}
+      </div>
+      <div class="flex items-center gap-1.5">
+        ${
+          primary.status === "running"
+            ? `<button class="btn btn-error btn-xs" data-action="stop-run" data-id="${primary.id}">Stop</button>`
+            : primary.status === "queued"
+            ? `<button class="btn btn-xs" disabled>Starting…</button>`
+            : `<button class="btn btn-ghost btn-xs border border-base-300" data-action="restart-run" data-id="${primary.id}" title="Restart with current config">Restart</button>`
+        }
+        <button class="btn btn-ghost btn-xs border border-base-300" data-action="download-receipt" data-id="${primary.id}">Receipt</button>
+        <button class="btn btn-ghost btn-xs text-error/70 hover:text-error" data-action="delete-run" data-id="${primary.id}" title="Delete this run and its conversation">Delete</button>
+      </div>
+    </div>`;
+
+    return `<div class="flex flex-col gap-3">
+      ${runStrip}
+      ${metaBar}
+      <div class="h-px bg-base-200"></div>
+      ${pending.map(output => approvalCard(output, busy, taskPlan)).join("")}
+      <div class="flex flex-col gap-0">
+        ${conversationView(primary, conversation)}
+      </div>
+      <form data-run-followup="${primary.id}">
+        <label class="sr-only" for="run-followup-message-${primary.id}">Continue conversation</label>
+        <textarea id="run-followup-message-${primary.id}" name="message"
+          class="textarea w-full min-h-[5rem] resize-y rounded-xl border border-base-300 bg-base-100 text-[13px] placeholder:text-base-content/30 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
+          maxlength="20000"
+          placeholder="${busy ? "Agent is working…" : "Send a message…"}" required ${busy ? "disabled" : ""}></textarea>
+        <div class="mt-2 flex items-center justify-end">
+          <button class="btn btn-primary btn-sm gap-1.5" type="submit" ${busy ? "disabled" : ""}>
+            <span>Send</span>
+            <svg viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>`;
   }
 
+
+
+  /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
+   *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
+   *  files and still-pending run outputs both appear: a pending output is badged, reads from its
+   *  run workspace, and edits save back there until approval publishes it to the team folder.
+   *  A published file a pending output will overwrite is hidden while that output is pending —
+   *  showing both invites editing the copy approval is about to replace. */
   /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
    *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
    *  files and still-pending run outputs both appear: a pending output is badged, reads from its
@@ -662,7 +745,7 @@ export function createMainViews(host: MainHost) {
       ({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)
     );
     if (!item.logicalFiles.length && !pending.length)
-      return `<p class="text-sm text-muted">No files referenced.</p>`;
+      return `<div class="py-10 text-center text-sm text-base-content/40">No files referenced.</div>`;
     const superseded = new Set(pending.map(({ logicalDestination }) => logicalDestination));
     const visibleFiles = item.logicalFiles.filter((value) => {
       try {
@@ -675,16 +758,44 @@ export function createMainViews(host: MainHost) {
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const labels = displayFileReferences(visibleFiles, locations);
     const references = [...visibleFiles, ...pending.map(({ id }) => `${PENDING_FILE_PREFIX}${id}`)];
-    const selected = references.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
-    const chip = (reference: string, label: string, badge: string): string =>
-      `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(label)}${badge}</button>`;
-    const list = `<div class="mb-4 flex flex-wrap gap-2">${[
-      ...visibleFiles.map((reference, index) => chip(reference, labels[index] ?? reference, "")),
-      ...pending.map((output) =>
-        chip(`${PENDING_FILE_PREFIX}${output.id}`, output.logicalDestination, ` <span class="badge badge-warning badge-xs">awaiting approval</span>`))
-    ].join("")}</div>`;
+    const selected = references.includes(host.shell.boardFileRef)
+      ? host.shell.boardFileRef
+      : (references[0] ?? "");
+    if (selected && !host.shell.boardFileRef) {
+      host.shell.boardFileRef = selected;
+    }
+
+    const fileTabs = `<div class="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3">
+      ${visibleFiles.map((reference, index) => {
+        const isSelected = reference === selected;
+        const label = labels[index] ?? reference;
+        return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
+          isSelected
+            ? "border-primary/40 bg-primary/10 font-semibold text-primary shadow-xs ring-1 ring-primary/20"
+            : "border-base-300 bg-base-100 text-base-content/70 hover:border-primary/40 hover:text-primary hover:bg-base-200/50"
+        }" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}" title="${host.shell.escapeHtml(label)}">
+          <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 ${isSelected ? "text-primary" : "text-base-content/50"}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="truncate max-w-[200px]">${host.shell.escapeHtml(label)}</span>
+        </button>`;
+      }).join("")}
+      ${pending.map((output) => {
+        const reference = `${PENDING_FILE_PREFIX}${output.id}`;
+        const isSelected = reference === selected;
+        return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
+          isSelected
+            ? "border-warning/50 bg-warning/10 font-semibold text-warning shadow-xs ring-1 ring-warning/30"
+            : "border-warning/30 bg-warning/5 text-warning hover:border-warning/50 hover:bg-warning/10"
+        }" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}" title="${host.shell.escapeHtml(output.logicalDestination)} (awaiting approval)">
+          <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 text-warning" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="truncate max-w-[200px]">${host.shell.escapeHtml(output.logicalDestination)}</span>
+          <span class="badge badge-warning badge-xs">pending</span>
+        </button>`;
+      }).join("")}
+    </div>`;
+
     if (!selected)
-      return `${list}<p class="text-sm text-muted">Select a file to preview it.</p>`;
+      return `${fileTabs}<div class="py-8 text-center text-sm text-base-content/40">Select a file to preview it.</div>`;
+
     const pendingOutput = pending.find(({ id }) => `${PENDING_FILE_PREFIX}${id}` === selected);
     const fileName = pendingOutput?.logicalOutput ?? selected;
     const label = pendingOutput?.logicalDestination ?? labels[visibleFiles.indexOf(selected)] ?? selected;
@@ -694,7 +805,7 @@ export function createMainViews(host: MainHost) {
       if (pendingOutput) {
         const workspaceRef = runs.find(({ id }) => id === pendingOutput.executionId)?.workspaceRef;
         if (!workspaceRef)
-          return `${list}<div class="alert alert-error text-sm">The run workspace holding this output is no longer available.</div>`;
+          return `${fileTabs}<div class="alert alert-error text-sm">The run workspace holding this output is no longer available.</div>`;
         content = await host.workspaces.readOutput(workspaceRef, pendingOutput.logicalOutput, teamRoot);
       }
       else {
@@ -702,19 +813,19 @@ export function createMainViews(host: MainHost) {
       }
     }
     catch (error) {
-      return `${list}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
+      return `${fileTabs}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
     }
     if (content === null)
-      return `${list}<p class="text-sm text-muted">${host.shell.escapeHtml(label)} does not exist yet.</p>`;
-    const note = `<p class="mb-2 font-mono text-xs text-muted">${host.shell.escapeHtml(label)}</p>${pendingOutput
-      ? `<p class="mb-2 text-sm text-muted">Awaiting approval — approve it in the Approval tab to publish it to the team folder.</p>`
-      : ""}`;
+      return `${fileTabs}<div class="py-8 text-center text-sm text-base-content/40"><span class="font-mono text-xs">${host.shell.escapeHtml(label)}</span> does not exist yet.</div>`;
+
+    const markdown = /\.mdx?$/i.test(fileName);
+
     if (host.shell.boardFileEditing) {
-      const markdown = /\.mdx?$/i.test(fileName);
       const preview = markdown
         ? renderMarkdown(content)
         : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`;
-      return `${list}${note}<form data-board-file-form class="grid gap-3" ${markdown ? "data-markdown" : ""}>
+      return `${fileTabs}
+        <form data-board-file-form class="grid gap-3" ${markdown ? "data-markdown" : ""}>
           <input type="hidden" name="reference" value="${host.shell.escapeHtml(selected)}">
           <div class="grid grid-cols-2 gap-3">
             <textarea name="contents" class="textarea textarea-bordered h-[60vh] w-full font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
@@ -726,9 +837,27 @@ export function createMainViews(host: MainHost) {
           </div>
         </form>`;
     }
-    return `${list}${note}<article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(fileName)
-        ? renderMarkdown(content)
-        : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
+
+    const previewBody = markdown
+      ? renderMarkdown(content)
+      : `<pre class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-base-content">${host.shell.escapeHtml(content)}</pre>`;
+
+    return `${fileTabs}
+      <div class="rounded-xl border border-base-300 bg-base-100 overflow-hidden shadow-xs">
+        <div class="flex items-center justify-between border-b border-base-200 bg-base-200/40 px-4 py-2 text-xs">
+          <div class="flex items-center gap-2 font-mono text-base-content/70">
+            <svg viewBox="0 0 24 24" class="size-3.5 text-primary" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="font-medium text-base-content">${host.shell.escapeHtml(label)}</span>
+            ${pendingOutput ? `<span class="badge badge-warning badge-xs">Awaiting approval</span>` : ""}
+          </div>
+          <div class="text-[11px] text-base-content/40">
+            ${markdown ? "Markdown" : "Plain text"}
+          </div>
+        </div>
+        <article class="markdown-viewer max-h-[65vh] overflow-auto p-4 text-sm">
+          ${previewBody}
+        </article>
+      </div>`;
   }
 
   /** The Subtasks tab: the children this task is waiting on, each row opening that subtask's own
@@ -786,13 +915,13 @@ export function createMainViews(host: MainHost) {
           <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-primary/80">${host.shell.escapeHtml(stage?.name ?? "")}</p>
           <h3 class="text-xl font-semibold tracking-tight text-base-content">${host.shell.escapeHtml(item.title)}</h3>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1">
+          ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
-          ${tab !== "details" && tab !== "files"
-            ? ""
-            : `<button class="btn btn-neutral btn-sm px-4 shadow-sm"
-                data-action="${tab === "files" ? "toggle-board-file-edit" : "toggle-board-item-edit"}"
-                ${tab === "files" && !host.shell.boardFileRef ? "disabled" : ""}>Edit</button>`}
+          ${tab === "files" && host.shell.boardFileRef
+            ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
+                data-action="toggle-board-file-edit">${host.shell.boardFileEditing ? "Done editing" : "Edit file"}</button>`
+            : ""}
         </div>
       </div>
       <div role="tablist" class="flex gap-6 border-b border-base-200 mb-5 w-full">

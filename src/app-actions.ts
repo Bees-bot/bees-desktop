@@ -1446,8 +1446,15 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
+      if (action === "view-board-file") {
+        host.shell.boardTab = "files";
+        host.shell.boardFileRef = button.dataset.ref ?? "";
+        host.shell.boardFileEditing = false;
+        host.shell.render();
+        return;
+      }
       if (action === "select-board-file") {
-        host.shell.boardFileRef = button.dataset.ref === host.shell.boardFileRef ? "" : (button.dataset.ref ?? "");
+        host.shell.boardFileRef = button.dataset.ref ?? "";
         host.shell.boardFileEditing = false;
         host.shell.render();
         return;
@@ -1455,6 +1462,21 @@ export function createMainActions(host: MainHost) {
       if (action === "toggle-board-file-edit") {
         host.shell.boardFileEditing = !host.shell.boardFileEditing;
         host.shell.render();
+        return;
+      }
+      if (action === "expand-msg" || action === "collapse-msg") {
+        const id = button.dataset.msg;
+        if (!id) return;
+        const shortEl = document.querySelector(`[data-msg-short="${id}"]`);
+        const fullEl = document.querySelector(`[data-msg-full="${id}"]`);
+        if (!shortEl || !fullEl) return;
+        if (action === "expand-msg") {
+          (shortEl as HTMLElement).hidden = true;
+          (fullEl as HTMLElement).hidden = false;
+        } else {
+          (shortEl as HTMLElement).hidden = false;
+          (fullEl as HTMLElement).hidden = true;
+        }
         return;
       }
       // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the

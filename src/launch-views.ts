@@ -326,52 +326,113 @@ function readableValue(value: unknown, depth = 0): string {
 
 function toolPart(part: Extract<SnapshotPart, { kind: "tool" }>): string {
   const failed = part.state === "output-error";
-  const name = part.name;
-  const state = failed
-    ? "Tool failed"
-    : part.state === "input-available"
-      ? "Using tool"
-      : "Used tool";
+  const pending = part.state === "input-available";
   const input = readableValue(part.input).slice(0, 4_000);
   const result = readableValue(part.output).slice(0, 4_000);
-  return `<details class="my-2 rounded-lg border border-base-content/10 bg-base-200/60 px-3 py-2 text-sm">
-    <summary class="cursor-pointer font-semibold">${escapeHtml(state)} · ${escapeHtml(name)}</summary>
-    <div class="mt-2 grid gap-2">
-      ${input !== "None" ? `<div><div class="text-xs font-semibold text-muted">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
-      ${result !== "None" ? `<div><div class="text-xs font-semibold text-muted">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
+  const icon = failed
+    ? `<svg viewBox="0 0 24 24" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>`
+    : pending
+    ? `<svg viewBox="0 0 24 24" class="size-3 shrink-0 animate-spin" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`
+    : `<svg viewBox="0 0 24 24" class="size-3 shrink-0 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>`;
+  const label = `${icon}<span>${escapeHtml(part.name)}</span>`;
+  const hasDetails = (input !== "None" || result !== "None") && !pending;
+  if (!hasDetails) {
+    return `<div class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${failed ? "bg-error/10 text-error" : "bg-base-200 text-base-content/50"}">${label}</div>`;
+  }
+  return `<details class="group my-1">
+    <summary class="inline-flex cursor-pointer list-none items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${failed ? "bg-error/10 text-error" : "bg-base-200 text-base-content/50"} hover:bg-base-300/60">${label}<svg viewBox="0 0 24 24" class="size-2.5 shrink-0 opacity-50 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></summary>
+    <div class="mt-1.5 rounded bg-base-200/60 px-3 py-2 text-xs text-base-content/70">
+      ${input !== "None" ? `<div class="mb-1 font-semibold text-base-content/50">Input</div><pre class="whitespace-pre-wrap break-words font-sans">${escapeHtml(input)}</pre>` : ""}
+      ${result !== "None" ? `<div class="mb-1 mt-2 font-semibold text-base-content/50">${failed ? "Error" : "Result"}</div><pre class="whitespace-pre-wrap break-words font-sans">${escapeHtml(result)}</pre>` : ""}
     </div>
   </details>`;
+}
+
+const MSG_TRUNCATE_CHARS = 600;
+
+function truncateText(text: string): { short: string; truncated: boolean } {
+  if (text.length <= MSG_TRUNCATE_CHARS) return { short: text, truncated: false };
+  // Trim at a word boundary near the limit
+  const cut = text.lastIndexOf(" ", MSG_TRUNCATE_CHARS) > MSG_TRUNCATE_CHARS * 0.8
+    ? text.lastIndexOf(" ", MSG_TRUNCATE_CHARS)
+    : MSG_TRUNCATE_CHARS;
+  return { short: text.slice(0, cut), truncated: true };
 }
 
 function messageParts(message: SnapshotMessage): string {
   const content = message.parts
     .map((part) => {
       if (part.kind === "text") {
-        return `<div class="whitespace-pre-wrap break-words leading-relaxed">${escapeHtml(part.text)}</div>`;
+        const { short, truncated } = truncateText(part.text);
+        const id = `msg-${Math.random().toString(36).slice(2, 8)}`;
+        if (!truncated) {
+          return `<div class="whitespace-pre-wrap break-words leading-relaxed text-[13px]">${escapeHtml(part.text)}</div>`;
+        }
+        return `<div class="whitespace-pre-wrap break-words leading-relaxed text-[13px]" data-msg-collapse="${id}">
+          <span data-msg-short="${id}">${escapeHtml(short)}<span class="text-base-content/30">…</span> <button class="link link-hover text-[12px] text-primary/70 font-medium" data-action="expand-msg" data-msg="${id}">Show more</button></span>
+          <span data-msg-full="${id}" hidden>${escapeHtml(part.text)} <button class="link link-hover text-[12px] text-primary/70 font-medium" data-action="collapse-msg" data-msg="${id}">Show less</button></span>
+        </div>`;
       }
       if (part.kind === "reasoning") {
-        return `<details class="my-2 text-sm opacity-75"><summary class="cursor-pointer font-semibold">Reasoning</summary>
-          <div class="mt-2 whitespace-pre-wrap break-words">${escapeHtml(part.text)}</div></details>`;
+        return `<details class="my-1"><summary class="cursor-pointer text-[11px] text-base-content/40 hover:text-base-content/60">Reasoning</summary>
+          <div class="mt-1 whitespace-pre-wrap break-words text-xs text-base-content/50">${escapeHtml(part.text)}</div></details>`;
       }
       if (part.kind === "error") {
-        return `<div class="my-2 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-sm text-error">${escapeHtml(part.text)}</div>`;
+        return `<div class="mt-1 rounded bg-error/10 px-2 py-1 text-xs text-error">${escapeHtml(part.text)}</div>`;
       }
       if (part.kind === "tool") return toolPart(part);
       if (part.kind === "file") {
-        return `<div class="my-2 rounded-lg border border-base-content/10 px-3 py-2 text-sm">Attachment · ${escapeHtml(
-          part.name
-        )}</div>`;
+        return `<div class="inline-flex items-center gap-1 rounded bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content/60">📎 ${escapeHtml(part.name)}</div>`;
       }
       if (part.kind === "data") {
-        return `<div class="my-2 rounded-lg border border-base-content/10 px-3 py-2 text-sm">${escapeHtml(
-          part.name
-        )}: ${escapeHtml(readableValue(part.value))}</div>`;
+        return `<div class="inline-flex items-center gap-1 rounded bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content/60">${escapeHtml(part.name)}: ${escapeHtml(readableValue(part.value))}</div>`;
       }
       return "";
     })
-    .join("");
-  return content || '<span class="loading loading-dots loading-sm" aria-label="Agent is replying"></span>';
+    .join(" ");
+  return content || '<span class="loading loading-dots loading-sm opacity-40" aria-label="Agent is replying"></span>';
 }
+
+export function conversationView(
+  execution: Execution,
+  snapshot: BeesConversationSnapshotV1 | null
+): string {
+  const messages = snapshot?.messages ?? [];
+  if (!messages.length) {
+    const fallback =
+      execution.error ??
+      resultText(execution) ??
+      (["queued", "running"].includes(execution.status)
+        ? "The agent is working…"
+        : "No conversation was recorded for this run.");
+    return `<p class="text-sm text-base-content/50 py-4 text-center">${escapeHtml(fallback)}</p>`;
+  }
+  // Only text/agent messages and user messages — skip pure tool-only messages with no text
+  const visible = messages.filter(m => m.parts.some(p => p.kind === "text" || p.kind === "error" || p.kind === "reasoning" || (p.kind === "tool" && p.state === "output-error")));
+  if (!visible.length) {
+    return `<p class="text-sm text-base-content/50 py-4 text-center">Agent is working…</p>`;
+  }
+  return visible
+    .map((message) => {
+      const user = message.role === "user";
+      const tools = message.parts.filter(p => p.kind === "tool");
+      const textParts = message.parts.filter(p => p.kind !== "tool");
+      const toolsHtml = tools.length ? `<div class="mt-1 flex flex-wrap gap-1">${tools.map(p => p.kind === "tool" ? toolPart(p) : "").join("")}</div>` : "";
+      const textHtml = messageParts({ ...message, parts: textParts as typeof message.parts });
+      if (user) {
+        return `<div class="flex justify-end mb-3">
+          <div class="max-w-[82%] rounded-2xl rounded-tr-sm bg-primary/10 px-3.5 py-2.5 text-[13px] text-base-content">${textHtml}${toolsHtml}</div>
+        </div>`;
+      }
+      return `<div class="flex gap-2.5 mb-3">
+        <div class="mt-0.5 size-6 shrink-0 rounded-full bg-base-200 grid place-items-center">
+          <svg viewBox="0 0 24 24" class="size-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>
+        </div>
+        <div class="min-w-0 flex-1">${textHtml}${toolsHtml}</div>
+      </div>`;
+    })
+    .join("");
+};
 
 function resultText(execution: Execution): string | null {
   const find = (value: unknown, depth = 0): string | null => {
@@ -387,41 +448,7 @@ function resultText(execution: Execution): string | null {
   return find(execution.result);
 }
 
-function conversationView(
-  execution: Execution,
-  snapshot: BeesConversationSnapshotV1 | null
-): string {
-  const messages = snapshot?.messages ?? [];
-  if (!messages.length) {
-    const fallback =
-      execution.error ??
-      resultText(execution) ??
-      (["queued", "running"].includes(execution.status)
-        ? "The agent is working…"
-        : "No conversation was recorded for this run.");
-    return `<div class="chat chat-start">
-      <div class="chat-header mb-1 text-xs text-muted">Agent</div>
-      <div class="chat-bubble border border-base-300 bg-base-100 text-base-content">${escapeHtml(fallback)}</div>
-    </div>`;
-  }
-  return messages
-    .map((message) => {
-      const user = message.role === "user";
-      return `<div class="chat ${user ? "chat-end" : "chat-start"}">
-        <div class="chat-header mb-1 text-xs text-muted">
-          ${user ? "You" : "Agent"}${message.timestamp ? ` · ${escapeHtml(when(message.timestamp))}` : ""}
-        </div>
-        <div class="chat-bubble max-w-[88%] ${
-          user
-            ? "chat-bubble-primary"
-            : "border border-base-300 bg-base-100 text-base-content"
-        }">${messageParts(message)}</div>
-      </div>`;
-    })
-    .join("");
-}
-
-function usageSummary(execution: Execution): string {
+export function usageSummary(execution: Execution): string {
   if (!execution.usage) return "Not reported";
   const usage = execution.usage;
   const tokens = usage.totalTokens ?? usage.total_tokens ?? usage.tokens;
@@ -498,9 +525,11 @@ export function runView(input: {
               placeholder="${busy ? "Wait for the agent to finish…" : "Ask a follow-up or give more direction…"}" required ${
                 busy ? "disabled" : ""
               }></textarea>
-            <div class="mt-2 flex items-center justify-between gap-3">
-              <p class="text-xs text-muted">Enter to send · Shift+Enter for a new line</p>
-              <button class="btn btn-primary btn-sm" type="submit" ${busy ? "disabled" : ""}>Send</button>
+            <div class="mt-2 flex items-center justify-end">
+              <button class="btn btn-primary btn-sm gap-1.5" type="submit" ${busy ? "disabled" : ""}>
+                <span>Send</span>
+                <svg viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              </button>
             </div>
           </form>
         </div>
@@ -660,3 +689,4 @@ export function workItemView(input: {
         : empty("No runs yet", "This item has not run.")
     }</div>`;
 }
+

@@ -551,13 +551,13 @@ button, .card, .menu button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  min-height: 1.75rem;
+  width: 1.85rem;
+  min-height: 1.85rem;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-field);
-  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
   cursor: pointer;
   flex-shrink: 0;
   transition: color var(--motion-fast) var(--ease-ui);
@@ -573,5 +573,5 @@ button, .card, .menu button {
 .sidebar-icon-btn.text-error { color: color-mix(in oklab, var(--color-error) 55%, transparent); }
 .sidebar-icon-btn.text-error:hover,
 .sidebar-icon-btn.text-error:focus-visible { color: var(--color-error); }
-.sidebar-icon-btn svg { width: 1rem; height: 1rem; flex: none; }
+.sidebar-icon-btn svg { width: 1.1rem; height: 1.1rem; flex: none; }
 }

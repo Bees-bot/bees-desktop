@@ -529,7 +529,7 @@ describe("lean launch modules", () => {
 
     expect(html).toContain("Draft the launch note.");
     expect(html).toContain("Here is a friendlier draft.");
-    expect(html).toContain("Used tool");
+    expect(html).toContain("read_file");
     expect(html).toContain("Path: launch.md");
     expect(html).toContain("The model stopped early.");
     // A settled run offers the clean restart, never a resume of this conversation.

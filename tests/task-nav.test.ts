@@ -43,7 +43,7 @@ describe("left menu task rows", () => {
 
   it("shows an empty running state instead of completed tasks", () => {
     const nav = navFor([{ id: "finished", title: "Finished task", isTerminal: true, open: 0 }]);
-    expect(nav).toContain("All caught up");
+    expect(nav).toContain("No active tasks");
     expect(nav).not.toContain("Finished task");
   });
 });
