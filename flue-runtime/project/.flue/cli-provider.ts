@@ -1,26 +1,29 @@
-// Native agent runtimes exposed as OpenAI-completions endpoints for Flue.
-//
-// Codex runs through OpenAI's official SDK and its pinned, bundled runtime. Claude Code
-// remains an optional external adapter because its subscription login belongs to that CLI.
+// The explicitly configured Claude Code runtime exposed as an OpenAI-completions endpoint.
+// Codex is a direct pi-ai OAuth provider and does not pass through this shim.
 
-import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import { execFile, spawn } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import { mkdir, readFile, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { Hono } from "hono";
+import {
+  DEVELOPMENT_NETWORK_DOMAINS,
+  sandboxArgvLaunch
+} from "./sandbox-runtime.ts";
 import { instancePointer } from "./state.ts";
 
-export const CLI_PROVIDERS = ["claude-cli", "codex-cli"] as const;
+export const CLI_PROVIDERS = ["claude-cli"] as const;
 export type CliProvider = (typeof CLI_PROVIDERS)[number];
 
 const TIMEOUT_MS = Number(process.env.BEES_CLI_TIMEOUT_MS ?? 15 * 60 * 1000);
 const OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
 const MINIMUM_CLAUDE_VERSION = [2, 1, 219] as const;
 const checkedVersions = new Map<string, Promise<void>>();
+const CLAUDE_NETWORK_DOMAINS = [
+  ...DEVELOPMENT_NETWORK_DOMAINS,
+  "api.anthropic.com",
+  "*.anthropic.com"
+] as const;
 
 interface ChatMessage {
   role: string;
@@ -41,12 +44,6 @@ interface CliOutput {
 
 function safeEffort(value: string | undefined): string {
   return value && /^[a-z]+$/.test(value) ? value : "";
-}
-
-function codexEffort(value: string): ModelReasoningEffort | undefined {
-  return (["minimal", "low", "medium", "high", "xhigh"] as const).find(
-    (candidate) => candidate === value
-  );
 }
 
 function messageText(content: unknown): string {
@@ -132,22 +129,11 @@ export function agentEnvironment(): NodeJS.ProcessEnv {
   );
 }
 
-function claudeSettings(workspace: string): string {
+function claudeSettings(): string {
   return JSON.stringify({
     permissions: {
       disableBypassPermissionsMode: "disable",
       allow: ["Write", "Edit"]
-    },
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
-      filesystem: {
-        denyRead: ["~/"],
-        allowRead: [workspace],
-        allowWrite: [workspace]
-      },
-      network: { allowedDomains: [], strictAllowlist: true }
     }
   });
 }
@@ -160,10 +146,21 @@ function atLeast(actual: readonly number[], required: readonly number[]): boolea
   return true;
 }
 
-async function checkClaudeVersion(command: string, env: NodeJS.ProcessEnv): Promise<void> {
-  let check = checkedVersions.get(command);
+async function checkClaudeVersion(
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv
+): Promise<void> {
+  const key = `${command}\0${cwd}`;
+  let check = checkedVersions.get(key);
   if (!check) {
-    check = execFileAsync(command, ["--version"], { encoding: "utf8", env, timeout: 5_000 })
+    check = sandboxArgvLaunch(command, ["--version"], cwd, cwd, env, CLAUDE_NETWORK_DOMAINS)
+      .then((launch) => execFileAsync(launch.command, launch.args, {
+        cwd: launch.cwd,
+        encoding: "utf8",
+        env: launch.env,
+        timeout: 5_000
+      }))
       .then(({ stdout }) => {
         const match = stdout.match(/\b(\d+)\.(\d+)\.(\d+)\b/);
         const actual = match?.slice(1).map(Number) ?? [];
@@ -177,7 +174,7 @@ async function checkClaudeVersion(command: string, env: NodeJS.ProcessEnv): Prom
         if (error.code === "ENOENT") throw new Error("The configured Claude Code binary is missing");
         throw error;
       });
-    checkedVersions.set(command, check);
+    checkedVersions.set(key, check);
   }
   await check;
 }
@@ -207,7 +204,7 @@ async function runClaude(
     TMP: cwd,
     TEMP: cwd
   });
-  await checkClaudeVersion(command, env);
+  await checkClaudeVersion(command, cwd, env);
   const args = [
     "--print",
     "--output-format",
@@ -222,21 +219,42 @@ async function runClaude(
     "--tools",
     "Bash,Edit,Write",
     "--settings",
-    claudeSettings(cwd),
+    claudeSettings(),
     "--permission-mode",
     "acceptEdits",
     ...(model ? ["--model", model] : []),
     ...(effort ? ["--effort", effort] : []),
     ...(system ? ["--append-system-prompt", system] : [])
   ];
+  const launch = await sandboxArgvLaunch(
+    command,
+    args,
+    cwd,
+    cwd,
+    env,
+    CLAUDE_NETWORK_DOMAINS
+  );
+  await mkdir(launch.env.TMPDIR!, { recursive: true });
 
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(launch.command, launch.args, {
+      cwd: launch.cwd,
+      env: launch.env,
+      detached: process.platform !== "win32",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
     let stdout = "";
     let stderr = "";
     let overflow = false;
     let timedOut = false;
-    const kill = () => child.kill("SIGKILL");
+    const kill = () => {
+      try {
+        if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       kill();
@@ -281,89 +299,6 @@ async function runClaude(
   });
 }
 
-function codexHome(): string {
-  return process.env.BEES_CODEX_HOME ?? join(process.env.BEES_STATE_DIR ?? ".", "codex-home");
-}
-
-function codexClient(workspace: string): Codex {
-  const env = agentEnvironment() as Record<string, string>;
-  env.CODEX_HOME = codexHome();
-  env.HOME = workspace;
-  env.TMPDIR = workspace;
-  env.TMP = workspace;
-  env.TEMP = workspace;
-  return new Codex({
-    // Tests inject a fixture binary; production always resolves the SDK's pinned runtime.
-    ...(process.env.VITEST && process.env.BEES_CODEX_TEST_PATH
-      ? { codexPathOverride: process.env.BEES_CODEX_TEST_PATH }
-      : {}),
-    env,
-    config: {
-      allow_login_shell: false,
-      web_search: "disabled",
-      notify: [],
-      mcp_servers: {},
-      plugins: {},
-      sandbox_workspace_write: {
-        network_access: false,
-        exclude_slash_tmp: true,
-        exclude_tmpdir_env_var: true
-      },
-      shell_environment_policy: {
-        inherit: "core",
-        ignore_default_excludes: false
-      }
-    }
-  });
-}
-
-async function runCodex(
-  model: string,
-  system: string,
-  prompt: string,
-  cwd: string,
-  effort: string,
-  callerSignal?: AbortSignal
-): Promise<CliOutput> {
-  const controller = new AbortController();
-  let timedOut = false;
-  const abort = () => controller.abort(callerSignal?.reason);
-  callerSignal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort(new Error("Codex timed out"));
-  }, TIMEOUT_MS);
-  try {
-    const reasoningEffort = codexEffort(effort);
-    const thread = codexClient(cwd).startThread({
-      ...(model ? { model } : {}),
-      workingDirectory: cwd,
-      skipGitRepoCheck: true,
-      sandboxMode: "workspace-write",
-      approvalPolicy: "never",
-      networkAccessEnabled: false,
-      webSearchMode: "disabled",
-      ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
-    });
-    const turn = await thread.run(system ? `${system}\n\n${prompt}` : prompt, {
-      signal: controller.signal
-    });
-    const reasoning = turn.items
-      .filter((item): item is Extract<typeof item, { type: "reasoning" }> => item.type === "reasoning")
-      .map(({ text }) => text.trim())
-      .filter(Boolean)
-      .join("\n\n");
-    return { text: turn.finalResponse, reasoning };
-  } catch (error) {
-    if (timedOut) throw new Error(`Codex timed out after ${Math.round(TIMEOUT_MS / 1000)}s`);
-    if (callerSignal?.aborted) throw new Error("Codex was cancelled");
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    callerSignal?.removeEventListener("abort", abort);
-  }
-}
-
 /** The whole answer as one chunk, in the shape pi-ai's OpenAI client expects. */
 export function completionStream(
   model: string,
@@ -385,60 +320,7 @@ export function completionStream(
   return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`;
 }
 
-async function runBundledCodexLogin(): Promise<void> {
-  const script = require.resolve("@openai/codex/bin/codex.js");
-  const env = agentEnvironment();
-  env.CODEX_HOME = codexHome();
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [script, "login"], {
-      env,
-      detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let output = "";
-    const kill = () => {
-      try {
-        if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
-      } catch {
-        child.kill("SIGKILL");
-      }
-    };
-    const timer = setTimeout(() => {
-      kill();
-      reject(new Error("Codex sign-in timed out"));
-    }, 10 * 60 * 1000);
-    const collect = (chunk: Buffer) => {
-      const remaining = 128 * 1024 - Buffer.byteLength(output);
-      if (remaining > 0) output += chunk.subarray(0, remaining).toString();
-    };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolvePromise();
-      else reject(new Error(output.trim() || `Codex login exited with code ${code}`));
-    });
-  });
-}
-
-let login: Promise<void> | null = null;
-
 export const cliProviderRoutes = new Hono();
-
-cliProviderRoutes.post("/codex/login", async (context) => {
-  login ??= runBundledCodexLogin().finally(() => (login = null));
-  try {
-    await login;
-    return context.json({ ok: true });
-  } catch (error) {
-    return context.json({ error: (error as Error).message }, 502);
-  }
-});
 
 cliProviderRoutes.post("/cli/:provider/v1/chat/completions", async (context) => {
   const provider = context.req.param("provider") as CliProvider;
@@ -451,9 +333,7 @@ cliProviderRoutes.post("/cli/:provider/v1/chat/completions", async (context) => 
     const workspace = await workspaceFor(instanceId);
     const { system, prompt } = flattenPrompt(body.messages ?? [], workspace);
     const effort = safeEffort(body.reasoning_effort);
-    const output = provider === "codex-cli"
-      ? await runCodex(model, system, prompt, workspace, effort, context.req.raw.signal)
-      : await runClaude(model, system, prompt, workspace, effort, context.req.raw.signal);
+    const output = await runClaude(model, system, prompt, workspace, effort, context.req.raw.signal);
     return new Response(
       completionStream(body.model ?? model, output, !!body.stream_options?.include_usage),
       { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } }

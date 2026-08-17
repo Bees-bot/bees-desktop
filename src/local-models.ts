@@ -8,6 +8,7 @@ import { GOOGLE_MODELS } from "@earendil-works/pi-ai/providers/google.models";
 import { GROQ_MODELS } from "@earendil-works/pi-ai/providers/groq.models";
 import { MISTRAL_MODELS } from "@earendil-works/pi-ai/providers/mistral.models";
 import { OPENAI_MODELS } from "@earendil-works/pi-ai/providers/openai.models";
+import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
 import { OPENROUTER_MODELS } from "@earendil-works/pi-ai/providers/openrouter.models";
 import { TOGETHER_MODELS } from "@earendil-works/pi-ai/providers/together.models";
@@ -16,6 +17,7 @@ import type { ThinkingLevel } from "./domain.js";
 
 export const LOCAL_PROVIDER_MODEL = "bees-local/active";
 export const DEFAULT_LOCAL_MODEL_ID = "nanbeige-4-2-3b-q6-k";
+export const DEFAULT_CODEX_MODEL_ID = "gpt-5.6-sol";
 
 export const LOCAL_PROVIDER = "bees-local";
 
@@ -32,10 +34,9 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
     label: "Anthropic",
     models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]
   },
-  // Native agent runtimes, not plain chat APIs. `default` leaves model selection to the
-  // subscription runtime, which is more durable than pinning a name the account may not expose.
+  // Claude Code remains a native agent runtime. Codex uses pi-ai's ChatGPT OAuth provider.
   { id: "claude-cli", label: "Claude Code (CLI)", models: ["default", "sonnet", "opus", "haiku"] },
-  { id: "codex-cli", label: "Codex (bundled)", models: ["default"] },
+  { id: "openai-codex", label: "Codex (ChatGPT)", models: Object.keys(OPENAI_CODEX_MODELS) },
   // Deliberately short: every id the provider's pi-ai catalog carries works, and custom
   // ids can be added through the assistant model picker.
   {
@@ -73,6 +74,7 @@ const PI_MODEL_CATALOGS = {
   google: GOOGLE_MODELS,
   groq: GROQ_MODELS,
   mistral: MISTRAL_MODELS,
+  "openai-codex": OPENAI_CODEX_MODELS,
   openai: OPENAI_MODELS,
   "opencode-go": OPENCODE_GO_MODELS,
   openrouter: OPENROUTER_MODELS,
@@ -107,8 +109,7 @@ export function thinkingOptionsForModel(config: { provider?: string; model?: str
     ];
   }
   const cliLevels: Record<string, ThinkingLevel[]> = {
-    "claude-cli": ["low", "medium", "high", "xhigh", "max"],
-    "codex-cli": ["minimal", "low", "medium", "high", "xhigh"]
+    "claude-cli": ["low", "medium", "high", "xhigh", "max"]
   };
   const piModel = PI_MODEL_CATALOGS[provider]?.[modelId];
   const levels = cliLevels[provider] ??

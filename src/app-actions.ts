@@ -11,8 +11,10 @@ import {
   AI_PROVIDER_LABEL,
   addAiConnection,
   connectApiKey,
+  connectOAuthCredential,
   listAiConnections,
   removeAiConnection,
+  type ApiKeyProvider,
   type AiProvider
 } from "./ai-connections.js";
 import { withBridgeUrl } from "./api-bridge.js";
@@ -97,7 +99,7 @@ import {
   parseModelRef,
   thinkingOptionsForModel
 } from "./local-models.js";
-import type { KnowledgeRuntimeInfo, MainHost, OrgTab, PrefsTab, TeamTab } from "./main.js";
+import type { KnowledgeRuntimeInfo, MainHost, SettingsTab, TeamTab } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
 import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
@@ -578,7 +580,7 @@ export function createMainActions(host: MainHost) {
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
   }
 
-  async function connectAiProvider(provider: AiProvider): Promise<void> {
+  async function connectAiProvider(provider: ApiKeyProvider): Promise<void> {
     host.shell.showNotice(host.session.AI_PROVIDER_HINT[provider], "info");
     const data = await edit(`Connect ${AI_PROVIDER_LABEL[provider]}`, [
       ...(provider === "openai-compatible"
@@ -1312,18 +1314,13 @@ export function createMainActions(host: MainHost) {
     try {
       if (button.dataset.view) {
         host.shell.view = button.dataset.view as View;
-        if (button.dataset.prefs)
-          host.shell.prefsTab = button.dataset.prefs as PrefsTab;
+        if (button.dataset.settingsTab)
+          host.shell.settingsTab = button.dataset.settingsTab as SettingsTab;
         host.shell.render();
         return;
       }
-      if (button.dataset.prefsTab) {
-        host.shell.prefsTab = button.dataset.prefsTab as PrefsTab;
-        host.shell.render();
-        return;
-      }
-      if (button.dataset.orgTab) {
-        host.shell.orgTab = button.dataset.orgTab as OrgTab;
+      if (button.dataset.settingsTab) {
+        host.shell.settingsTab = button.dataset.settingsTab as SettingsTab;
         host.shell.render();
         return;
       }
@@ -1515,7 +1512,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "open-folder-settings") {
-        host.shell.teamTab = "folder";
+        host.shell.settingsTab = "team-folder";
         host.shell.view = "settings";
         host.shell.render();
         return;
@@ -2025,7 +2022,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "connect-ai") {
-        await connectAiProvider(button.dataset.provider as AiProvider);
+        await connectAiProvider(button.dataset.provider as ApiKeyProvider);
         return;
       }
       if (action === "remove-ai-connection") {
@@ -2105,13 +2102,35 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "codex-login") {
         const { baseUrl, token } = await host.ensureFlueRuntime();
-        host.shell.showNotice("Opening the Codex sign-in page…", "info");
-        const response = await tauriFetch(`${baseUrl}/codex/login`, {
+        host.shell.showNotice("Starting Codex sign-in…", "info");
+        const started = await tauriFetch(`${baseUrl}/oauth/openai-codex/start`, {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
         });
-        const result = await response.json() as { ok?: boolean; error?: string };
-        if (!response.ok || !result.ok) throw new Error(result.error ?? "Codex sign-in failed");
+        const device = await started.json() as {
+          verificationUri?: string;
+          userCode?: string;
+          error?: string;
+        };
+        if (!started.ok || !device.verificationUri || !device.userCode)
+          throw new Error(device.error ?? "Codex sign-in failed");
+        await openUrl(device.verificationUri);
+        host.shell.showNotice(`Enter Codex code ${device.userCode} in your browser`, "info");
+        const completed = await tauriFetch(`${baseUrl}/oauth/openai-codex/await`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` }
+        });
+        const result = await completed.json() as { credential?: string; error?: string };
+        if (!completed.ok || !result.credential)
+          throw new Error(result.error ?? "Codex sign-in failed");
+        const { connection, secret } = connectOAuthCredential("openai-codex", result.credential);
+        await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
+        try {
+          await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
+        } catch (error) {
+          await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
+          throw error;
+        }
         await host.assistant.refreshAssistantCatalog();
         host.shell.showNotice("Codex is signed in", "success");
         return;
@@ -2218,8 +2237,8 @@ export function createMainActions(host: MainHost) {
         else {
           host.workspaceController.workspace.organizationId = "";
           host.session.activeUserId = "";
-          host.shell.view = "preferences";
-          host.shell.prefsTab = "workspaces";
+          host.shell.view = "settings";
+          host.shell.settingsTab = "workspaces";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Workspace deleted", "success");
@@ -2243,7 +2262,7 @@ export function createMainActions(host: MainHost) {
         }
         else {
           host.workspaceController.workspace.teamId = "";
-          host.shell.view = "preferences";
+          host.shell.view = "settings";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Team deleted", "success");
@@ -2264,7 +2283,7 @@ export function createMainActions(host: MainHost) {
         await host.api.startTeamTrial(token, host.workspaceController.workspace.organizationId);
         await host.session.reconcileServerOrgs();
         host.shell.view = "settings";
-        host.shell.teamTab = "members";
+        host.shell.settingsTab = "team-members";
         await host.workspaceController.refresh();
         host.shell.showNotice("Trial running for 30 days", "success");
         return;
@@ -2333,8 +2352,8 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "new-workspace") {
-        host.shell.view = "preferences";
-        host.shell.prefsTab = "workspaces";
+        host.shell.view = "settings";
+        host.shell.settingsTab = "workspaces";
         host.shell.render();
         return;
       }
@@ -2523,7 +2542,7 @@ export function createMainActions(host: MainHost) {
         // Asked for only where the button reads "Delete". Archiving is reversible from
         // Team settings → Archived, but its work items go off the board either way.
         if (button.dataset.confirm && process &&
-          !confirm(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`))
+          !(await edit(`Delete ${process.name}? Its board and tasks are archived with it, and can be restored from Team settings → Archived.`, [], "Delete")))
           return;
         await host.repository.archiveProcess(button.dataset.id!);
         if (host.shell.configProcessId === button.dataset.id) {
@@ -2605,7 +2624,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "remove-file-location") {
-        if (!confirm(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`))
+        if (!(await edit(`Remove the linked location "${button.dataset.name}"? Files in the folder will not be deleted.`, [], "Remove")))
           return;
         await host.repository.deleteFileLocation(button.dataset.id!);
         await host.workspaceController.refresh();

@@ -4,13 +4,17 @@
 
 import { createProvider } from "@earendil-works/pi-ai";
 import type { Model, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import { setProvider } from "@flue/runtime";
 import type { CompactionConfig } from "@flue/runtime";
 import { CLI_PROVIDERS, type CliProvider } from "./cli-provider.ts";
+import { aiConnectionSecret } from "./credentials.ts";
 
 const selfUrl = process.env.BEES_SELF_URL ?? "http://127.0.0.1:1";
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
+export const OPENAI_CODEX_PROVIDER = "openai-codex";
 
 /**
  * Used when a local model is not in the map below — it started outside this runtime's view,
@@ -41,11 +45,11 @@ function parseWindows(raw: string | undefined): Record<string, number> {
 }
 
 /**
- * Windows the CLIs really have. They matter more than they look: the shim re-sends the
+ * Window Claude Code really has. It matters more than it looks: the shim re-sends the
  * whole transcript on every turn (there is no CLI-side session to absorb growth), so this
  * number is the only thing deciding when Bees compacts.
  *
- * `maxTokens` caps the compaction reserve, and the CLIs bill the user's own subscription,
+ * `maxTokens` caps the compaction reserve, and the CLI bills the user's own subscription,
  * so these are the published output limits rather than anything Bees enforces.
  */
 const CLI_MODELS: Record<CliProvider, { contextWindow: number; maxTokens: number; thinking: ThinkingLevelMap }> = {
@@ -63,23 +67,6 @@ const CLI_MODELS: Record<CliProvider, { contextWindow: number; maxTokens: number
       high: "high",
       xhigh: "xhigh",
       max: "max"
-    }
-  },
-  // `codex exec -c model_reasoning_effort=` takes minimal|low|medium|high|xhigh — no "max".
-  // Same reason for always sending a value, and a sharper one: codex reads
-  // `~/.codex/config.toml` on every exec, so an unset effort means the user's global
-  // config quietly overrides whatever the agent asked for.
-  "codex-cli": {
-    contextWindow: 400_000,
-    maxTokens: 128_000,
-    thinking: {
-      off: "minimal",
-      minimal: "minimal",
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "xhigh",
-      max: "xhigh"
     }
   },
 };
@@ -228,6 +215,30 @@ export function registerOpenAICompatibleProvider(): void {
       api: openAICompletionsApi()
     })
   );
+}
+
+/** Replace Flue's in-memory OAuth store with Bees' OS-vault credential resolver. */
+export function registerOpenAICodexProvider(): void {
+  const secretRef = process.env.BEES_OPENAI_CODEX_SECRET_REF ?? "";
+  const organizationId = process.env.BEES_OPENAI_CODEX_ORGANIZATION_ID ?? "";
+  const connectionId = process.env.BEES_OPENAI_CODEX_CONNECTION_ID ?? "";
+  if (!secretRef || !organizationId || !connectionId) return;
+  setProvider(createProvider({
+    id: OPENAI_CODEX_PROVIDER,
+    name: "OpenAI Codex",
+    baseUrl: "https://chatgpt.com/backend-api",
+    auth: {
+      apiKey: {
+        name: "OpenAI (ChatGPT Plus/Pro)",
+        resolve: async () => ({
+          auth: { apiKey: await aiConnectionSecret(secretRef, organizationId, connectionId) },
+          source: "ChatGPT OAuth"
+        })
+      }
+    },
+    models: Object.values(OPENAI_CODEX_MODELS),
+    api: openAICodexResponsesApi()
+  }));
 }
 
 /**
