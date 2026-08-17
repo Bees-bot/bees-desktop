@@ -386,6 +386,10 @@ export async function workItemWorkflow(input: WorkItemWorkflowInput): Promise<Wo
   });
 
   while (true) {
+    // An update can change `generation` while this loop is between observing it and arming the
+    // timer below. Waiting here keeps that timer out of the update's accepted/completed history,
+    // where Temporal could not reproduce it after a worker restart.
+    await condition(allHandlersFinished);
     const now = Date.now();
     let expired = false;
     if (state.claim && Date.parse(state.claim.expiresAt) <= now) {

@@ -131,6 +131,31 @@ async function state(organizationId, workItemId) {
   return configured(await ensure(input), input);
 }
 
+function isNondeterminism(error) {
+  let message = "";
+  for (let value = error, depth = 0; value && depth < 5; depth++) {
+    message += ` ${typeof value?.message === "string" ? value.message : String(value)}`;
+    value = value?.cause;
+  }
+  return message.includes("TMPRL1100") || message.includes("Workflow Task in failed state");
+}
+
+async function setArchived(input, archived) {
+  let handle = await ensure(input);
+  await handle.signal(archiveStateSignal, archived);
+  try {
+    return await handle.query(stateQuery);
+  } catch (error) {
+    if (!isNondeterminism(error)) throw error;
+    // ponytail: invalid history cannot expose runtime-only schedules. Replace only that broken
+    // run so archive works; reconstruct history if recovered schedules ever need to be retained.
+    await handle.terminate("Recovering a task with invalid workflow history");
+    handle = await ensure(input);
+    await handle.signal(archiveStateSignal, archived);
+    return handle.query(stateQuery);
+  }
+}
+
 async function command(organizationId, workItemId, value) {
   const input = workflowInput(organizationId, workItemId);
   if (value.type === "wait" && value.dependencyWorkItemId) {
@@ -152,7 +177,8 @@ async function command(organizationId, workItemId, value) {
   if (value.type === "archive" || value.type === "restore") {
     // A signal is still accepted when a long-lived workflow has exhausted Temporal's Update
     // limit. The workflow rotates its history after applying this state change.
-    await handle.signal(archiveStateSignal, value.type === "archive");
+    const archived = value.type === "archive";
+    const state = await setArchived(input, archived);
     if (value.type === "archive") {
       // Archiving a task archives its whole subtask tree with it.
       const descendants = database
@@ -169,10 +195,10 @@ async function command(organizationId, workItemId, value) {
         .all(workItemId);
       for (const { id } of descendants) {
         const descendant = workflowInput(organizationId, String(id));
-        await (await ensure(descendant)).signal(archiveStateSignal, true);
+        await setArchived(descendant, true);
       }
     }
-    return handle.query(stateQuery);
+    return state;
   }
   if (value.type !== "configure" && value.type !== "archive") await configured(handle, input);
   const result = await handle.executeUpdate(commandUpdate, { args: [value] });

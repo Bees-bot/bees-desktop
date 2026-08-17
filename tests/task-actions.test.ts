@@ -23,6 +23,8 @@ describe("task actions", () => {
     expect(actions).toContain("await host.runCoordinator.stop(execution.id)");
     expect(actions).toContain("The task will appear in Completed Runs with an Archived outcome.");
     expect(runtime).toContain("handle.signal(archiveStateSignal");
+    expect(runtime).toContain("await handle.terminate(\"Recovering a task with invalid workflow history\")");
+    expect(workflow).toContain("await condition(allHandlersFinished);\n    const now = Date.now();");
     expect(workflow).toContain("commands = CONTINUE_AFTER_COMMANDS");
   });
 
