@@ -1,5 +1,6 @@
 import {
   AI_PROVIDER_LABEL,
+  availableAiConnectionIds,
   listAiConnections,
   type AiProvider
 } from "./ai-connections.js";
@@ -2204,11 +2205,13 @@ export function createMainViews(host: MainHost) {
 
   /** Codex connects directly through pi-ai OAuth; Claude remains an explicit CLI choice. */
   async function cliToolsSection(): Promise<string> {
-    const [installed, connections] = await Promise.all([
+    const [installed, connections, availableConnectionIds] = await Promise.all([
       configuredCliTools().catch(() => ({}) as Record<string, CliToolPath>),
-      listAiConnections(host.repository, host.session.aiConnectionScope())
+      listAiConnections(host.repository, host.session.aiConnectionScope()),
+      availableAiConnectionIds(host.session.aiConnectionScope()).catch(() => new Set<string>())
     ]);
     const codex = connections.find(({ provider }) => provider === "openai-codex");
+    const codexAvailable = Boolean(codex && availableConnectionIds.has(codex.id));
     const rows = CLI_TOOLS.map((tool) => {
       const found = installed[tool.id];
       return `<li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
@@ -2241,7 +2244,7 @@ export function createMainViews(host: MainHost) {
               <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-              <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
+              <span class="badge badge-sm ${codexAvailable ? "badge-success" : "badge-ghost"}">${codexAvailable ? "Connected" : codex ? "Credential missing" : "Not connected"}</span>
               ${codex
                 ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
                 : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}

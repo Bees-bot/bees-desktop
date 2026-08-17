@@ -1296,10 +1296,10 @@ struct StoredAiConnection {
     base_url: Option<String>,
 }
 
-fn provider_environment(
+fn stored_ai_connections(
     app: &tauri::AppHandle,
     organization_id: &str,
-) -> Result<BTreeMap<String, String>, String> {
+) -> Result<Vec<StoredAiConnection>, String> {
     let database = app.state::<Database>();
     let connection = database.0.lock().map_err(|error| error.to_string())?;
     let value: Option<String> = connection
@@ -1310,14 +1310,35 @@ fn provider_environment(
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    let connections = value
+    Ok(value
         .as_deref()
-        .and_then(|value| serde_json::from_str::<Vec<StoredAiConnection>>(value).ok())
-        .unwrap_or_default();
+        .and_then(|value| serde_json::from_str(value).ok())
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+fn available_ai_connection_ids(
+    app: tauri::AppHandle,
+    organization_id: String,
+) -> Result<Vec<String>, String> {
+    let organization_id = safe_identifier(&organization_id, "organization ID")?;
+    Ok(stored_ai_connections(&app, &organization_id)?
+        .into_iter()
+        .filter(|stored| read_secret(&stored.secret_ref).is_ok())
+        .map(|stored| stored.id)
+        .collect())
+}
+
+fn provider_environment(
+    app: &tauri::AppHandle,
+    organization_id: &str,
+) -> Result<BTreeMap<String, String>, String> {
     let mut environment = BTreeMap::new();
-    for stored in connections {
+    for stored in stored_ai_connections(app, organization_id)? {
         if stored.provider == "openai-codex" {
-            if !environment.contains_key("BEES_OPENAI_CODEX_SECRET_REF") {
+            if !environment.contains_key("BEES_OPENAI_CODEX_SECRET_REF")
+                && read_secret(&stored.secret_ref).is_ok()
+            {
                 environment.insert("BEES_OPENAI_CODEX_SECRET_REF".into(), stored.secret_ref);
                 environment.insert("BEES_OPENAI_CODEX_CONNECTION_ID".into(), stored.id);
                 environment.insert(
@@ -3743,6 +3764,7 @@ pub fn run() {
             connection_oauth_await,
             store_connection_secret,
             delete_connection_secret,
+            available_ai_connection_ids,
             api_server_override,
             start_run,
             stop_run,

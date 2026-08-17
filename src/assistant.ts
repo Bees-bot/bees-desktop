@@ -615,6 +615,13 @@ export function resolveModelChoice(
 ): ModelChoice {
   const provider = config.provider?.trim();
   const model = config.model?.trim();
+  // Agent files created before direct Codex OAuth still carry the retired CLI provider.
+  if (provider === "codex-cli") {
+    return {
+      provider: "openai-codex",
+      model: !model || model === "default" ? DEFAULT_CODEX_MODEL_ID : model
+    };
+  }
   if (provider === AUTO_PROVIDER)
     return catalog.length ? preferredModelChoice(catalog) : active;
   return provider && model && !(provider === LOCAL_PROVIDER && model === "active")

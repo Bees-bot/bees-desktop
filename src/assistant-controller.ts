@@ -1,4 +1,5 @@
 import {
+  availableAiConnectionIds,
   listAiConnections
 } from "./ai-connections.js";
 import {
@@ -104,14 +105,16 @@ export function createAssistantController(host: MainHost) {
 
   /** Rebuilt on open: a model downloaded or a key added since last time should just be there. */
   async function refreshAssistantCatalog(): Promise<void> {
-    const [local, aiConnections, cliInstalled] = await Promise.all([
+    const [local, aiConnections, availableConnectionIds, cliInstalled] = await Promise.all([
       host.localModels.list().catch(() => []),
       listAiConnections(host.repository, host.session.aiConnectionScope()).catch(() => []),
+      availableAiConnectionIds(host.session.aiConnectionScope()).catch(() => new Set<string>()),
       configuredCliTools().catch(() => ({} as Record<string, CliToolPath>))
     ]);
+    const usableConnections = aiConnections.filter(({ id }) => availableConnectionIds.has(id));
     assistantCatalog = modelCatalog({
       local,
-      connections: aiConnections,
+      connections: usableConnections,
       cliInstalled,
       extras: assistantExtraModels
     });
@@ -119,7 +122,7 @@ export function createAssistantController(host: MainHost) {
       localModelIds: local
         .filter(({ runtime }) => runtime.running)
         .map(({ id }) => id),
-      connectedProviders: [...new Set(aiConnections.map(({ provider }) => provider))],
+      connectedProviders: [...new Set(usableConnections.map(({ provider }) => provider))],
       cliProviders: CLI_TOOLS.filter(({ id }) => cliInstalled[id]?.enabled).map(({ provider }) => provider)
     };
     if (!hasUserModelChoice)

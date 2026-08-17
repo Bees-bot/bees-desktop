@@ -36,7 +36,7 @@ import {
   type Team,
   type WorkItem
 } from "./domain.js";
-import type { PlannedTask } from "./processes/goals/index.js";
+import { TASK_PLAN_OUTPUT, type PlannedTask } from "./processes/goals/index.js";
 import { starterProcessModule } from "./processes/registry.js";
 import {
   persistProcessDefinition,
@@ -251,6 +251,8 @@ function stageRow(row: Row): Stage {
 }
 
 function workItemRow(row: Row): WorkItem {
+  const goal = parseJson<GoalWorkMetadata | null>(row.goalJson, null);
+  const logicalFiles = parseJson<string[]>(row.logicalFilesJson, []);
   return {
     id: stringValue(row.id),
     processId: stringValue(row.processId),
@@ -259,11 +261,15 @@ function workItemRow(row: Row): WorkItem {
     title: stringValue(row.title),
     description: stringValue(row.description),
     owner: nullableString(row.owner),
-    goal: parseJson<GoalWorkMetadata | null>(row.goalJson, null),
+    goal,
     isTerminal: Boolean(row.stageTerminal),
     waits: [],
     runtime: null,
-    logicalFiles: parseJson<string[]>(row.logicalFilesJson, []),
+    // Goal workers never consume the planner's private coordination artifact. This also repairs
+    // child tasks persisted by the older approval bug when they are read for another run.
+    logicalFiles: goal
+      ? logicalFiles.filter((file) => file !== TASK_PLAN_OUTPUT)
+      : logicalFiles,
     syncVersion: Number(row.syncVersion),
     checkpointStageId: nullableString(row.checkpointStageId),
     checkpointAt: nullableString(row.checkpointAt),
@@ -1777,9 +1783,13 @@ export class LocalRepository {
     }
     // A planner references files by the name it wrote them under; approval may have renamed the
     // destination, so an approved output makes both names valid inputs.
-    const approved = itemOutputs.filter((output) => stringValue(output.status) === "approved");
+    const approved = itemOutputs.filter((output) =>
+      stringValue(output.status) === "approved" &&
+      stringValue(output.logicalOutput) !== TASK_PLAN_OUTPUT
+    );
     const parentFiles = new Set([
-      ...parseJson<string[]>(pending[0].logicalFilesJson, []),
+      ...parseJson<string[]>(pending[0].logicalFilesJson, [])
+        .filter((file) => file !== TASK_PLAN_OUTPUT),
       ...approved.flatMap((output) => [stringValue(output.logicalOutput), stringValue(output.logicalDestination)])
     ]);
     const childItems = await this.database.query<Row>(

@@ -500,6 +500,44 @@ describe("local repository", () => {
     expect(await repository.getWorkItem(childId!)).toMatchObject({ logicalFiles: ["counter.txt"] });
   });
 
+  it("keeps the private task plan out of parent and child inputs", async () => {
+    const database = new NodeDatabase();
+    const repository = new LocalRepository(database);
+    const local = await repository.bootstrap();
+    const goals = (await repository.listProcesses(local.teamId))[0]!;
+    const [plan, work, waiting, review] = goals.stages;
+    const parentId = await repository.createWorkItem(goals.id, {
+      stageId: plan!.id,
+      title: "Continue a legacy goal",
+      logicalFiles: ["brief.md", TASK_PLAN_OUTPUT]
+    });
+    const executionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan." },
+      workItemId: parentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
+    const [output] = await repository.listExecutionOutputs(executionId);
+
+    await expect(repository.approveTaskPlan(
+      output!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id,
+      [{ key: "bad-input", title: "Bad input", description: "Read metadata", role: "goal-worker", effect: "read", inputs: [TASK_PLAN_OUTPUT] }]
+    )).rejects.toThrow(`needs "${TASK_PLAN_OUTPUT}"`);
+
+    const [childId] = await repository.approveTaskPlan(
+      output!.id, parentId, plan!.id, work!.id, waiting!.id, review!.id,
+      [{ key: "clean-input", title: "Clean input", description: "Use the brief", role: "goal-worker", effect: "read", inputs: ["brief.md"] }]
+    );
+    expect(await repository.getWorkItem(parentId)).toMatchObject({ logicalFiles: ["brief.md"] });
+
+    await database.execute(
+      "UPDATE work_items SET logical_files_json = ? WHERE id = ?",
+      [JSON.stringify(["brief.md", TASK_PLAN_OUTPUT]), childId!]
+    );
+    expect(await repository.getWorkItem(childId!)).toMatchObject({ logicalFiles: ["brief.md"] });
+  });
+
   it("blocks task-plan approval until the run's other outputs are decided", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();

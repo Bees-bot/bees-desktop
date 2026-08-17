@@ -16,7 +16,7 @@ import {
   resolveActions
 } from "../src/assistant.js";
 import { LocalRepository } from "../src/repository.js";
-import type { LocalModelView } from "../src/local-models.js";
+import { DEFAULT_CODEX_MODEL_ID, type LocalModelView } from "../src/local-models.js";
 import { NodeDatabase } from "./node-database.js";
 
 const agentSource = readFileSync(
@@ -373,6 +373,22 @@ describe("model catalog", () => {
     expect(
       resolveModelChoice({ provider: "anthropic", model: "claude-sonnet-5" }, latest)
     ).toEqual({ provider: "anthropic", model: "claude-sonnet-5" });
+  });
+
+  it("keeps agents saved with the retired Codex CLI provider runnable", () => {
+    const latest = { provider: "bees-local", model: "active" };
+    expect(resolveModelChoice({ provider: "codex-cli", model: "default" }, latest)).toEqual({
+      provider: "openai-codex",
+      model: DEFAULT_CODEX_MODEL_ID
+    });
+    expect(
+      effectiveAgentEligibility(
+        { name: "Old Codex agent", config: { prompt: "Work.", provider: "codex-cli", model: "default" } },
+        latest,
+        true,
+        { localModelIds: [], connectedProviders: [], cliProviders: [] }
+      )
+    ).toMatchObject({ active: false, reason: "Connect Codex (ChatGPT) on this machine" });
   });
 
   it("combines the local switch with model availability", () => {

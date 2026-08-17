@@ -4,6 +4,8 @@
 // Claude Code remains an optional agent runtime. Codex is a normal pi-ai provider whose
 // ChatGPT OAuth credential is stored in the same OS vault as API keys.
 
+import { invoke } from "@tauri-apps/api/core";
+
 export type AiProvider =
   | "opencode-go"
   | "openrouter"
@@ -60,6 +62,11 @@ const key = (orgId: string): string => `ai_connections:${orgId}`;
 
 export async function listAiConnections(store: SettingsStore, orgId: string): Promise<AiConnection[]> {
   return store.getSetting<AiConnection[]>(key(orgId), []);
+}
+
+/** Stored connection ids whose credential is still present in this machine's OS vault. */
+export async function availableAiConnectionIds(orgId: string): Promise<Set<string>> {
+  return new Set(await invoke<string[]>("available_ai_connection_ids", { organizationId: orgId }));
 }
 
 export async function addAiConnection(
