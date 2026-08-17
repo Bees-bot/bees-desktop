@@ -438,52 +438,37 @@ export function createMainViews(host: MainHost) {
     // actually doing something; "Idle" on every card is noise.
     const runBadge = run === "Idle"
       ? ""
-      : `<span class="badge ${run === "Running" ? "badge-success" : "badge-warning"} badge-sm">${run}</span>`;
+      : `<span class="badge-soft ${run === "Running" ? "badge-soft-success" : "badge-soft-warning"}"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>${run}</span>`;
     // A parent sitting idle is usually waiting on its children, and a bare "3 tasks" does not say
     // that. Open subtasks are the reason it waits, so they are what the badge counts while any
     // are left; once none are, the badge falls back to reporting the whole set.
     const children = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id);
     const open = children.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt).length;
     const subtaskBadge = open
-      ? `<span class="badge badge-outline badge-sm" title="Waiting on ${open} open subtask${open === 1 ? "" : "s"}">${open} subtask${open === 1 ? "" : "s"}</span>`
+      ? `<span class="badge-soft badge-soft-neutral" title="Waiting on ${open} open subtask${open === 1 ? "" : "s"}">${open} subtask${open === 1 ? "" : "s"}</span>`
       : children.length
-        ? `<span class="badge badge-outline badge-sm">${children.length} task${children.length === 1 ? "" : "s"}</span>`
+        ? `<span class="badge-soft badge-soft-neutral">${children.length} task${children.length === 1 ? "" : "s"}</span>`
         : "";
     const claimant = workItemClaimant(item, execution);
-    return `<span class="min-w-0 truncate text-xs text-muted">${host.shell.escapeHtml(claimant === "Unclaimed" ? claimant : `Claimed by ${claimant}`)}</span>
-      ${runBadge}${subtaskBadge}`;
+    const claimantBadge = claimant === "Unclaimed" 
+      ? "" 
+      : `<span class="badge-soft badge-soft-neutral"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>${host.shell.escapeHtml(claimant)}</span>`;
+    return `${claimantBadge}${runBadge}${subtaskBadge}`;
   }
 
-  /** The Details tab: every field the item edit dialog offers, read-only or as an inline form. */
+  /** The Details tab: display only, editing happens in the dialog. */
   async function boardItemDetails(item: WorkItem, runs: Execution[]): Promise<string> {
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const files = displayFileReferences(item.logicalFiles, locations);
-    if (host.shell.boardItemEditing) {
-      return `<form data-board-item-form class="grid gap-3" data-id="${item.id}">
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Title</span>
-          <input class="input input-bordered w-full" name="title" value="${host.shell.escapeHtml(item.title)}" required></label>
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
-          <textarea class="textarea textarea-bordered min-h-28 w-full" name="description">${host.shell.escapeHtml(item.description)}</textarea></label>
-        <label class="label cursor-pointer justify-start gap-3"><span class="label-text text-sm font-semibold">Archived</span>
-          <input class="toggle toggle-primary" type="checkbox" name="archived" value="archived" ${item.archivedAt ? "checked" : ""}></label>
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">File references</span>
-          <input class="input input-bordered w-full" name="files" value="${host.shell.escapeHtml(files.join(", "))}">
-          <span class="text-xs text-muted">${host.shell.escapeHtml(fileReferenceHint(locations))}</span></label>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    return `<dl class="grid gap-4 text-[14px]">
+        ${item.description ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description)}</dd></div>` : ""}
+        <div class="grid gap-4 sm:grid-cols-2 mt-2">
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
+          ${item.checkpointAt ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>` : ""}
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
         </div>
-      </form>`;
-    }
-    return `<dl class="grid gap-3 text-sm">
-        <div><dt class="text-muted">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description || "No description.")}</dd></div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div><dt class="text-muted">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
-          <div><dt class="text-muted">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
-          <div><dt class="text-muted">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>
-          <div><dt class="text-muted">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
-        </div>
-        <div><dt class="text-muted">Files</dt><dd>${host.shell.escapeHtml(files.join(", ") || "None")}</dd></div>
+        ${files.length ? `<div class="mt-2"><dt class="text-xs font-semibold text-base-content/60 mb-1">Files</dt><dd>${host.shell.escapeHtml(files.join(", "))}</dd></div>` : ""}
       </dl>`;
   }
 
@@ -780,7 +765,7 @@ export function createMainViews(host: MainHost) {
     const pendingCount = host.runs.executionOutputs
       .filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length;
     const tabButton = (id: typeof tab, label: string): string =>
-      `<button role="tab" class="tab ${tab === id ? "tab-active" : ""}" data-board-tab="${id}">${label}</button>`;
+      `<button role="tab" class="pb-2 pt-1 border-b-2 font-medium text-[13px] transition-colors ${tab === id ? "border-primary text-base-content" : "border-transparent text-base-content/50 hover:text-base-content hover:border-base-content/20"}" data-board-tab="${id}">${label}</button>`;
     const body = tab === "conversation"
       ? boardItemConversation(item, runs)
       : tab === "files"
@@ -790,30 +775,32 @@ export function createMainViews(host: MainHost) {
           : tab === "subtasks"
             ? boardItemSubtasks(item)
             : await boardItemDetails(item, runs);
-    return `<div data-scroll-anchor class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
+    return `<div data-scroll-anchor class="mt-2 rounded-xl bg-base-100 p-6 shadow-sm ring-1 ring-base-content/5">
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
-      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p class="mb-1 text-[11px] font-medium text-muted">${host.shell.escapeHtml(stage?.name ?? "")}</p>
-          <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
+          <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-primary/80">${host.shell.escapeHtml(stage?.name ?? "")}</p>
+          <h3 class="text-xl font-semibold tracking-tight text-base-content">${host.shell.escapeHtml(item.title)}</h3>
         </div>
         <div class="flex items-center gap-2">
-          ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
+          ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
           ${tab !== "details" && tab !== "files"
             ? ""
-            : `<button class="btn btn-ghost btn-sm"
+            : `<button class="btn btn-neutral btn-sm px-4 shadow-sm"
                 data-action="${tab === "files" ? "toggle-board-file-edit" : "toggle-board-item-edit"}"
                 ${tab === "files" && !host.shell.boardFileRef ? "disabled" : ""}>Edit</button>`}
         </div>
       </div>
-      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+      <div role="tablist" class="flex gap-6 border-b border-base-200 mb-5 w-full">
         ${tabButton("details", "Details")}
-        ${tabButton("approval", `Approval${pendingCount ? ` <span class="badge badge-warning badge-xs">${pendingCount}</span>` : ""}`)}
-        ${tabButton("conversation", `Conversation${runs.length ? ` (${runs.length})` : ""}`)}
-        ${tabButton("files", `Files (${item.logicalFiles.length + pendingCount})`)}
-        ${subtaskCount ? tabButton("subtasks", `Subtasks (${subtaskCount})`) : ""}
+        ${pendingCount ? tabButton("approval", `Approval <span class="badge badge-warning badge-xs ml-0.5">${pendingCount}</span>`) : ""}
+        ${tabButton("conversation", `Conversation${runs.length ? ` <span class="text-[11px] ml-0.5 opacity-60">(${runs.length})</span>` : ""}`)}
+        ${item.logicalFiles.length + pendingCount > 0 ? tabButton("files", `Files <span class="text-[11px] ml-0.5 opacity-60">(${item.logicalFiles.length + pendingCount})</span>`) : ""}
+        ${subtaskCount ? tabButton("subtasks", `Subtasks <span class="text-[11px] ml-0.5 opacity-60">(${subtaskCount})</span>`) : ""}
       </div>
-      ${body}
+      <div class="text-[14px]">
+        ${body}
+      </div>
     </div>`;
   }
 
@@ -893,54 +880,58 @@ export function createMainViews(host: MainHost) {
       </div>
       ${running
         ? ""
-        : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
+        : `<div class="mb-5 flex items-center gap-2 rounded-md bg-base-200/50 px-3 py-2.5 text-[13px] text-base-content/70">
+            <svg class="size-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+            <span>This process is paused. Agents will not pick up work until you click <strong>Run</strong>.</span>
+          </div>`}
       ${blockedAgents.length
-        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
+        ? `<div class="mb-5 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2.5 text-[13px] text-warning">
+            <svg class="size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <span>Blocked agents: ${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span>
+          </div>`
         : ""}
       <div class="kanban">${stages
         .map((stage) => {
           const cards = visible.filter(({ stageId }) => stageId === stage.id);
-          return `<section class="kanban-column p-3">
-            <header class="flex items-center justify-between px-1 pb-3 pt-1">
-              <div class="flex items-center gap-2">
-                <span class="status ${stage.isTerminal ? "status-success" : "status-primary"}"></span>
-                <h2 class="text-[13px] font-semibold">${host.shell.escapeHtml(stage.name)}</h2>
-              </div>
-              <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
+          return `<section class="kanban-column flex flex-col pt-2">
+            <header class="flex items-center justify-between px-3 pb-2 shrink-0">
+              <h2 class="text-sm font-bold tracking-tight text-base-content/80">${host.shell.escapeHtml(stage.name)}</h2>
+              <span class="text-xs font-semibold text-base-content/50">${cards.length}</span>
             </header>
-            <div class="grid gap-3">${cards
-              .map((item) => `<article class="kanban-card card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
-                  <div class="card-body gap-3 p-4">
+            <div class="flex-1 overflow-y-auto px-2 pb-2">
+              <div class="grid gap-3">${cards
+              .map((item) => `<article class="kanban-card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary shadow-md" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
+                  <div class="flex flex-col gap-3.5 p-5">
                     <div class="flex items-start justify-between gap-2">
-                      <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
-                      <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
-                        ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
-                        ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
+                      <h3 class="min-w-0 text-[15px] font-semibold tracking-tight leading-snug">${host.shell.escapeHtml(item.title)}</h3>
+                      <div class="-mr-2 -mt-2 flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
+                        ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-xs text-base-content/60 hover:text-base-content", "tooltip-bottom")}
+                        ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-xs text-base-content/60 hover:text-error", "tooltip-bottom")}
                       </div>
                     </div>
                     ${item.description
-                      ? `<p class="line-clamp-3 text-xs leading-relaxed text-muted">${host.shell.escapeHtml(item.description)}</p>`
+                      ? `<p class="line-clamp-3 text-[13px] leading-relaxed text-base-content/60">${host.shell.escapeHtml(item.description)}</p>`
                       : ""}
-                    <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5 mt-1">
                       ${workItemBadges(item)}
-                      ${item.parentId ? '<span class="badge badge-outline badge-sm">Subtask</span>' : ""}
-                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge badge-warning badge-sm">Waiting</span>' : ""}
+                      ${item.parentId ? '<span class="badge-soft badge-soft-neutral">Subtask</span>' : ""}
+                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge-soft badge-soft-warning"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Waiting</span>' : ""}
                       ${
-                // Silence is the normal look of stuck work, so the card always says which
-                // of the four states this item is in. The badge carries the heading only —
-                // a badge does not wrap, and a runtime error is long.
                 needsAttention(waiting.get(item.id) ?? null)
-                  ? `<span class="badge badge-sm ${waiting.get(item.id)!.kind === "stalled" ? "badge-error" : "badge-warning"}">${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`
+                  ? `<span class="badge-soft ${waiting.get(item.id)!.kind === "stalled" ? "badge-soft-error" : "badge-soft-warning"}"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`
                   : ""}
-                      ${item.logicalFiles.length ? `<span class="badge badge-outline badge-sm">${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
+                      ${item.logicalFiles.length ? `<span class="badge-soft badge-soft-neutral"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
                     </div>
-                    ${needsAttention(waiting.get(item.id) ?? null)
-                  ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-muted"}">${host.shell.escapeHtml(waiting.get(item.id)!.detail)}</p>`
-                  : ""}
                   </div>
                 </article>`)
               .join("")}
-              <button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${stage.id}">+ Add item</button>
+              </div>
+            </div>
+            <div class="p-2 shrink-0 border-t border-base-300/50">
+              <button class="btn btn-ghost btn-sm w-full justify-start text-base-content/50 hover:bg-base-300/50 hover:text-base-content" data-action="new-item-in-stage" data-stage="${stage.id}">
+                <svg viewBox="0 0 24 24" class="size-4 opacity-70" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                New item
+              </button>
             </div>
           </section>`;
         })
@@ -1157,10 +1148,13 @@ export function createMainViews(host: MainHost) {
   function escalationBanner(state: WorkState | null): string {
     if (!needsAttention(state))
       return "";
-    return `<div class="alert ${state!.kind === "stalled" ? "alert-error" : "alert-warning"} mb-4">
+    const isError = state!.kind === "stalled";
+    const colors = isError ? "bg-error/10 text-error" : "bg-warning/10 text-warning";
+    return `<div class="mb-5 flex items-start gap-2 rounded-md ${colors} px-3 py-2.5">
+      <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
       <div class="min-w-0">
-        <div class="font-semibold">${host.shell.escapeHtml(state!.label)}</div>
-        <div class="break-words text-sm">${host.shell.escapeHtml(state!.detail)}</div>
+        <div class="text-[13px] font-semibold leading-tight">${host.shell.escapeHtml(state!.label)}</div>
+        <div class="text-[13px] leading-snug opacity-90">${host.shell.escapeHtml(state!.detail)}</div>
       </div>
     </div>`;
   }
@@ -2844,7 +2838,15 @@ export function createMainViews(host: MainHost) {
       return `<button class="btn btn-ghost ${size}" disabled>Run from the item view</button>`;
     }
     const running = host.runs.runningProcesses.has(processId);
-    return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${running ? " disabled" : ""}>Run</button><button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}"${running ? "" : " disabled"}>Stop</button>`;
+    if (running) {
+      return `<button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}">
+        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop
+      </button>`;
+    } else {
+      return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}">
+        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Run
+      </button>`;
+    }
   }
 
   function assistantActionsHtml(actions: ResolvedAction[], index: number, applied: boolean): string {

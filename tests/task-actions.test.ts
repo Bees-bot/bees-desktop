@@ -13,8 +13,6 @@ describe("task actions", () => {
     expect(views).toContain('actionIconButton("archive-item"');
     expect(views).toContain('icon("edit-item", `Edit ${item.title}`');
     expect(views).toContain('icon("archive-item", `Archive ${item.title}`');
-    expect(views).toContain('type="checkbox" name="archived" value="archived"');
-    expect(views).toContain('type="checkbox" name="${host.shell.escapeHtml(name)}" value="true"');
     expect(actions).toContain('label: "Archived"');
     expect(actions).toContain('type: "switch"');
     expect(views).toContain("Currently running");
