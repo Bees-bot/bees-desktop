@@ -1008,11 +1008,8 @@ export function createMainActions(host: MainHost) {
     if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
     const process = host.workspaceController.activeProcess;
-    const plannedWorkStage = parentId && process
-      ? taskPlanStages(process)?.work.id
-      : undefined;
     newItemParentId = parentId;
-    host.shell.newItemStageId = plannedWorkStage ?? stageId ?? "";
+    host.shell.newItemStageId = stageId ?? "";
     host.shell.newItemProcessId = host.shell.newItemStageId
       ? process!.id
       : process?.id ?? "";
@@ -1057,21 +1054,21 @@ export function createMainActions(host: MainHost) {
       : undefined;
     if (newItemParentId && !parent)
       throw new Error("The run this task belongs to is no longer available");
-    const taskPlan = parent ? taskPlanStages(process) : null;
-    const workerRole = String(data.get("workerRole") ?? "");
-    const worker = taskPlan
-      ? host.runs.taskWorkerRoles().find(({ role }) => role.toLowerCase() === workerRole.toLowerCase())
-      : undefined;
-    if (taskPlan && !worker)
-      throw new Error("Choose an available worker");
-    // The remembered column only applies to the workflow it came from; picking another one in
-    // the form starts the task at that workflow's first status instead. A task added to a planned
-    // run is already the plan's work, so it starts with its selected worker instead of replanning.
-    const stageId = taskPlan?.work.id ?? (process.stages.some(({ id }) => id === host.shell.newItemStageId)
+    // A column add names its status exactly; the process's first status is only the fallback for
+    // the top-level add action or when the selected workflow changes in the form.
+    const stageId = process.stages.some(({ id }) => id === host.shell.newItemStageId)
       ? host.shell.newItemStageId
-      : process.stages[0]?.id);
+      : process.stages[0]?.id;
     if (!stageId)
       throw new Error(`${process.name} has no statuses`);
+    const taskPlan = parent ? taskPlanStages(process) : null;
+    const needsWorker = taskPlan?.work.id === stageId;
+    const workerRole = String(data.get("workerRole") ?? "");
+    const worker = needsWorker
+      ? host.runs.taskWorkerRoles().find(({ role }) => role.toLowerCase() === workerRole.toLowerCase())
+      : undefined;
+    if (needsWorker && !worker)
+      throw new Error("Choose an available worker");
     const interactive = processEngine.isInteractive(process);
     const itemId = await host.repository.createWorkItem(process.id, {
       stageId,
@@ -2442,10 +2439,18 @@ export function createMainActions(host: MainHost) {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(button.dataset.team);
         const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id)!;
+        const process = host.workspaceController.processes.find(({ id }) => id === item.processId)!;
         const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
         const data = await edit("Edit work item", [
           { name: "title", label: "Title", value: item.title },
           { name: "description", label: "Description", type: "textarea", value: item.description },
+          {
+            name: "stageId",
+            label: "Status",
+            type: "select",
+            value: item.stageId,
+            options: process.stages.map(({ id, name }) => ({ value: id, label: name }))
+          },
           {
             name: "archived",
             label: "Archived",
@@ -2461,6 +2466,9 @@ export function createMainActions(host: MainHost) {
         ]);
         if (data) {
           const archived = data.get("archived") === "true";
+          const stageId = String(data.get("stageId") ?? "");
+          if (!process.stages.some(({ id }) => id === stageId))
+            throw new Error("Choose a valid status");
           await host.repository.updateWorkItem(item.id, {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
@@ -2472,6 +2480,8 @@ export function createMainActions(host: MainHost) {
               type: archived ? "archive" : "restore"
             });
           }
+          if (stageId !== item.stageId)
+            await host.workflowRuntime.command(item.id, { type: "move", targetStageId: stageId });
           await host.workspaceController.refresh();
         }
       }
@@ -3071,10 +3081,7 @@ export function createMainActions(host: MainHost) {
   host.shell.newItem.addEventListener("click", () => {
     const rootId = host.shell.boardRootItemId;
     const process = host.workspaceController.activeProcess;
-    const firstTaskStage = process
-      ? taskPlanStages(process)?.work.id ?? process.stages[0]?.id
-      : undefined;
-    void createItem(rootId ? firstTaskStage : undefined, rootId)
+    void createItem(rootId ? process?.stages[0]?.id : undefined, rootId)
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 

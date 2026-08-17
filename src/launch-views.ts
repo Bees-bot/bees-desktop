@@ -199,7 +199,7 @@ export function inboxView(
   return `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table table-zebra">
       <thead><tr>
-        <th>Process</th><th>Task name</th><th>Approval message</th><th>Files</th><th>Approval</th>
+        <th>Process</th><th>Task name</th><th>Approval message</th><th>Files</th><th>Action</th>
       </tr></thead>
       <tbody>${rows
         .map(({ item, state }) => {
@@ -219,7 +219,7 @@ export function inboxView(
               ? `<div class="flex flex-wrap gap-1">${pending.map((output) =>
                 `<button class="link link-hover text-sm" data-action="preview-inbox-output" data-id="${output.id}" aria-controls="inbox-output-preview" aria-expanded="false">${escapeHtml(output.logicalDestination)}</button>`).join("")}</div>`
               : "—"}</td>
-            <td><div class="flex flex-wrap justify-end gap-1">${pending.map((output) => {
+            <td><div class="flex flex-wrap justify-end gap-1"><button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>${pending.map((output) => {
               const run = itemRuns.find(({ id }) => id === output.executionId);
               const busy = run?.status === "queued" || run?.status === "running";
               return `<button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" aria-label="Approve ${escapeHtml(output.logicalDestination)}" ${busy ? "disabled" : ""}>Approve</button>`;
@@ -698,4 +698,3 @@ export function workItemView(input: {
         : empty("No runs yet", "This item has not run.")
     }</div>`;
 }
-

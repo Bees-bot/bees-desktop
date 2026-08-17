@@ -231,6 +231,9 @@ describe("lean launch modules", () => {
     expect(waiting).not.toContain("Nothing waiting on you");
     expect(waiting).toContain("Requirements");
     expect(waiting).toContain('data-action="open-item" data-id="item"');
+    expect(waiting).toContain("<th>Action</th>");
+    expect(waiting).not.toContain("<th>Approval</th>");
+    expect(waiting).toContain('data-action="edit-item" data-id="item">Edit</button>');
 
     const approvalExecution = {
       ...execution,

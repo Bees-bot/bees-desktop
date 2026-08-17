@@ -471,7 +471,7 @@ export function createMainViews(host: MainHost) {
     return `<dl class="grid gap-4 text-[14px]">
         ${item.description ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description)}</dd></div>` : ""}
         <div class="grid gap-4 sm:grid-cols-2 mt-2">
-          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Status</dt><dd class="flex items-center gap-2">${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}<button class="link text-xs" data-action="edit-item" data-id="${host.shell.escapeHtml(item.id)}">Change</button></dd></div>
           <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
           ${item.checkpointAt ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>` : ""}
           <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
@@ -2902,8 +2902,9 @@ export function createMainViews(host: MainHost) {
       ? host.workspaceController.teamItems.find(({ id, processId }) => id === host.shell.boardRootItemId && processId === process?.id)
       : undefined;
     const plannedStages = parent && process ? taskPlanStages(process) : null;
-    const workers = plannedStages ? host.runs.taskWorkerRoles() : [];
-    const workerField = !plannedStages
+    const needsWorker = plannedStages?.work.id === host.shell.newItemStageId;
+    const workers = needsWorker ? host.runs.taskWorkerRoles() : [];
+    const workerField = !needsWorker
       ? ""
       : workers.length === 0
         ? `<span class="label-text">Worker</span><div class="alert alert-warning text-sm">This process has no available worker. <button class="link" type="button" data-action="edit-process" data-id="${host.shell.escapeHtml(process!.id)}">Configure its agents</button>.</div>`
@@ -2931,7 +2932,7 @@ export function createMainViews(host: MainHost) {
         <span class="label-text self-start pt-2">Files</span>
         <div class="min-w-0">${filePickerHtml(host.shell.newItemSources)}</div>
         <div class="col-start-2 flex items-center gap-2">
-          <button class="btn btn-primary" type="submit" ${plannedStages && workers.length === 0 ? "disabled" : ""}>Create task</button>
+          <button class="btn btn-primary" type="submit" ${needsWorker && workers.length === 0 ? "disabled" : ""}>Create task</button>
           <button class="btn btn-ghost" type="button" data-action="cancel-new-item">Cancel</button>
           <span class="text-sm text-muted">${stage
         ? `Lands in ${host.shell.escapeHtml(stage.name)}`
