@@ -308,7 +308,7 @@ export function createWorkspaceController(host: MainHost) {
     if (!workspace.teamId)
       return;
     const key = `default_registry_version_${workspace.teamId}`;
-    if ((await host.repository.getSetting(key, 0)) >= 3)
+    if ((await host.repository.getSetting(key, 0)) >= 4)
       return;
     const existing = registries.find(({ sourcePath }) => sourcePath === "bundled://bees-default");
     const id = existing?.id ?? crypto.randomUUID();
@@ -320,7 +320,7 @@ export function createWorkspaceController(host: MainHost) {
       sourcePath: "bundled://bees-default",
       plugin
     });
-    await host.repository.setSetting(key, 3);
+    await host.repository.setSetting(key, 4);
     await refresh();
   }
 

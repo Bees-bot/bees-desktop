@@ -1,9 +1,27 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AGENT_PLUGIN_MCP_SCHEMA, AGENT_PLUGIN_SCHEMA, parseAgentPlugin, pluginMcpConnections } from "./plugins.js";
 
 const manifest = { $schema: AGENT_PLUGIN_SCHEMA, name: "acme-tools", version: "1.0.0" } as const;
 
 describe("Agent Plugins 1.0.0", () => {
+  it("loads the bundled Ponytail skill without warnings", () => {
+    const contents = readFileSync(
+      new URL("../flue-runtime/default-registry/skills/ponytail/SKILL.md", import.meta.url),
+      "utf8"
+    );
+    const plugin = parseAgentPlugin({
+      manifest,
+      skills: [{ directory: "ponytail", path: "skills/ponytail/SKILL.md", contents }],
+      mcp: null,
+      issues: [],
+      fileCount: 3
+    });
+
+    expect(plugin.skills).toMatchObject([{ name: "ponytail", instructions: expect.stringContaining("The ladder") }]);
+    expect(plugin.issues).toEqual([]);
+  });
+
   it("loads valid Agent Skills and supported MCP transports", () => {
     const plugin = parseAgentPlugin({
       manifest,

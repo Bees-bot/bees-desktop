@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROCESS_LIBRARY, PROCESS_MODULES } from "./registry.js";
+import { softwareProjectProcess } from "./software-project/definition.js";
 
 describe("bundled process library", () => {
   it("contains complete, internally consistent process definitions", () => {
@@ -20,5 +21,11 @@ describe("bundled process library", () => {
         expect(agent.model.trim()).not.toBe("");
       }
     }
+  });
+
+  it("enables Ponytail for the coding stages of the Code workflow", () => {
+    const [requirements, ...codingAgents] = softwareProjectProcess.definition.agents;
+    expect(requirements.skills).not.toContain("ponytail");
+    expect(codingAgents.every(({ skills }) => skills.includes("ponytail"))).toBe(true);
   });
 });
