@@ -3043,7 +3043,14 @@ export function createMainActions(host: MainHost) {
   });
 
   host.shell.viewBack.addEventListener("click", () => {
-    const parent = PARENT_VIEW[host.shell.view];
+    let parent = PARENT_VIEW[host.shell.view];
+    if (host.shell.view === "item" && host.shell.previousView === "inbox") {
+      parent = "inbox";
+    } else if (host.shell.view === "run" && host.shell.previousView === "runs") {
+      parent = "runs";
+    } else if (host.shell.view === "team-settings" && host.shell.previousView === "board") {
+      parent = "board";
+    }
     if (!parent) return;
     host.shell.activeItemId = "";
     host.shell.activeExecutionId = "";

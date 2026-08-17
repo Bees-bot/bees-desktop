@@ -43,7 +43,7 @@ export const PARENT_VIEW: Partial<Record<View, View>> = {
   "item-new": "board",
   run: "board",
   process: "board",
-  "process-runs": "process",
+  "process-runs": "board",
   "process-library": "board",
   schedules: "board",
   settings: "overview",

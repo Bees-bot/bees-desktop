@@ -81,6 +81,7 @@ export function createAppShell(host: MainHost) {
   /** The step picked out of that run's sequence, whose details show under it. */
   let openRunStepId = "";
 
+  let previousView: View | null = null;
   let view: View = "overview";
 
   /** Last value written to LAST_VIEW_KEY, so the common render() does not re-write the same row. */
@@ -464,8 +465,14 @@ export function createAppShell(host: MainHost) {
     set openRunItemId(value: typeof openRunItemId) { openRunItemId = value; },
     get openRunStepId() { return openRunStepId; },
     set openRunStepId(value: typeof openRunStepId) { openRunStepId = value; },
+    get previousView() { return previousView; },
     get view() { return view; },
-    set view(value: typeof view) { view = value; },
+    set view(value: typeof view) {
+      if (value !== view) {
+        previousView = view;
+      }
+      view = value; 
+    },
     get newItemProcessId() { return newItemProcessId; },
     set newItemProcessId(value: typeof newItemProcessId) { newItemProcessId = value; },
     get newItemStageId() { return newItemStageId; },
