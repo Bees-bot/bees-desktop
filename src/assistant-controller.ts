@@ -84,11 +84,9 @@ export function createAssistantController(host: MainHost) {
   async function loadAssistantSettings(): Promise<void> {
     const stored = await host.repository.getSetting<ModelChoice | null>(ASSISTANT_MODEL_KEY, null);
     if (stored?.provider && stored.model) {
-      assistantModel = stored.provider === "codex-cli"
-        ? { provider: "openai-codex", model: DEFAULT_CODEX_MODEL_ID }
-        : stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
-          ? { ...stored, model: stored.localModelId }
-          : stored;
+      assistantModel = stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
+        ? { ...stored, model: stored.localModelId }
+        : stored;
       hasUserModelChoice = true;
     }
     assistantExtraModels = await host.repository.getSetting<ModelChoice[]>(ASSISTANT_EXTRA_MODELS_KEY, []);

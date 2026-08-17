@@ -1,7 +1,5 @@
 import type { ScheduleRecurrence } from "./domain.js";
 
-const MINUTE = 60_000;
-
 // Duplicated in flue-runtime/project/workflow/work-item-workflow.ts: that package can't
 // import from src (separate tsconfig, separate node_modules, Temporal's workflow bundler
 // only resolves within its own package).
@@ -65,7 +63,7 @@ export function nextScheduleStart(
 export function nextScheduleRun(recurrence: ScheduleRecurrence, previous: Date, timezone: string): Date {
   const tz = safeTz(timezone);
   let next = new Date(previous);
-  if (recurrence === "hourly") next.setTime(next.getTime() + 60 * MINUTE);
+  if (recurrence === "hourly") next.setTime(next.getTime() + 3_600_000);
   else next = addCalendarDay(next, tz);
   if (recurrence === "weekdays") {
     while (isWeekend(next, tz)) next = addCalendarDay(next, tz);

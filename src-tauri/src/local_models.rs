@@ -259,7 +259,7 @@ fn fixed_width(value_type: u32) -> Option<u64> {
     }
 }
 
-/// A model the user added in Preferences → AI. The list lives in the frontend's settings store, so
+/// A model the user added under Settings → Local AI. The list lives in the frontend's settings store, so
 /// every command carries the whole spec rather than looking one up in a fixed catalog here.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

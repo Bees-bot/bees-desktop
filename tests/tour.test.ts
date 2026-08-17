@@ -27,8 +27,8 @@ Then this.`);
   });
 
   it("lifts the Target line out of the body instead of showing it", () => {
-    const [step] = parseTour("## Open Preferences\nOpen it now.\nTarget: the Preferences gear\n");
-    expect(step!.target).toBe("the Preferences gear");
+    const [step] = parseTour("## Open Settings\nOpen it now.\nTarget: the Settings gear\n");
+    expect(step!.target).toBe("the Settings gear");
     expect(step!.body).toBe("Open it now.");
   });
 
