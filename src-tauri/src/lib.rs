@@ -32,7 +32,7 @@ use std::{
     net::TcpListener,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -104,8 +104,6 @@ struct SkillSnapshot {
 /// no custom URL scheme, which does not work under `tauri dev`.
 struct OAuth(Mutex<Option<TcpListener>>);
 
-const CREDENTIAL_SERVICE: &str = "bot.bees.desktop.connections";
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OAuthCredential {
@@ -150,24 +148,86 @@ struct CredentialBroker {
     token: String,
 }
 
-fn vault_entry(secret_ref: &str) -> Result<keyring::Entry, String> {
-    let secret_ref = safe_identifier(secret_ref, "credential reference")?;
-    keyring::Entry::new(CREDENTIAL_SERVICE, &secret_ref).map_err(|error| error.to_string())
+#[derive(Clone)]
+struct CredentialStore(Arc<Mutex<Connection>>);
+
+impl CredentialStore {
+    fn open(path: &Path) -> Result<Self, String> {
+        let connection = Connection::open(path).map_err(|error| error.to_string())?;
+        connection
+            .execute_batch(
+                "PRAGMA busy_timeout = 5000;
+                 CREATE TABLE IF NOT EXISTS connection_secrets (
+                   secret_ref TEXT PRIMARY KEY,
+                   secret TEXT NOT NULL
+                 );",
+            )
+            .map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(Self(Arc::new(Mutex::new(connection))))
+    }
+
+    fn write(&self, secret_ref: &str, secret: &str) -> Result<(), String> {
+        let connection = self.0.lock().map_err(|error| error.to_string())?;
+        write_secret(&connection, secret_ref, secret)
+    }
+
+    fn read(&self, secret_ref: &str) -> Result<String, String> {
+        let connection = self.0.lock().map_err(|error| error.to_string())?;
+        read_secret(&connection, secret_ref)
+    }
+
+    fn delete(&self, secret_ref: &str) -> Result<(), String> {
+        let secret_ref = safe_identifier(secret_ref, "credential reference")?;
+        let connection = self.0.lock().map_err(|error| error.to_string())?;
+        connection
+            .execute(
+                "DELETE FROM connection_secrets WHERE secret_ref = ?1",
+                [secret_ref],
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    fn token(&self, secret_ref: &str) -> Result<String, String> {
+        // Keep the lock through refresh: ChatGPT rotates refresh tokens, so two simultaneous
+        // task starts must not both exchange the same one and persist different successors.
+        let connection = self.0.lock().map_err(|error| error.to_string())?;
+        connection_token(&connection, secret_ref)
+    }
 }
 
-fn write_secret(secret_ref: &str, secret: &str) -> Result<(), String> {
+fn write_secret(connection: &Connection, secret_ref: &str, secret: &str) -> Result<(), String> {
+    let secret_ref = safe_identifier(secret_ref, "credential reference")?;
     if secret.is_empty() || secret.len() > 128_000 {
         return Err("credential must be between 1 byte and 128 KB".into());
     }
-    vault_entry(secret_ref)?
-        .set_password(secret)
-        .map_err(|error| error.to_string())
+    connection
+        .execute(
+            "INSERT INTO connection_secrets (secret_ref, secret) VALUES (?1, ?2)
+             ON CONFLICT(secret_ref) DO UPDATE SET secret = excluded.secret",
+            [secret_ref.as_str(), secret],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
-fn read_secret(secret_ref: &str) -> Result<String, String> {
-    vault_entry(secret_ref)?
-        .get_password()
-        .map_err(|_| "The connection credential is unavailable.".to_string())
+fn read_secret(connection: &Connection, secret_ref: &str) -> Result<String, String> {
+    let secret_ref = safe_identifier(secret_ref, "credential reference")?;
+    connection
+        .query_row(
+            "SELECT secret FROM connection_secrets WHERE secret_ref = ?1",
+            [secret_ref],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The connection credential is unavailable.".to_string())
 }
 
 fn credential_client() -> Result<reqwest::blocking::Client, String> {
@@ -179,15 +239,21 @@ fn credential_client() -> Result<reqwest::blocking::Client, String> {
 }
 
 #[tauri::command]
-fn store_connection_secret(secret_ref: String, secret: String) -> Result<(), String> {
-    write_secret(&secret_ref, &secret)
+fn store_connection_secret(
+    credentials: State<'_, CredentialStore>,
+    secret_ref: String,
+    secret: String,
+) -> Result<(), String> {
+    credentials.write(&secret_ref, &secret)
 }
 
 #[tauri::command]
-fn delete_connection_secret(secret_ref: String) -> Result<Option<String>, String> {
-    let entry = vault_entry(&secret_ref)?;
-    let warning = entry
-        .get_password()
+fn delete_connection_secret(
+    credentials: State<'_, CredentialStore>,
+    secret_ref: String,
+) -> Result<Option<String>, String> {
+    let warning = credentials
+        .read(&secret_ref)
         .ok()
         .and_then(|stored| serde_json::from_str::<OAuthCredential>(&stored).ok())
         .and_then(|credential| {
@@ -207,10 +273,8 @@ fn delete_connection_secret(secret_ref: String) -> Result<Option<String>, String
                 ),
             }
         });
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(warning),
-        Err(error) => Err(error.to_string()),
-    }
+    credentials.delete(&secret_ref)?;
+    Ok(warning)
 }
 
 fn epoch_seconds() -> u64 {
@@ -227,7 +291,11 @@ struct TokenResponse {
     expires_in: Option<u64>,
 }
 
-fn refresh_oauth(secret_ref: &str, credential: &mut OAuthCredential) -> Result<(), String> {
+fn refresh_oauth(
+    connection: &Connection,
+    secret_ref: &str,
+    credential: &mut OAuthCredential,
+) -> Result<(), String> {
     let refresh = credential
         .refresh_token
         .as_deref()
@@ -255,15 +323,14 @@ fn refresh_oauth(secret_ref: &str, credential: &mut OAuthCredential) -> Result<(
     }
     credential.expires_at = token.expires_in.map(|seconds| epoch_seconds() + seconds);
     write_secret(
+        connection,
         secret_ref,
         &serde_json::to_string(credential).map_err(|error| error.to_string())?,
     )
 }
 
-fn connection_token(secret_ref: &str) -> Result<String, String> {
-    let stored = vault_entry(secret_ref)?
-        .get_password()
-        .map_err(|error| error.to_string())?;
+fn connection_token(connection: &Connection, secret_ref: &str) -> Result<String, String> {
+    let stored = read_secret(connection, secret_ref)?;
     let Ok(mut oauth) = serde_json::from_str::<OAuthCredential>(&stored) else {
         return Ok(stored);
     };
@@ -271,7 +338,7 @@ fn connection_token(secret_ref: &str) -> Result<String, String> {
         .expires_at
         .is_some_and(|expires| expires <= epoch_seconds() + 60)
     {
-        refresh_oauth(secret_ref, &mut oauth)?;
+        refresh_oauth(connection, secret_ref, &mut oauth)?;
     }
     Ok(oauth.access_token)
 }
@@ -439,7 +506,10 @@ fn broker_authorized(database_path: &Path, request: &BrokerSecretRequest) -> Res
     Ok(keyless)
 }
 
-fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, String> {
+fn start_credential_broker(
+    database_path: PathBuf,
+    credentials: CredentialStore,
+) -> Result<CredentialBroker, String> {
     use std::io::{Read, Write};
     let (listener, port) = bind_loopback()?;
     let token = loopback_token()?;
@@ -455,6 +525,7 @@ fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, S
             let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
             let expected = expected.clone();
             let database_path = database_path.clone();
+            let credentials = credentials.clone();
             thread::spawn(move || {
             let mut bytes = [0u8; 8192];
             let length = stream.read(&mut bytes).unwrap_or(0);
@@ -472,13 +543,13 @@ fn start_credential_broker(database_path: PathBuf) -> Result<CredentialBroker, S
                 .ok_or_else(|| "unauthorized".to_string())
                 .and_then(|()| broker_secret_request(path))
                 .and_then(|request| {
-                    // A connection to an API that needs no key has no vault entry, and asking for
+                    // A connection to an API that needs no key has no stored secret, and asking for
                     // one answers "credential unavailable" for a credential that was never meant
                     // to exist.
                     if broker_authorized(&database_path, &request)? {
                         return Ok(String::new());
                     }
-                    connection_token(&request.secret_ref)
+                    credentials.token(&request.secret_ref)
                 });
             let (status, body) = match result {
                 Ok(value) => ("200 OK", serde_json::json!({ "token": value }).to_string()),
@@ -585,13 +656,17 @@ fn connection_oauth_start(
 }
 
 #[tauri::command]
-async fn connection_oauth_await(state: State<'_, ConnectionOAuth>) -> Result<(), String> {
+async fn connection_oauth_await(
+    state: State<'_, ConnectionOAuth>,
+    credentials: State<'_, CredentialStore>,
+) -> Result<(), String> {
     let pending = state
         .0
         .lock()
         .map_err(|error| error.to_string())?
         .take()
         .ok_or("no connection authorization in progress")?;
+    let credentials = credentials.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let query = wait_for_oauth_callback(pending.listener)?;
         let callback = reqwest::Url::parse(&format!("http://localhost/?{query}"))
@@ -635,7 +710,7 @@ async fn connection_oauth_await(state: State<'_, ConnectionOAuth>) -> Result<(),
             client_secret: pending.client_secret,
             revocation_url: pending.revocation_url,
         };
-        write_secret(
+        credentials.write(
             &pending.secret_ref,
             &serde_json::to_string(&credential).map_err(|error| error.to_string())?,
         )
@@ -886,7 +961,12 @@ fn ensure_api_bridge_blocking(
 ) -> Result<String, String> {
     let node = bundled_binary("bees-node")?;
     let bridge = bundled_api_bridge(app)?;
-    let secret = request.secret_ref.as_deref().map(read_secret).transpose()?;
+    let credentials = app.state::<CredentialStore>();
+    let secret = request
+        .secret_ref
+        .as_deref()
+        .map(|secret_ref| credentials.read(secret_ref))
+        .transpose()?;
     // The key is in here because the bridge reads it once at startup: rotating it must replace
     // the process, not wait for the next restart.
     let fingerprint = serde_json::to_string(&serde_json::json!({
@@ -1076,9 +1156,10 @@ fn local_knowledge_configuration(
                         .then(|| json_text(&connection, "secretRef").to_string())
                 })
             });
+        let credentials = app.state::<CredentialStore>();
         let token = match secret_ref
             .as_deref()
-            .and_then(|secret_ref| connection_token(secret_ref).ok())
+            .and_then(|secret_ref| credentials.token(secret_ref).ok())
         {
             Some(token) => token,
             None => loopback_token()?,
@@ -1322,9 +1403,10 @@ fn available_ai_connection_ids(
     organization_id: String,
 ) -> Result<Vec<String>, String> {
     let organization_id = safe_identifier(&organization_id, "organization ID")?;
+    let credentials = app.state::<CredentialStore>();
     Ok(stored_ai_connections(&app, &organization_id)?
         .into_iter()
-        .filter(|stored| read_secret(&stored.secret_ref).is_ok())
+        .filter(|stored| credentials.read(&stored.secret_ref).is_ok())
         .map(|stored| stored.id)
         .collect())
 }
@@ -1334,10 +1416,11 @@ fn provider_environment(
     organization_id: &str,
 ) -> Result<BTreeMap<String, String>, String> {
     let mut environment = BTreeMap::new();
+    let credentials = app.state::<CredentialStore>();
     for stored in stored_ai_connections(app, organization_id)? {
         if stored.provider == "openai-codex" {
             if !environment.contains_key("BEES_OPENAI_CODEX_SECRET_REF")
-                && read_secret(&stored.secret_ref).is_ok()
+                && credentials.read(&stored.secret_ref).is_ok()
             {
                 environment.insert("BEES_OPENAI_CODEX_SECRET_REF".into(), stored.secret_ref);
                 environment.insert("BEES_OPENAI_CODEX_CONNECTION_ID".into(), stored.id);
@@ -1367,7 +1450,7 @@ fn provider_environment(
         if environment.contains_key(variable) {
             continue;
         }
-        if let Ok(secret) = connection_token(&stored.secret_ref) {
+        if let Ok(secret) = credentials.token(&stored.secret_ref) {
             environment.insert(variable.to_string(), secret);
             if stored.provider == "openai-compatible" {
                 if let Some(base_url) = stored.base_url.filter(|value| {
@@ -3686,10 +3769,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            let database_path = app.path().app_data_dir()?.join("bees.db");
+            let app_data = app.path().app_data_dir()?;
+            let database_path = app_data.join("bees.db");
             let database = initialize_database(app)?;
             app.manage(database);
-            app.manage(start_credential_broker(database_path)?);
+            let credentials = CredentialStore::open(&app_data.join("credentials.db"))?;
+            app.manage(credentials.clone());
+            app.manage(start_credential_broker(database_path, credentials)?);
             app.manage(FlueManager(Mutex::new(None)));
             app.manage(KnowledgeWorkerManager(Mutex::new(None)));
             app.manage(ApiBridgeManager(Mutex::new(BTreeMap::new())));
@@ -4015,6 +4101,23 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn local_credential_store_round_trips_without_an_os_vault() {
+        let path = std::env::temp_dir().join(format!(
+            "bees-credentials-{}.db",
+            loopback_token().expect("random name")
+        ));
+        let store = CredentialStore::open(&path).expect("credential store");
+        store.write("connection-1", "first").expect("write");
+        assert_eq!(store.read("connection-1").unwrap(), "first");
+        store.write("connection-1", "second").expect("replace");
+        assert_eq!(store.read("connection-1").unwrap(), "second");
+        store.delete("connection-1").expect("delete");
+        assert!(store.read("connection-1").is_err());
+        drop(store);
+        fs::remove_file(path).expect("cleanup");
     }
 
     #[test]

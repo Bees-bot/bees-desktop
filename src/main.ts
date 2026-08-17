@@ -118,7 +118,7 @@ const workflowRuntime = new WorkflowRuntimeClient(api, () => ({
 const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, ensureFlueRuntime);
 
 /**
- * Boot the immutable Flue app. Rust resolves model credentials from the OS vault; the
+ * Boot the immutable Flue app. Rust resolves model credentials from local app storage; the
  * webview supplies only business scope and never reads a stored secret.
  */
 async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }> {

@@ -148,7 +148,7 @@ export function harnessPlugin() {
   // teamRoot is kept so one team's agents don't show up under another.
   const agentFiles = new Map();
   const http = httpBridge();
-  // Stands in for the OS vault so discovery can present the same bearer the app stored.
+  // Stands in for local credential storage so discovery can present the same bearer the app stored.
   const secrets = new Map();
   // Skills written in the UI, so they're there when the registry gets re-copied.
   const teamSkills = new Map();

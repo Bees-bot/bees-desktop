@@ -614,7 +614,7 @@ export function createMainActions(host: MainHost) {
     const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      // A public API has nothing in the vault, so it is asked for nothing.
+      // A public API has no stored credential, so it is asked for nothing.
       body: JSON.stringify(
         reachable.authType === "none" ? { ...reachable, secretRef: undefined } : reachable
       )
@@ -671,7 +671,7 @@ export function createMainActions(host: MainHost) {
    * Connect an API that ships no MCP server, from a request that already works.
    *
    * The curl is the specification: it names the address, the parameters and the credential, and it
-   * has been proved by whoever pasted it. Bees writes the document, keeps the key in the vault and
+   * has been proved by whoever pasted it. Bees writes the document, keeps the key in local storage and
    * runs the bridge, so nothing has to be written by hand.
    */
   async function addApiFromCurl(): Promise<void> {
@@ -762,7 +762,7 @@ export function createMainActions(host: MainHost) {
     const data = await edit(found ? `Connect ${found.title}` : "Add MCP connection", [
       { name: "name", label: "Name", placeholder: "Linear", value: found?.title ?? "" },
       { name: "url", label: "HTTPS endpoint", placeholder: "https://example.com/mcp", value: found?.url ?? "" },
-      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in the operating-system vault." : "" },
+      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in local app storage." : "" },
       { name: "transport", label: "Transport", type: "toggle", value: found?.transport ?? "streamable-http", options: [{ label: "Streamable HTTP", value: "streamable-http" }, { label: "Legacy SSE", value: "sse" }] },
       { name: "offline", label: "When unavailable", type: "toggle", value: "required", options: [{ label: "Fail the run", value: "required" }, { label: "Continue without it", value: "optional" }] }
     ]);
@@ -2127,16 +2127,24 @@ export function createMainActions(host: MainHost) {
         const result = await completed.json() as { credential?: string; error?: string };
         if (!completed.ok || !result.credential)
           throw new Error(result.error ?? "Codex sign-in failed");
-        const { connection, secret } = connectOAuthCredential("openai-codex", result.credential);
+        const scope = host.session.aiConnectionScope();
+        const existing = (await listAiConnections(host.repository, scope))
+          .find(({ provider }) => provider === "openai-codex");
+        const connected = connectOAuthCredential("openai-codex", result.credential);
+        const connection = existing ?? connected.connection;
+        const secret = connected.secret;
         await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
-        try {
-          await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
-        } catch (error) {
-          await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
-          throw error;
+        if (!existing) {
+          try {
+            await addAiConnection(host.repository, scope, connection);
+          } catch (error) {
+            await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
+            throw error;
+          }
         }
         await host.assistant.refreshAssistantCatalog();
-        host.shell.showNotice("Codex is signed in", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(existing ? "Codex connection renewed" : "Codex is signed in", "success");
         return;
       }
       if (action === "toggle-cli-tool") {

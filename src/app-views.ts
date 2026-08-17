@@ -2244,9 +2244,10 @@ export function createMainViews(host: MainHost) {
               <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-              <span class="badge badge-sm ${codexAvailable ? "badge-success" : "badge-ghost"}">${codexAvailable ? "Connected" : codex ? "Credential missing" : "Not connected"}</span>
+              <span class="badge badge-sm ${codexAvailable ? "badge-success" : "badge-ghost"}">${codexAvailable ? "Connected" : codex ? "Reconnect required" : "Not connected"}</span>
               ${codex
-                ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
+                ? `<button class="btn btn-outline btn-xs" data-action="codex-login">Reconnect</button>
+                   <button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
                 : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
             </div>
           </li>
@@ -2306,7 +2307,7 @@ export function createMainViews(host: MainHost) {
     return `<div class="space-y-10">
       <section>
         <h2 class="font-bold text-lg">MCP servers</h2>
-        <p class="mt-1 text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
+        <p class="mt-1 text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in local Bees app storage.</p>
         <div class="mt-4 flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
         <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
           <ul class="divide-y divide-base-200 p-2">${list}</ul>
