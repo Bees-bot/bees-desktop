@@ -195,7 +195,7 @@ async function runClaude(
   signal?: AbortSignal
 ): Promise<CliOutput> {
   const command = process.env.BEES_CLAUDE_CLI;
-  if (!command) throw new Error("Claude Code is not configured. Choose its binary in Preferences.");
+  if (!command) throw new Error("Claude Code is not configured. Choose its binary under Settings → AI CLI.");
   const env = agentEnvironment();
   Object.assign(env, {
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",

@@ -150,7 +150,7 @@ export function createSessionController(host: MainHost) {
   let serverOrgs = new Map<string, ServerWorkspace>();
 
   // Org invitations waiting for any pooled account, refreshed by reconcileServerOrgs. Only the count
-  // is used (the Preferences badge); the Workspaces tab re-fetches its own rows when it renders.
+  // is used (the Settings badge); the Workspaces tab re-fetches its own rows when it renders.
   let pendingInvitations: PendingInvitation[] = [];
 
   const SEEN_CONNECTIONS_KEY = "seen_org_connections";
@@ -247,7 +247,7 @@ export function createSessionController(host: MainHost) {
         continue; // an unreachable server must not sign out otherwise-valid accounts
       }
       // Invitations are not memberships, so the org list never mentions them. Pulled here so a
-      // pending invite can badge the UI without the user opening Preferences. Its own catch: a
+      // pending invite can badge the UI without the user opening Settings. Its own catch: a
       // failure here must not cost this account its orgs.
       invitations.push(...(await host.api.myInvitations(token).then((r) => r.invitations).catch(() => [])));
       // listWorkspaces only returns workspaces the account still belongs to. A connection to any workspace
@@ -437,7 +437,7 @@ export function createSessionController(host: MainHost) {
 
   /**
    * If the active connection just became unopenable (signed out), move to any remaining
-   * connection — or a device-only workspace, or Preferences → Workspaces when none remain.
+   * connection — or a device-only workspace, or Settings → Workspaces when none remain.
    * Returns true if it handled the refresh (caller then skips its own).
    */
   async function moveOffHidden(): Promise<boolean> {
@@ -569,7 +569,7 @@ export function createSessionController(host: MainHost) {
   /**
    * Can we actually open this workspace right now? Device-only workspaces always; shared ones only
    * while an account is signed in. Logged-out shared workspaces are hidden from the switcher — you
-   * log back in from Preferences → Workspaces.
+   * log back in from Settings → Workspaces.
    */
   function canConnectOrg(orgId: string): boolean {
     return !orgIsConnected(orgId) || orgHasConnection(orgId);

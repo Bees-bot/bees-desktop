@@ -24,10 +24,8 @@ export const CLI_TOOLS: CliTool[] = [
   }
 ];
 
-export const NATIVE_AGENT_TOOLS: CliTool[] = CLI_TOOLS;
-
 export function isCliProvider(provider: string | undefined): boolean {
-  return NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);
+  return CLI_TOOLS.some((tool) => tool.provider === provider);
 }
 
 export interface CliToolPath {

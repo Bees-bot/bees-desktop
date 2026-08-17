@@ -314,29 +314,29 @@ way — then press **Next**.
 
 Target: the Overview item in the left menu
 
-## Open Preferences
+## Open Settings
 Everything that belongs to *this computer and this person* lives here: models, API keys,
 sign-ins, and the root folder. None of it syncs.
 
 Open it now.
 
-Target: the Preferences gear beside the Bees.bot name
+Target: the Settings gear beside the Bees.bot name
 
 ## Turn on at least one model
 An agent cannot run without a model it can reach, and skipping this is where almost every
 "nothing happens when I press Run" comes from. Pick whichever you already have:
 
-- **AI Subscriptions** — connected Codex, plus Claude Code when you explicitly choose its binary.
+- **AI CLI** — connected Codex, plus Claude Code when you explicitly choose its binary.
 - **Local AI** — download an on-device model, then Run it. No network, no bill.
 - **AI APIs** — a provider key.
 
-Target: the AI Subscriptions tab in Preferences
+Target: the AI CLI tab in Settings
 
 ## Pick where files live
 Every workspace and team folder is created under one root, \`<home>/Bees\` unless you change
 it. Agents never see the rest of your disk.
 
-Target: the Root Folder tab in Preferences
+Target: the Root Folder tab in Settings
 
 ## Add a team
 A team is where the work actually lives — its processes, boards, tasks, agents, and one folder

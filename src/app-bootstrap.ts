@@ -105,7 +105,7 @@ export function createAppBootstrap(host: MainHost) {
         if (payload.state === "ready" && host.localModels.wantedRunId === payload.modelId) {
           host.actions.runLocalModel(payload.modelId);
         }
-        if (payload.state !== "downloading" && host.shell.view === "settings" && host.shell.settingsTab === "local-models") {
+        if (payload.state !== "downloading" && host.shell.view === "settings" && host.shell.settingsTab === "local-ai") {
           void host.views.renderSettings();
         }
       });

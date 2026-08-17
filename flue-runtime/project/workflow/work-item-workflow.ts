@@ -123,15 +123,19 @@ function isWeekend(date: Date, tz: string): boolean {
   return ["Sat", "Sun"].includes(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(date));
 }
 
-function addCalendarDay(date: Date, tz: string): Date {
-  const [y, m, d, h, min, s] = zonedParts(date, tz);
-  const naive = Date.UTC(y, m, d + 1, h, min, s);
+/** Instant whose wall clock in `tz` reads these parts. Second pass settles a DST shift. */
+function fromZonedParts(naive: number, tz: string): Date {
   let guess = naive;
   for (let i = 0; i < 2; i++) {
-    const [gy, gm, gd, gh, gmin, gs] = zonedParts(new Date(guess), tz);
-    guess += naive - Date.UTC(gy, gm, gd, gh, gmin, gs);
+    const [y, m, d, h, min, s] = zonedParts(new Date(guess), tz);
+    guess += naive - Date.UTC(y, m, d, h, min, s);
   }
   return new Date(guess);
+}
+
+function addCalendarDay(date: Date, tz: string): Date {
+  const [y, m, d, h, min, s] = zonedParts(date, tz);
+  return fromZonedParts(Date.UTC(y, m, d + 1, h, min, s), tz);
 }
 
 function nextScheduleRun(schedule: RuntimeSchedule, previous: number): number {

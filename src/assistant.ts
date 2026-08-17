@@ -16,7 +16,7 @@ import {
   type AiProvider
 } from "./ai-connections.js";
 import {
-  NATIVE_AGENT_TOOLS
+  CLI_TOOLS
 } from "./cli-tools.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
@@ -560,7 +560,7 @@ export function modelCatalog(input: {
     }
   }
 
-  for (const tool of NATIVE_AGENT_TOOLS) {
+  for (const tool of CLI_TOOLS) {
     if (!input.cliInstalled[tool.id]?.enabled)
       continue;
     const models = MODEL_PROVIDERS.find(({ id }) => id === tool.provider)?.models ?? ["default"];
@@ -589,7 +589,7 @@ export function modelCatalog(input: {
  * largest-first, so "first match wins" is the size order without a second sort.
  */
 export function preferredModelChoice(catalog: ModelOption[]): ModelChoice {
-  const isCli = (provider: string): boolean => NATIVE_AGENT_TOOLS.some((tool) => tool.provider === provider);
+  const isCli = (provider: string): boolean => CLI_TOOLS.some((tool) => tool.provider === provider);
   return (
     catalog.find(({ choice }) => choice.provider === "openai-codex" && choice.model === DEFAULT_CODEX_MODEL_ID)
       ?.choice ??
@@ -615,13 +615,6 @@ export function resolveModelChoice(
 ): ModelChoice {
   const provider = config.provider?.trim();
   const model = config.model?.trim();
-  // Existing agent files and preferences used the removed native shim. Keep them runnable.
-  if (provider === "codex-cli") {
-    return {
-      provider: "openai-codex",
-      model: !model || model === "default" ? DEFAULT_CODEX_MODEL_ID : model
-    };
-  }
   if (provider === AUTO_PROVIDER)
     return catalog.length ? preferredModelChoice(catalog) : active;
   return provider && model && !(provider === LOCAL_PROVIDER && model === "active")
@@ -672,7 +665,7 @@ export function effectiveAgentEligibility(
         };
   }
 
-  const cli = NATIVE_AGENT_TOOLS.find(({ provider }) => provider === model.provider);
+  const cli = CLI_TOOLS.find(({ provider }) => provider === model.provider);
   if (cli && !availability.cliProviders.includes(model.provider)) {
     return {
       active: false,

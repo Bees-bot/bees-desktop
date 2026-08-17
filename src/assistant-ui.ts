@@ -47,7 +47,7 @@ function controlLine(ref: string, element: HTMLElement, name: string): string {
   const metadata = [
     ["action", element.dataset.action],
     ["view", element.dataset.view],
-    ["preferences-tab", element.dataset.prefsTab],
+    ["settings-tab", element.dataset.settingsTab],
     ["organization-tab", element.dataset.orgTab],
     ["team-tab", element.dataset.teamTab],
     ["model", element.dataset.model],
@@ -135,7 +135,7 @@ export interface UiLocator {
 const LOCATOR_ATTRIBUTES = [
   "data-view",
   "data-action",
-  "data-prefs-tab",
+  "data-settings-tab",
   "data-org-tab",
   "data-team-tab",
   "data-team-view",
