@@ -4,20 +4,26 @@ One organization-controlled LlamaIndex service exposing the read-only MCP tool `
 
 ## Local development
 
+Run these from `bees-desktop`:
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e services/knowledge-worker
-bees-knowledge-worker serve --config services/knowledge-worker/config.example.json
-```
-
-Generate a token digest without echoing the token:
-
-```bash
+cp services/knowledge-worker/config.example.json knowledge-config.json
 bees-knowledge-worker hash-token
 ```
 
-Put the printed digest in `tokenSha256`. Keep the original token in the Bees operating-system credential vault, not in the config file.
+`hash-token` reads a token without echoing it and prints its SHA-256 digest. Put that digest
+in `knowledge-config.json`'s `tokenSha256` and point each `sources[].path` at a folder that
+exists on this machine; the example values are placeholders and the worker refuses to start on
+them. Then:
+
+```bash
+bees-knowledge-worker serve --config knowledge-config.json
+```
+
+Keep the original token in the Bees operating-system credential vault, not in the config file.
 Use a separately generated, high-entropy token for each team; token digests must also be unique.
 
 ## Organization server

@@ -21,7 +21,10 @@ export function parseKnowledgePolicy(value: unknown): KnowledgePolicy | null {
   const candidate = value as Record<string, unknown>;
   if (candidate.mode === "local") return { mode: "local" };
   if (candidate.mode !== "remote" || typeof candidate.url !== "string") return null;
-  const url = new URL(candidate.url.trim());
+  let url: URL;
+  // `new URL` says "Invalid URL" for a pasted hostname, which sounds like the URL is bad
+  try { url = new URL(candidate.url.trim()); }
+  catch { throw new Error("Enter the worker's full address, starting with https://"); }
   if (url.protocol !== "https:") throw new Error("The remote knowledge URL must use HTTPS");
   if (url.username || url.password) throw new Error("Put credentials in the token field, not the URL");
   if (url.hash) throw new Error("The remote knowledge URL cannot contain a fragment");
