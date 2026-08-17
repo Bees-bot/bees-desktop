@@ -268,7 +268,7 @@ export function createMainViews(host: MainHost) {
     // No active org (e.g. all deleted): teams need an org to belong to, so show nothing here.
     if (!host.workspaceController.workspace.organizationId) {
       host.shell.teamNav.innerHTML = "";
-      renderPrefsButton();
+      renderSettingsButton();
       return;
     }
     // Only the active team has execution/agent state loaded, so only its row can show a live count.
@@ -328,24 +328,24 @@ export function createMainViews(host: MainHost) {
         : `<div class="mx-2 rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-muted">
               Add a team to this workspace.
             </div>`}`;
-    renderPrefsButton();
+    renderSettingsButton();
   }
 
   /**
-   * The Preferences button in the sidebar header, badged with the number of org invitations waiting
+   * The Settings button in the sidebar header, badged with the number of org invitations waiting
    * for any pooled account — otherwise an invite is only visible to someone who happens to open the
    * Workspaces tab or click the emailed link.
    */
-  function renderPrefsButton(): void {
-    const prefs = document.querySelector<HTMLButtonElement>("#preferences-button");
-    if (!prefs)
+  function renderSettingsButton(): void {
+    const button = document.querySelector<HTMLButtonElement>("#settings-button");
+    if (!button)
       return;
-    prefs.classList.toggle("btn-active", host.shell.view === "settings");
-    prefs.querySelector(".invite-badge")?.remove();
+    button.classList.toggle("btn-active", host.shell.view === "settings");
+    button.querySelector(".invite-badge")?.remove();
     if (!host.session.pendingInvitations.length)
       return;
-    prefs.title = `Preferences — ${host.session.pendingInvitations.length} pending invitation${host.session.pendingInvitations.length === 1 ? "" : "s"}`;
-    prefs.insertAdjacentHTML("beforeend", `<span class="invite-badge badge badge-warning badge-xs absolute -right-1 -top-1">${host.session.pendingInvitations.length}</span>`);
+    button.title = `Settings — ${host.session.pendingInvitations.length} pending invitation${host.session.pendingInvitations.length === 1 ? "" : "s"}`;
+    button.insertAdjacentHTML("beforeend", `<span class="invite-badge badge badge-warning badge-xs absolute -right-1 -top-1">${host.session.pendingInvitations.length}</span>`);
   }
 
   /**
@@ -2020,8 +2020,8 @@ export function createMainViews(host: MainHost) {
       </section>`;
   }
 
-  /** Preferences → Folder: the root all workspace/team folders default under. */
-  async function prefsFolderContent(): Promise<string> {
+  /** Settings → Root Folder: the root all workspace/team folders default under. */
+  async function settingsRootFolderContent(): Promise<string> {
     const globalPath = await host.repository.getSetting("global_local_path", "");
     return `<section>
         <h2 class="font-bold text-lg">Root Folder</h2>
@@ -2037,7 +2037,7 @@ export function createMainViews(host: MainHost) {
     return `<div class="space-y-10">
       <section>
         <h2 class="font-bold text-lg">Primary workspace folder</h2>
-        <p class="mt-1 text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Preferences → Folder.</p>
+        <p class="mt-1 text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Settings → Root Folder.</p>
         <div class="mt-4 rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
         <div class="mt-4 flex justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
       </section>
@@ -2178,7 +2178,7 @@ export function createMainViews(host: MainHost) {
     </tr>`;
   }
 
-  async function prefsLocalModelsContent(): Promise<string> {
+  async function settingsLocalAiContent(): Promise<string> {
     const models = await host.localModels.list();
     return `<div class="space-y-10">
       <section>
@@ -2231,7 +2231,7 @@ export function createMainViews(host: MainHost) {
       </li>`;
     }).join("");
     return `<section>
-      <h2 class="font-bold text-lg">AI Subscriptions</h2>
+      <h2 class="font-bold text-lg">AI CLI</h2>
       <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
       <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
         <ul class="divide-y divide-base-200 p-2">
@@ -2253,7 +2253,7 @@ export function createMainViews(host: MainHost) {
     </section>`;
   }
 
-  async function prefsRemoteModelsContent(): Promise<string> {
+  async function settingsAiApisContent(): Promise<string> {
     const connections = await listAiConnections(host.repository, host.session.aiConnectionScope());
     const providerButtons = (Object.keys(AI_PROVIDER_LABEL) as AiProvider[])
       .filter((provider) => provider !== "openai-codex")
@@ -2289,7 +2289,7 @@ export function createMainViews(host: MainHost) {
     </div>`;
   }
 
-  async function prefsMcpServersContent(): Promise<string> {
+  async function settingsMcpServersContent(): Promise<string> {
     const connections = (await listMcpConnections(host.repository, host.workspaceController.workspace.teamId)).filter((connection) => !isKnowledgeConnection(connection));
     const list = connections.length
       ? connections.map((connection) => `<li class="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
@@ -2354,8 +2354,8 @@ export function createMainViews(host: MainHost) {
   }
 
   
-  // ---- Preferences (including sign-ins and workspaces) ----
-  function prefsThemeContent(): string {
+  // ---- Settings (including sign-ins and workspaces) ----
+  function settingsThemeContent(): string {
     const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
       .join("");
     const themeCards = host.shell.themePresets.map((preset) => `<button class="overflow-hidden rounded-xl border ${preset.id === host.shell.themePreset ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-base-300 hover:border-base-content/30 hover:shadow-sm"} bg-base-100 text-left transition-all"
@@ -2389,7 +2389,7 @@ export function createMainViews(host: MainHost) {
       </section>`;
   }
 
-  async function prefsSigninsContent(): Promise<string> {
+  async function settingsSigninsContent(): Promise<string> {
     const description = `<p class="text-sm text-muted">You can sign in with multiple user IDs. Each user ID can belong to multiple workspaces, and you can work across all of them at the same time.</p>`;
     const sso = Object.entries(host.session.providerLabel)
       .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
@@ -2432,7 +2432,7 @@ export function createMainViews(host: MainHost) {
    * twice — once per account. Each row's action already knows its account, so Login binds that
    * exact account with no prompt. Derived per account from its own memberships + invites.
    */
-  async function prefsWorkspacesContent(): Promise<string> {
+  async function settingsWorkspacesContent(): Promise<string> {
     // Two calls per pooled account, only while this tab is open. Fine for a handful of accounts.
     const perAccount = await Promise.all([...host.session.accounts.values()].map(async (account) => {
       // A failure here used to render as an empty list, which reads as "you have no organizations"
@@ -2494,7 +2494,7 @@ export function createMainViews(host: MainHost) {
     }
     rows.sort((a, b) => a.name.localeCompare(b.name) || a.account.localeCompare(b.account));
     return `<div class="space-y-10">
-        ${prefsCreateOrgContent()}
+        ${settingsCreateWorkspaceContent()}
         <section>
           <h2 class="font-bold text-lg">Workspaces</h2>
           <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p>
@@ -2513,7 +2513,7 @@ export function createMainViews(host: MainHost) {
       </div>`;
   }
 
-  function prefsCreateOrgContent(): string {
+  function settingsCreateWorkspaceContent(): string {
     return `<section>
         <h2 class="font-bold text-lg">Create a workspace</h2>
         <p class="mt-1 text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
@@ -2530,14 +2530,14 @@ export function createMainViews(host: MainHost) {
     const team = host.session.currentTeam();
 
     const globalTabs = [
-      { id: "local-models", label: "Local AI", content: prefsLocalModelsContent },
-      { id: "ai-subscriptions", label: "AI CLI", content: cliToolsSection },
-      { id: "remote-models", label: "AI APIs", content: prefsRemoteModelsContent },
-      { id: "mcp-servers", label: "MCP servers", content: prefsMcpServersContent },
-      { id: "signins", label: "Sign-ins", content: prefsSigninsContent },
-      { id: "workspaces", label: "Workspaces", content: prefsWorkspacesContent },
-      { id: "pref-folder", label: "Root Folder", content: prefsFolderContent },
-      { id: "theme", label: "Theme", content: prefsThemeContent }
+      { id: "local-ai", label: "Local AI", content: settingsLocalAiContent },
+      { id: "ai-cli", label: "AI CLI", content: cliToolsSection },
+      { id: "ai-apis", label: "AI APIs", content: settingsAiApisContent },
+      { id: "mcp-servers", label: "MCP servers", content: settingsMcpServersContent },
+      { id: "signins", label: "Sign-ins", content: settingsSigninsContent },
+      { id: "workspaces", label: "Workspaces", content: settingsWorkspacesContent },
+      { id: "root-folder", label: "Root Folder", content: settingsRootFolderContent },
+      { id: "theme", label: "Theme", content: settingsThemeContent }
     ];
 
     const orgTabs = org ? [
@@ -2766,7 +2766,7 @@ export function createMainViews(host: MainHost) {
           };
         }),
         checked: config?.mcpConnectionRefs ?? [],
-        hint: "Remote services receive relevant prompts and tool arguments. Plugin servers are optional and isolated; manage other connections and allowlists in Preferences → MCP servers.",
+        hint: "Remote services receive relevant prompts and tool arguments. Plugin servers are optional and isolated; manage other connections and allowlists in Settings → MCP servers.",
         step: "capabilities"
       },
       // A connection can publish dozens of tools, and every one of them is reach this agent
@@ -3109,7 +3109,7 @@ export function createMainViews(host: MainHost) {
     teamTaskNav,
     renderSidebarHelp,
     renderNavigation,
-    renderPrefsButton,
+    renderSettingsButton,
     searchBox,
     renderWorkItemDetail,
     conversationFor,
@@ -3145,21 +3145,21 @@ export function createMainViews(host: MainHost) {
     orgGeneralContent,
     orgMembersContent,
     orgInvitesContent,
-    prefsFolderContent,
+    settingsRootFolderContent,
     orgWorkspaceContent,
     orgKnowledgeContent,
     localModelStatusLabel,
     localModelToggle,
     localModelRow,
-    prefsLocalModelsContent,
+    settingsLocalAiContent,
     cliToolsSection,
-    prefsRemoteModelsContent,
-    prefsMcpServersContent,
+    settingsAiApisContent,
+    settingsMcpServersContent,
     orgOnboardingContent,
-    prefsThemeContent,
-    prefsSigninsContent,
-    prefsWorkspacesContent,
-    prefsCreateOrgContent,
+    settingsThemeContent,
+    settingsSigninsContent,
+    settingsWorkspacesContent,
+    settingsCreateWorkspaceContent,
     renderSettings,
     renderTeamSettings,
     agentEditorFields,

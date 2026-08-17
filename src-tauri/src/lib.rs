@@ -1485,7 +1485,7 @@ fn ensure_flue_runtime_blocking(
             )
             .map_err(|error| error.to_string())?,
         );
-    // External native agents are opt-in. Only paths explicitly chosen in Preferences reach
+    // External native agents are opt-in. Only paths explicitly chosen in Settings reach
     // the runtime; no login shell, default install location, or PATH scan runs at startup.
     let overrides = usable_cli_overrides(app);
     let disabled = disabled_cli_tools(app);
@@ -1742,7 +1742,7 @@ fn cli_tool_path(
     })
 }
 
-/// External agent CLIs explicitly chosen under Preferences. This never scans the machine.
+/// External agent CLIs explicitly chosen under Settings. This never scans the machine.
 #[tauri::command]
 fn configured_cli_tools(app: tauri::AppHandle) -> BTreeMap<String, CliToolPath> {
     let overrides = usable_cli_overrides(&app);

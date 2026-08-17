@@ -172,7 +172,7 @@ export function localModelParameterBillions(model: Pick<LocalModel, "name" | "fi
 
 /**
  * Listed on first launch so a fresh install has something to download without hunting for a URL.
- * Nothing is bundled or fetched on its own — the user downloads and runs it from Preferences → AI.
+ * Nothing is bundled or fetched on its own — the user downloads and runs it from Settings → Local AI.
  * No `chatTemplate`: the GGUFs carry a usable ChatML template, so llama-server uses that one.
  */
 export const SEEDED_MODELS: LocalModel[] = [
@@ -459,11 +459,11 @@ export class LocalModelService {
       const index = models.findIndex(({ id }) => id === modelId);
       if (statuses[index]?.running) return;
       throw new Error(
-        `Turn on local model "${models[index]?.name ?? modelId}" under Preferences → AI first.`
+        `Turn on local model "${models[index]?.name ?? modelId}" under Settings → Local AI first.`
       );
     }
     if (statuses.some(({ running }) => running)) return;
-    throw new Error("Turn on a local AI model under Preferences → AI first.");
+    throw new Error("Turn on a local AI model under Settings → Local AI first.");
   }
 
   isLocalModel(model: string | undefined): boolean {

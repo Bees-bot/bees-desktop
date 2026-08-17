@@ -516,7 +516,7 @@ export function createMainActions(host: MainHost) {
   const localModelStartAttempt = new Map<string, number>();
 
   // Boot can take up to a minute, so it is not awaited either — the row shows "Starting…" until the
-  // runtime answers, and the user is free to leave Preferences meanwhile.
+  // runtime answers, and the user is free to leave Settings meanwhile.
   function runLocalModel(modelId: string): void {
     if (host.assistant.localModelStarting.has(modelId))
       return;
@@ -692,7 +692,7 @@ export function createMainActions(host: MainHost) {
     void baseUrl; void token;
     const modelUrl = await invoke<string>("local_model_base_url").catch(() => "");
     if (!modelUrl)
-      throw new Error("Turn on a local AI model under Preferences → AI first. Bees uses it once to name the endpoint.");
+      throw new Error("Turn on a local AI model under Settings → Local AI first. Bees uses it once to name the endpoint.");
     // The endpoint is called in Rust: the plugin's scope names the hosts Bees knows, and the whole
     // point here is one it does not. The model runs on loopback, which the scope already allows.
     const input = String(data.get("curl") ?? "").trim();

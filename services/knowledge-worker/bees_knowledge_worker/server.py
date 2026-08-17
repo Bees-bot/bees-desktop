@@ -217,6 +217,9 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
         if content:
             self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(content)))
+        # we hang up after an unreadable body; a pooling client reuses the dead socket otherwise
+        if self.close_connection:
+            self.send_header("connection", "close")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()

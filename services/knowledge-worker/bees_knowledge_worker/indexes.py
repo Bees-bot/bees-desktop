@@ -109,8 +109,11 @@ class LlamaIndexBackend:
                 from llama_index.core import Settings
                 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
             except ImportError as error:
+                # a broken torch or transformers lands here too, and "not installed" sends
+                # whoever reads status.json looking for the wrong problem
                 raise KnowledgeError(
-                    "LlamaIndex is not installed. Install the bees-knowledge-worker package."
+                    f"The embedding backend failed to load: {error}. "
+                    "Install bees-knowledge-worker in a clean environment."
                 ) from error
             Settings.embed_model = HuggingFaceEmbedding(model_name=self.embedding_model)
             Settings.llm = None

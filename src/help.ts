@@ -31,13 +31,13 @@ someone who has already solved them.
 
 ## 2. Global settings
 
-Open **Preferences** from the gear beside the Bees.bot name at the top of this
+Open **Settings** from the gear beside the Bees.bot name at the top of this
 sidebar. These settings belong to this computer and this person. They are never
 synchronized, and they apply across every workspace and team you are signed
 into. Credentials never leave the machine.
 
 - **Local AI** — on-device models. Download one, then Run it. No network, no per-token cost.
-- **AI Subscriptions** — Codex through ChatGPT sign-in and optional agent runtimes you explicitly connect.
+- **AI CLI** — Codex through ChatGPT sign-in and optional agent runtimes you explicitly connect.
 - **AI APIs** — API keys for hosted providers.
 - **MCP servers** — manually configured remote MCP connections, each with its own tool allowlist.
 - **Sign-ins** — accounts on this computer. Hold several at once and switch without signing out.
@@ -81,17 +81,17 @@ An agent cannot run without a model it can reach. Do this before building a
 process — most "nothing happens when I press Run" comes from skipping it.
 
 **Option A — a subscription you already pay for.** Connect Codex directly with
-**Sign in** under **Preferences → AI Subscriptions**.
+**Sign in** under **Settings → AI CLI**.
 Claude Code remains an optional external agent: install it and explicitly choose
 its binary there. Bees never scans your PATH or reads either tool's account files,
 and every command it launches runs through the bundled sandbox runtime.
 
-**Option B — an on-device model.** **Preferences → Local AI**, select
+**Option B — an on-device model.** **Settings → Local AI**, select
 **Download**, then **Run**. Nothing leaves the machine and there is no bill.
 Small models are weaker at long instructions, so use them where privacy or
 volume matters most.
 
-**Option C — a provider API key.** **Preferences → AI APIs**, add a key.
+**Option C — a provider API key.** **Settings → AI APIs**, add a key.
 
 Every model picker lists exactly what this computer can run right now. An agent
 naming a model this machine cannot reach is not eligible to run here, which is
@@ -105,7 +105,7 @@ with no substitution.
 
 ## 6. Folder structure
 
-The workspace root is set at **Preferences → Root Folder** and defaults to
+The workspace root is set at **Settings → Root Folder** and defaults to
 \`<home>/Bees\`. Everything else is created underneath it:
 
 \`\`\`

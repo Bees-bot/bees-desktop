@@ -87,7 +87,7 @@ import {
 import { WorkflowRuntimeClient } from "./workflow-runtime.js";
 
 export type SettingsTab =
-  | "theme" | "local-models" | "ai-subscriptions" | "remote-models" | "mcp-servers" | "signins" | "workspaces" | "pref-folder"
+  | "theme" | "local-ai" | "ai-cli" | "ai-apis" | "mcp-servers" | "signins" | "workspaces" | "root-folder"
   | "org-general" | "org-members" | "org-invites" | "org-folder" | "org-knowledge" | "org-onboarding"
   | "team-members" | "team-folder" | "team-integrations" | "team-browser" | "team-archived" | "team-danger";
 export type TeamTab = "members" | "folder" | "integrations" | "browser" | "archived" | "danger";
@@ -129,7 +129,7 @@ async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }>
   // Four call sites destructure this. A runtime that failed to start resolved with nothing, which
   // surfaced as "Cannot destructure property 'baseUrl'". Fail here instead, in words.
   if (!runtime || typeof runtime.baseUrl !== "string" || !runtime.baseUrl)
-    throw new Error("The local process runtime did not start. Reopen Bees, and check Preferences → AI if it keeps happening.");
+    throw new Error("The local process runtime did not start. Reopen Bees, and check Settings → Local AI if it keeps happening.");
   return { baseUrl: runtime.baseUrl, token: typeof runtime.token === "string" ? runtime.token : "" };
 }
 
