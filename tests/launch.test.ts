@@ -301,7 +301,8 @@ describe("lean launch modules", () => {
     expect(html).toContain("Primary task");
     expect(html).toContain("Launch process");
     expect(html).not.toContain("Added task");
-    expect(html.match(/<tbody>[\s\S]*?<tr>/g)).toHaveLength(1);
+    expect(html.match(/<tbody>[\s\S]*?<tr\b/g)).toHaveLength(1);
+    expect(html).toContain('<tr class="cursor-pointer hover" data-action="open-item" data-id="root">');
   });
 
   it("shows an archived task as a finished run after its executions settle", () => {

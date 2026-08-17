@@ -265,7 +265,7 @@ export function runsView(items: WorkItem[], executions: Execution[], processes: 
       <tbody>${completed
         .map(({ item, startedAt, endedAt, outcome }) => {
           const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
-          return `<tr>
+          return `<tr class="cursor-pointer hover" data-action="open-item" data-id="${item.id}">
             <td><button class="link link-hover text-left font-semibold" data-action="open-item" data-id="${item.id}">${escapeHtml(item.title)}</button></td>
             <td>${escapeHtml(process)}</td>
             <td><span class="badge badge-sm ${outcome === "Completed" ? "badge-success" : "badge-ghost"}">${outcome}</span></td>
