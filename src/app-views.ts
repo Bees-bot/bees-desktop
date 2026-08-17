@@ -502,52 +502,61 @@ export function createMainViews(host: MainHost) {
    */
   function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean, proposed: PlannedTask[] = []): string {
     if (approved) {
-      return `<article class="rounded-box border border-success/30 bg-success/5 p-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold">${host.shell.escapeHtml(task.title)}</span>
-          <span class="badge badge-success badge-sm shrink-0">Approved</span>
+      return `<article class="rounded-xl border border-success/30 bg-success/5 p-4 opacity-80 transition-opacity hover:opacity-100">
+        <div class="flex items-center gap-3">
+          <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/20 text-xs font-bold text-success-content">${index + 1}</div>
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">${host.shell.escapeHtml(task.title)}</span>
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-success">
+            <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+            Approved
+          </div>
         </div>
       </article>`;
     }
     const roles = host.runs.taskWorkerRoles();
-    return `<article class="rounded-box border border-base-300 bg-base-100 p-3">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
+    return `<article class="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm transition-colors hover:border-base-content/20">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-base-200 text-xs font-bold text-base-content/70">${index + 1}</div>
         <input class="input input-bordered input-sm min-w-0 flex-1 basis-56 font-semibold" name="task-${index}-title" value="${host.shell.escapeHtml(task.title)}">
-        <button class="btn btn-success btn-xs shrink-0" type="submit" name="approveTask" value="${index}">Approve</button>
+        <button class="btn btn-success btn-sm shrink-0 shadow-sm" type="submit" name="approveTask" value="${index}">Approve</button>
       </div>
-      <div class="mt-2 grid gap-2">
-        <textarea class="textarea textarea-bordered min-h-20 w-full text-xs leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <label class="form-control grid gap-1"><span class="label-text text-xs text-muted">Worker role</span>
+      <div class="mt-4 grid gap-4 pl-9">
+        <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Description</span>
+          <textarea class="textarea textarea-bordered min-h-[5rem] w-full resize-y text-sm leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
+        </label>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Worker role</span>
             <select class="select select-bordered select-sm w-full" name="task-${index}-role">
               ${roles.map(({ role }) => `<option value="${host.shell.escapeHtml(role)}" ${role === task.role ? "selected" : ""}>${host.shell.escapeHtml(role)}</option>`).join("")}
             </select></label>
-          <label class="form-control grid gap-1"><span class="label-text text-xs text-muted">Effect</span>
+          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Effect</span>
             <select class="select select-bordered select-sm w-full" name="task-${index}-effect">
               ${[["read", "Read only"], ["prepare", "Prepare outputs"], ["external_write", "External action"]]
                 .map(([value, label]) => `<option value="${value}" ${value === task.effect ? "selected" : ""}>${label}</option>`).join("")}
             </select></label>
         </div>
         ${item.logicalFiles.length
-          ? `<div><span class="label-text text-xs text-muted">Approved inputs</span>
-              <div class="mt-1 flex flex-wrap gap-3">${item.logicalFiles
-                .map((path) => `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-xs">${host.shell.escapeHtml(path)}</span></label>`)
+          ? `<div><span class="label-text text-xs font-medium text-muted">Approved inputs</span>
+              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-2">${item.logicalFiles
+                .map((path) => `<label class="flex cursor-pointer items-center gap-2 hover:text-base-content/80"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-sm font-medium">${host.shell.escapeHtml(path)}</span></label>`)
                 .join("")}</div>
             </div>`
           : ""}
         ${task.inputs.some((input) => !item.logicalFiles.includes(input))
-          ? `<div><span class="label-text text-xs text-warning">Needs approval first</span>
-              <div class="mt-1 flex flex-wrap gap-3">${task.inputs
+          ? `<div class="rounded-lg border border-warning/30 bg-warning/10 p-3">
+              <div class="mb-2 flex items-center gap-1.5 text-xs font-bold text-warning-content">
+                <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                Needs approval first
+              </div>
+              <div class="flex flex-wrap gap-x-4 gap-y-2">${task.inputs
                 .filter((input) => !item.logicalFiles.includes(input))
                 .map((input) => {
                   const producer = proposed.findIndex((other) => other !== task && other.key === input);
-                  const from = producer !== -1 ? ` (from task ${producer + 1})` : "";
-                  return `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-xs text-warning">${host.shell.escapeHtml(input)}${from}</span></label>`;
+                  const from = producer !== -1 ? ` <span class="text-xs font-normal opacity-70">(from task ${producer + 1})</span>` : "";
+                  return `<label class="flex cursor-pointer items-center gap-2 hover:text-warning-content/80"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-sm font-medium text-warning-content">${host.shell.escapeHtml(input)}${from}</span></label>`;
                 })
                 .join("")}</div>
-              <p class="mt-1 text-xs text-muted">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
+              <p class="mt-2 text-[13px] leading-relaxed text-warning-content/80">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
             </div>`
           : ""}
       </div>
@@ -561,23 +570,32 @@ export function createMainViews(host: MainHost) {
       .filter(({ processId, goal }) => processId === item.processId && goal?.key)
       .map(({ goal }) => goal!.key));
     const remaining = proposed.filter(({ key }) => !approved.has(key)).length;
-    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-box border border-warning/40 bg-warning/5 p-4">
-      <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-semibold text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
-        <div class="flex gap-2">
-          <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
-          <button class="btn btn-error btn-outline btn-sm" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
+    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          <svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+          Task plan approval required${remaining < proposed.length ? `<span class="font-normal text-muted ml-1">· ${proposed.length - remaining}/${proposed.length} approved</span>` : ""}
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
+          <button class="btn btn-success btn-sm shadow-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
         </div>
       </div>
       ${blocked
-        ? `<p class="mb-3 text-xs font-semibold text-warning">Approve or reject this run's file outputs first — the plan's tasks may depend on them.</p>`
+        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
+             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+             <p><strong>Approve or reject this run's file outputs first</strong> — the plan's tasks may depend on them.</p>
+           </div>`
         : ""}
       ${blockingTasks.length
-        ? `<p class="mb-3 text-xs font-semibold text-warning">Blocked: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>`
+        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
+             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+             <p><strong>Blocked</strong>: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>
+           </div>`
         : ""}
-      <p class="mb-3 text-xs text-muted">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
+      <p class="mb-5 text-sm text-muted">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
       <fieldset class="contents" ${blocked || blockingTasks.length ? "disabled" : ""}>
-        <div class="grid gap-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
+        <div class="grid gap-3 pl-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
       </fieldset>
     </form>`;
   }
@@ -1049,7 +1067,7 @@ export function createMainViews(host: MainHost) {
                     <div class="flex flex-wrap items-center gap-1.5 mt-1">
                       ${workItemBadges(item)}
                       ${item.parentId ? '<span class="badge-soft badge-soft-neutral">Subtask</span>' : ""}
-                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge-soft badge-soft-warning"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Waiting</span>' : ""}
+                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) && !needsAttention(waiting.get(item.id) ?? null) ? '<span class="badge-soft badge-soft-warning"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Waiting</span>' : ""}
                       ${
                 needsAttention(waiting.get(item.id) ?? null)
                   ? `<span class="badge-soft ${waiting.get(item.id)!.kind === "stalled" ? "badge-soft-error" : "badge-soft-warning"}"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`

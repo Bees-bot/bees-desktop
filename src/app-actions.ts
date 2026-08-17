@@ -1000,6 +1000,9 @@ export function createMainActions(host: MainHost) {
    */
   // Empty for the team-level New task action; set to the displayed run when adding from its board.
   let newItemParentId = "";
+  // The view to return to when closing the process editor (e.g. "item-new" when reached via
+  // "Configure its agents" from the new-task form, or "board" in all other cases).
+  let processEditorReturnView: View = "board";
 
   async function createItem(stageId?: string, parentId = ""): Promise<void> {
     if (stageId && !host.workspaceController.activeProcess)
@@ -2482,7 +2485,8 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "close-process-editor") {
-        host.shell.view = "board";
+        host.shell.view = processEditorReturnView;
+        processEditorReturnView = "board";
         host.shell.render();
         return;
       }
@@ -2495,6 +2499,8 @@ export function createMainActions(host: MainHost) {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
           await host.workspaceController.switchTeam(button.dataset.team, "board");
         }
+        // Remember where we came from so Cancel can return there (e.g. "item-new").
+        processEditorReturnView = host.shell.view;
         host.shell.configProcessId = action === "edit-process" ? button.dataset.id! : "";
         host.shell.configAgentId = "";
         host.shell.view = "process";

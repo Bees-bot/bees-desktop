@@ -39,35 +39,44 @@ function outputName(output: ExecutionOutput, taskPlan?: string): string {
 }
 
 export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
-  const actions = `<div class="flex shrink-0 gap-2">
-    <button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" ${
-      busy ? "disabled" : ""
-    }>Approve</button>
-    <button class="btn btn-error btn-outline btn-xs" data-action="reject-output" data-id="${output.id}" ${
+  const actions = `<div class="flex shrink-0 items-center gap-2">
+    <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-id="${output.id}" ${
       busy ? "disabled" : ""
     }>Reject</button>
+    <button class="btn btn-success btn-sm shadow-sm" data-action="approve-output" data-id="${output.id}" ${
+      busy ? "disabled" : ""
+    }>Approve</button>
   </div>`;
+  const headerIcon = `<svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>`;
+
   if (/\.md$/i.test(output.logicalOutput)) {
-    return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-semibold text-warning">Approval required</div>
+    return `<article class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          ${headerIcon}
+          Approval required
+        </div>
         ${actions}
       </div>
-      <button class="mt-2 flex w-full items-center gap-2 rounded px-1 py-1 text-left text-sm font-semibold hover:bg-warning/10"
+      <button class="group mt-2 flex w-full items-center gap-3 rounded-lg border border-base-200 bg-base-100/50 p-3 text-left transition-colors hover:border-base-300 hover:bg-base-200/50 hover:shadow-sm"
         data-action="view-markdown-output" data-id="${output.id}"
         aria-haspopup="dialog"
         aria-label="Open ${escapeHtml(output.logicalOutput)} in Markdown viewer">
-        <span aria-hidden="true">&gt;</span><span>${escapeHtml(output.logicalOutput)}</span>
+        <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-base-200 text-base-content/60 shadow-sm transition-colors group-hover:bg-base-100 group-hover:text-base-content">
+          <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </div>
+        <span class="text-sm font-medium text-base-content transition-colors group-hover:text-primary">${escapeHtml(output.logicalOutput)}</span>
       </button>
     </article>`;
   }
-  return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+  return `<article class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-4">
       <div>
-        <div class="text-xs font-semibold text-warning">${
-          output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"
-        }</div>
-        <h4 class="mt-1 font-semibold">${escapeHtml(outputName(output, taskPlan))}</h4>
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          ${headerIcon}
+          ${output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"}
+        </div>
+        <h4 class="pl-7 mt-2 text-sm font-medium text-base-content/80">${escapeHtml(outputName(output, taskPlan))}</h4>
       </div>
       ${actions}
     </div>

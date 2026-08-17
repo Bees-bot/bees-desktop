@@ -468,7 +468,7 @@ describe("lean launch modules", () => {
     });
     expect(html).toContain("Approval required");
     expect(html).toContain('data-action="view-markdown-output"');
-    expect(html).toContain("&gt;</span><span>approval-request.md");
+    expect(html).toContain(">approval-request.md</span>");
     expect(html.match(/data-action="approve-output"/g)).toHaveLength(1);
     expect(html.match(/data-action="reject-output"/g)).toHaveLength(1);
   });
