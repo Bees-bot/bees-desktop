@@ -339,7 +339,10 @@ export function createAppShell(host: MainHost) {
       setHeader("What do you want to do today?", host.session.currentTeam()?.name);
       swap(overviewView(
         host.workspaceController.teamItems,
-        host.runs.executions
+        host.runs.executions,
+        escalationGroups(host.runs.supervise(), host.workspaceController.teamItems),
+        host.runs.executionOutputs,
+        host.workspaceController.processes
       ));
     }
     if (view === "inbox") {

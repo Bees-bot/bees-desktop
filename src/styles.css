@@ -105,7 +105,8 @@ body {
    failed 4.5:1, so most metadata and helper text was under it; 65% clears both themes. */
 .text-muted { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); }
 
-* { scrollbar-color: color-mix(in oklab, currentColor 20%, transparent) transparent; }
+* { scrollbar-width: none; }
+::-webkit-scrollbar { display: none; }
 button, input, textarea, select { font: inherit; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
 

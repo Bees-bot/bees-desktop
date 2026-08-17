@@ -106,40 +106,71 @@ function empty(title: string, detail: string): string {
 }
 
 function overviewAssistant(): string {
-  return `<form class="mt-6 w-full rounded-box border border-base-300 bg-base-100 p-4 shadow-sm" data-overview-assistant>
-    <label class="mb-2 block text-sm font-bold" for="overview-assistant-message">Ask AI assistant</label>
-    <textarea id="overview-assistant-message" name="message"
-      class="textarea textarea-bordered min-h-28 w-full resize-y" maxlength="20000" required
-      placeholder="What would you like help with?"></textarea>
-    <div class="mt-3 flex justify-end">
-      <button class="btn btn-primary" type="submit">Go</button>
-    </div>
-  </form>`;
+  return `<div class="flex flex-col">
+    <label class="mb-2 ml-1 text-sm font-bold tracking-tight text-base-content/80" for="overview-assistant-message">Ask AI Assistant</label>
+    <form class="group flex w-full flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm transition-all focus-within:border-primary/40 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/20" data-overview-assistant>
+      <textarea id="overview-assistant-message" name="message"
+        class="textarea w-full resize-none border-none bg-transparent p-5 text-base leading-relaxed focus:outline-none focus:ring-0 min-h-32" maxlength="20000" required
+        placeholder="What would you like the team to do? Start a process, check on a task, or summarize work..."></textarea>
+      
+      <div class="flex items-center justify-between border-t border-base-200/50 bg-base-200/30 px-5 py-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-base-content/50">Press <kbd class="kbd kbd-xs bg-base-100 opacity-80">Enter</kbd> to send</span>
+        </div>
+        <button class="btn btn-primary btn-sm rounded-full px-6 shadow-sm gap-2" type="submit"><svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>Go</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 export function overviewView(
   items: WorkItem[],
-  executions: Execution[]
+  executions: Execution[],
+  groups: EscalationGroup[],
+  outputs: ExecutionOutput[],
+  processes: Process[]
 ): string {
-  return `${overviewAssistant()}
-    <section class="mt-6">
-      <div class="mb-3 flex items-center justify-between"><h2 class="text-lg font-bold">Recent runs</h2>
+  const hasInbox = groups.some(group => group.escalations.length > 0);
+  const inboxHtml = hasInbox
+    ? `<section class="flex flex-col gap-4">
+        <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Needs your approval</h2></div>
+        ${inboxView(groups, executions, outputs, processes)}
+       </section>`
+    : "";
+
+  return `<div class="mx-auto flex max-w-5xl flex-col gap-8 pb-12 pt-6">
+    ${overviewAssistant()}
+    ${inboxHtml}
+    <section class="flex flex-col gap-4">
+      <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Recent AI work</h2>
         <button class="btn btn-ghost btn-sm" data-view="runs">View all</button></div>
       ${
         executions.length
-          ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
-              <table class="table table-sm"><tbody>${executions
+          ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
+              <table class="table">
+                <thead class="bg-base-200/50"><tr>
+                  <th>Task</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                </tr></thead>
+                <tbody>${executions
                 .slice(0, 8)
                 .map(
                   // A bare inline link here was 17px tall, under the 24px a pointer reliably hits.
-                  (run) => `<tr><td><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
-                    itemName(items, run.workItemId)
-                  )}</button></td><td>${statusBadge(run.status)}</td><td>${duration(run)}</td><td>${when(run.createdAt)}</td></tr>`
+                  (run) => {
+                    const item = items.find(i => i.id === run.workItemId);
+                    const processName = item ? processes.find(p => p.id === item.processId)?.name ?? "—" : "—";
+                    return `<tr class="hover"><td><div class="flex flex-col gap-0.5"><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
+                      itemName(items, run.workItemId)
+                    )}</button><span class="text-xs font-medium text-base-content/60">${escapeHtml(processName)}</span></div></td><td class="align-middle">${statusBadge(run.status)}</td><td class="align-middle text-sm">${duration(run)}</td><td class="align-middle text-sm text-base-content/70">${when(run.createdAt)}</td></tr>`;
+                  }
                 )
                 .join("")}</tbody></table></div>`
-          : empty("No runs yet", "Start an item from Work to see activity here.")
+          : empty("No recent work", "Start an item from Work to see activity here.")
       }
-    </section>`;
+    </section>
+  </div>`;
 }
 
 /**

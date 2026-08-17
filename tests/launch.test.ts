@@ -270,10 +270,10 @@ describe("lean launch modules", () => {
   });
 
   it("renders the team assistant without context dropdowns", () => {
-    const html = overviewView([], []);
+    const html = overviewView([], [], [], [], []);
 
-    expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent runs"));
-    expect(html).toContain('class="textarea textarea-bordered min-h-28 w-full resize-y"');
+    expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent AI work"));
+    expect(html).toContain('class="textarea w-full resize-none border-none bg-transparent');
     expect(html).not.toContain("<select");
     expect(html).not.toMatch(/Running|Needs attention|Completed/);
     expect(html).toContain(">Go</button>");
