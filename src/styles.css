@@ -105,7 +105,8 @@ body {
    failed 4.5:1, so most metadata and helper text was under it; 65% clears both themes. */
 .text-muted { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); }
 
-* { scrollbar-color: color-mix(in oklab, currentColor 20%, transparent) transparent; }
+* { scrollbar-width: none; }
+::-webkit-scrollbar { display: none; }
 button, input, textarea, select { font: inherit; }
 ::selection { color: var(--color-primary-content); background: var(--color-primary); }
 
@@ -285,7 +286,6 @@ button, input, textarea, select { font: inherit; }
 
 .kanban-column {
   max-height: 50vh;
-  overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--color-base-300);
   border-radius: var(--radius-box);
@@ -294,11 +294,49 @@ button, input, textarea, select { font: inherit; }
 }
 
 .kanban-card {
-  border-radius: var(--radius-field);
+  border-radius: var(--radius-box);
   background: var(--color-base-100);
-  box-shadow: none;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: all 0.15s var(--ease-ui);
 }
-.kanban-card:hover { border-color: color-mix(in oklab, var(--color-base-content) 24%, transparent); }
+.kanban-card:hover { 
+  border-color: color-mix(in oklab, var(--color-primary) 50%, transparent); 
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05); 
+}
+
+/* Premium soft badges */
+.badge-soft {
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  line-height: 1.2;
+}
+.badge-soft-neutral {
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+}
+.badge-soft-primary {
+  background: color-mix(in oklab, var(--color-primary) 15%, transparent);
+  color: var(--color-primary);
+}
+.badge-soft-success {
+  background: color-mix(in oklab, var(--color-success) 15%, transparent);
+  color: color-mix(in oklab, var(--color-success) 90%, black);
+}
+.badge-soft-warning {
+  background: color-mix(in oklab, var(--color-warning) 15%, transparent);
+  color: color-mix(in oklab, var(--color-warning) 90%, black);
+}
+.badge-soft-error {
+  background: color-mix(in oklab, var(--color-error) 15%, transparent);
+  color: color-mix(in oklab, var(--color-error) 90%, black);
+}
 
 /* A quiet label, not a lozenge: the border and size carry it, so it stops competing with badges. */
 .eyebrow-pill {
@@ -366,6 +404,26 @@ button, input, textarea, select { font: inherit; }
 .markdown-viewer a { color: var(--color-primary); text-decoration: underline; }
 .markdown-viewer hr { margin: 1.5rem 0; border-color: var(--color-base-300); }
 
+/* Getting Started specific enhancements */
+.getting-started-content {
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+.getting-started-content p {
+  color: color-mix(in oklab, var(--color-base-content) 85%, transparent);
+}
+.getting-started-content h2 {
+  font-size: 1.35rem;
+  margin-top: 2em;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-base-300);
+}
+.getting-started-content li {
+  margin-bottom: 0.5rem;
+}
+.getting-started-content strong {
+  color: var(--color-base-content);
+}
 /* ---------------------------------------------------------------- motion */
 
 button, .card, .menu button {
@@ -436,7 +494,6 @@ button, .card, .menu button {
   padding-right: 0;
   padding-top: 0.125rem;
   padding-bottom: 0.25rem;
-  border-left: 1px solid var(--color-base-300);
   list-style: none;
 }
 .team-sub-nav li { list-style: none; }
@@ -494,13 +551,13 @@ button, .card, .menu button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  min-height: 1.75rem;
+  width: 1.85rem;
+  min-height: 1.85rem;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-field);
-  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
   cursor: pointer;
   flex-shrink: 0;
   transition: color var(--motion-fast) var(--ease-ui);
@@ -516,5 +573,5 @@ button, .card, .menu button {
 .sidebar-icon-btn.text-error { color: color-mix(in oklab, var(--color-error) 55%, transparent); }
 .sidebar-icon-btn.text-error:hover,
 .sidebar-icon-btn.text-error:focus-visible { color: var(--color-error); }
-.sidebar-icon-btn svg { width: 1rem; height: 1rem; flex: none; }
+.sidebar-icon-btn svg { width: 1.1rem; height: 1.1rem; flex: none; }
 }

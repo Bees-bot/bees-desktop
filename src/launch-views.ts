@@ -39,35 +39,44 @@ function outputName(output: ExecutionOutput, taskPlan?: string): string {
 }
 
 export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
-  const actions = `<div class="flex shrink-0 gap-2">
-    <button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" ${
-      busy ? "disabled" : ""
-    }>Approve</button>
-    <button class="btn btn-error btn-outline btn-xs" data-action="reject-output" data-id="${output.id}" ${
+  const actions = `<div class="flex shrink-0 items-center gap-2">
+    <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-id="${output.id}" ${
       busy ? "disabled" : ""
     }>Reject</button>
+    <button class="btn btn-success btn-sm shadow-sm" data-action="approve-output" data-id="${output.id}" ${
+      busy ? "disabled" : ""
+    }>Approve</button>
   </div>`;
+  const headerIcon = `<svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>`;
+
   if (/\.md$/i.test(output.logicalOutput)) {
-    return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-semibold text-warning">Approval required</div>
+    return `<article class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          ${headerIcon}
+          Approval required
+        </div>
         ${actions}
       </div>
-      <button class="mt-2 flex w-full items-center gap-2 rounded px-1 py-1 text-left text-sm font-semibold hover:bg-warning/10"
+      <button class="group mt-2 flex w-full items-center gap-3 rounded-lg border border-base-200 bg-base-100/50 p-3 text-left transition-colors hover:border-base-300 hover:bg-base-200/50 hover:shadow-sm"
         data-action="view-markdown-output" data-id="${output.id}"
         aria-haspopup="dialog"
         aria-label="Open ${escapeHtml(output.logicalOutput)} in Markdown viewer">
-        <span aria-hidden="true">&gt;</span><span>${escapeHtml(output.logicalOutput)}</span>
+        <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-base-200 text-base-content/60 shadow-sm transition-colors group-hover:bg-base-100 group-hover:text-base-content">
+          <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </div>
+        <span class="text-sm font-medium text-base-content transition-colors group-hover:text-primary">${escapeHtml(output.logicalOutput)}</span>
       </button>
     </article>`;
   }
-  return `<article class="rounded-box border border-warning/40 bg-warning/5 p-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+  return `<article class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-4">
       <div>
-        <div class="text-xs font-semibold text-warning">${
-          output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"
-        }</div>
-        <h4 class="mt-1 font-semibold">${escapeHtml(outputName(output, taskPlan))}</h4>
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          ${headerIcon}
+          ${output.logicalOutput === taskPlan ? "Task plan approval required" : "Approval required"}
+        </div>
+        <h4 class="pl-7 mt-2 text-sm font-medium text-base-content/80">${escapeHtml(outputName(output, taskPlan))}</h4>
       </div>
       ${actions}
     </div>
@@ -106,40 +115,71 @@ function empty(title: string, detail: string): string {
 }
 
 function overviewAssistant(): string {
-  return `<form class="mt-6 w-full rounded-box border border-base-300 bg-base-100 p-4 shadow-sm" data-overview-assistant>
-    <label class="mb-2 block text-sm font-bold" for="overview-assistant-message">Ask AI assistant</label>
-    <textarea id="overview-assistant-message" name="message"
-      class="textarea textarea-bordered min-h-28 w-full resize-y" maxlength="20000" required
-      placeholder="What would you like help with?"></textarea>
-    <div class="mt-3 flex justify-end">
-      <button class="btn btn-primary" type="submit">Go</button>
-    </div>
-  </form>`;
+  return `<div class="flex flex-col">
+    <label class="mb-2 ml-1 text-sm font-bold tracking-tight text-base-content/80" for="overview-assistant-message">Ask AI Assistant</label>
+    <form class="group flex w-full flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm transition-all focus-within:border-primary/40 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/20" data-overview-assistant>
+      <textarea id="overview-assistant-message" name="message"
+        class="textarea w-full resize-none border-none bg-transparent p-5 text-base leading-relaxed focus:outline-none focus:ring-0 min-h-32" maxlength="20000" required
+        placeholder="What would you like the team to do? Start a process, check on a task, or summarize work..."></textarea>
+      
+      <div class="flex items-center justify-between border-t border-base-200/50 bg-base-200/30 px-5 py-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-base-content/50">Press <kbd class="kbd kbd-xs bg-base-100 opacity-80">Enter</kbd> to send</span>
+        </div>
+        <button class="btn btn-primary btn-sm rounded-full px-6 shadow-sm gap-2" type="submit"><svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>Go</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 export function overviewView(
   items: WorkItem[],
-  executions: Execution[]
+  executions: Execution[],
+  groups: EscalationGroup[],
+  outputs: ExecutionOutput[],
+  processes: Process[]
 ): string {
-  return `${overviewAssistant()}
-    <section class="mt-6">
-      <div class="mb-3 flex items-center justify-between"><h2 class="text-lg font-bold">Recent runs</h2>
+  const hasInbox = groups.some(group => group.escalations.length > 0);
+  const inboxHtml = hasInbox
+    ? `<section class="flex flex-col gap-4">
+        <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Needs your approval</h2></div>
+        ${inboxView(groups, executions, outputs, processes)}
+       </section>`
+    : "";
+
+  return `<div class="mx-auto flex max-w-5xl flex-col gap-8 pb-12 pt-6">
+    ${overviewAssistant()}
+    ${inboxHtml}
+    <section class="flex flex-col gap-4">
+      <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Recent AI work</h2>
         <button class="btn btn-ghost btn-sm" data-view="runs">View all</button></div>
       ${
         executions.length
-          ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
-              <table class="table table-sm"><tbody>${executions
+          ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
+              <table class="table">
+                <thead class="bg-base-200/50"><tr>
+                  <th>Task</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                </tr></thead>
+                <tbody>${executions
                 .slice(0, 8)
                 .map(
                   // A bare inline link here was 17px tall, under the 24px a pointer reliably hits.
-                  (run) => `<tr><td><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
-                    itemName(items, run.workItemId)
-                  )}</button></td><td>${statusBadge(run.status)}</td><td>${duration(run)}</td><td>${when(run.createdAt)}</td></tr>`
+                  (run) => {
+                    const item = items.find(i => i.id === run.workItemId);
+                    const processName = item ? processes.find(p => p.id === item.processId)?.name ?? "—" : "—";
+                    return `<tr class="hover"><td><div class="flex flex-col gap-0.5"><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
+                      itemName(items, run.workItemId)
+                    )}</button><span class="text-xs font-medium text-base-content/60">${escapeHtml(processName)}</span></div></td><td class="align-middle">${statusBadge(run.status)}</td><td class="align-middle text-sm">${duration(run)}</td><td class="align-middle text-sm text-base-content/70">${when(run.createdAt)}</td></tr>`;
+                  }
                 )
                 .join("")}</tbody></table></div>`
-          : empty("No runs yet", "Start an item from Work to see activity here.")
+          : empty("No recent work", "Start an item from Work to see activity here.")
       }
-    </section>`;
+    </section>
+  </div>`;
 }
 
 /**
@@ -295,52 +335,113 @@ function readableValue(value: unknown, depth = 0): string {
 
 function toolPart(part: Extract<SnapshotPart, { kind: "tool" }>): string {
   const failed = part.state === "output-error";
-  const name = part.name;
-  const state = failed
-    ? "Tool failed"
-    : part.state === "input-available"
-      ? "Using tool"
-      : "Used tool";
+  const pending = part.state === "input-available";
   const input = readableValue(part.input).slice(0, 4_000);
   const result = readableValue(part.output).slice(0, 4_000);
-  return `<details class="my-2 rounded-lg border border-base-content/10 bg-base-200/60 px-3 py-2 text-sm">
-    <summary class="cursor-pointer font-semibold">${escapeHtml(state)} · ${escapeHtml(name)}</summary>
-    <div class="mt-2 grid gap-2">
-      ${input !== "None" ? `<div><div class="text-xs font-semibold text-muted">Input</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(input)}</pre></div>` : ""}
-      ${result !== "None" ? `<div><div class="text-xs font-semibold text-muted">${failed ? "Error" : "Result"}</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs">${escapeHtml(result)}</pre></div>` : ""}
+  const icon = failed
+    ? `<svg viewBox="0 0 24 24" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>`
+    : pending
+    ? `<svg viewBox="0 0 24 24" class="size-3 shrink-0 animate-spin" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`
+    : `<svg viewBox="0 0 24 24" class="size-3 shrink-0 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>`;
+  const label = `${icon}<span>${escapeHtml(part.name)}</span>`;
+  const hasDetails = (input !== "None" || result !== "None") && !pending;
+  if (!hasDetails) {
+    return `<div class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${failed ? "bg-error/10 text-error" : "bg-base-200 text-base-content/50"}">${label}</div>`;
+  }
+  return `<details class="group my-1">
+    <summary class="inline-flex cursor-pointer list-none items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${failed ? "bg-error/10 text-error" : "bg-base-200 text-base-content/50"} hover:bg-base-300/60">${label}<svg viewBox="0 0 24 24" class="size-2.5 shrink-0 opacity-50 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></summary>
+    <div class="mt-1.5 rounded bg-base-200/60 px-3 py-2 text-xs text-base-content/70">
+      ${input !== "None" ? `<div class="mb-1 font-semibold text-base-content/50">Input</div><pre class="whitespace-pre-wrap break-words font-sans">${escapeHtml(input)}</pre>` : ""}
+      ${result !== "None" ? `<div class="mb-1 mt-2 font-semibold text-base-content/50">${failed ? "Error" : "Result"}</div><pre class="whitespace-pre-wrap break-words font-sans">${escapeHtml(result)}</pre>` : ""}
     </div>
   </details>`;
+}
+
+const MSG_TRUNCATE_CHARS = 600;
+
+function truncateText(text: string): { short: string; truncated: boolean } {
+  if (text.length <= MSG_TRUNCATE_CHARS) return { short: text, truncated: false };
+  // Trim at a word boundary near the limit
+  const cut = text.lastIndexOf(" ", MSG_TRUNCATE_CHARS) > MSG_TRUNCATE_CHARS * 0.8
+    ? text.lastIndexOf(" ", MSG_TRUNCATE_CHARS)
+    : MSG_TRUNCATE_CHARS;
+  return { short: text.slice(0, cut), truncated: true };
 }
 
 function messageParts(message: SnapshotMessage): string {
   const content = message.parts
     .map((part) => {
       if (part.kind === "text") {
-        return `<div class="whitespace-pre-wrap break-words leading-relaxed">${escapeHtml(part.text)}</div>`;
+        const { short, truncated } = truncateText(part.text);
+        const id = `msg-${Math.random().toString(36).slice(2, 8)}`;
+        if (!truncated) {
+          return `<div class="whitespace-pre-wrap break-words leading-relaxed text-[13px]">${escapeHtml(part.text)}</div>`;
+        }
+        return `<div class="whitespace-pre-wrap break-words leading-relaxed text-[13px]" data-msg-collapse="${id}">
+          <span data-msg-short="${id}">${escapeHtml(short)}<span class="text-base-content/30">…</span> <button class="link link-hover text-[12px] text-primary/70 font-medium" data-action="expand-msg" data-msg="${id}">Show more</button></span>
+          <span data-msg-full="${id}" hidden>${escapeHtml(part.text)} <button class="link link-hover text-[12px] text-primary/70 font-medium" data-action="collapse-msg" data-msg="${id}">Show less</button></span>
+        </div>`;
       }
       if (part.kind === "reasoning") {
-        return `<details class="my-2 text-sm opacity-75"><summary class="cursor-pointer font-semibold">Reasoning</summary>
-          <div class="mt-2 whitespace-pre-wrap break-words">${escapeHtml(part.text)}</div></details>`;
+        return `<details class="my-1"><summary class="cursor-pointer text-[11px] text-base-content/40 hover:text-base-content/60">Reasoning</summary>
+          <div class="mt-1 whitespace-pre-wrap break-words text-xs text-base-content/50">${escapeHtml(part.text)}</div></details>`;
       }
       if (part.kind === "error") {
-        return `<div class="my-2 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-sm text-error">${escapeHtml(part.text)}</div>`;
+        return `<div class="mt-1 rounded bg-error/10 px-2 py-1 text-xs text-error">${escapeHtml(part.text)}</div>`;
       }
       if (part.kind === "tool") return toolPart(part);
       if (part.kind === "file") {
-        return `<div class="my-2 rounded-lg border border-base-content/10 px-3 py-2 text-sm">Attachment · ${escapeHtml(
-          part.name
-        )}</div>`;
+        return `<div class="inline-flex items-center gap-1 rounded bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content/60">📎 ${escapeHtml(part.name)}</div>`;
       }
       if (part.kind === "data") {
-        return `<div class="my-2 rounded-lg border border-base-content/10 px-3 py-2 text-sm">${escapeHtml(
-          part.name
-        )}: ${escapeHtml(readableValue(part.value))}</div>`;
+        return `<div class="inline-flex items-center gap-1 rounded bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content/60">${escapeHtml(part.name)}: ${escapeHtml(readableValue(part.value))}</div>`;
       }
       return "";
     })
-    .join("");
-  return content || '<span class="loading loading-dots loading-sm" aria-label="Agent is replying"></span>';
+    .join(" ");
+  return content || '<span class="loading loading-dots loading-sm opacity-40" aria-label="Agent is replying"></span>';
 }
+
+export function conversationView(
+  execution: Execution,
+  snapshot: BeesConversationSnapshotV1 | null
+): string {
+  const messages = snapshot?.messages ?? [];
+  if (!messages.length) {
+    const fallback =
+      execution.error ??
+      resultText(execution) ??
+      (["queued", "running"].includes(execution.status)
+        ? "The agent is working…"
+        : "No conversation was recorded for this run.");
+    return `<p class="text-sm text-base-content/50 py-4 text-center">${escapeHtml(fallback)}</p>`;
+  }
+  // Only text/agent messages and user messages — skip pure tool-only messages with no text
+  const visible = messages.filter(m => m.parts.some(p => p.kind === "text" || p.kind === "error" || p.kind === "reasoning" || (p.kind === "tool" && p.state === "output-error")));
+  if (!visible.length) {
+    return `<p class="text-sm text-base-content/50 py-4 text-center">Agent is working…</p>`;
+  }
+  return visible
+    .map((message) => {
+      const user = message.role === "user";
+      const tools = message.parts.filter(p => p.kind === "tool");
+      const textParts = message.parts.filter(p => p.kind !== "tool");
+      const toolsHtml = tools.length ? `<div class="mt-1 flex flex-wrap gap-1">${tools.map(p => p.kind === "tool" ? toolPart(p) : "").join("")}</div>` : "";
+      const textHtml = messageParts({ ...message, parts: textParts as typeof message.parts });
+      if (user) {
+        return `<div class="flex justify-end mb-3">
+          <div class="max-w-[82%] rounded-2xl rounded-tr-sm bg-primary/10 px-3.5 py-2.5 text-[13px] text-base-content">${textHtml}${toolsHtml}</div>
+        </div>`;
+      }
+      return `<div class="flex gap-2.5 mb-3">
+        <div class="mt-0.5 size-6 shrink-0 rounded-full bg-base-200 grid place-items-center">
+          <svg viewBox="0 0 24 24" class="size-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3Z"></path><path d="m19 14-.8 2.2L16 17l2.2.8L19 20l.8-2.2L22 17l-2.2-.8L19 14Z"></path><path d="m5 12-1 2.5L1.5 15.5 4 16.5 5 19l1-2.5 2.5-1L6 14.5 5 12Z"></path></svg>
+        </div>
+        <div class="min-w-0 flex-1">${textHtml}${toolsHtml}</div>
+      </div>`;
+    })
+    .join("");
+};
 
 function resultText(execution: Execution): string | null {
   const find = (value: unknown, depth = 0): string | null => {
@@ -356,41 +457,7 @@ function resultText(execution: Execution): string | null {
   return find(execution.result);
 }
 
-function conversationView(
-  execution: Execution,
-  snapshot: BeesConversationSnapshotV1 | null
-): string {
-  const messages = snapshot?.messages ?? [];
-  if (!messages.length) {
-    const fallback =
-      execution.error ??
-      resultText(execution) ??
-      (["queued", "running"].includes(execution.status)
-        ? "The agent is working…"
-        : "No conversation was recorded for this run.");
-    return `<div class="chat chat-start">
-      <div class="chat-header mb-1 text-xs text-muted">Agent</div>
-      <div class="chat-bubble border border-base-300 bg-base-100 text-base-content">${escapeHtml(fallback)}</div>
-    </div>`;
-  }
-  return messages
-    .map((message) => {
-      const user = message.role === "user";
-      return `<div class="chat ${user ? "chat-end" : "chat-start"}">
-        <div class="chat-header mb-1 text-xs text-muted">
-          ${user ? "You" : "Agent"}${message.timestamp ? ` · ${escapeHtml(when(message.timestamp))}` : ""}
-        </div>
-        <div class="chat-bubble max-w-[88%] ${
-          user
-            ? "chat-bubble-primary"
-            : "border border-base-300 bg-base-100 text-base-content"
-        }">${messageParts(message)}</div>
-      </div>`;
-    })
-    .join("");
-}
-
-function usageSummary(execution: Execution): string {
+export function usageSummary(execution: Execution): string {
   if (!execution.usage) return "Not reported";
   const usage = execution.usage;
   const tokens = usage.totalTokens ?? usage.total_tokens ?? usage.tokens;
@@ -467,9 +534,11 @@ export function runView(input: {
               placeholder="${busy ? "Wait for the agent to finish…" : "Ask a follow-up or give more direction…"}" required ${
                 busy ? "disabled" : ""
               }></textarea>
-            <div class="mt-2 flex items-center justify-between gap-3">
-              <p class="text-xs text-muted">Enter to send · Shift+Enter for a new line</p>
-              <button class="btn btn-primary btn-sm" type="submit" ${busy ? "disabled" : ""}>Send</button>
+            <div class="mt-2 flex items-center justify-end">
+              <button class="btn btn-primary btn-sm gap-1.5" type="submit" ${busy ? "disabled" : ""}>
+                <span>Send</span>
+                <svg viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              </button>
             </div>
           </form>
         </div>
@@ -629,3 +698,4 @@ export function workItemView(input: {
         : empty("No runs yet", "This item has not run.")
     }</div>`;
 }
+

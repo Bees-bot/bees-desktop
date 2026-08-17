@@ -67,10 +67,12 @@ import {
 } from "./knowledge.js";
 import {
   approvalCard,
+  conversationView,
   duration,
   runView,
   statusBadge,
   taskPlanOutput,
+  usageSummary,
   when
 } from "./launch-views.js";
 import { renderMarkdown } from "./markdown.js";
@@ -177,10 +179,12 @@ export function createMainViews(host: MainHost) {
       .flatMap(({ board, process, roots }) => roots
         .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
         .map(({ item, open }) => ({ board, process, item, open })));
-    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-semibold text-muted">Currently running</p></li>
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
-        : '<li style="list-style:none"><p class="px-2 py-1 text-xs text-muted">No tasks running.</p></li>'}`;
+        : `<li style="list-style:none" class="px-2 py-1.5 text-xs text-base-content/40">
+             No active tasks
+           </li>`}`;
   }
 
   /**
@@ -193,14 +197,13 @@ export function createMainViews(host: MainHost) {
     // .drawer-side clips.
     host.shell.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
         <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
-        <li class="dropdown dropdown-top w-full">
-          <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
-            Help
-            <svg viewBox="0 0 24 24" class="size-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
-          </button>
-          <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mb-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-            ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.shell.escapeHtml(url)}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
-          </ul>
+        <li>
+          <details>
+            <summary>Documentation</summary>
+            <ul>
+              ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.shell.escapeHtml(url)}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
+            </ul>
+          </details>
         </li>
         <li><button data-action="open-external" data-url="${host.shell.escapeHtml(COMMUNITY_URL)}">Join Community</button></li>
       </ul>`;
@@ -255,7 +258,7 @@ export function createMainViews(host: MainHost) {
                 ${active ? '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>' : ""}
               </button></li>`;
           }).join("")}
-          ${icons.length ? '<li class="my-1 border-t border-base-300" aria-hidden="true"></li>' : ""}
+          ${icons.length ? '<li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>' : ""}
           <li><button class="gap-2" data-action="new-workspace">
             <span class="grid size-6 place-items-center text-lg" aria-hidden="true">+</span>
             Create workspace
@@ -270,9 +273,11 @@ export function createMainViews(host: MainHost) {
     }
     // Only the active team has execution/agent state loaded, so only its row can show a live count.
     const inboxCount = [...host.runs.supervise().values()].filter(needsAttention).length;
-    host.shell.teamNav.innerHTML = `<div class="mb-2 flex items-center justify-between px-2">
-        <span class="text-[11px] font-semibold text-muted">Teams</span>
-        <button class="btn btn-circle btn-ghost btn-xs" data-action="new-team" aria-label="Add team">+</button>
+    host.shell.teamNav.innerHTML = `<div class="mb-2.5 flex items-center justify-between px-2 pt-1">
+        <span class="text-xs font-bold uppercase tracking-wider text-base-content/70">Teams</span>
+        <button class="btn btn-ghost btn-xs size-6 min-h-0 p-0 rounded-md text-base-content/60 hover:text-base-content hover:bg-base-200" data-action="new-team" aria-label="Add team" title="Add team">
+          <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
@@ -288,8 +293,9 @@ export function createMainViews(host: MainHost) {
                     </button>
                     <button type="button" class="min-w-0 flex-1 flex items-center gap-2 px-1 py-1.5 text-left bg-transparent border-0 cursor-pointer ${selected ? "font-semibold" : ""}"
                       data-team-view="overview" data-team="${team.id}">
-                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary shrink-0">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
-                      <span class="truncate text-[13px]">${host.shell.escapeHtml(team.name)}</span>
+                      <span class="grid size-6 place-items-center rounded-md bg-primary/10 text-xs font-bold text-primary shrink-0">${host.shell.escapeHtml(team.name.slice(0, 1).toUpperCase())}</span>
+                      <span class="truncate text-[13.5px] font-medium text-base-content">${host.shell.escapeHtml(team.name)}</span>
+                      ${selected && inboxCount ? `<span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>` : ""}
                     </button>
                     <!-- Action icons always visible — no button bg, only icon color on hover. -->
                     <div class="flex shrink-0 items-center pr-1">
@@ -299,20 +305,21 @@ export function createMainViews(host: MainHost) {
                           aria-label="More actions for ${host.shell.escapeHtml(team.name)}" title="More actions">
                           <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
                         </button>
-                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-                          <li><button data-action="browse-process-library" data-team="${team.id}">Processes</button></li>
-                          <li><button data-team-view="team-settings" data-team="${team.id}">Team settings</button></li>
+                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13.5rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-xl">
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="browse-process-library" data-team="${team.id}">${ACTION_ICONS.workflows}<span>Processes</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span>Scheduled tasks</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Run history</span></button></li>
+                          <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="team-settings" data-team="${team.id}">${ACTION_ICONS.settings}<span>Team settings</span></button></li>
                         </ul>
                       </div>
                     </div>
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">What do you want to do today?</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Overview</span></button></li>
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled tasks</span></button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "runs" ? " task-nav-btn--active" : ""}" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span class="min-w-0 truncate">Completed Runs</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
@@ -438,52 +445,48 @@ export function createMainViews(host: MainHost) {
     // actually doing something; "Idle" on every card is noise.
     const runBadge = run === "Idle"
       ? ""
-      : `<span class="badge ${run === "Running" ? "badge-success" : "badge-warning"} badge-sm">${run}</span>`;
+      : `<span class="badge-soft ${run === "Running" ? "badge-soft-success" : "badge-soft-warning"}"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>${run}</span>`;
     // A parent sitting idle is usually waiting on its children, and a bare "3 tasks" does not say
     // that. Open subtasks are the reason it waits, so they are what the badge counts while any
     // are left; once none are, the badge falls back to reporting the whole set.
     const children = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id);
     const open = children.filter(({ isTerminal, archivedAt }) => !isTerminal && !archivedAt).length;
     const subtaskBadge = open
-      ? `<span class="badge badge-outline badge-sm" title="Waiting on ${open} open subtask${open === 1 ? "" : "s"}">${open} subtask${open === 1 ? "" : "s"}</span>`
+      ? `<span class="badge-soft badge-soft-neutral" title="Waiting on ${open} open subtask${open === 1 ? "" : "s"}">${open} subtask${open === 1 ? "" : "s"}</span>`
       : children.length
-        ? `<span class="badge badge-outline badge-sm">${children.length} task${children.length === 1 ? "" : "s"}</span>`
+        ? `<span class="badge-soft badge-soft-neutral">${children.length} task${children.length === 1 ? "" : "s"}</span>`
         : "";
     const claimant = workItemClaimant(item, execution);
-    return `<span class="min-w-0 truncate text-xs text-muted">${host.shell.escapeHtml(claimant === "Unclaimed" ? claimant : `Claimed by ${claimant}`)}</span>
-      ${runBadge}${subtaskBadge}`;
+    const claimantBadge = claimant === "Unclaimed" 
+      ? "" 
+      : `<span class="badge-soft badge-soft-neutral"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>${host.shell.escapeHtml(claimant)}</span>`;
+    return `${claimantBadge}${runBadge}${subtaskBadge}`;
   }
 
-  /** The Details tab: every field the item edit dialog offers, read-only or as an inline form. */
+  /** The Details tab: display only, editing happens in the dialog. */
   async function boardItemDetails(item: WorkItem, runs: Execution[]): Promise<string> {
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const files = displayFileReferences(item.logicalFiles, locations);
-    if (host.shell.boardItemEditing) {
-      return `<form data-board-item-form class="grid gap-3" data-id="${item.id}">
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Title</span>
-          <input class="input input-bordered w-full" name="title" value="${host.shell.escapeHtml(item.title)}" required></label>
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Description</span>
-          <textarea class="textarea textarea-bordered min-h-28 w-full" name="description">${host.shell.escapeHtml(item.description)}</textarea></label>
-        <label class="label cursor-pointer justify-start gap-3"><span class="label-text text-sm font-semibold">Archived</span>
-          <input class="toggle toggle-primary" type="checkbox" name="archived" value="archived" ${item.archivedAt ? "checked" : ""}></label>
-        <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">File references</span>
-          <input class="input input-bordered w-full" name="files" value="${host.shell.escapeHtml(files.join(", "))}">
-          <span class="text-xs text-muted">${host.shell.escapeHtml(fileReferenceHint(locations))}</span></label>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-board-item-edit">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    return `<dl class="grid gap-4 text-[14px]">
+        ${item.description ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description)}</dd></div>` : ""}
+        <div class="grid gap-4 sm:grid-cols-2 mt-2">
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
+          ${item.checkpointAt ? `<div><dt class="text-xs font-semibold text-base-content/60 mb-1">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>` : ""}
+          <div><dt class="text-xs font-semibold text-base-content/60 mb-1">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
         </div>
-      </form>`;
-    }
-    return `<dl class="grid gap-3 text-sm">
-        <div><dt class="text-muted">Description</dt><dd class="whitespace-pre-wrap leading-relaxed">${host.shell.escapeHtml(item.description || "No description.")}</dd></div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div><dt class="text-muted">Status</dt><dd>${host.shell.escapeHtml(workItemConditionLabel(workItemCondition(item, runs)))}</dd></div>
-          <div><dt class="text-muted">Claimed by</dt><dd>${host.shell.escapeHtml(workItemClaimant(item, activeExecutionForItem(item.id, runs)))}</dd></div>
-          <div><dt class="text-muted">Last checkpoint</dt><dd>${when(item.checkpointAt)}</dd></div>
-          <div><dt class="text-muted">Updated</dt><dd>${when(item.updatedAt)}</dd></div>
-        </div>
-        <div><dt class="text-muted">Files</dt><dd>${host.shell.escapeHtml(files.join(", ") || "None")}</dd></div>
+        ${item.logicalFiles.length ? `<div class="mt-2">
+          <dt class="text-xs font-semibold text-base-content/60 mb-2">Files</dt>
+          <dd class="flex flex-wrap gap-2">
+            ${item.logicalFiles.map((ref, idx) => `
+              <button class="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/5 px-2.5 py-1 text-xs font-mono font-medium text-primary hover:border-primary/50 hover:bg-primary/10 hover:shadow-xs transition-all cursor-pointer"
+                data-action="view-board-file" data-ref="${host.shell.escapeHtml(ref)}" title="View ${host.shell.escapeHtml(files[idx] ?? ref)}">
+                <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 text-primary" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>${host.shell.escapeHtml(files[idx] ?? ref)}</span>
+              </button>
+            `).join("")}
+          </dd>
+        </div>` : ""}
       </dl>`;
   }
 
@@ -499,52 +502,61 @@ export function createMainViews(host: MainHost) {
    */
   function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean, proposed: PlannedTask[] = []): string {
     if (approved) {
-      return `<article class="rounded-box border border-success/30 bg-success/5 p-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold">${host.shell.escapeHtml(task.title)}</span>
-          <span class="badge badge-success badge-sm shrink-0">Approved</span>
+      return `<article class="rounded-xl border border-success/30 bg-success/5 p-4 opacity-80 transition-opacity hover:opacity-100">
+        <div class="flex items-center gap-3">
+          <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/20 text-xs font-bold text-success-content">${index + 1}</div>
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">${host.shell.escapeHtml(task.title)}</span>
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-success">
+            <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+            Approved
+          </div>
         </div>
       </article>`;
     }
     const roles = host.runs.taskWorkerRoles();
-    return `<article class="rounded-box border border-base-300 bg-base-100 p-3">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="badge badge-ghost badge-sm shrink-0">${index + 1}</span>
+    return `<article class="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm transition-colors hover:border-base-content/20">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-base-200 text-xs font-bold text-base-content/70">${index + 1}</div>
         <input class="input input-bordered input-sm min-w-0 flex-1 basis-56 font-semibold" name="task-${index}-title" value="${host.shell.escapeHtml(task.title)}">
-        <button class="btn btn-success btn-xs shrink-0" type="submit" name="approveTask" value="${index}">Approve</button>
+        <button class="btn btn-success btn-sm shrink-0 shadow-sm" type="submit" name="approveTask" value="${index}">Approve</button>
       </div>
-      <div class="mt-2 grid gap-2">
-        <textarea class="textarea textarea-bordered min-h-20 w-full text-xs leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <label class="form-control grid gap-1"><span class="label-text text-xs text-muted">Worker role</span>
+      <div class="mt-4 grid gap-4 pl-9">
+        <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Description</span>
+          <textarea class="textarea textarea-bordered min-h-[5rem] w-full resize-y text-sm leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
+        </label>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Worker role</span>
             <select class="select select-bordered select-sm w-full" name="task-${index}-role">
               ${roles.map(({ role }) => `<option value="${host.shell.escapeHtml(role)}" ${role === task.role ? "selected" : ""}>${host.shell.escapeHtml(role)}</option>`).join("")}
             </select></label>
-          <label class="form-control grid gap-1"><span class="label-text text-xs text-muted">Effect</span>
+          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Effect</span>
             <select class="select select-bordered select-sm w-full" name="task-${index}-effect">
               ${[["read", "Read only"], ["prepare", "Prepare outputs"], ["external_write", "External action"]]
                 .map(([value, label]) => `<option value="${value}" ${value === task.effect ? "selected" : ""}>${label}</option>`).join("")}
             </select></label>
         </div>
         ${item.logicalFiles.length
-          ? `<div><span class="label-text text-xs text-muted">Approved inputs</span>
-              <div class="mt-1 flex flex-wrap gap-3">${item.logicalFiles
-                .map((path) => `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-xs">${host.shell.escapeHtml(path)}</span></label>`)
+          ? `<div><span class="label-text text-xs font-medium text-muted">Approved inputs</span>
+              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-2">${item.logicalFiles
+                .map((path) => `<label class="flex cursor-pointer items-center gap-2 hover:text-base-content/80"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-sm font-medium">${host.shell.escapeHtml(path)}</span></label>`)
                 .join("")}</div>
             </div>`
           : ""}
         ${task.inputs.some((input) => !item.logicalFiles.includes(input))
-          ? `<div><span class="label-text text-xs text-warning">Needs approval first</span>
-              <div class="mt-1 flex flex-wrap gap-3">${task.inputs
+          ? `<div class="rounded-lg border border-warning/30 bg-warning/10 p-3">
+              <div class="mb-2 flex items-center gap-1.5 text-xs font-bold text-warning-content">
+                <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                Needs approval first
+              </div>
+              <div class="flex flex-wrap gap-x-4 gap-y-2">${task.inputs
                 .filter((input) => !item.logicalFiles.includes(input))
                 .map((input) => {
                   const producer = proposed.findIndex((other) => other !== task && other.key === input);
-                  const from = producer !== -1 ? ` (from task ${producer + 1})` : "";
-                  return `<label class="label cursor-pointer gap-1.5 p-0"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-xs text-warning">${host.shell.escapeHtml(input)}${from}</span></label>`;
+                  const from = producer !== -1 ? ` <span class="text-xs font-normal opacity-70">(from task ${producer + 1})</span>` : "";
+                  return `<label class="flex cursor-pointer items-center gap-2 hover:text-warning-content/80"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-sm font-medium text-warning-content">${host.shell.escapeHtml(input)}${from}</span></label>`;
                 })
                 .join("")}</div>
-              <p class="mt-1 text-xs text-muted">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
+              <p class="mt-2 text-[13px] leading-relaxed text-warning-content/80">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
             </div>`
           : ""}
       </div>
@@ -558,23 +570,32 @@ export function createMainViews(host: MainHost) {
       .filter(({ processId, goal }) => processId === item.processId && goal?.key)
       .map(({ goal }) => goal!.key));
     const remaining = proposed.filter(({ key }) => !approved.has(key)).length;
-    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-box border border-warning/40 bg-warning/5 p-4">
-      <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <div class="text-xs font-semibold text-warning">Task plan approval required${remaining < proposed.length ? ` · ${proposed.length - remaining}/${proposed.length} approved` : ""}</div>
-        <div class="flex gap-2">
-          <button class="btn btn-success btn-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
-          <button class="btn btn-error btn-outline btn-sm" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
+    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
+          <svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+          Task plan approval required${remaining < proposed.length ? `<span class="font-normal text-muted ml-1">· ${proposed.length - remaining}/${proposed.length} approved</span>` : ""}
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
+          <button class="btn btn-success btn-sm shadow-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
         </div>
       </div>
       ${blocked
-        ? `<p class="mb-3 text-xs font-semibold text-warning">Approve or reject this run's file outputs first — the plan's tasks may depend on them.</p>`
+        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
+             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+             <p><strong>Approve or reject this run's file outputs first</strong> — the plan's tasks may depend on them.</p>
+           </div>`
         : ""}
       ${blockingTasks.length
-        ? `<p class="mb-3 text-xs font-semibold text-warning">Blocked: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>`
+        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
+             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+             <p><strong>Blocked</strong>: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>
+           </div>`
         : ""}
-      <p class="mb-3 text-xs text-muted">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
+      <p class="mb-5 text-sm text-muted">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
       <fieldset class="contents" ${blocked || blockingTasks.length ? "disabled" : ""}>
-        <div class="grid gap-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
+        <div class="grid gap-3 pl-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
       </fieldset>
     </form>`;
   }
@@ -637,30 +658,99 @@ export function createMainViews(host: MainHost) {
    *  when it is waiting on a person. */
   function boardItemConversation(item: WorkItem, runs: Execution[]): string {
     if (!runs.length)
-      return `<p class="text-sm text-muted">This item has not run yet.</p>`;
+      return `<div class="py-10 text-center text-sm text-base-content/40">This item has not run yet.</div>`;
     const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
-    return `<div class="grid gap-3">${ordered
-      .map((run) => {
-        const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === run.id);
-        const pending = outputs.some(({ status }) => status === "pending");
-        return `<details class="rounded-box border border-base-300 bg-base-100" ${pending ? "open" : ""}>
-            <summary class="flex cursor-pointer flex-wrap items-center gap-2 p-4 font-semibold">
-              ${statusBadge(run.status)}
-              <span class="text-sm font-normal text-muted">${when(run.startedAt ?? run.createdAt)}</span>
-              ${pending ? `<span class="badge badge-warning badge-sm">Needs you</span>` : ""}
-            </summary>
-            <div class="border-t border-base-300 p-4">${runView({
-              execution: run,
-              item,
-              outputs,
-              snapshot: conversationFor(run),
-              previews: host.runs.outputPreviews
-            })}</div>
-          </details>`;
-      })
-      .join("")}</div>`;
+    // Surface the run with pending output first, otherwise the latest.
+    const primary = ordered.find(r =>
+      host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending")
+    ) ?? ordered[0]!;
+    const conversation = conversationFor(primary);
+    const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === primary.id);
+    const pending = outputs.filter(({ status }) => status === "pending");
+    const busy = ["queued", "running"].includes(primary.status);
+    const taskPlan = taskPlanOutput(primary);
+    const model = String(primary.model?.id ?? primary.model?.model ?? "");
+    const usage = usageSummary(primary);
+
+    const runDot = (r: typeof primary) => {
+      if (r.status === "running") return `<span class="inline-block size-1.5 rounded-full bg-info animate-pulse"></span>`;
+      if (r.status === "completed") return `<span class="inline-block size-1.5 rounded-full bg-success"></span>`;
+      if (r.status === "failed" || r.status === "interrupted") return `<span class="inline-block size-1.5 rounded-full bg-error"></span>`;
+      return `<span class="inline-block size-1.5 rounded-full bg-base-content/25"></span>`;
+    };
+
+    const runStrip = ordered.length > 1
+      ? `<div class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          ${ordered.map(r => {
+            const isPrimary = r.id === primary.id;
+            const hasPending = host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending");
+            return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs shrink-0 transition-all ${
+              isPrimary
+                ? "border-primary/40 bg-primary/8 font-semibold text-primary"
+                : "border-base-300 text-base-content/50 hover:text-base-content hover:border-base-content/20"
+            }" data-action="open-run" data-id="${r.id}">
+              ${runDot(r)}
+              <span>${when(r.startedAt ?? r.createdAt)}</span>
+              ${hasPending ? `<span class="size-1.5 rounded-full bg-warning shrink-0"></span>` : ""}
+            </button>`;
+          }).join("")}
+        </div>`
+      : "";
+
+    // Compact meta + action bar
+    const metaBar = `<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/40">
+        ${statusBadge(primary.status)}
+        <span>${when(primary.startedAt ?? primary.createdAt)} · ${duration(primary)}</span>
+        ${model ? `<span>${host.shell.escapeHtml(model)}</span>` : ""}
+        ${usage !== "Not reported" ? `<span>${host.shell.escapeHtml(usage)}</span>` : ""}
+        ${primary.restartedFromExecutionId ? `<button class="link link-hover text-[11px]" data-action="open-run" data-id="${primary.restartedFromExecutionId}">Earlier run</button>` : ""}
+      </div>
+      <div class="flex items-center gap-1.5">
+        ${
+          primary.status === "running"
+            ? `<button class="btn btn-error btn-xs" data-action="stop-run" data-id="${primary.id}">Stop</button>`
+            : primary.status === "queued"
+            ? `<button class="btn btn-xs" disabled>Starting…</button>`
+            : `<button class="btn btn-ghost btn-xs border border-base-300" data-action="restart-run" data-id="${primary.id}" title="Restart with current config">Restart</button>`
+        }
+        <button class="btn btn-ghost btn-xs border border-base-300" data-action="download-receipt" data-id="${primary.id}">Receipt</button>
+        <button class="btn btn-ghost btn-xs text-error/70 hover:text-error" data-action="delete-run" data-id="${primary.id}" title="Delete this run and its conversation">Delete</button>
+      </div>
+    </div>`;
+
+    return `<div class="flex flex-col gap-3">
+      ${runStrip}
+      ${metaBar}
+      <div class="h-px bg-base-200"></div>
+      ${pending.map(output => approvalCard(output, busy, taskPlan)).join("")}
+      <div class="flex flex-col gap-0">
+        ${conversationView(primary, conversation)}
+      </div>
+      <form data-run-followup="${primary.id}">
+        <label class="sr-only" for="run-followup-message-${primary.id}">Continue conversation</label>
+        <textarea id="run-followup-message-${primary.id}" name="message"
+          class="textarea w-full min-h-[5rem] resize-y rounded-xl border border-base-300 bg-base-100 text-[13px] placeholder:text-base-content/30 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
+          maxlength="20000"
+          placeholder="${busy ? "Agent is working…" : "Send a message…"}" required ${busy ? "disabled" : ""}></textarea>
+        <div class="mt-2 flex items-center justify-end">
+          <button class="btn btn-primary btn-sm gap-1.5" type="submit" ${busy ? "disabled" : ""}>
+            <span>Send</span>
+            <svg viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>`;
   }
 
+
+
+  /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
+   *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
+   *  files and still-pending run outputs both appear: a pending output is badged, reads from its
+   *  run workspace, and edits save back there until approval publishes it to the team folder.
+   *  A published file a pending output will overwrite is hidden while that output is pending —
+   *  showing both invites editing the copy approval is about to replace. */
   /** File chips plus, once one is picked, its content — rendered as Markdown for `.md`/`.mdx`
    *  files and toggled into a plain-text editor that saves back to disk. Published team-folder
    *  files and still-pending run outputs both appear: a pending output is badged, reads from its
@@ -673,7 +763,7 @@ export function createMainViews(host: MainHost) {
       ({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)
     );
     if (!item.logicalFiles.length && !pending.length)
-      return `<p class="text-sm text-muted">No files referenced.</p>`;
+      return `<div class="py-10 text-center text-sm text-base-content/40">No files referenced.</div>`;
     const superseded = new Set(pending.map(({ logicalDestination }) => logicalDestination));
     const visibleFiles = item.logicalFiles.filter((value) => {
       try {
@@ -686,16 +776,44 @@ export function createMainViews(host: MainHost) {
     const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
     const labels = displayFileReferences(visibleFiles, locations);
     const references = [...visibleFiles, ...pending.map(({ id }) => `${PENDING_FILE_PREFIX}${id}`)];
-    const selected = references.includes(host.shell.boardFileRef) ? host.shell.boardFileRef : "";
-    const chip = (reference: string, label: string, badge: string): string =>
-      `<button class="btn btn-xs ${reference === selected ? "btn-primary" : "btn-ghost border border-base-300"}" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}">${host.shell.escapeHtml(label)}${badge}</button>`;
-    const list = `<div class="mb-4 flex flex-wrap gap-2">${[
-      ...visibleFiles.map((reference, index) => chip(reference, labels[index] ?? reference, "")),
-      ...pending.map((output) =>
-        chip(`${PENDING_FILE_PREFIX}${output.id}`, output.logicalDestination, ` <span class="badge badge-warning badge-xs">awaiting approval</span>`))
-    ].join("")}</div>`;
+    const selected = references.includes(host.shell.boardFileRef)
+      ? host.shell.boardFileRef
+      : (references[0] ?? "");
+    if (selected && !host.shell.boardFileRef) {
+      host.shell.boardFileRef = selected;
+    }
+
+    const fileTabs = `<div class="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3">
+      ${visibleFiles.map((reference, index) => {
+        const isSelected = reference === selected;
+        const label = labels[index] ?? reference;
+        return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
+          isSelected
+            ? "border-primary/40 bg-primary/10 font-semibold text-primary shadow-xs ring-1 ring-primary/20"
+            : "border-base-300 bg-base-100 text-base-content/70 hover:border-primary/40 hover:text-primary hover:bg-base-200/50"
+        }" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}" title="${host.shell.escapeHtml(label)}">
+          <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 ${isSelected ? "text-primary" : "text-base-content/50"}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="truncate max-w-[200px]">${host.shell.escapeHtml(label)}</span>
+        </button>`;
+      }).join("")}
+      ${pending.map((output) => {
+        const reference = `${PENDING_FILE_PREFIX}${output.id}`;
+        const isSelected = reference === selected;
+        return `<button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
+          isSelected
+            ? "border-warning/50 bg-warning/10 font-semibold text-warning shadow-xs ring-1 ring-warning/30"
+            : "border-warning/30 bg-warning/5 text-warning hover:border-warning/50 hover:bg-warning/10"
+        }" data-action="select-board-file" data-ref="${host.shell.escapeHtml(reference)}" title="${host.shell.escapeHtml(output.logicalDestination)} (awaiting approval)">
+          <svg viewBox="0 0 24 24" class="size-3.5 shrink-0 text-warning" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="truncate max-w-[200px]">${host.shell.escapeHtml(output.logicalDestination)}</span>
+          <span class="badge badge-warning badge-xs">pending</span>
+        </button>`;
+      }).join("")}
+    </div>`;
+
     if (!selected)
-      return `${list}<p class="text-sm text-muted">Select a file to preview it.</p>`;
+      return `${fileTabs}<div class="py-8 text-center text-sm text-base-content/40">Select a file to preview it.</div>`;
+
     const pendingOutput = pending.find(({ id }) => `${PENDING_FILE_PREFIX}${id}` === selected);
     const fileName = pendingOutput?.logicalOutput ?? selected;
     const label = pendingOutput?.logicalDestination ?? labels[visibleFiles.indexOf(selected)] ?? selected;
@@ -705,7 +823,7 @@ export function createMainViews(host: MainHost) {
       if (pendingOutput) {
         const workspaceRef = runs.find(({ id }) => id === pendingOutput.executionId)?.workspaceRef;
         if (!workspaceRef)
-          return `${list}<div class="alert alert-error text-sm">The run workspace holding this output is no longer available.</div>`;
+          return `${fileTabs}<div class="alert alert-error text-sm">The run workspace holding this output is no longer available.</div>`;
         content = await host.workspaces.readOutput(workspaceRef, pendingOutput.logicalOutput, teamRoot);
       }
       else {
@@ -713,19 +831,19 @@ export function createMainViews(host: MainHost) {
       }
     }
     catch (error) {
-      return `${list}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
+      return `${fileTabs}<div class="alert alert-error text-sm">${host.shell.escapeHtml(errorText(error))}</div>`;
     }
     if (content === null)
-      return `${list}<p class="text-sm text-muted">${host.shell.escapeHtml(label)} does not exist yet.</p>`;
-    const note = `<p class="mb-2 font-mono text-xs text-muted">${host.shell.escapeHtml(label)}</p>${pendingOutput
-      ? `<p class="mb-2 text-sm text-muted">Awaiting approval — approve it in the Approval tab to publish it to the team folder.</p>`
-      : ""}`;
+      return `${fileTabs}<div class="py-8 text-center text-sm text-base-content/40"><span class="font-mono text-xs">${host.shell.escapeHtml(label)}</span> does not exist yet.</div>`;
+
+    const markdown = /\.mdx?$/i.test(fileName);
+
     if (host.shell.boardFileEditing) {
-      const markdown = /\.mdx?$/i.test(fileName);
       const preview = markdown
         ? renderMarkdown(content)
         : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`;
-      return `${list}${note}<form data-board-file-form class="grid gap-3" ${markdown ? "data-markdown" : ""}>
+      return `${fileTabs}
+        <form data-board-file-form class="grid gap-3" ${markdown ? "data-markdown" : ""}>
           <input type="hidden" name="reference" value="${host.shell.escapeHtml(selected)}">
           <div class="grid grid-cols-2 gap-3">
             <textarea name="contents" class="textarea textarea-bordered h-[60vh] w-full font-mono text-xs" spellcheck="false">${host.shell.escapeHtml(content)}</textarea>
@@ -737,9 +855,27 @@ export function createMainViews(host: MainHost) {
           </div>
         </form>`;
     }
-    return `${list}${note}<article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${/\.mdx?$/i.test(fileName)
-        ? renderMarkdown(content)
-        : `<pre class="whitespace-pre-wrap break-words text-xs">${host.shell.escapeHtml(content)}</pre>`}</article>`;
+
+    const previewBody = markdown
+      ? renderMarkdown(content)
+      : `<pre class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-base-content">${host.shell.escapeHtml(content)}</pre>`;
+
+    return `${fileTabs}
+      <div class="rounded-xl border border-base-300 bg-base-100 overflow-hidden shadow-xs">
+        <div class="flex items-center justify-between border-b border-base-200 bg-base-200/40 px-4 py-2 text-xs">
+          <div class="flex items-center gap-2 font-mono text-base-content/70">
+            <svg viewBox="0 0 24 24" class="size-3.5 text-primary" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="font-medium text-base-content">${host.shell.escapeHtml(label)}</span>
+            ${pendingOutput ? `<span class="badge badge-warning badge-xs">Awaiting approval</span>` : ""}
+          </div>
+          <div class="text-[11px] text-base-content/40">
+            ${markdown ? "Markdown" : "Plain text"}
+          </div>
+        </div>
+        <article class="markdown-viewer max-h-[65vh] overflow-auto p-4 text-sm">
+          ${previewBody}
+        </article>
+      </div>`;
   }
 
   /** The Subtasks tab: the children this task is waiting on, each row opening that subtask's own
@@ -780,7 +916,7 @@ export function createMainViews(host: MainHost) {
     const pendingCount = host.runs.executionOutputs
       .filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length;
     const tabButton = (id: typeof tab, label: string): string =>
-      `<button role="tab" class="tab ${tab === id ? "tab-active" : ""}" data-board-tab="${id}">${label}</button>`;
+      `<button role="tab" class="pb-2 pt-1 border-b-2 font-medium text-[13px] transition-colors ${tab === id ? "border-primary text-base-content" : "border-transparent text-base-content/50 hover:text-base-content hover:border-base-content/20"}" data-board-tab="${id}">${label}</button>`;
     const body = tab === "conversation"
       ? boardItemConversation(item, runs)
       : tab === "files"
@@ -790,30 +926,32 @@ export function createMainViews(host: MainHost) {
           : tab === "subtasks"
             ? boardItemSubtasks(item)
             : await boardItemDetails(item, runs);
-    return `<div data-scroll-anchor class="mt-2 rounded-box border border-primary/30 bg-base-100 p-5 shadow-sm">
+    return `<div data-scroll-anchor class="mt-2 rounded-xl bg-base-100 p-6 shadow-sm ring-1 ring-base-content/5">
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
-      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p class="mb-1 text-[11px] font-medium text-muted">${host.shell.escapeHtml(stage?.name ?? "")}</p>
-          <h3 class="text-lg font-semibold tracking-[-.01em]">${host.shell.escapeHtml(item.title)}</h3>
+          <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-primary/80">${host.shell.escapeHtml(stage?.name ?? "")}</p>
+          <h3 class="text-xl font-semibold tracking-tight text-base-content">${host.shell.escapeHtml(item.title)}</h3>
         </div>
-        <div class="flex items-center gap-2">
-          ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
-          ${tab !== "details" && tab !== "files"
-            ? ""
-            : `<button class="btn btn-ghost btn-sm"
-                data-action="${tab === "files" ? "toggle-board-file-edit" : "toggle-board-item-edit"}"
-                ${tab === "files" && !host.shell.boardFileRef ? "disabled" : ""}>Edit</button>`}
+        <div class="flex items-center gap-1">
+          ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
+          ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
+          ${tab === "files" && host.shell.boardFileRef
+            ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
+                data-action="toggle-board-file-edit">${host.shell.boardFileEditing ? "Done editing" : "Edit file"}</button>`
+            : ""}
         </div>
       </div>
-      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+      <div role="tablist" class="flex gap-6 border-b border-base-200 mb-5 w-full">
         ${tabButton("details", "Details")}
-        ${tabButton("approval", `Approval${pendingCount ? ` <span class="badge badge-warning badge-xs">${pendingCount}</span>` : ""}`)}
-        ${tabButton("conversation", `Conversation${runs.length ? ` (${runs.length})` : ""}`)}
-        ${tabButton("files", `Files (${item.logicalFiles.length + pendingCount})`)}
-        ${subtaskCount ? tabButton("subtasks", `Subtasks (${subtaskCount})`) : ""}
+        ${pendingCount ? tabButton("approval", `Approval <span class="badge badge-warning badge-xs ml-0.5">${pendingCount}</span>`) : ""}
+        ${tabButton("conversation", `Conversation${runs.length ? ` <span class="text-[11px] ml-0.5 opacity-60">(${runs.length})</span>` : ""}`)}
+        ${item.logicalFiles.length + pendingCount > 0 ? tabButton("files", `Files <span class="text-[11px] ml-0.5 opacity-60">(${item.logicalFiles.length + pendingCount})</span>`) : ""}
+        ${subtaskCount ? tabButton("subtasks", `Subtasks <span class="text-[11px] ml-0.5 opacity-60">(${subtaskCount})</span>`) : ""}
       </div>
-      ${body}
+      <div class="text-[14px]">
+        ${body}
+      </div>
     </div>`;
   }
 
@@ -882,65 +1020,70 @@ export function createMainViews(host: MainHost) {
               aria-label="More process actions" title="More process actions">
               <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
-            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
-              <li><button data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">Runs</button></li>
-              <li><button data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">Schedules</button></li>
-              <li><button data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">Edit process</button></li>
-              <li><button data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">Dashboard settings</button></li>
+            <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.schedule}<span>Schedules</span></button></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>
+              <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">${ACTION_ICONS.settings}<span>Dashboard settings</span></button></li>
             </ul>
           </div>
         </div>
       </div>
       ${running
         ? ""
-        : '<div class="alert alert-warning mb-5 py-2 text-sm">This process is stopped — its agents will not pick up work until you press Run.</div>'}
+        : `<div class="mb-5 flex items-center gap-2 rounded-md bg-base-200/50 px-3 py-2.5 text-[13px] text-base-content/70">
+            <svg class="size-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+            <span>This process is paused. Agents will not pick up work until you click <strong>Run</strong>.</span>
+          </div>`}
       ${blockedAgents.length
-        ? `<div class="alert alert-warning mb-5 py-2 text-sm"><span>${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span></div>`
+        ? `<div class="mb-5 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2.5 text-[13px] text-warning">
+            <svg class="size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <span>Blocked agents: ${blockedAgents.map(host.shell.escapeHtml).join(" · ")}</span>
+          </div>`
         : ""}
       <div class="kanban">${stages
         .map((stage) => {
           const cards = visible.filter(({ stageId }) => stageId === stage.id);
-          return `<section class="kanban-column p-3">
-            <header class="flex items-center justify-between px-1 pb-3 pt-1">
-              <div class="flex items-center gap-2">
-                <span class="status ${stage.isTerminal ? "status-success" : "status-primary"}"></span>
-                <h2 class="text-[13px] font-semibold">${host.shell.escapeHtml(stage.name)}</h2>
-              </div>
-              <span class="badge badge-ghost badge-sm border-0">${cards.length}</span>
+          return `<section class="kanban-column flex flex-col pt-2">
+            <header class="flex items-center justify-between px-3 pb-2 shrink-0">
+              <h2 class="text-sm font-bold tracking-tight text-base-content/80">${host.shell.escapeHtml(stage.name)}</h2>
+              <span class="text-xs font-semibold text-base-content/50">${cards.length}</span>
             </header>
-            <div class="grid gap-3">${cards
-              .map((item) => `<article class="kanban-card card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
-                  <div class="card-body gap-3 p-4">
+            <div class="flex-1 overflow-y-auto px-2 pb-2">
+              <div class="grid gap-3">${cards
+              .map((item) => `<article class="kanban-card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary shadow-md" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
+                  <div class="flex flex-col gap-3.5 p-5">
                     <div class="flex items-start justify-between gap-2">
-                      <h3 class="card-title min-w-0 text-sm font-semibold leading-snug">${host.shell.escapeHtml(item.title)}</h3>
-                      <div class="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
-                        ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost", "tooltip-bottom")}
-                        ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost text-error", "tooltip-bottom")}
+                      <h3 class="min-w-0 text-[15px] font-semibold tracking-tight leading-snug">${host.shell.escapeHtml(item.title)}</h3>
+                      <div class="-mr-2 -mt-2 flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100">
+                        ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-xs text-base-content/60 hover:text-base-content", "tooltip-bottom")}
+                        ${actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-xs text-base-content/60 hover:text-error", "tooltip-bottom")}
                       </div>
                     </div>
                     ${item.description
-                      ? `<p class="line-clamp-3 text-xs leading-relaxed text-muted">${host.shell.escapeHtml(item.description)}</p>`
+                      ? `<p class="line-clamp-3 text-[13px] leading-relaxed text-base-content/60">${host.shell.escapeHtml(item.description)}</p>`
                       : ""}
-                    <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5 mt-1">
                       ${workItemBadges(item)}
-                      ${item.parentId ? '<span class="badge badge-outline badge-sm">Subtask</span>' : ""}
-                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) ? '<span class="badge badge-warning badge-sm">Waiting</span>' : ""}
+                      ${item.parentId ? '<span class="badge-soft badge-soft-neutral">Subtask</span>' : ""}
+                      ${item.waits.some(({ resolvedAt }) => !resolvedAt) && !needsAttention(waiting.get(item.id) ?? null) ? '<span class="badge-soft badge-soft-warning"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Waiting</span>' : ""}
                       ${
-                // Silence is the normal look of stuck work, so the card always says which
-                // of the four states this item is in. The badge carries the heading only —
-                // a badge does not wrap, and a runtime error is long.
                 needsAttention(waiting.get(item.id) ?? null)
-                  ? `<span class="badge badge-sm ${waiting.get(item.id)!.kind === "stalled" ? "badge-error" : "badge-warning"}">${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`
+                  ? `<span class="badge-soft ${waiting.get(item.id)!.kind === "stalled" ? "badge-soft-error" : "badge-soft-warning"}"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>${host.shell.escapeHtml(waiting.get(item.id)!.label)}</span>`
                   : ""}
-                      ${item.logicalFiles.length ? `<span class="badge badge-outline badge-sm">${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
+                      ${item.logicalFiles.length ? `<span class="badge-soft badge-soft-neutral"><svg class="size-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>${item.logicalFiles.length} file${item.logicalFiles.length === 1 ? "" : "s"}</span>` : ""}
                     </div>
-                    ${needsAttention(waiting.get(item.id) ?? null)
-                  ? `<p class="line-clamp-2 break-words text-xs leading-relaxed ${waiting.get(item.id)!.kind === "stalled" ? "text-error" : "text-muted"}">${host.shell.escapeHtml(waiting.get(item.id)!.detail)}</p>`
-                  : ""}
                   </div>
                 </article>`)
               .join("")}
-              <button class="btn btn-ghost btn-sm border border-dashed border-base-300" data-action="new-item-in-stage" data-stage="${stage.id}">+ Add item</button>
+              </div>
+            </div>
+            <div class="p-2 shrink-0 border-t border-base-300/50">
+              <button class="btn btn-ghost btn-sm w-full justify-start text-base-content/50 hover:bg-base-300/50 hover:text-base-content" data-action="new-item-in-stage" data-stage="${stage.id}">
+                <svg viewBox="0 0 24 24" class="size-4 opacity-70" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                New item
+              </button>
             </div>
           </section>`;
         })
@@ -1157,10 +1300,13 @@ export function createMainViews(host: MainHost) {
   function escalationBanner(state: WorkState | null): string {
     if (!needsAttention(state))
       return "";
-    return `<div class="alert ${state!.kind === "stalled" ? "alert-error" : "alert-warning"} mb-4">
+    const isError = state!.kind === "stalled";
+    const colors = isError ? "bg-error/10 text-error" : "bg-warning/10 text-warning";
+    return `<div class="mb-5 flex items-start gap-2 rounded-md ${colors} px-3 py-2.5">
+      <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
       <div class="min-w-0">
-        <div class="font-semibold">${host.shell.escapeHtml(state!.label)}</div>
-        <div class="break-words text-sm">${host.shell.escapeHtml(state!.detail)}</div>
+        <div class="text-[13px] font-semibold leading-tight">${host.shell.escapeHtml(state!.label)}</div>
+        <div class="text-[13px] leading-snug opacity-90">${host.shell.escapeHtml(state!.detail)}</div>
       </div>
     </div>`;
   }
@@ -1394,7 +1540,7 @@ export function createMainViews(host: MainHost) {
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
-              <div><h3 class="card-title text-base">${host.shell.escapeHtml(entry.name)}</h3>
+              <div><h3 class="font-bold text-lg">${host.shell.escapeHtml(entry.name)}</h3>
                 <p class="mt-1 text-sm text-muted">${host.shell.escapeHtml(entry.description)}</p></div>
               <span class="badge badge-outline badge-sm">Process Library</span>
             </div>
@@ -1430,7 +1576,8 @@ export function createMainViews(host: MainHost) {
     history: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path></svg>',
     schedule: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>',
     // A flow of connected stages, not a shelf of books: this opens the workflows, not a library.
-    workflows: '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="5" rx="1.2"></rect><rect x="14" y="3" width="7" height="5" rx="1.2"></rect><rect x="8.5" y="16" width="7" height="5" rx="1.2"></rect><path d="M6.5 8v3.5h11V8M12 11.5V16"></path></svg>'
+    workflows: '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="5" rx="1.2"></rect><rect x="14" y="3" width="7" height="5" rx="1.2"></rect><rect x="8.5" y="16" width="7" height="5" rx="1.2"></rect><path d="M6.5 8v3.5h11V8M12 11.5V16"></path></svg>',
+    settings: '<svg viewBox="0 0 24 24" class="size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
   } as const;
 
   function actionIconButton(action: string, label: string, icon: string, id?: string, classes = "btn-ghost", tooltip = "tooltip-left"): string {
@@ -1505,9 +1652,9 @@ export function createMainViews(host: MainHost) {
       : `<p class="mt-1 text-sm text-muted">${serverTeams.length} of ${plan.freeTeams} free teams used — $${(plan.priceCents / 100).toFixed(2)}/${plan.interval} per team after that.${trialEnds && trialEnds > new Date()
         ? ` Trial runs to ${trialEnds.toLocaleDateString()}.`
         : ""}</p>`;
-    return `<section class="space-y-4">
-      <header class="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="font-bold">Teams</h2><p class="mt-1 text-sm text-muted">Restricted membership — admins add teammates.</p>
+    return `<section>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 class="font-bold text-lg">Teams</h2><p class="mt-1 text-sm text-muted">Restricted membership — admins add teammates.</p>
           ${planSummary}
         </div>
         <div class="flex gap-2">
@@ -1516,7 +1663,8 @@ export function createMainViews(host: MainHost) {
         : `<button class="btn btn-ghost btn-sm" data-action="start-team-trial">${trialEnds && trialEnds > new Date() ? "Extend trial 30 days" : "Start 30-day trial"}</button>`}
           <button class="btn btn-primary btn-sm" data-action="new-server-team">New team</button>
         </div>
-      </header>
+      </div>
+      <div class="mt-4 space-y-4">
       ${serverTeams.length
         ? serverTeams
           .map((team, index) => {
@@ -1524,7 +1672,7 @@ export function createMainViews(host: MainHost) {
             const admin = isAdmin(members);
             return `<article class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
                   <div class="flex items-center justify-between gap-3">
-                    <h3 class="font-bold">${host.shell.escapeHtml(team.name)}</h3>
+                    <h3 class="font-bold text-lg">${host.shell.escapeHtml(team.name)}</h3>
                     ${admin
                 ? `<button class="btn btn-primary btn-xs" data-action="invite-team-member" data-team="${team.id}">Invite</button>`
                 : `<span class="badge badge-ghost badge-sm">Member</span>`}
@@ -1546,6 +1694,7 @@ export function createMainViews(host: MainHost) {
           })
           .join("")
         : `<div class="p-12 text-center text-sm text-muted">No teams yet. Create one — you'll be its admin.</div>`}
+      </div>
     </section>`;
   }
 
@@ -1598,32 +1747,33 @@ export function createMainViews(host: MainHost) {
     }
     const globalPath = await host.repository.getSetting("global_local_path", "");
     const locations = await checkedFileLocations(await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId));
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <div class="flex items-start justify-between gap-3">
-            <div><h2 class="card-title text-base">Primary team workspace</h2>
-            <p class="mt-1 text-sm text-muted">The default home for team files and all approved agent outputs.</p></div>
-            <span class="badge ${mapping?.override ? "badge-primary" : "badge-ghost"}">${mapping?.override ? "Override" : "Inherited"}</span>
-          </div>
-          <div class="mt-3 rounded-box bg-base-200 p-4">
-            <code class="break-all text-sm">${host.shell.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
-            ${mapping?.missing ? '<p class="mt-2 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
-          </div>
-          <div class="card-actions mt-3 justify-end">
-            ${mapping?.override ? '<button class="btn btn-ghost btn-sm" data-action="use-default-folder">Use default</button>' : ""}
-            <button class="btn btn-primary btn-sm" data-action="pick-folder">Choose override</button>
-          </div>
+    return `<div class="space-y-10">
+      <section>
+        <div class="flex items-start justify-between gap-3">
+          <div><h2 class="font-bold text-lg">Primary team workspace</h2>
+          <p class="mt-1 text-sm text-muted">The default home for team files and all approved agent outputs.</p></div>
+          <span class="badge ${mapping?.override ? "badge-primary" : "badge-ghost"}">${mapping?.override ? "Override" : "Inherited"}</span>
+        </div>
+        <div class="mt-4 rounded-box bg-base-200 p-4">
+          <code class="break-all text-sm">${host.shell.escapeHtml(mapping?.localPath || (globalPath ? "Team folder not found" : "Set a folder first"))}</code>
+          ${mapping?.missing ? '<p class="mt-2 text-xs font-semibold text-error">Folder is missing or unavailable.</p>' : ""}
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          ${mapping?.override ? '<button class="btn btn-ghost btn-sm" data-action="use-default-folder">Use default</button>' : ""}
+          <button class="btn btn-primary btn-sm" data-action="pick-folder">Choose override</button>
         </div>
       </section>
-      <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+
+      <section>
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="card-title text-base">Linked file locations</h2>
+          <div><h2 class="font-bold text-lg">Linked file locations</h2>
             <p class="mt-1 text-sm text-muted">Workspace locations are inherited. Team locations can point anywhere on this machine, including different Google Drive folders.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-team-location">Add team location</button>
         </div>
-        <div class="grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
-        <p class="text-xs text-muted">Only the location name, scope, ID, and relative file reference sync. Absolute folder paths stay on this machine.</p>
-      </div></section>`;
+        <div class="mt-4 grid gap-2">${fileLocationRows(locations, (location) => location.teamId === host.workspaceController.workspace.teamId)}</div>
+        <p class="mt-2 text-xs text-muted">Only the location name, scope, ID, and relative file reference sync. Absolute folder paths stay on this machine.</p>
+      </section>
+    </div>`;
   }
 
   /**
@@ -1668,53 +1818,49 @@ export function createMainViews(host: MainHost) {
   }
 
   function teamIntegrationsContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h2 class="card-title text-base">Local integrations</h2>
-          <div class="mt-2 divide-y divide-base-300">
-            <div class="py-4">
-              <div class="flex items-center justify-between gap-4">
-                <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-muted">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
-                <div class="flex gap-2">
-                  <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
-                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="browse-catalog">Browse collections</button>
-                  <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
-                </div>
-              </div>
-              <div class="mt-3 grid gap-2">${host.workspaceController.registries.length
-        ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
-                          <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
-                            <div class="text-xs text-muted">${registry.plugin.manifest.version ? `v${host.shell.escapeHtml(registry.plugin.manifest.version)} · ` : ""}${registry.plugin.skills.length} skill(s) · ${registry.plugin.mcpServers.length} MCP server(s) · ${registry.plugin.fileCount} copied file(s)${registry.plugin.issues.length ? ` · ${registry.plugin.issues.length} warning(s)` : ""}</div>
-                            ${registry.plugin.issues.length ? `<div class="mt-1 text-xs text-warning">${registry.plugin.issues.map((issue) => host.shell.escapeHtml(issue)).join("<br>")}</div>` : ""}</div>
-                          <div class="flex gap-2"><button class="btn btn-ghost btn-xs" data-action="refresh-registry" data-id="${registry.id}">Refresh</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-registry" data-id="${registry.id}">Remove</button></div>
-                        </div>`)
-          .join("")
-        : `<p class="text-xs text-muted">No Agent Plugins installed.</p>`}</div>
+    return `<section>
+      <h2 class="font-bold text-lg">Local integrations</h2>
+      <div class="mt-4 divide-y divide-base-300">
+        <div class="py-4">
+          <div class="flex items-center justify-between gap-4">
+            <div><h3 class="text-sm font-bold">Agent Plugins</h3><p class="text-xs text-muted">Portable Agent Plugins 1.0.0 packages are validated and copied to Bees app-data. Bees loads standard skills and Streamable HTTP or legacy SSE MCP servers; unsupported stdio entries are skipped.</p></div>
+            <div class="flex gap-2">
+              <button class="btn btn-primary btn-sm" data-action="new-skill">New skill</button>
+              <button class="btn btn-ghost btn-sm border border-base-300" data-action="browse-catalog">Browse collections</button>
+              <button class="btn btn-ghost btn-sm border border-base-300" data-action="add-registry">Install plugin</button>
             </div>
-            ${skillCurationContent()}
           </div>
+          <div class="mt-4 grid gap-2">${host.workspaceController.registries.length
+    ? host.workspaceController.registries.map((registry) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
+                      <div><div class="font-semibold">${host.shell.escapeHtml(registry.name)}</div>
+                        <div class="text-xs text-muted">${registry.plugin.manifest.version ? `v${host.shell.escapeHtml(registry.plugin.manifest.version)} · ` : ""}${registry.plugin.skills.length} skill(s) · ${registry.plugin.mcpServers.length} MCP server(s) · ${registry.plugin.fileCount} copied file(s)${registry.plugin.issues.length ? ` · ${registry.plugin.issues.length} warning(s)` : ""}</div>
+                        ${registry.plugin.issues.length ? `<div class="mt-1 text-xs text-warning">${registry.plugin.issues.map((issue) => host.shell.escapeHtml(issue)).join("<br>")}</div>` : ""}</div>
+                      <div class="flex gap-2"><button class="btn btn-ghost btn-xs" data-action="refresh-registry" data-id="${registry.id}">Refresh</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-registry" data-id="${registry.id}">Remove</button></div>
+                    </div>`)
+      .join("")
+    : `<p class="text-xs text-muted">No Agent Plugins installed.</p>`}</div>
         </div>
-      </section>`;
+        ${skillCurationContent()}
+      </div>
+    </section>`;
   }
 
   function teamBrowserContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body">
-          <div class="flex items-start justify-between gap-4">
-            <div><h2 class="card-title text-base">Browser</h2>
-            <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
-            <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
-          </div>
-        </div>
-      </section>`;
+    return `<section>
+      <div class="flex items-start justify-between gap-4">
+        <div><h2 class="font-bold text-lg">Browser</h2>
+        <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
+        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
+      </div>
+    </section>`;
   }
 
   async function teamArchivedContent(): Promise<string> {
     const archived = (await host.repository.listProcesses(host.workspaceController.workspace.teamId, true)).filter(({ archivedAt }) => archivedAt);
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body">
-        <h2 class="card-title text-base">Archived processes</h2>
+    return `<section>
+        <h2 class="font-bold text-lg">Archived processes</h2>
         <p class="mt-1 text-sm text-muted">Restoring brings back the process, its statuses, and its dashboards.</p>
-        <div class="mt-3 grid gap-2">${archived.length
+        <div class="mt-4 grid gap-2">${archived.length
         ? archived
           .map((process) => `<div class="flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-200 p-3">
                     <div><div class="font-semibold">${host.shell.escapeHtml(process.name)}</div>
@@ -1723,15 +1869,15 @@ export function createMainViews(host: MainHost) {
                   </div>`)
           .join("")
         : `<p class="text-xs text-muted">No archived processes.</p>`}</div>
-      </div></section>`;
+      </section>`;
   }
 
   function teamDangerContent(): string {
-    return `<section class="card border border-error/40 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base text-error">Danger zone</h2>
-        <p class="text-sm text-muted">Deletes this team and all its processes, dashboards, and work items on this machine. Cannot be undone.</p>
-        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-team">Delete team</button></div>
-      </div></section>`;
+    return `<section>
+        <h2 class="font-bold text-lg text-error">Danger zone</h2>
+        <p class="mt-1 text-sm text-muted">Deletes this team and all its processes, dashboards, and work items on this machine. Cannot be undone.</p>
+        <div class="mt-4 flex justify-end"><button class="btn btn-error btn-sm" data-action="delete-team">Delete team</button></div>
+      </section>`;
   }
 
   
@@ -1756,49 +1902,56 @@ export function createMainViews(host: MainHost) {
              <button class="btn btn-outline btn-sm" data-action="signin-email">Email sign in</button>
              <button class="btn btn-outline btn-sm" data-action="signup-email">Create account</button>
            </div>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<div class="space-y-10">
+      <section>
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-base">${connected ? "Workspace" : "Private workspace"}</h2>
+          <h2 class="font-bold text-lg">${connected ? "Workspace" : "Private workspace"}</h2>
           <div class="flex flex-wrap gap-2">
             <span class="badge ${connected ? "badge-success" : "badge-ghost"}">${connected ? "Ready for teammates" : "On this device"}</span>
             ${connected ? '<span class="badge badge-primary">Free during beta</span>' : ""}
           </div>
         </div>
-        <p class="text-sm text-muted">${connected
+        <p class="mt-1 text-sm text-muted">${connected
         ? `Start on your own or invite teammates to coordinate across devices. ${host.shell.escapeHtml(WORKSPACE_BETA_COPY)}`
         : "Only you can use this workspace. It stays on this device, and you cannot add team members to it later."}</p>
-        ${authBlock}${createAnotherWorkspaceButton(!connected)}
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Workspace name</h2>
-        <div class="flex items-center gap-2">
+        <div class="mt-4 space-y-4">
+          ${authBlock}${createAnotherWorkspaceButton(!connected)}
+        </div>
+      </section>
+
+      <section>
+        <h2 class="font-bold text-lg">Workspace name</h2>
+        <div class="mt-4 flex items-center gap-2">
           <code class="flex-1 break-all rounded-box bg-base-200 p-3 text-sm">${host.shell.escapeHtml(host.session.currentOrganization()?.name ?? "")}</code>
           <button class="btn btn-outline btn-sm" data-action="rename-org">Rename</button>
         </div>
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <div class="flex items-center gap-3">
+      </section>
+
+      <section>
+        <div class="flex items-start gap-3">
           ${host.session.orgLogoPreview(host.workspaceController.workspace.organizationId, host.session.currentOrganization()?.name ?? "")}
-          <div class="flex-1"><h2 class="card-title text-base">Branding</h2>
-            <p class="text-sm text-muted">Logo and color shown in the workspace switcher.</p></div>
+          <div class="flex-1">
+            <h2 class="font-bold text-lg">Branding</h2>
+            <p class="mt-1 text-sm text-muted">Logo and color shown in the workspace switcher.</p>
+          </div>
           ${host.session.brandingFor(host.workspaceController.workspace.organizationId).logo
         ? `<button class="btn btn-ghost btn-sm" data-action="remove-logo">Remove logo</button>`
         : ""}
         </div>
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Color</span>
             <input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color"
               data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}"></label>
           <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Logo</span>
             <input class="file-input file-input-bordered w-full" type="file" accept="image/*" data-branding="logo"></label>
         </div>
-      </div></section>
-      <section class="card border border-error/40 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base text-error">Danger zone</h2>
-        <p class="text-sm text-muted">Deletes this workspace and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
-        <div class="card-actions justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete workspace</button></div>
-      </div></section>
+      </section>
+
+      <section>
+        <h2 class="font-bold text-lg text-error">Danger zone</h2>
+        <p class="mt-1 text-sm text-muted">Deletes this workspace and all its teams, boards, and agents. Cannot be undone.${connected ? " Admins only." : ""}</p>
+        <div class="mt-4 flex justify-end"><button class="btn btn-error btn-sm" data-action="delete-org">Delete workspace</button></div>
+      </section>
     </div>`;
   }
 
@@ -1815,9 +1968,10 @@ export function createMainViews(host: MainHost) {
     catch {
       return `<div class="p-8 text-center text-sm text-muted">Only workspace admins can view members.</div>`;
     }
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Members</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${memberships
+    return `<section>
+        <h2 class="font-bold text-lg">Members</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${memberships
         .map((member) => `<li class="flex items-center gap-2 px-3 py-2 text-sm">
               <span class="flex-1 truncate">${host.shell.escapeHtml(member.userId === host.session.currentUser()?.id
           ? `${member.email ?? host.session.currentUser()?.email} (you)`
@@ -1828,6 +1982,7 @@ export function createMainViews(host: MainHost) {
             : ""}</span>
             </li>`)
         .join("")}</ul>
+        </div>
       </section>`;
   }
 
@@ -1847,12 +2002,13 @@ export function createMainViews(host: MainHost) {
     catch {
       // not an admin, or none — leave the list empty
     }
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="flex items-center justify-between gap-3 border-b border-base-300 p-5">
-          <div><h2 class="font-bold">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
+    return `<section>
+        <div class="flex items-start justify-between gap-3">
+          <div><h2 class="font-bold text-lg">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
           <button class="btn btn-primary btn-sm" data-action="invite-org-member">Invite someone</button>
-        </header>
-        <ul class="divide-y divide-base-200 p-2">${pending.length
+        </div>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${pending.length
         ? pending
           .map((invitation) => `<li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                 <span class="truncate">${host.shell.escapeHtml(invitation.email)}</span>
@@ -1860,38 +2016,41 @@ export function createMainViews(host: MainHost) {
               </li>`)
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-muted">No pending invitations.</li>`}</ul>
+        </div>
       </section>`;
   }
 
   /** Settings → Root Folder: the root all workspace/team folders default under. */
   async function settingsRootFolderContent(): Promise<string> {
     const globalPath = await host.repository.getSetting("global_local_path", "");
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Root Folder</h2>
-        <p class="text-sm text-muted">Every workspace gets a folder at <code>&lt;root-folder&gt;/&lt;workspace-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
-        <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
-      </div></section>`;
+    return `<section>
+        <h2 class="font-bold text-lg">Root Folder</h2>
+        <p class="mt-1 text-sm text-muted">Every workspace gets a folder at <code>&lt;root-folder&gt;/&lt;workspace-name&gt;</code>, with each team folder inside it. Changing this only affects folders resolved from here on.</p>
+        <div class="mt-4 rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(globalPath || "No path selected")}</code></div>
+        <div class="mt-4 flex justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change path</button></div>
+      </section>`;
   }
 
   async function orgWorkspaceContent(): Promise<string> {
     const orgPath = await host.repository.getOrgFolder(host.workspaceController.workspace.organizationId);
     const locations = (await checkedFileLocations(await host.repository.listOrganizationFileLocations(host.workspaceController.workspace.organizationId))).filter(({ teamId }) => !teamId);
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Primary workspace folder</h2>
-        <p class="text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Settings → Root Folder.</p>
-        <div class="rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
-        <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
-      </div></section>
-      <section class="card mt-4 border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">Primary workspace folder</h2>
+        <p class="mt-1 text-sm text-muted">This workspace's folder. Team folders resolve to <code>&lt;workspace folder&gt;/&lt;team-name&gt;</code> unless a team overrides it. Change the root under Settings → Root Folder.</p>
+        <div class="mt-4 rounded-box bg-base-200 p-4"><code class="break-all text-sm">${host.shell.escapeHtml(orgPath || "Set a folder first")}</code></div>
+        <div class="mt-4 flex justify-end"><button class="btn btn-primary btn-sm" data-action="pick-global-folder">Change default root</button></div>
+      </section>
+      <section>
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="card-title text-base">Linked workspace locations</h2>
+          <div><h2 class="font-bold text-lg">Linked workspace locations</h2>
             <p class="mt-1 text-sm text-muted">Add as many workspace-wide locations as needed. Every team can reference them.</p></div>
           <button class="btn btn-primary btn-sm" data-action="add-org-location">Add workspace location</button>
         </div>
-        <div class="grid gap-2">${fileLocationRows(locations, () => true)}</div>
-        <p class="text-xs text-muted">Each machine maps the shared location ID to its own local folder. Bees Cloud does not synchronize absolute paths or document files.</p>
-      </div></section>`;
+        <div class="mt-4 grid gap-2">${fileLocationRows(locations, () => true)}</div>
+        <p class="mt-2 text-xs text-muted">Each machine maps the shared location ID to its own local folder. Bees Cloud does not synchronize absolute paths or document files.</p>
+      </section>
+    </div>`;
   }
 
   async function orgKnowledgeContent(): Promise<string> {
@@ -1925,8 +2084,8 @@ export function createMainViews(host: MainHost) {
         ? `This machine indexes ${sources.length} available source${sources.length === 1 ? "" : "s"}. Each source has its own local index.`
         : `All bees use one workspace-controlled endpoint: <code class="break-all">${host.shell.escapeHtml(policy.url)}</code>`;
     return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <div class="flex items-center justify-between gap-3"><h2 class="card-title text-base">Knowledge mode</h2>${active}</div>
+      <section class="space-y-4">
+        <div class="flex items-center justify-between gap-3"><h2 class="font-bold text-lg">Knowledge mode</h2>${active}</div>
         <p class="text-sm text-muted">${detail}</p>
         ${host.session.knowledgeError ? `<p class="text-sm text-error">${host.shell.escapeHtml(host.session.knowledgeError)}</p>` : ""}
         <div class="card-actions justify-end gap-2">
@@ -1935,7 +2094,7 @@ export function createMainViews(host: MainHost) {
           ${policy ? '<button class="btn btn-ghost btn-sm text-error" data-action="knowledge-disable">Disable</button>' : ""}
         </div>
         <p class="text-xs text-muted">Indexes rebuild in full once a day. A failed rebuild keeps the previous index. Bees Cloud stores only the mode and remote URL, never files, chunks, embeddings, paths, or credentials.</p>
-      </div></section>
+      </section>
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
         <header class="border-b border-base-300 p-5"><h2 class="font-bold">Sources available to ${host.shell.escapeHtml(host.session.currentTeam()?.name ?? "this team")}</h2><p class="mt-1 text-sm text-muted">Workspace sources plus this team's sources only. The worker enforces this again from the bearer token.</p></header>
         <ul class="divide-y divide-base-200 p-2">${sourceRows}</ul>
@@ -2021,17 +2180,17 @@ export function createMainViews(host: MainHost) {
 
   async function settingsLocalAiContent(): Promise<string> {
     const models = await host.localModels.list();
-    return `<div class="space-y-5">
+    return `<div class="space-y-10">
       <section>
-        <h2 class="font-bold">Local AI</h2>
+        <h2 class="font-bold text-lg">Local AI</h2>
         <p class="mt-1 text-sm text-muted">Turn on Download to fetch a model, then Run to serve it. Run as many as this computer's memory can hold. Models and chats stay on this device.</p>
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <input class="input input-bordered input-sm min-w-64 flex-1" data-local-model-source
             placeholder="https://huggingface.co/…/model.gguf" aria-label="Model link or file path">
           <button class="btn btn-outline btn-sm" data-action="browse-local-model">Browse…</button>
           <button class="btn btn-primary btn-sm" data-action="add-local-model">Add</button>
         </div>
-        <div class="mt-3 overflow-x-auto rounded-box border border-base-300 bg-base-100">
+        <div class="mt-4 overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
           <table class="table table-sm">
             <thead><tr><th>Model</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
             <tbody>${models.length
@@ -2071,26 +2230,26 @@ export function createMainViews(host: MainHost) {
         </div>
       </li>`;
     }).join("");
-    return `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <header class="border-b border-base-300 p-5">
-        <h2 class="font-bold">AI CLI</h2>
-        <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
-      </header>
-      <ul class="divide-y divide-base-200 p-2">
-        <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
-          <div class="min-w-0">
-            <span class="block truncate font-semibold">Codex (ChatGPT)</span>
-            <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
-          </div>
-          <div class="flex shrink-0 items-center gap-1">
-            <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
-            ${codex
-              ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
-              : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
-          </div>
-        </li>
-        ${rows}
-      </ul>
+    return `<section>
+      <h2 class="font-bold text-lg">AI CLI</h2>
+      <p class="mt-1 text-sm text-muted">Codex connects directly through pi-ai using your ChatGPT subscription. Claude Code remains optional and must be selected explicitly.</p>
+      <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <ul class="divide-y divide-base-200 p-2">
+          <li class="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+            <div class="min-w-0">
+              <span class="block truncate font-semibold">Codex (ChatGPT)</span>
+              <span class="text-xs text-muted">Direct OAuth · agent models <code>openai-codex/&lt;model&gt;</code></span>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              <span class="badge badge-sm ${codex ? "badge-success" : "badge-ghost"}">${codex ? "Connected" : "Not connected"}</span>
+              ${codex
+                ? `<button class="btn btn-ghost btn-xs" data-action="remove-ai-connection" data-id="${host.shell.escapeHtml(codex.id)}">Disconnect</button>`
+                : `<button class="btn btn-outline btn-xs" data-action="codex-login">Sign in</button>`}
+            </div>
+          </li>
+          ${rows}
+        </ul>
+      </div>
     </section>`;
   }
 
@@ -2115,15 +2274,17 @@ export function createMainViews(host: MainHost) {
             </li>`)
         .join("")
       : `<li class="px-3 py-6 text-center text-sm text-muted">No AI connections yet.</li>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Cloud connections</h2>
-        <p class="text-sm text-muted">Give the current workspace's agents access to hosted AI. These connections can be active at the same time.</p>
-        <div class="flex flex-wrap gap-2">${providerButtons}</div>
-      </div></section>
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Active connections</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${list}</ul>
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">Cloud connections</h2>
+        <p class="mt-1 text-sm text-muted">Give the current workspace's agents access to hosted AI. These connections can be active at the same time.</p>
+        <div class="mt-4 flex flex-wrap gap-2">${providerButtons}</div>
+      </section>
+      <section>
+        <h2 class="font-bold text-lg">Active connections</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${list}</ul>
+        </div>
       </section>
     </div>`;
   }
@@ -2139,13 +2300,15 @@ export function createMainViews(host: MainHost) {
           <div class="flex gap-1"><button class="btn btn-ghost btn-xs" data-action="test-mcp" data-id="${connection.id}">Test / allowlist</button><button class="btn btn-ghost btn-xs text-error" data-action="remove-mcp" data-id="${connection.id}">Remove</button></div>
         </li>`).join("")
       : `<li class="px-3 py-6 text-center text-sm text-muted">No MCP servers yet.</li>`;
-    return `<div class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">MCP servers</h2>
-        <p class="text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
-        <div class="flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
-      </div></section>
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm"><ul class="divide-y divide-base-200 p-2">${list}</ul></section>
+    return `<div class="space-y-10">
+      <section>
+        <h2 class="font-bold text-lg">MCP servers</h2>
+        <p class="mt-1 text-sm text-muted">Remote MCP servers receive the data an agent sends through their selected tools. Credentials stay in the operating-system vault.</p>
+        <div class="mt-4 flex flex-wrap gap-2"><button class="btn btn-primary btn-sm" data-action="find-mcp">Find a server</button><button class="btn btn-outline btn-sm" data-action="add-mcp-api">Add API-key MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-oauth">Add OAuth MCP</button><button class="btn btn-outline btn-sm" data-action="add-mcp-from-curl">Connect an API</button></div>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${list}</ul>
+        </div>
+      </section>
     </div>`;
   }
 
@@ -2158,35 +2321,35 @@ export function createMainViews(host: MainHost) {
     const markdown = await host.repository.getSetting(TOUR_MARKDOWN_KEY, DEFAULT_TOUR);
     const steps = parseTour(markdown);
     const custom = markdown !== DEFAULT_TOUR;
-    return `<form data-tour-form class="space-y-5">
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
+    return `<form data-tour-form class="space-y-10">
+      <section>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="card-title text-base">Onboarding wizard</h2>
+          <h2 class="font-bold text-lg">Onboarding wizard</h2>
           <span class="badge ${custom ? "badge-primary" : "badge-ghost"}">${custom ? "Customized" : "Default"} · ${steps.length} step${steps.length === 1 ? "" : "s"}</span>
         </div>
-        <p class="text-sm text-muted">A guided walkthrough for people new to Bees. One
+        <p class="mt-1 text-sm text-muted">A guided walkthrough for people new to Bees. One
           <code>##</code> heading per step; the Markdown under it is what the tooltip shows. An
           optional <code>Target:</code> line says which control the arrow belongs on — without one
           the assistant reads the step and decides. It looks at the live screen each time, so
           steps keep working when the interface moves.</p>
-        <p class="text-sm text-muted">People start it from <strong>Guided tour</strong>
+        <p class="mt-1 text-sm text-muted">People start it from <strong>Guided tour</strong>
           at the bottom of the left menu, or from Getting Started.</p>
-        <textarea class="textarea textarea-bordered min-h-96 w-full font-mono text-xs leading-relaxed"
+        <textarea class="mt-4 textarea textarea-bordered min-h-96 w-full font-mono text-xs leading-relaxed"
           name="markdown" spellcheck="false">${host.shell.escapeHtml(markdown)}</textarea>
-        <div class="flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <button class="btn btn-primary btn-sm" type="submit">Save</button>
           <button class="btn btn-outline btn-sm" type="button" data-action="start-tour">Preview it</button>
           <button class="btn btn-ghost btn-sm" type="button" data-action="reset-tour">Reset to default</button>
         </div>
-      </div></section>
-      <section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
-        <h3 class="font-semibold">Steps as they will run</h3>
-        <ol class="list-decimal space-y-1 pl-5 text-sm">${steps.length
+      </section>
+      <section>
+        <h3 class="font-bold text-lg">Steps as they will run</h3>
+        <ol class="mt-4 list-decimal space-y-1 pl-5 text-sm">${steps.length
         ? steps.map(({ title, target }) => `<li><strong>${host.shell.escapeHtml(title)}</strong>${target
           ? ` <span class="text-muted">— arrow on ${host.shell.escapeHtml(target)}</span>`
           : ` <span class="text-muted">— the assistant picks the control</span>`}</li>`).join("")
         : `<li class="list-none pl-0 text-muted">No <code>##</code> headings, so the wizard has nothing to show.</li>`}</ol>
-      </div></section>
+      </section>
     </form>`;
   }
 
@@ -2195,33 +2358,35 @@ export function createMainViews(host: MainHost) {
   function settingsThemeContent(): string {
     const themeOptions = (selected: ThemePreset) => host.shell.themePresets.map((preset) => `<option value="${preset.id}" ${preset.id === selected ? "selected" : ""}>${preset.name}</option>`)
       .join("");
-    const themeCards = host.shell.themePresets.map((preset) => `<button class="theme-card ${preset.id === host.shell.themePreset ? "selected" : ""}"
+    const themeCards = host.shell.themePresets.map((preset) => `<button class="overflow-hidden rounded-xl border ${preset.id === host.shell.themePreset ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-base-300 hover:border-base-content/30 hover:shadow-sm"} bg-base-100 text-left transition-all"
           data-action="set-theme-preset" data-theme-preset="${preset.id}"
           data-theme="${preset.id}" aria-pressed="${preset.id === host.shell.themePreset}">
-          <div class="theme-swatches">
-            <span style="background:var(--color-primary)"></span>
-            <span style="background:var(--color-secondary)"></span>
-            <span style="background:var(--color-accent)"></span>
-            <span style="background:var(--color-base-300)"></span>
+          <div class="flex h-12 w-full">
+            <span class="flex-1" style="background:var(--color-primary)"></span>
+            <span class="flex-1" style="background:var(--color-secondary)"></span>
+            <span class="flex-1" style="background:var(--color-accent)"></span>
+            <span class="flex-1" style="background:var(--color-neutral)"></span>
           </div>
-          <div><strong class="block text-sm">${preset.name}</strong></div>
+          <div class="bg-base-100 p-3">
+             <strong class="block text-sm font-medium">${preset.name}</strong>
+          </div>
         </button>`)
       .join("");
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Theme</h2>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="form-control gap-1">
-            <span class="text-sm font-medium">Default Dark Theme</span>
-            <select class="select w-full" data-theme-default="dark">${themeOptions(host.shell.darkDefaultTheme)}</select>
+    return `<section>
+        <h2 class="font-bold text-lg mb-5">Theme</h2>
+        <div class="mb-8 grid gap-5 sm:grid-cols-2">
+          <label class="form-control gap-1.5">
+            <span class="text-sm font-medium text-base-content/80">Default Dark Theme</span>
+            <select class="select select-bordered w-full" data-theme-default="dark">${themeOptions(host.shell.darkDefaultTheme)}</select>
           </label>
-          <label class="form-control gap-1">
-            <span class="text-sm font-medium">Default Light Theme</span>
-            <select class="select w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
+          <label class="form-control gap-1.5">
+            <span class="text-sm font-medium text-base-content/80">Default Light Theme</span>
+            <select class="select select-bordered w-full" data-theme-default="light">${themeOptions(host.shell.lightDefaultTheme)}</select>
           </label>
         </div>
-        <h3 class="mt-2 font-semibold">All themes</h3>
-        <div class="grid gap-3 sm:grid-cols-3">${themeCards}</div>
-      </div></section>`;
+        <h3 class="mb-4 font-bold text-lg text-base-content/80">All available themes</h3>
+        <div class="grid gap-4 sm:grid-cols-3">${themeCards}</div>
+      </section>`;
   }
 
   async function settingsSigninsContent(): Promise<string> {
@@ -2229,16 +2394,16 @@ export function createMainViews(host: MainHost) {
     const sso = Object.entries(host.session.providerLabel)
       .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
       .join("");
-    const addBlock = `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-2">
-        <h2 class="card-title text-base">Add a sign-in</h2>
-        <div class="flex flex-col gap-2">
+    const addBlock = `<section>
+        <h2 class="font-bold text-lg">Add a sign-in</h2>
+        <div class="mt-4 flex flex-col gap-2">
           ${sso}
           <button class="btn btn-outline btn-sm justify-start" data-action="signin-email">Sign in using an email</button>
           <button class="btn btn-outline btn-sm justify-start" data-action="signup-email">Create a new account using your email</button>
         </div>
-      </div></section>`;
+      </section>`;
     if (host.session.accounts.size === 0)
-      return `<div class="space-y-5">${description}${addBlock}</div>`;
+      return `<div class="space-y-10"><section>${description}</section>${addBlock}</div>`;
     const label = (provider: string): string => provider === "credential" ? "Email" : (host.session.providerLabel[provider] ?? provider);
     // One row per signed-in account. Every account is always active — no single active one.
     const rows = await Promise.all([...host.session.accounts.values()].map(async ({ user, token }) => {
@@ -2253,11 +2418,13 @@ export function createMainViews(host: MainHost) {
           <button class="btn btn-ghost btn-sm text-error" data-action="sign-out-account" data-id="${host.shell.escapeHtml(user.id)}">Sign out</button>
         </li>`;
     }));
-    const signedInBlock = `<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Signed-in accounts</h2></header>
-        <ul class="divide-y divide-base-200 p-2">${rows.length ? rows.join("") : `<li class="px-3 py-2 text-sm text-muted">No signed-in accounts.</li>`}</ul>
+    const signedInBlock = `<section>
+        <h2 class="font-bold text-lg">Signed-in accounts</h2>
+        <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+          <ul class="divide-y divide-base-200 p-2">${rows.length ? rows.join("") : `<li class="px-3 py-2 text-sm text-muted">No signed-in accounts.</li>`}</ul>
+        </div>
       </section>`;
-    return `<div class="space-y-5">${description}${addBlock}${signedInBlock}</div>`;
+    return `<div class="space-y-10"><section>${description}</section>${addBlock}${signedInBlock}</div>`;
   }
 
   /**
@@ -2326,10 +2493,13 @@ export function createMainViews(host: MainHost) {
       rows.push({ name: org.name, account: "On this device", button: `<span class="badge badge-ghost badge-sm">Device only</span>` });
     }
     rows.sort((a, b) => a.name.localeCompare(b.name) || a.account.localeCompare(b.account));
-    return `<div class="space-y-5">${settingsCreateWorkspaceContent()}<section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-5"><h2 class="font-bold">Workspaces</h2>
-          <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p></header>
-        <ul class="divide-y divide-base-200 p-2">${rows.length
+    return `<div class="space-y-10">
+        ${settingsCreateWorkspaceContent()}
+        <section>
+          <h2 class="font-bold text-lg">Workspaces</h2>
+          <p class="mt-1 text-sm text-muted">Log in or out of any workspace without leaving the others.</p>
+          <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+            <ul class="divide-y divide-base-200 p-2">${rows.length
         ? rows
           .map((row) => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                 <div class="min-w-0"><strong class="block truncate">${host.shell.escapeHtml(row.name)}</strong>
@@ -2338,17 +2508,19 @@ export function createMainViews(host: MainHost) {
               </li>`)
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-muted">No workspaces yet.</li>`}</ul>
-      </section></div>`;
+          </div>
+        </section>
+      </div>`;
   }
 
   function settingsCreateWorkspaceContent(): string {
-    return `<section class="card border border-base-300 bg-base-100 shadow-sm"><div class="card-body gap-3">
-        <h2 class="card-title text-base">Create a workspace</h2>
-        <p class="text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
-        <div class="card-actions justify-end">
+    return `<section>
+        <h2 class="font-bold text-lg">Create a workspace</h2>
+        <p class="mt-1 text-sm text-muted">Start on your own and invite teammates whenever you're ready.</p>
+        <div class="mt-4 flex justify-end">
           <button class="btn btn-primary btn-sm" data-action="create-workspace">Create workspace</button>
         </div>
-      </div></section>`;
+      </section>`;
   }
 
     async function renderSettings(): Promise<void> {
@@ -2406,8 +2578,8 @@ export function createMainViews(host: MainHost) {
 
     if (host.shell.view !== "settings") return;
 
-    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[220px_1fr]">
+      <aside class="h-max py-2">
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
             <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
@@ -2448,8 +2620,8 @@ export function createMainViews(host: MainHost) {
 
     if (host.shell.view !== "team-settings") return;
 
-    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <aside class="h-max rounded-box border border-base-300 bg-base-100 py-2 shadow-sm">
+    const menuHtml = `<div class="grid gap-5 lg:grid-cols-[220px_1fr]">
+      <aside class="h-max py-2">
         <ul class="menu menu-sm gap-0.5">
           <li><h2 class="menu-title">${host.shell.escapeHtml("Team settings")}</h2></li>
           ${teamTabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.teamTab)}" data-team-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
@@ -2844,7 +3016,15 @@ export function createMainViews(host: MainHost) {
       return `<button class="btn btn-ghost ${size}" disabled>Run from the item view</button>`;
     }
     const running = host.runs.runningProcesses.has(processId);
-    return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}"${running ? " disabled" : ""}>Run</button><button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}"${running ? "" : " disabled"}>Stop</button>`;
+    if (running) {
+      return `<button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}">
+        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop
+      </button>`;
+    } else {
+      return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}">
+        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Run
+      </button>`;
+    }
   }
 
   function assistantActionsHtml(actions: ResolvedAction[], index: number, applied: boolean): string {

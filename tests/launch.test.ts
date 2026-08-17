@@ -270,10 +270,10 @@ describe("lean launch modules", () => {
   });
 
   it("renders the team assistant without context dropdowns", () => {
-    const html = overviewView([], []);
+    const html = overviewView([], [], [], [], []);
 
-    expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent runs"));
-    expect(html).toContain('class="textarea textarea-bordered min-h-28 w-full resize-y"');
+    expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent AI work"));
+    expect(html).toContain('class="textarea w-full resize-none border-none bg-transparent');
     expect(html).not.toContain("<select");
     expect(html).not.toMatch(/Running|Needs attention|Completed/);
     expect(html).toContain(">Go</button>");
@@ -468,7 +468,7 @@ describe("lean launch modules", () => {
     });
     expect(html).toContain("Approval required");
     expect(html).toContain('data-action="view-markdown-output"');
-    expect(html).toContain("&gt;</span><span>approval-request.md");
+    expect(html).toContain(">approval-request.md</span>");
     expect(html.match(/data-action="approve-output"/g)).toHaveLength(1);
     expect(html.match(/data-action="reject-output"/g)).toHaveLength(1);
   });
@@ -529,7 +529,7 @@ describe("lean launch modules", () => {
 
     expect(html).toContain("Draft the launch note.");
     expect(html).toContain("Here is a friendlier draft.");
-    expect(html).toContain("Used tool");
+    expect(html).toContain("read_file");
     expect(html).toContain("Path: launch.md");
     expect(html).toContain("The model stopped early.");
     // A settled run offers the clean restart, never a resume of this conversation.

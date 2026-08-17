@@ -1000,6 +1000,9 @@ export function createMainActions(host: MainHost) {
    */
   // Empty for the team-level New task action; set to the displayed run when adding from its board.
   let newItemParentId = "";
+  // The view to return to when closing the process editor (e.g. "item-new" when reached via
+  // "Configure its agents" from the new-task form, or "board" in all other cases).
+  let processEditorReturnView: View = "board";
 
   async function createItem(stageId?: string, parentId = ""): Promise<void> {
     if (stageId && !host.workspaceController.activeProcess)
@@ -1201,28 +1204,7 @@ export function createMainActions(host: MainHost) {
       : "details";
   }
 
-  /** Saves the inline Details form of the expanded kanban card — same writes as the edit dialog. */
-  async function saveBoardItem(form: HTMLFormElement): Promise<void> {
-    const item = host.workspaceController.teamItems.find(({ id }) => id === form.dataset.id);
-    if (!item)
-      throw new Error("The work item is no longer available");
-    const data = new FormData(form);
-    const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
-    const archived = data.get("archived") === "archived";
-    await host.repository.updateWorkItem(item.id, {
-      title: String(data.get("title") ?? ""),
-      description: String(data.get("description") ?? ""),
-      owner: item.owner ?? "",
-      logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
-    });
-    if (archived !== Boolean(item.archivedAt)) {
-      await host.workflowRuntime.command(item.id, {
-        type: archived ? "archive" : "restore"
-      });
-    }
-    host.shell.boardItemEditing = false;
-    await host.workspaceController.refresh();
-  }
+
 
   /** Saves an edit made in the kanban card's inline Files tab, then drops back to the preview. */
   async function saveBoardFile(data: FormData): Promise<void> {
@@ -1467,8 +1449,15 @@ export function createMainActions(host: MainHost) {
         host.shell.render();
         return;
       }
+      if (action === "view-board-file") {
+        host.shell.boardTab = "files";
+        host.shell.boardFileRef = button.dataset.ref ?? "";
+        host.shell.boardFileEditing = false;
+        host.shell.render();
+        return;
+      }
       if (action === "select-board-file") {
-        host.shell.boardFileRef = button.dataset.ref === host.shell.boardFileRef ? "" : (button.dataset.ref ?? "");
+        host.shell.boardFileRef = button.dataset.ref ?? "";
         host.shell.boardFileEditing = false;
         host.shell.render();
         return;
@@ -1476,6 +1465,21 @@ export function createMainActions(host: MainHost) {
       if (action === "toggle-board-file-edit") {
         host.shell.boardFileEditing = !host.shell.boardFileEditing;
         host.shell.render();
+        return;
+      }
+      if (action === "expand-msg" || action === "collapse-msg") {
+        const id = button.dataset.msg;
+        if (!id) return;
+        const shortEl = document.querySelector(`[data-msg-short="${id}"]`);
+        const fullEl = document.querySelector(`[data-msg-full="${id}"]`);
+        if (!shortEl || !fullEl) return;
+        if (action === "expand-msg") {
+          (shortEl as HTMLElement).hidden = true;
+          (fullEl as HTMLElement).hidden = false;
+        } else {
+          (shortEl as HTMLElement).hidden = false;
+          (fullEl as HTMLElement).hidden = true;
+        }
         return;
       }
       // Panel switch is a visibility toggle, never a re-render: the other agents' edits are in the
@@ -2481,7 +2485,8 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "close-process-editor") {
-        host.shell.view = "board";
+        host.shell.view = processEditorReturnView;
+        processEditorReturnView = "board";
         host.shell.render();
         return;
       }
@@ -2494,6 +2499,8 @@ export function createMainActions(host: MainHost) {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId) {
           await host.workspaceController.switchTeam(button.dataset.team, "board");
         }
+        // Remember where we came from so Cancel can return there (e.g. "item-new").
+        processEditorReturnView = host.shell.view;
         host.shell.configProcessId = action === "edit-process" ? button.dataset.id! : "";
         host.shell.configAgentId = "";
         host.shell.view = "process";
@@ -2865,12 +2872,7 @@ export function createMainActions(host: MainHost) {
       once(approvalPlanForm, () => submitApprovalPlan(approvalPlanForm, submitter));
       return;
     }
-    const boardItemForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-item-form]");
-    if (boardItemForm) {
-      event.preventDefault();
-      once(boardItemForm, () => saveBoardItem(boardItemForm));
-      return;
-    }
+
     const boardFileForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-file-form]");
     if (boardFileForm) {
       event.preventDefault();
@@ -3069,7 +3071,14 @@ export function createMainActions(host: MainHost) {
   });
 
   host.shell.viewBack.addEventListener("click", () => {
-    const parent = PARENT_VIEW[host.shell.view];
+    let parent = PARENT_VIEW[host.shell.view];
+    if (host.shell.view === "item" && host.shell.previousView === "inbox") {
+      parent = "inbox";
+    } else if (host.shell.view === "run" && host.shell.previousView === "runs") {
+      parent = "runs";
+    } else if (host.shell.view === "team-settings" && host.shell.previousView === "board") {
+      parent = "board";
+    }
     if (!parent) return;
     host.shell.activeItemId = "";
     host.shell.activeExecutionId = "";
