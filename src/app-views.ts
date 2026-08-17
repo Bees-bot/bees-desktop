@@ -196,14 +196,13 @@ export function createMainViews(host: MainHost) {
     // .drawer-side clips.
     host.shell.sidebarHelp.innerHTML = `<ul class="menu menu-sm w-full gap-0.5 px-0">
         <li><button class="${host.shell.activeClass(host.shell.view === "getting-started")}" data-view="getting-started">Getting Started</button></li>
-        <li class="dropdown dropdown-top w-full">
-          <button tabindex="0" class="w-full justify-between" aria-haspopup="menu">
-            Documentation
-            <svg viewBox="0 0 24 24" class="size-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
-          </button>
-          <ul tabindex="0" class="dropdown-content menu menu-sm z-50 mb-1 w-64 gap-0.5 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
-            ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.shell.escapeHtml(url)}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
-          </ul>
+        <li>
+          <details>
+            <summary>Documentation</summary>
+            <ul>
+              ${HELP_PAGES.map(({ label, url }) => `<li><button data-action="open-external" data-url="${host.shell.escapeHtml(url)}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
+            </ul>
+          </details>
         </li>
         <li><button data-action="open-external" data-url="${host.shell.escapeHtml(COMMUNITY_URL)}">Join Community</button></li>
       </ul>`;
