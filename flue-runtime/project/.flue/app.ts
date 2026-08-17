@@ -126,6 +126,7 @@ app.post("/connections/discover", async (context) => {
       tools: connection.tools.map(({ name: toolName, description }) => ({
         name: toolName.startsWith(`mcp__${name}__`) ? toolName.slice(`mcp__${name}__`.length) : toolName,
         description,
+        // adapter drops readOnlyHint; the operator marks these instead
         readOnly: false
       }))
     });
