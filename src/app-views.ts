@@ -117,7 +117,7 @@ export interface EditorField {
   name: string;
   label: string;
   value?: string;
-  type?: "text" | "password" | "textarea" | "select" | "toggle" | "switch" | "checkboxes" | "color" | "file" | "note" | "workspace-privacy";
+  type?: "text" | "password" | "textarea" | "select" | "toggle" | "switch" | "checkboxes" | "color" | "file" | "note" | "workspace-privacy" | "menu";
   placeholder?: string;
   options?: EditorOption[];
   checked?: string[];
@@ -125,6 +125,7 @@ export interface EditorField {
   step?: "basics" | "instructions" | "capabilities";
   /** Small line under the control. */
   hint?: string;
+  required?: boolean;
 }
 
 export interface FileSource {
@@ -325,8 +326,9 @@ export function createMainViews(host: MainHost) {
                 </section>`;
         })
           .join("")
-        : `<div class="mx-2 rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-muted">
-              Add a team to this workspace.
+        : `<div class="px-3 py-4 flex flex-col items-center justify-center text-center">
+              <p class="mb-2 text-xs text-base-content/50">No teams yet</p>
+              <button class="btn btn-ghost btn-sm gap-2 text-xs font-medium text-base-content/70 hover:text-base-content hover:bg-base-200/50" data-action="new-team">${ACTION_ICONS.add} Create a team</button>
             </div>`}`;
     renderSettingsButton();
   }
@@ -2709,31 +2711,35 @@ export function createMainViews(host: MainHost) {
       .join("");
   }
 
-  function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint }: EditorField): string {
+  function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint, required = false }: EditorField): string {
     if (type === "note")
       return `<p class="text-sm text-muted">${host.shell.escapeHtml(value)}</p>`;
     if (type === "workspace-privacy")
-      return `<details data-workspace-privacy class="rounded-box border border-base-300 bg-base-200/40">
-        <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold">Make it private</summary>
-        <div class="grid gap-4 border-t border-base-300 px-4 py-4">
+      return `<div data-workspace-privacy class="rounded-box border border-base-300 bg-base-50 p-4 transition-colors focus-within:border-primary">
+        <div class="grid gap-4">
           <label class="flex cursor-pointer items-center justify-between gap-4">
-            <span><strong class="block text-sm">Make this workspace private</strong><span class="text-xs text-muted">Keep it on this device only.</span></span>
+            <span><strong class="block text-sm">Make this workspace private</strong><span class="mt-1 block text-xs text-muted">Keep it on this device only. You cannot add members later.</span></span>
             <input class="toggle toggle-primary" type="checkbox" name="${host.shell.escapeHtml(name)}" value="true" aria-label="${host.shell.escapeHtml(label)}">
           </label>
-          <div data-workspace-privacy-acknowledgements class="grid gap-3" hidden>
-            <label class="flex cursor-pointer items-start gap-3 text-sm"><input class="checkbox checkbox-sm mt-0.5" type="checkbox" name="acknowledgeNoMembers" value="true"><span>I acknowledge I won’t be able to add team members.</span></label>
-            <label class="flex cursor-pointer items-start gap-3 text-sm"><input class="checkbox checkbox-sm mt-0.5" type="checkbox" name="acknowledgeNoConversion" value="true"><span>I acknowledge I won’t be able to convert this workspace later.</span></label>
-          </div>
         </div>
-      </details>`;
-    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}">`;
+      </div>`;
+    const req = required ? " required" : "";
+    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}"${req}>`;
     if (type === "textarea") {
-      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}">${host.shell.escapeHtml(value)}</textarea>`;
+      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}"${req}>${host.shell.escapeHtml(value)}</textarea>`;
     }
     if (type === "select") {
-      control = `<select class="select select-bordered w-full" name="${host.shell.escapeHtml(name)}">${options
+      control = `<select class="select select-bordered w-full" name="${host.shell.escapeHtml(name)}"${req}>${options
         .map((option) => `<option value="${host.shell.escapeHtml(option.value)}" ${option.value === value ? "selected" : ""}>${host.shell.escapeHtml(option.label)}</option>`)
         .join("")}</select>`;
+    }
+    if (type === "menu") {
+      control = `<div class="flex flex-col gap-1.5 w-full">${options
+        .map((option) => `<button type="submit" class="group flex w-full items-center justify-between rounded-lg border border-transparent bg-base-200/50 px-4 py-2.5 text-sm font-medium transition-colors hover:border-base-300 hover:bg-base-200 active:bg-base-300" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}">
+          <span class="text-base-content/90">${host.shell.escapeHtml(option.label)}</span>
+          <svg class="size-4 text-base-content/30 transition-transform group-hover:translate-x-0.5 group-hover:text-base-content/60" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </button>`)
+        .join("")}</div>`;
     }
     if (type === "toggle") {
       control = `<div class="join grid w-full" style="grid-template-columns: repeat(${Math.max(1, options.length)}, minmax(0, 1fr))" role="radiogroup" aria-label="${host.shell.escapeHtml(label)}">${options

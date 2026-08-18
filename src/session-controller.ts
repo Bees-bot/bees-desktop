@@ -411,7 +411,7 @@ export function createSessionController(host: MainHost) {
       { label: "Email — sign in", value: "signin" },
       { label: "Email — create account", value: "signup" }
     ];
-    const auth = await host.actions.edit(title, [{ name: "method", label: "Continue with", type: "select", options }]);
+    const auth = await host.actions.edit(title, [{ name: "method", label: "", type: "menu", options }], "");
     if (!auth)
       return null;
     const method = String(auth.get("method"));
@@ -727,7 +727,7 @@ export function createSessionController(host: MainHost) {
 
   async function createWorkspace(): Promise<void> {
     const data = await host.actions.edit("Create workspace", [
-      { name: "name", label: "Workspace name", placeholder: "My workspace" },
+      { name: "name", label: "Workspace name", placeholder: "My workspace", required: true },
       {
         name: "deviceOnly",
         label: "Make this workspace private",
@@ -738,8 +738,6 @@ export function createSessionController(host: MainHost) {
     if (!data || !name)
       return;
     if (data.get("deviceOnly") === "true") {
-      if (data.get("acknowledgeNoMembers") !== "true" || data.get("acknowledgeNoConversion") !== "true")
-        throw new Error("Acknowledge both private workspace limitations before continuing");
       await createDeviceOnlyWorkspace(name);
     } else
       await createInviteReadyWorkspace(name);
