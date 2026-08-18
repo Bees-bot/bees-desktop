@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeExecutionsInItemTree,
   defaultBoardFilters,
   formatBoardFilters,
   isFiltered,
@@ -93,5 +94,18 @@ describe("task trees", () => {
     // An orphan (parent archived away) and a cycle both have to terminate, not hang.
     expect(rootItemId([node("orphan", "gone")], "orphan")).toBe("orphan");
     expect(rootItemId([node("a", "b"), node("b", "a")], "a")).toBe("a");
+  });
+
+  it("scopes active executions to one workflow run", () => {
+    const items = [node("root", null), node("child", "root"), node("other", null)];
+    const executions = [
+      { id: "root-run", workItemId: "root", status: "running" as const },
+      { id: "child-run", workItemId: "child", status: "queued" as const },
+      { id: "settled", workItemId: "root", status: "completed" as const },
+      { id: "other-run", workItemId: "other", status: "running" as const }
+    ];
+
+    expect(activeExecutionsInItemTree(items, executions, "root").map(({ id }) => id))
+      .toEqual(["root-run", "child-run"]);
   });
 });

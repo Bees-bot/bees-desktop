@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMainViews } from "../src/app-views.js";
-import type { Execution, Process, WorkItem } from "../src/domain.js";
+import type { Execution, ExecutionOutput, Process, WorkItem } from "../src/domain.js";
 import type { MainHost } from "../src/main.js";
 
 describe("task panel run controls", () => {
@@ -98,5 +98,29 @@ describe("task panel run controls", () => {
     expect(html.indexOf('data-action="restart-run" data-id="run"')).toBeLessThan(tabs);
     expect(html.indexOf('data-action="delete-run" data-id="run"')).toBeLessThan(tabs);
     expect(html).not.toContain('data-action="download-receipt"');
+
+    const activeRun = { ...run, status: "running", error: null } satisfies Execution;
+    const pendingOutput = {
+      id: "output",
+      executionId: activeRun.id,
+      logicalOutput: "fix.md",
+      logicalDestination: "fix.md",
+      status: "pending",
+      reason: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      decidedAt: null
+    } satisfies ExecutionOutput;
+    const activeHost = {
+      ...host,
+      shell: { ...host.shell, activeExecutionId: activeRun.id },
+      runs: { ...host.runs, executions: [activeRun], executionOutputs: [pendingOutput] }
+    } as unknown as MainHost;
+    const activeHtml = await createMainViews(activeHost).renderBoardItemPanel(item, process);
+    const activeTabs = activeHtml.indexOf('role="tablist"');
+
+    expect(activeHtml.indexOf('data-action="stop-run" data-id="run">Stop run</button>')).toBeLessThan(activeTabs);
+    expect(activeHtml.indexOf('data-action="approve-output" data-id="output" disabled>Approve</button>')).toBeLessThan(activeTabs);
+    expect(activeHtml.match(/data-action="approve-output"/g)).toHaveLength(1);
+    expect(activeHtml).not.toContain('data-board-tab="approval"');
   });
 });

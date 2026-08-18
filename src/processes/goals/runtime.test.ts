@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Process, WorkItem } from "../../domain.js";
 import {
   completedTaskPlanParentsReadyForReview,
+  requireTaskPlanAgentStage,
+  taskPlanAgentStages,
   taskPlanContextForRun
 } from "./runtime.js";
 import { goalsProcess } from "./definition.js";
@@ -70,5 +72,18 @@ describe("Goals process runtime", () => {
       ...goals,
       definition: persistProcessDefinition()
     }, stages[0]!)).toBeUndefined();
+  });
+
+  it("keeps Waiting system-managed while allowing recursive planning", () => {
+    expect(taskPlanAgentStages(goals).map(({ name }) => name)).toEqual([
+      "Plan",
+      "Work",
+      "Review",
+      "Done"
+    ]);
+    expect(requireTaskPlanAgentStage(goals, stages[0])).toBe(stages[0]);
+    expect(() => requireTaskPlanAgentStage(goals, stages[2])).toThrow(
+      "Waiting is managed by Bees"
+    );
   });
 });

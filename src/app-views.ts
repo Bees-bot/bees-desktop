@@ -29,7 +29,6 @@ import {
 } from "./connections.js";
 import {
   conversationToSnapshotV1,
-  lastAssistantText,
   type BeesConversationSnapshotV1
 } from "./conversation-snapshot.js";
 import {
@@ -46,6 +45,7 @@ import type {
   WorkItem
 } from "./domain.js";
 import {
+  activeExecutionsInItemTree,
   activeExecutionForItem,
   errorText,
   fileTree,
@@ -96,7 +96,6 @@ import {
   registryCapabilities,
   selectedAgentCapabilities
 } from "./registries.js";
-import type { PlannedTask } from "./processes/goals/index.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import type { WorkState } from "./supervision.js";
 import { needsAttention } from "./supervision.js";
@@ -491,170 +490,6 @@ export function createMainViews(host: MainHost) {
       </dl>`;
   }
 
-  /** Last thing the agent said in a run — the summary a reviewer needs before approving. */
-  function lastAssistantSummary(run: Execution): string {
-    return lastAssistantText(conversationFor(run));
-  }
-
-  /**
-   * One proposed task of a plan, inline: its own Approve button beside the title, every dialog
-   * field editable in place. Field names match the approval dialog so both submit the same shape.
-   * An already-approved task renders as a settled row — it exists as a work item now.
-   */
-  function planTaskCard(item: WorkItem, task: PlannedTask, index: number, approved: boolean, proposed: PlannedTask[] = []): string {
-    if (approved) {
-      return `<article class="rounded-xl border border-success/30 bg-success/5 p-4 opacity-80 transition-opacity hover:opacity-100">
-        <div class="flex items-center gap-3">
-          <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/20 text-xs font-bold text-success-content">${index + 1}</div>
-          <span class="min-w-0 flex-1 truncate text-sm font-medium">${host.shell.escapeHtml(task.title)}</span>
-          <div class="flex items-center gap-1.5 text-xs font-semibold text-success">
-            <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-            Approved
-          </div>
-        </div>
-      </article>`;
-    }
-    const roles = host.runs.taskWorkerRoles();
-    return `<article class="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm transition-colors hover:border-base-content/20">
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-base-200 text-xs font-bold text-base-content/70">${index + 1}</div>
-        <input class="input input-bordered input-sm min-w-0 flex-1 basis-56 font-semibold" name="task-${index}-title" value="${host.shell.escapeHtml(task.title)}">
-        <button class="btn btn-success btn-sm shrink-0 shadow-sm" type="submit" name="approveTask" value="${index}">Approve</button>
-      </div>
-      <div class="mt-4 grid gap-4 pl-9">
-        <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Description</span>
-          <textarea class="textarea textarea-bordered min-h-[5rem] w-full resize-y text-sm leading-relaxed" name="task-${index}-description">${host.shell.escapeHtml(task.description)}</textarea>
-        </label>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Worker role</span>
-            <select class="select select-bordered select-sm w-full" name="task-${index}-role">
-              ${roles.map(({ role }) => `<option value="${host.shell.escapeHtml(role)}" ${role === task.role ? "selected" : ""}>${host.shell.escapeHtml(role)}</option>`).join("")}
-            </select></label>
-          <label class="form-control grid gap-1.5"><span class="label-text text-xs font-medium text-muted">Effect</span>
-            <select class="select select-bordered select-sm w-full" name="task-${index}-effect">
-              ${[["read", "Read only"], ["prepare", "Prepare outputs"], ["external_write", "External action"]]
-                .map(([value, label]) => `<option value="${value}" ${value === task.effect ? "selected" : ""}>${label}</option>`).join("")}
-            </select></label>
-        </div>
-        ${item.logicalFiles.length
-          ? `<div><span class="label-text text-xs font-medium text-muted">Approved inputs</span>
-              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-2">${item.logicalFiles
-                .map((path) => `<label class="flex cursor-pointer items-center gap-2 hover:text-base-content/80"><input class="checkbox checkbox-xs" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(path)}" ${task.inputs.includes(path) ? "checked" : ""}><span class="text-sm font-medium">${host.shell.escapeHtml(path)}</span></label>`)
-                .join("")}</div>
-            </div>`
-          : ""}
-        ${task.inputs.some((input) => !item.logicalFiles.includes(input))
-          ? `<div class="rounded-lg border border-warning/30 bg-warning/10 p-3">
-              <div class="mb-2 flex items-center gap-1.5 text-xs font-bold text-warning-content">
-                <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                Needs approval first
-              </div>
-              <div class="flex flex-wrap gap-x-4 gap-y-2">${task.inputs
-                .filter((input) => !item.logicalFiles.includes(input))
-                .map((input) => {
-                  const producer = proposed.findIndex((other) => other !== task && other.key === input);
-                  const from = producer !== -1 ? ` <span class="text-xs font-normal opacity-70">(from task ${producer + 1})</span>` : "";
-                  return `<label class="flex cursor-pointer items-center gap-2 hover:text-warning-content/80"><input class="checkbox checkbox-xs checkbox-warning" type="checkbox" name="task-${index}-inputs" value="${host.shell.escapeHtml(input)}" checked><span class="text-sm font-medium text-warning-content">${host.shell.escapeHtml(input)}${from}</span></label>`;
-                })
-                .join("")}</div>
-              <p class="mt-2 text-[13px] leading-relaxed text-warning-content/80">These files come from other tasks or runs that are not approved yet. Approve the task or file that produces them first — use the per-task Approve buttons in order — or untick to run without them.</p>
-            </div>`
-          : ""}
-      </div>
-    </article>`;
-  }
-
-  /** The whole proposed plan as one inline form: Approve All on top, one card per task with
-   *  its own Approve button. The plan settles once nothing is left pending. */
-  function taskPlanApprovalForm(item: WorkItem, output: ExecutionOutput, proposed: PlannedTask[], busy: boolean, blocked = false, blockingTasks: string[] = []): string {
-    const approved = new Set(host.workspaceController.teamItems
-      .filter(({ processId, goal }) => processId === item.processId && goal?.key)
-      .map(({ goal }) => goal!.key));
-    const remaining = proposed.filter(({ key }) => !approved.has(key)).length;
-    return `<form data-approval-plan-form data-output="${output.id}" class="rounded-xl border-l-4 border-l-warning border-y border-r border-base-300 bg-base-100 p-5 shadow-sm">
-      <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
-        <div class="flex items-center gap-2 text-sm font-bold text-base-content">
-          <svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
-          Task plan approval required${remaining < proposed.length ? `<span class="font-normal text-muted ml-1">· ${proposed.length - remaining}/${proposed.length} approved</span>` : ""}
-        </div>
-        <div class="flex items-center gap-2">
-          <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" type="button" data-action="reject-output" data-id="${output.id}" ${busy ? "disabled" : ""}>Reject rest</button>
-          <button class="btn btn-success btn-sm shadow-sm" type="submit" name="approveAll" value="1" data-id="${output.id}" ${busy || blocked || blockingTasks.length ? "disabled" : ""}>Approve all</button>
-        </div>
-      </div>
-      ${blocked
-        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
-             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-             <p><strong>Approve or reject this run's file outputs first</strong> — the plan's tasks may depend on them.</p>
-           </div>`
-        : ""}
-      ${blockingTasks.length
-        ? `<div class="mb-4 flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning-content">
-             <svg class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-             <p><strong>Blocked</strong>: these subtasks have files waiting for your review — open each one and approve or reject its files first: ${blockingTasks.map((title) => `"${host.shell.escapeHtml(title)}"`).join(", ")}.</p>
-           </div>`
-        : ""}
-      <p class="mb-5 text-sm text-muted">Approve tasks one at a time — adjust a task's details first if needed — or approve all remaining at once. Rejecting discards the tasks not yet approved.</p>
-      <fieldset class="contents" ${blocked || blockingTasks.length ? "disabled" : ""}>
-        <div class="grid gap-3 pl-2">${proposed.map((task, index) => planTaskCard(item, task, index, approved.has(task.key), proposed)).join("")}</div>
-      </fieldset>
-    </form>`;
-  }
-
-  /** The Approval tab: only what needs a decision — the agent's summary, the proposed plan
-   *  spelled out with per-task approve toggles, and approve/reject per pending file. */
-  async function boardItemApprovals(item: WorkItem, runs: Execution[]): Promise<string> {
-    const pending = runs
-      .map((run) => ({
-        run,
-        outputs: host.runs.executionOutputs.filter(({ executionId, status }) => executionId === run.id && status === "pending")
-      }))
-      .filter(({ outputs }) => outputs.length);
-    // Each subtask's files are reviewed on the subtask's own item; the parent only reports
-    // which subtasks still block its plan.
-    const blockingChildren = host.workspaceController.teamItems
-      .filter(({ parentId }) => parentId === item.id)
-      .filter((child) => host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" &&
-        host.runs.executions.some(({ id, workItemId }) => id === executionId && workItemId === child.id)));
-    if (!pending.length) {
-      // A process with its own view approves its own work there — a requirements draft or a plan
-      // is never a pending file, so saying nothing waits here contradicts the item's own badge.
-      const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
-      if (process && processEngine.renderer(process) !== "default")
-        return `<p class="text-sm text-muted">Open this task to review and approve its work.</p>`;
-      return `<p class="text-sm text-muted">Nothing is waiting for approval on this item.</p>`;
-    }
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
-    const sections: string[] = [];
-    for (const { run, outputs } of pending) {
-      const summary = lastAssistantSummary(run);
-      const busy = ["queued", "running"].includes(run.status);
-      const cards: string[] = [];
-      for (const output of outputs) {
-        if (mapping && host.runs.taskPlanController.matchesOutput(output.logicalOutput, run)) {
-          const proposed = await host.runs.taskPlanController
-            .readTaskPlan(output, run, mapping.localPath)
-            .catch(() => null);
-          if (proposed) {
-            cards.push(taskPlanApprovalForm(item, output, proposed, busy, outputs.length > 1, blockingChildren.map(({ title }) => title)));
-            continue;
-          }
-        }
-        cards.push(approvalCard(output, busy, taskPlanOutput(run)));
-      }
-      sections.push(`<section class="grid gap-3">
-        <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
-          ${statusBadge(run.status)}<span>${when(run.startedAt ?? run.createdAt)}</span>
-        </div>
-        ${summary
-          ? `<article class="markdown-viewer rounded-box border border-base-300 bg-base-200/40 p-4 text-sm">${renderMarkdown(summary)}</article>`
-          : ""}
-        ${cards.join("")}
-      </section>`);
-    }
-    return `<div class="grid gap-4">${sections.join("")}</div>`;
-  }
-
   /** The run a task panel is showing: an explicit deep link wins, then pending work, then latest. */
   function boardRun(runs: Execution[]): Execution | undefined {
     const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
@@ -896,16 +731,19 @@ export function createMainViews(host: MainHost) {
       .join("")}</ul>`;
   }
 
-  /** A card's detail, expanded in place under the board — Details / Approval / Conversation /
-   *  Files / Subtasks tabs, so opening an item never navigates away from the board it lives on. */
+  /** A card's detail, expanded in place under the board — Details / Conversation / Files /
+   *  Subtasks tabs, so opening an item never navigates away from the board it lives on. */
   async function renderBoardItemPanel(item: WorkItem, process: Process): Promise<string> {
     const tab = host.shell.boardTab;
     const stage = process.stages.find(({ id }) => id === item.stageId);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
     const run = boardRun(runs);
+    const pendingOutput = run
+      ? host.runs.executionOutputs.find(({ executionId, status }) => executionId === run.id && status === "pending")
+      : undefined;
     const runControls = run
       ? `${run.status === "running"
-          ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${run.id}">Stop</button>`
+          ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${run.id}">Stop run</button>`
           : run.status === "queued"
             ? `<button class="btn btn-sm" disabled>Starting…</button>`
             : `<button class="btn btn-primary btn-sm" data-action="restart-run" data-id="${run.id}" title="Restart with current config">Restart</button>`}
@@ -920,11 +758,9 @@ export function createMainViews(host: MainHost) {
       ? boardItemConversation(item, runs)
       : tab === "files"
         ? await boardItemFiles(item)
-        : tab === "approval"
-          ? await boardItemApprovals(item, runs)
-          : tab === "subtasks"
-            ? boardItemSubtasks(item)
-            : await boardItemDetails(item, runs);
+        : tab === "subtasks"
+          ? boardItemSubtasks(item)
+          : await boardItemDetails(item, runs);
     return `<div data-scroll-anchor class="mt-2 rounded-xl bg-base-100 p-6 shadow-sm ring-1 ring-base-content/5">
       ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
       <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -935,6 +771,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex items-center gap-1">
           ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
+          ${pendingOutput ? `<button class="btn btn-success btn-sm" data-action="approve-output" data-id="${pendingOutput.id}" ${run && ["queued", "running"].includes(run.status) ? "disabled" : ""}>Approve</button>` : ""}
           ${runControls}
           ${tab === "files" && host.shell.boardFileRef
             ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
@@ -944,7 +781,6 @@ export function createMainViews(host: MainHost) {
       </div>
       <div role="tablist" class="flex gap-6 border-b border-base-200 mb-5 w-full">
         ${tabButton("details", "Details")}
-        ${pendingCount ? tabButton("approval", `Approval <span class="badge badge-warning badge-xs ml-0.5">${pendingCount}</span>`) : ""}
         ${tabButton("conversation", `Conversation${runs.length ? ` <span class="text-[11px] ml-0.5 opacity-60">(${runs.length})</span>` : ""}`)}
         ${item.logicalFiles.length + pendingCount > 0 ? tabButton("files", `Files <span class="text-[11px] ml-0.5 opacity-60">(${item.logicalFiles.length + pendingCount})</span>`) : ""}
         ${subtaskCount ? tabButton("subtasks", `Subtasks <span class="text-[11px] ml-0.5 opacity-60">(${subtaskCount})</span>`) : ""}
@@ -981,6 +817,9 @@ export function createMainViews(host: MainHost) {
     const scoped = root
       ? itemTree(host.workspaceController.items, root.id)
       : host.workspaceController.items;
+    const scopedExecutions = root
+      ? activeExecutionsInItemTree(host.workspaceController.items, host.runs.executions, root.id)
+      : [];
     const visible = scoped.filter((item) => !isFiltered(item, filters));
     const filtered = scoped.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -1014,7 +853,16 @@ export function createMainViews(host: MainHost) {
         </div>
         <!-- Run is what this toolbar is for. The four occasional workflow actions moved behind one menu. -->
         <div class="flex flex-wrap items-center gap-2">
-          ${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
+          ${root
+            ? `${scopedExecutions.length
+              ? `<button class="btn btn-ghost btn-sm text-error" data-action="stop-workflow-run" data-id="${host.shell.escapeHtml(root.id)}">
+                  <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop run
+                </button>`
+              : ""}
+               <button class="btn btn-ghost btn-sm" data-action="archive-item" data-id="${host.shell.escapeHtml(root.id)}">
+                 ${ACTION_ICONS.archive} Archive
+               </button>`
+            : processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
           <div class="dropdown dropdown-end">
             <button tabindex="0" class="p-1.5 rounded-md text-muted hover:text-primary cursor-pointer border-none outline-none bg-transparent hover:bg-transparent transition-colors" aria-haspopup="menu"
               aria-label="More process actions" title="More process actions">
@@ -3020,7 +2868,7 @@ export function createMainViews(host: MainHost) {
     if (process && processEngine.isInteractive(process))
       return "";
     const running = host.runs.runningProcesses.has(processId);
-    return actionIconButton(running ? "stop-process" : "start-process", running ? "Running. Click to stop." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, processId, running ? "btn-ghost text-success" : "btn-ghost text-warning");
+    return actionIconButton(running ? "stop-process" : "start-process", running ? "Running. Click to stop all runs." : "Stopped. Click to run.", running ? ACTION_ICONS.active : ACTION_ICONS.inactive, processId, running ? "btn-ghost text-success" : "btn-ghost text-warning");
   }
 
   function processRunButtons(processId: string, size: string): string {
@@ -3031,7 +2879,7 @@ export function createMainViews(host: MainHost) {
     const running = host.runs.runningProcesses.has(processId);
     if (running) {
       return `<button class="btn btn-ghost ${size} text-error" data-action="stop-process" data-id="${processId}">
-        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop
+        <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop all runs
       </button>`;
     } else {
       return `<button class="btn btn-primary ${size}" data-action="start-process" data-id="${processId}">

@@ -78,6 +78,7 @@ import type {
   WorkItem,
 } from "./domain.js";
 import {
+  activeExecutionsInItemTree,
   boardFilterConditionLabels,
   errorText,
   formatBoardFilters,
@@ -1104,11 +1105,7 @@ export function createMainActions(host: MainHost) {
     }
   }
 
-  /**
-   * Turns the selected, possibly edited tasks of a proposed plan into queued work items. Shared
-   * by the approval dialog and the inline plan form on the board's Approval tab — both submit
-   * the same field names (`selectedTasks`, `task-<i>-title`, …).
-   */
+  /** Turns the selected, possibly edited tasks of a proposed plan into queued work items. */
   async function approvePlanSelection(
     output: ExecutionOutput,
     execution: Execution,
@@ -1149,44 +1146,7 @@ export function createMainActions(host: MainHost) {
     }
   }
 
-  /** Plan tasks that already became work items — matched the way the repository dedupes, by key. */
-  function approvedPlanIndices(execution: Execution, proposed: PlannedTask[]): Set<number> {
-    const parent = host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId);
-    const existing = new Set(host.workspaceController.teamItems
-      .filter(({ processId, goal }) => processId === parent?.processId && goal?.key)
-      .map(({ goal }) => goal!.key));
-    return new Set(proposed.flatMap((task, index) => (existing.has(task.key) ? [index] : [])));
-  }
-
-  /**
-   * The inline plan form on the Approval tab. The submitter decides scope: a per-task Approve
-   * button carries its index; the header button approves every task not yet turned into an item.
-   * The plan settles (finalize) only when nothing would be left pending afterward.
-   */
-  async function submitApprovalPlan(form: HTMLFormElement, submitter: HTMLButtonElement | null): Promise<void> {
-    const output = host.runs.executionOutputs.find(({ id }) => id === form.dataset.output);
-    const execution = output ? await host.repository.getExecution(output.executionId) : null;
-    const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
-    if (!output || !execution?.workspaceRef || !mapping)
-      throw new Error("Output is unavailable");
-    const proposed = await host.runs.taskPlanController.readTaskPlan(output, execution, mapping.localPath);
-    const done = approvedPlanIndices(execution, proposed);
-    const remaining = proposed.flatMap((_, index) => (done.has(index) ? [] : [index]));
-    const single = submitter?.name === "approveTask" ? Number(submitter.value) : null;
-    const indices = single !== null
-      ? [single]
-      : remaining.length
-        ? remaining
-        // Every task already exists — approve the full plan so the pending output settles.
-        : proposed.map((_, index) => index);
-    const finalize = single === null || (remaining.length === 1 && remaining[0] === single);
-    await approvePlanSelection(output, execution, mapping.localPath, proposed, new FormData(form), indices, finalize);
-  }
-
-  /**
-   * Expands one card's panel under the board: fresh run history loaded, file/edit state reset,
-   * and the tab landing on Approval when something is waiting for a decision.
-   */
+  /** Expands one card's panel under the board and loads its fresh run history. */
   async function expandBoardItem(id: string, executionId = ""): Promise<void> {
     host.shell.boardItemId = id;
     host.shell.boardFileRef = "";
@@ -1202,13 +1162,9 @@ export function createMainActions(host: MainHost) {
     }
     else {
       host.shell.activeExecutionId = "";
-      host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
-        ? "approval"
-        : "details";
+      host.shell.boardTab = "details";
     }
   }
-
-
 
   /** Saves an edit made in the kanban card's inline Files tab, then drops back to the preview. */
   async function saveBoardFile(data: FormData): Promise<void> {
@@ -1578,6 +1534,20 @@ export function createMainActions(host: MainHost) {
         await host.runs.releaseClaim(execution.workItemId);
         await host.workspaceController.refresh();
         host.shell.showNotice("Run stopped", "success");
+        return;
+      }
+      if (action === "stop-workflow-run") {
+        const activeExecutions = activeExecutionsInItemTree(
+          host.workspaceController.teamItems,
+          host.runs.executions,
+          button.dataset.id!
+        );
+        for (const execution of activeExecutions)
+          await host.runCoordinator.stop(execution.id);
+        for (const workItemId of new Set(activeExecutions.map(({ workItemId }) => workItemId)))
+          await host.runs.releaseClaim(workItemId).catch(() => undefined);
+        await host.workspaceController.refresh();
+        host.shell.showNotice("Run stopped; other runs are still running", "success");
         return;
       }
       if (action === "delete-run") {
@@ -2416,9 +2386,9 @@ export function createMainActions(host: MainHost) {
           await host.workspaceController.switchTeam(button.dataset.team);
         const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id);
         const tree = item ? itemTree(host.workspaceController.teamItems, item.id) : [];
-        const treeIds = new Set(tree.map(({ id }) => id));
-        const activeExecutions = host.runs.executions.filter(({ workItemId, status }) =>
-          treeIds.has(workItemId) && (status === "queued" || status === "running"));
+        const activeExecutions = item
+          ? activeExecutionsInItemTree(host.workspaceController.teamItems, host.runs.executions, item.id)
+          : [];
         const impact = [
           activeExecutions.length
             ? `${activeExecutions.length} active run${activeExecutions.length === 1 ? "" : "s"} will be stopped.`
@@ -2893,13 +2863,6 @@ export function createMainActions(host: MainHost) {
       once(definitionForm, () => saveProcessDefinition(new FormData(definitionForm)));
       return;
     }
-    const approvalPlanForm = (event.target as Element).closest<HTMLFormElement>("form[data-approval-plan-form]");
-    if (approvalPlanForm) {
-      event.preventDefault();
-      once(approvalPlanForm, () => submitApprovalPlan(approvalPlanForm, submitter));
-      return;
-    }
-
     const boardFileForm = (event.target as Element).closest<HTMLFormElement>("form[data-board-file-form]");
     if (boardFileForm) {
       event.preventDefault();
