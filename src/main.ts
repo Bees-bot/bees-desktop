@@ -217,7 +217,6 @@ export interface AppShell {
   markdownBody: HTMLElement;
   markdownDialog: HTMLDialogElement;
   markdownTitle: HTMLElement;
-  newItem: HTMLButtonElement;
   viewBack: HTMLButtonElement;
   previousView: View | null;
   newItemSources: FileSource[];

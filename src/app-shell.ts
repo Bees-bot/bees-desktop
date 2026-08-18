@@ -122,7 +122,6 @@ export function createAppShell(host: MainHost) {
 
   const notice = document.querySelector<HTMLElement>("#notice")!;
 
-  const newItem = document.querySelector<HTMLButtonElement>("#new-item")!;
   const viewBack = document.querySelector<HTMLButtonElement>("#view-back")!;
 
   const themeToggle = document.querySelector<HTMLButtonElement>("#theme-toggle")!;
@@ -313,7 +312,6 @@ export function createAppShell(host: MainHost) {
   function setHeader(name: string, detail?: string): void {
     title.textContent = name;
     context.textContent = detail ?? [host.session.currentOrganization()?.name, host.session.currentTeam()?.name].filter(Boolean).join(" / ");
-    newItem.hidden = view !== "board" || !host.workspaceController.activeProcess;
     const parent = PARENT_VIEW[view];
     viewBack.hidden = !parent;
   }
@@ -496,7 +494,6 @@ export function createAppShell(host: MainHost) {
     get themePreset() { return themePreset; },
     set themePreset(value: typeof themePreset) { themePreset = value; },
     app,
-    newItem,
     viewBack,
     assistantPanel,
     assistantToggle,

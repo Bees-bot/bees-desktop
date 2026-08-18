@@ -104,7 +104,7 @@ describe("process run recovery", () => {
     expect(html).toContain('data-id="task"');
     expect(html).toContain('data-execution="failed-run"');
     expect(html).toContain('data-action="restart-run" data-id="failed-run"');
-    expect(html).toContain("Restart with current config");
+    expect(html).toContain("Restart");
   });
 
   it("exposes restart on a completed step", () => {

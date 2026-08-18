@@ -57,6 +57,20 @@ describe("assistant contract", () => {
     expect(Buffer.from(hex, "hex").toString("utf8")).toBe("anthropic/claude-opus-5");
     expect(id.split("--")[2]).toBe("2f1c9d0e-6a4b-4f00-9c31-8a1b2c3d4e5f");
   });
+
+  it("resolves Auto to an available model before encoding the instance id", () => {
+    const catalog = modelCatalog({
+      local: [],
+      connections: [
+        { id: "available", provider: "anthropic", label: "Available", createdAt: "", secretRef: "s" }
+      ],
+      cliInstalled: {},
+      extras: []
+    });
+    const id = assistantInstanceId("team", AUTO_MODEL_CHOICE, catalog);
+    const hex = id.split("--")[1]!;
+    expect(Buffer.from(hex, "hex").toString("utf8")).toBe("anthropic/claude-opus-5");
+  });
 });
 
 describe("parsing a turn", () => {
