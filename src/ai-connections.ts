@@ -1,8 +1,8 @@
-// AI provider connection metadata for an organization. Rust stores credentials in the
-// operating-system credential vault; SQLite and synchronized metadata keep only `secretRef`.
+// AI provider connection metadata for an organization. Rust stores credentials in a separate
+// local-only database; SQLite settings and synchronized metadata keep only `secretRef`.
 //
 // Claude Code remains an optional agent runtime. Codex is a normal pi-ai provider whose
-// ChatGPT OAuth credential is stored in the same OS vault as API keys.
+// ChatGPT OAuth credential is stored in the same local credential database as API keys.
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -64,7 +64,7 @@ export async function listAiConnections(store: SettingsStore, orgId: string): Pr
   return store.getSetting<AiConnection[]>(key(orgId), []);
 }
 
-/** Stored connection ids whose credential is still present in this machine's OS vault. */
+/** Stored connection ids whose credential is still present in this machine's local store. */
 export async function availableAiConnectionIds(orgId: string): Promise<Set<string>> {
   return new Set(await invoke<string[]>("available_ai_connection_ids", { organizationId: orgId }));
 }

@@ -53,7 +53,7 @@ function beginCodexLogin(): PendingLogin {
   return { started: ready.promise, result, abort };
 }
 
-/** Convert pi-ai's credential to the existing OS-vault schema Rust refreshes on demand. */
+/** Convert pi-ai's credential to the local-store schema Rust refreshes on demand. */
 export function storedCodexCredential(credential: OAuthCredential): string {
   return JSON.stringify({
     accessToken: credential.access,

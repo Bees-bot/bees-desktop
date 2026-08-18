@@ -30,7 +30,12 @@ export async function connectionSecret(
 export function aiConnectionSecret(
   secretRef: string,
   organizationId: string,
-  connectionId: string
+  connectionId: string,
+  refresh = false
 ): Promise<string> {
-  return brokerSecret(secretRef, new URLSearchParams({ organizationId, connectionId }));
+  return brokerSecret(secretRef, new URLSearchParams({
+    organizationId,
+    connectionId,
+    ...(refresh ? { refresh: "true" } : {})
+  }));
 }

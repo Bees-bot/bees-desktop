@@ -266,6 +266,12 @@ export function activeWorkItemWaits(item: Pick<WorkItem, "waits">): WorkItemWait
   return item.waits.filter(({ resolvedAt }) => !resolvedAt);
 }
 
+/** Restart acknowledges the errors from the failed attempt, but preserves unrelated waits. */
+export function workItemForRetry(item: WorkItem): WorkItem {
+  const waits = item.waits.filter(({ kind, resolvedAt }) => kind !== "error" || Boolean(resolvedAt));
+  return waits.length === item.waits.length ? item : { ...item, waits };
+}
+
 export function workItemCondition(
   item: WorkItem,
   executions: Execution[] = [],

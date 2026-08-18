@@ -193,7 +193,8 @@ export function createWorkspaceController(host: MainHost) {
         const roots = own
           .filter(({ parentId }) => !parentId)
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-          .map((item) => ({ item, open: openWork(itemTree(own, item.id)).length }));
+          // The row already represents the root; its badge counts only additional open work.
+          .map((item) => ({ item, open: openWork(itemTree(own, item.id).filter(({ id }) => id !== item.id)).length }));
         return [{ board, process, count: openWork(own).length, roots }];
       }));
     }
@@ -308,7 +309,7 @@ export function createWorkspaceController(host: MainHost) {
     if (!workspace.teamId)
       return;
     const key = `default_registry_version_${workspace.teamId}`;
-    if ((await host.repository.getSetting(key, 0)) >= 3)
+    if ((await host.repository.getSetting(key, 0)) >= 4)
       return;
     const existing = registries.find(({ sourcePath }) => sourcePath === "bundled://bees-default");
     const id = existing?.id ?? crypto.randomUUID();
@@ -320,7 +321,7 @@ export function createWorkspaceController(host: MainHost) {
       sourcePath: "bundled://bees-default",
       plugin
     });
-    await host.repository.setSetting(key, 3);
+    await host.repository.setSetting(key, 4);
     await refresh();
   }
 

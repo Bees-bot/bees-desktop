@@ -18,7 +18,7 @@ import type { ProcessModule } from "../types.js";
 export const softwareProjectProcess = {
   definition: {
     id: SOFTWARE_PROJECT_PROCESS_ID,
-    version: 1,
+    version: 2,
     name: SOFTWARE_PROJECT_PROCESS_NAME,
     description: SOFTWARE_PROJECT_DESCRIPTION,
     boardName: SOFTWARE_PROJECT_BOARD_NAME,
@@ -53,7 +53,7 @@ export const softwareProjectProcess = {
         prompt: OPENAI_ARCHITECT_PROMPT,
         provider: "auto",
         model: "auto",
-        skills: ["software-architecture"]
+        skills: ["software-architecture", "ponytail"]
       },
       {
         role: SOFTWARE_PROJECT_ROLES.anthropicArchitect,
@@ -63,7 +63,7 @@ export const softwareProjectProcess = {
         prompt: ANTHROPIC_ARCHITECT_PROMPT,
         provider: "auto",
         model: "auto",
-        skills: ["software-architecture"]
+        skills: ["software-architecture", "ponytail"]
       },
       {
         role: SOFTWARE_PROJECT_ROLES.planner,
@@ -73,7 +73,7 @@ export const softwareProjectProcess = {
         prompt: PLANNER_PROMPT,
         provider: "auto",
         model: "auto",
-        skills: ["software-planning"]
+        skills: ["software-planning", "ponytail"]
       },
       {
         role: SOFTWARE_PROJECT_ROLES.coder,
@@ -83,7 +83,7 @@ export const softwareProjectProcess = {
         prompt: CODER_PROMPT,
         provider: "auto",
         model: "auto",
-        skills: ["software-implementation"]
+        skills: ["software-implementation", "ponytail"]
       },
       {
         role: SOFTWARE_PROJECT_ROLES.tester,
@@ -93,7 +93,7 @@ export const softwareProjectProcess = {
         prompt: TESTER_PROMPT,
         provider: "auto",
         model: "auto",
-        skills: ["software-testing"]
+        skills: ["software-testing", "ponytail"]
       }
     ]
   }

@@ -3,7 +3,9 @@ import {
   activeExecutionForItem,
   autonomousRunKeys,
   isProposal,
-  needsAutonomousRun
+  needsAutonomousRun,
+  workItemCondition,
+  workItemForRetry
 } from "../src/domain.js";
 import { skillFile, skillSlug } from "../src/agent-files.js";
 import type { Agent, Execution, WorkItem } from "../src/domain.js";
@@ -60,6 +62,23 @@ describe("needsAutonomousRun", () => {
 
   it("ignores items that are done", () => {
     expect(needsAutonomousRun({ ...item, isTerminal: true }, [], new Set())).toBe(false);
+  });
+});
+
+describe("manual retry", () => {
+  it("acknowledges active errors without discarding unrelated waits", () => {
+    const errored = {
+      ...item,
+      waits: [
+        { id: "error", kind: "error", resolvedAt: null },
+        { id: "approval", kind: "human", resolvedAt: null },
+        { id: "old-error", kind: "error", resolvedAt: item.updatedAt }
+      ] as WorkItem["waits"]
+    };
+
+    expect(workItemCondition(errored)).toBe("error");
+    expect(workItemForRetry(errored).waits.map(({ id }) => id)).toEqual(["approval", "old-error"]);
+    expect(workItemCondition(workItemForRetry(errored))).toBe("waiting");
   });
 });
 

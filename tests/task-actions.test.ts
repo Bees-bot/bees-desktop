@@ -15,6 +15,10 @@ describe("task actions", () => {
     expect(views).toContain('icon("archive-item", `Archive ${item.title}`');
     expect(actions).toContain('label: "Archived"');
     expect(actions).toContain('type: "switch"');
+    expect(actions).toContain('name: "stageId"');
+    expect(actions).toContain('label: "Status"');
+    expect(actions).toContain('{ type: "move", targetStageId: stageId }');
+    expect(views).toContain('data-action="edit-item" data-id="${host.shell.escapeHtml(item.id)}">Change</button>');
     expect(views).toContain("Active tasks");
     expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
@@ -33,11 +37,14 @@ describe("task actions", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
 
     expect(actions).toContain("await createItem(button.dataset.stage, host.shell.boardRootItemId)");
-    expect(actions).toContain("createItem(rootId ? firstTaskStage : undefined, rootId)");
+    expect(actions).toContain("host.shell.newItemStageId = stageId ?? \"\"");
+    expect(actions).toContain("createItem(rootId ? process?.stages[0]?.id : undefined, rootId)");
+    expect(actions).not.toContain("plannedWorkStage");
     expect(actions).toContain("...(parent ? { parentId: parent.id } : {})");
     expect(actions).toContain("host.shell.boardRootItemId = parent?.id ?? itemId");
     expect(actions).toContain("role: worker.role");
     expect(actions).toContain("effect: \"prepare\"");
+    expect(views).toContain("plannedStages?.work.id === host.shell.newItemStageId");
     expect(views).toContain('name="workerRole"');
     expect(views).toContain("This process has no available worker");
   });

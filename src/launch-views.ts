@@ -26,10 +26,6 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", "&#039;");
 }
 
-function itemName(items: WorkItem[], id: string): string {
-  return items.find((item) => item.id === id)?.title ?? "Unknown work item";
-}
-
 export function taskPlanOutput(execution: Execution): string | undefined {
   return execution.result?.taskPlan?.output;
 }
@@ -132,53 +128,9 @@ function overviewAssistant(): string {
   </div>`;
 }
 
-export function overviewView(
-  items: WorkItem[],
-  executions: Execution[],
-  groups: EscalationGroup[],
-  outputs: ExecutionOutput[],
-  processes: Process[]
-): string {
-  const hasInbox = groups.some(group => group.escalations.length > 0);
-  const inboxHtml = hasInbox
-    ? `<section class="flex flex-col gap-4">
-        <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Needs your approval</h2></div>
-        ${inboxView(groups, executions, outputs, processes)}
-       </section>`
-    : "";
-
+export function overviewView(): string {
   return `<div class="mx-auto flex max-w-5xl flex-col gap-8 pb-12 pt-6">
     ${overviewAssistant()}
-    ${inboxHtml}
-    <section class="flex flex-col gap-4">
-      <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-tight">Recent AI work</h2>
-        <button class="btn btn-ghost btn-sm" data-view="runs">View all</button></div>
-      ${
-        executions.length
-          ? `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
-              <table class="table">
-                <thead class="bg-base-200/50"><tr>
-                  <th>Task</th>
-                  <th>Status</th>
-                  <th>Duration</th>
-                  <th>Started</th>
-                </tr></thead>
-                <tbody>${executions
-                .slice(0, 8)
-                .map(
-                  // A bare inline link here was 17px tall, under the 24px a pointer reliably hits.
-                  (run) => {
-                    const item = items.find(i => i.id === run.workItemId);
-                    const processName = item ? processes.find(p => p.id === item.processId)?.name ?? "—" : "—";
-                    return `<tr class="hover"><td><div class="flex flex-col gap-0.5"><button class="link link-hover inline-flex min-h-6 items-center text-left font-semibold" data-action="open-run" data-id="${run.id}">${escapeHtml(
-                      itemName(items, run.workItemId)
-                    )}</button><span class="text-xs font-medium text-base-content/60">${escapeHtml(processName)}</span></div></td><td class="align-middle">${statusBadge(run.status)}</td><td class="align-middle text-sm">${duration(run)}</td><td class="align-middle text-sm text-base-content/70">${when(run.createdAt)}</td></tr>`;
-                  }
-                )
-                .join("")}</tbody></table></div>`
-          : empty("No recent work", "Start an item from Work to see activity here.")
-      }
-    </section>
   </div>`;
 }
 
@@ -199,11 +151,16 @@ export function inboxView(
   return `<div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
     <table class="table table-zebra">
       <thead><tr>
-        <th>Process</th><th>Task name</th><th>Approval message</th><th>Files</th><th>Approval</th>
+        <th>Process</th><th>Task name</th><th>Approval message</th><th>Files</th><th>Action</th>
       </tr></thead>
       <tbody>${rows
         .map(({ item, state }) => {
           const itemRuns = executions.filter(({ workItemId }) => workItemId === item.id);
+          const errorExecutionId = item.waits.find(({ kind, resolvedAt }) => kind === "error" && !resolvedAt)?.executionId;
+          const restartRun = state.reason === "step-failed" || state.reason === "run-failed"
+            ? itemRuns.find(({ id }) => id === errorExecutionId) ?? [...itemRuns]
+                .sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt))[0]
+            : undefined;
           const pending = outputs.filter(({ executionId, status }) =>
             status === "pending" && itemRuns.some(({ id }) => id === executionId));
           const reviewRun = [...itemRuns]
@@ -219,7 +176,9 @@ export function inboxView(
               ? `<div class="flex flex-wrap gap-1">${pending.map((output) =>
                 `<button class="link link-hover text-sm" data-action="preview-inbox-output" data-id="${output.id}" aria-controls="inbox-output-preview" aria-expanded="false">${escapeHtml(output.logicalDestination)}</button>`).join("")}</div>`
               : "—"}</td>
-            <td><div class="flex flex-wrap justify-end gap-1">${pending.map((output) => {
+            <td><div class="flex flex-wrap justify-end gap-1"><button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>${restartRun
+              ? `<button class="btn btn-primary btn-xs" data-action="restart-run" data-id="${restartRun.id}">Restart</button>`
+              : ""}${pending.map((output) => {
               const run = itemRuns.find(({ id }) => id === output.executionId);
               const busy = run?.status === "queued" || run?.status === "running";
               return `<button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" aria-label="Approve ${escapeHtml(output.logicalDestination)}" ${busy ? "disabled" : ""}>Approve</button>`;
@@ -265,7 +224,7 @@ export function runsView(items: WorkItem[], executions: Execution[], processes: 
       <tbody>${completed
         .map(({ item, startedAt, endedAt, outcome }) => {
           const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
-          return `<tr>
+          return `<tr class="cursor-pointer hover" data-action="open-item" data-id="${item.id}">
             <td><button class="link link-hover text-left font-semibold" data-action="open-item" data-id="${item.id}">${escapeHtml(item.title)}</button></td>
             <td>${escapeHtml(process)}</td>
             <td><span class="badge badge-sm ${outcome === "Completed" ? "badge-success" : "badge-ghost"}">${outcome}</span></td>
@@ -500,9 +459,8 @@ export function runView(input: {
               : `<button class="btn btn-primary btn-sm" data-action="restart-run" data-id="${execution.id}"
                    title="Starts a clean run of the same work item using the agent's latest published configuration">Restart with current config</button>`
         }
-        <button class="btn btn-ghost btn-sm border border-base-300" data-action="download-receipt" data-id="${execution.id}">Receipt</button>
         <button class="btn btn-ghost btn-sm text-error" data-action="delete-run" data-id="${execution.id}"
-          title="Deletes the receipt, its files, and the agent conversation">Delete</button>
+          title="Deletes this run, its files, and the agent conversation">Delete</button>
       </div>
     </div>
     <div class="mb-5 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-xs text-muted">
@@ -698,4 +656,3 @@ export function workItemView(input: {
         : empty("No runs yet", "This item has not run.")
     }</div>`;
 }
-

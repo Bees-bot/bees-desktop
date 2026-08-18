@@ -128,7 +128,7 @@ export function createAppBootstrap(host: MainHost) {
         () => loadCachedControl(host.repository, host.workspaceController.workspace.organizationId),
         undefined
       );
-      // A recovered run's immutable MCP seed points at the stable loopback URL and vault ref.
+      // A recovered run's immutable MCP seed points at the stable loopback URL and secret ref.
       // Bring that worker back before Flue re-adopts the run after an app restart.
       const cachedKnowledge = await step(
         "Loading knowledge settings",

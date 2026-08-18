@@ -23,7 +23,7 @@ them. Then:
 bees-knowledge-worker serve --config knowledge-config.json
 ```
 
-Keep the original token in the Bees operating-system credential vault, not in the config file.
+Keep the original token in Bees local credential storage, not in the config file.
 Use a separately generated, high-entropy token for each team; token digests must also be unique.
 
 ## Organization server

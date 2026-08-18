@@ -614,7 +614,7 @@ export function createMainActions(host: MainHost) {
     const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      // A public API has nothing in the vault, so it is asked for nothing.
+      // A public API has no stored credential, so it is asked for nothing.
       body: JSON.stringify(
         reachable.authType === "none" ? { ...reachable, secretRef: undefined } : reachable
       )
@@ -671,7 +671,7 @@ export function createMainActions(host: MainHost) {
    * Connect an API that ships no MCP server, from a request that already works.
    *
    * The curl is the specification: it names the address, the parameters and the credential, and it
-   * has been proved by whoever pasted it. Bees writes the document, keeps the key in the vault and
+   * has been proved by whoever pasted it. Bees writes the document, keeps the key in local storage and
    * runs the bridge, so nothing has to be written by hand.
    */
   async function addApiFromCurl(): Promise<void> {
@@ -762,7 +762,7 @@ export function createMainActions(host: MainHost) {
     const data = await edit(found ? `Connect ${found.title}` : "Add MCP connection", [
       { name: "name", label: "Name", placeholder: "Linear", value: found?.title ?? "" },
       { name: "url", label: "HTTPS endpoint", placeholder: "https://example.com/mcp", value: found?.url ?? "" },
-      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in the operating-system vault." : "" },
+      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in local app storage." : "" },
       { name: "transport", label: "Transport", type: "toggle", value: found?.transport ?? "streamable-http", options: [{ label: "Streamable HTTP", value: "streamable-http" }, { label: "Legacy SSE", value: "sse" }] },
       { name: "offline", label: "When unavailable", type: "toggle", value: "required", options: [{ label: "Fail the run", value: "required" }, { label: "Continue without it", value: "optional" }] }
     ]);
@@ -1008,11 +1008,8 @@ export function createMainActions(host: MainHost) {
     if (stageId && !host.workspaceController.activeProcess)
       throw new Error("Open a board first");
     const process = host.workspaceController.activeProcess;
-    const plannedWorkStage = parentId && process
-      ? taskPlanStages(process)?.work.id
-      : undefined;
     newItemParentId = parentId;
-    host.shell.newItemStageId = plannedWorkStage ?? stageId ?? "";
+    host.shell.newItemStageId = stageId ?? "";
     host.shell.newItemProcessId = host.shell.newItemStageId
       ? process!.id
       : process?.id ?? "";
@@ -1057,21 +1054,21 @@ export function createMainActions(host: MainHost) {
       : undefined;
     if (newItemParentId && !parent)
       throw new Error("The run this task belongs to is no longer available");
-    const taskPlan = parent ? taskPlanStages(process) : null;
-    const workerRole = String(data.get("workerRole") ?? "");
-    const worker = taskPlan
-      ? host.runs.taskWorkerRoles().find(({ role }) => role.toLowerCase() === workerRole.toLowerCase())
-      : undefined;
-    if (taskPlan && !worker)
-      throw new Error("Choose an available worker");
-    // The remembered column only applies to the workflow it came from; picking another one in
-    // the form starts the task at that workflow's first status instead. A task added to a planned
-    // run is already the plan's work, so it starts with its selected worker instead of replanning.
-    const stageId = taskPlan?.work.id ?? (process.stages.some(({ id }) => id === host.shell.newItemStageId)
+    // A column add names its status exactly; the process's first status is only the fallback for
+    // the top-level add action or when the selected workflow changes in the form.
+    const stageId = process.stages.some(({ id }) => id === host.shell.newItemStageId)
       ? host.shell.newItemStageId
-      : process.stages[0]?.id);
+      : process.stages[0]?.id;
     if (!stageId)
       throw new Error(`${process.name} has no statuses`);
+    const taskPlan = parent ? taskPlanStages(process) : null;
+    const needsWorker = taskPlan?.work.id === stageId;
+    const workerRole = String(data.get("workerRole") ?? "");
+    const worker = needsWorker
+      ? host.runs.taskWorkerRoles().find(({ role }) => role.toLowerCase() === workerRole.toLowerCase())
+      : undefined;
+    if (needsWorker && !worker)
+      throw new Error("Choose an available worker");
     const interactive = processEngine.isInteractive(process);
     const itemId = await host.repository.createWorkItem(process.id, {
       stageId,
@@ -1190,7 +1187,7 @@ export function createMainActions(host: MainHost) {
    * Expands one card's panel under the board: fresh run history loaded, file/edit state reset,
    * and the tab landing on Approval when something is waiting for a decision.
    */
-  async function expandBoardItem(id: string): Promise<void> {
+  async function expandBoardItem(id: string, executionId = ""): Promise<void> {
     host.shell.boardItemId = id;
     host.shell.boardFileRef = "";
     host.shell.boardFileEditing = false;
@@ -1199,9 +1196,16 @@ export function createMainActions(host: MainHost) {
     if (latest)
       await host.runs.loadExecutionHistory(latest);
     const itemRunIds = new Set(host.runs.executions.filter(({ workItemId }) => workItemId === id).map(({ id: runId }) => runId));
-    host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
-      ? "approval"
-      : "details";
+    if (executionId && itemRunIds.has(executionId)) {
+      host.shell.activeExecutionId = executionId;
+      host.shell.boardTab = "conversation";
+    }
+    else {
+      host.shell.activeExecutionId = "";
+      host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
+        ? "approval"
+        : "details";
+    }
   }
 
 
@@ -1397,6 +1401,7 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "open-item") {
         const id = button.dataset.id!;
+        const executionId = button.dataset.execution ?? "";
         const item = host.workspaceController.teamItems.find((candidate) => candidate.id === id);
         const process = item ? host.workspaceController.processes.find(({ id: processId }) => processId === item.processId) : null;
         const renderer = process
@@ -1412,12 +1417,13 @@ export function createMainActions(host: MainHost) {
           // Scope the board to the run this item belongs to, or a subtask opened from the
           // Inbox would land on a board that filters its own card out.
           host.shell.boardRootItemId = rootItemId(host.workspaceController.items, id);
-          await expandBoardItem(id);
+          await expandBoardItem(id, executionId);
           host.shell.view = "board";
           host.shell.render();
           return;
         }
         host.shell.activeItemId = id;
+        host.shell.activeExecutionId = executionId;
         const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
         if (latest)
           await host.runs.loadExecutionHistory(latest);
@@ -2127,16 +2133,24 @@ export function createMainActions(host: MainHost) {
         const result = await completed.json() as { credential?: string; error?: string };
         if (!completed.ok || !result.credential)
           throw new Error(result.error ?? "Codex sign-in failed");
-        const { connection, secret } = connectOAuthCredential("openai-codex", result.credential);
+        const scope = host.session.aiConnectionScope();
+        const existing = (await listAiConnections(host.repository, scope))
+          .find(({ provider }) => provider === "openai-codex");
+        const connected = connectOAuthCredential("openai-codex", result.credential);
+        const connection = existing ?? connected.connection;
+        const secret = connected.secret;
         await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
-        try {
-          await addAiConnection(host.repository, host.session.aiConnectionScope(), connection);
-        } catch (error) {
-          await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
-          throw error;
+        if (!existing) {
+          try {
+            await addAiConnection(host.repository, scope, connection);
+          } catch (error) {
+            await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
+            throw error;
+          }
         }
         await host.assistant.refreshAssistantCatalog();
-        host.shell.showNotice("Codex is signed in", "success");
+        await host.workspaceController.refresh();
+        host.shell.showNotice(existing ? "Codex connection renewed" : "Codex is signed in", "success");
         return;
       }
       if (action === "toggle-cli-tool") {
@@ -2434,10 +2448,18 @@ export function createMainActions(host: MainHost) {
         if (button.dataset.team && button.dataset.team !== host.workspaceController.workspace.teamId)
           await host.workspaceController.switchTeam(button.dataset.team);
         const item = host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id)!;
+        const process = host.workspaceController.processes.find(({ id }) => id === item.processId)!;
         const locations = await host.repository.listAvailableFileLocations(host.workspaceController.workspace.teamId);
         const data = await edit("Edit work item", [
           { name: "title", label: "Title", value: item.title },
           { name: "description", label: "Description", type: "textarea", value: item.description },
+          {
+            name: "stageId",
+            label: "Status",
+            type: "select",
+            value: item.stageId,
+            options: process.stages.map(({ id, name }) => ({ value: id, label: name }))
+          },
           {
             name: "archived",
             label: "Archived",
@@ -2453,6 +2475,9 @@ export function createMainActions(host: MainHost) {
         ]);
         if (data) {
           const archived = data.get("archived") === "true";
+          const stageId = String(data.get("stageId") ?? "");
+          if (!process.stages.some(({ id }) => id === stageId))
+            throw new Error("Choose a valid status");
           await host.repository.updateWorkItem(item.id, {
             title: String(data.get("title") ?? ""),
             description: String(data.get("description") ?? ""),
@@ -2464,6 +2489,8 @@ export function createMainActions(host: MainHost) {
               type: archived ? "archive" : "restore"
             });
           }
+          if (stageId !== item.stageId)
+            await host.workflowRuntime.command(item.id, { type: "move", targetStageId: stageId });
           await host.workspaceController.refresh();
         }
       }
@@ -3063,10 +3090,7 @@ export function createMainActions(host: MainHost) {
   host.shell.newItem.addEventListener("click", () => {
     const rootId = host.shell.boardRootItemId;
     const process = host.workspaceController.activeProcess;
-    const firstTaskStage = process
-      ? taskPlanStages(process)?.work.id ?? process.stages[0]?.id
-      : undefined;
-    void createItem(rootId ? firstTaskStage : undefined, rootId)
+    void createItem(rootId ? process?.stages[0]?.id : undefined, rootId)
       .catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 
