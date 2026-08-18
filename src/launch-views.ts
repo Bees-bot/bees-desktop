@@ -34,12 +34,19 @@ function outputName(output: ExecutionOutput, taskPlan?: string): string {
   return output.logicalOutput === taskPlan ? "Proposed subtasks" : output.logicalDestination;
 }
 
-export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string): string {
-  const actions = `<div class="flex shrink-0 items-center gap-2">
-    <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-id="${output.id}" ${
-      busy ? "disabled" : ""
-    }>Reject</button>
-  </div>`;
+export function approvalButtons(outputId: string, busy: boolean, size: "xs" | "sm" = "sm"): string {
+  return `<button class="btn btn-ghost btn-${size} text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-id="${escapeHtml(outputId)}" ${
+    busy ? "disabled" : ""
+  }>Reject</button>
+  <button class="btn btn-success btn-${size}" data-action="approve-output" data-id="${escapeHtml(outputId)}" ${
+    busy ? "disabled" : ""
+  }>Approve</button>`;
+}
+
+export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string, showActions = true): string {
+  const actions = showActions ? `<div class="flex shrink-0 items-center gap-2">
+    ${approvalButtons(output.id, busy)}
+  </div>` : "";
   const headerIcon = `<svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>`;
 
   if (/\.md$/i.test(output.logicalOutput)) {
@@ -178,7 +185,7 @@ export function inboxView(
               : ""}${pending.map((output) => {
               const run = itemRuns.find(({ id }) => id === output.executionId);
               const busy = run?.status === "queued" || run?.status === "running";
-              return `<button class="btn btn-success btn-xs" data-action="approve-output" data-id="${output.id}" aria-label="Approve ${escapeHtml(output.logicalDestination)}" ${busy ? "disabled" : ""}>Approve</button>`;
+              return approvalButtons(output.id, busy, "xs");
             }).join("")}</div></td>
           </tr>`;
         })
@@ -189,6 +196,7 @@ export function inboxView(
     <header class="flex items-center justify-between gap-3 border-b border-base-300 p-4">
       <h2 class="min-w-0 truncate font-bold" data-inbox-output-preview-title>File preview</h2>
       <div class="flex shrink-0 gap-2">
+        <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-inbox-output-preview-reject>Reject</button>
         <button class="btn btn-success btn-sm" data-action="approve-output" data-inbox-output-preview-approve>Approve</button>
         <button class="btn btn-ghost btn-sm" data-action="close-inbox-output-preview">Close</button>
       </div>
@@ -449,7 +457,7 @@ export function runView(input: {
         <p class="text-sm text-muted">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</p>
       </div>
       <div class="flex gap-2">
-        ${pendingOutput ? `<button class="btn btn-success btn-sm" data-action="approve-output" data-id="${pendingOutput.id}" ${busy ? "disabled" : ""}>Approve</button>` : ""}
+        ${pendingOutput ? approvalButtons(pendingOutput.id, busy) : ""}
         ${
           execution.status === "running"
             ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${execution.id}">Stop run</button>`
@@ -482,7 +490,7 @@ export function runView(input: {
           <div class="grid gap-2">${conversationView(execution, snapshot)}</div>
           ${outputs
             .filter(({ status }) => status === "pending")
-            .map((output) => approvalCard(output, busy, taskPlan))
+            .map((output, index) => approvalCard(output, busy, taskPlan, index > 0))
             .join("")}
           <form class="mt-2 border-t border-base-300 pt-4" data-run-followup="${execution.id}">
             <!-- Per run: two runs render this twice, and a duplicate id sends every label to the first box. -->

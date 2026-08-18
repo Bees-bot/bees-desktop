@@ -67,6 +67,7 @@ import {
   type KnowledgePolicy
 } from "./knowledge.js";
 import {
+  approvalButtons,
   approvalCard,
   conversationView,
   duration,
@@ -125,6 +126,7 @@ export interface EditorField {
   step?: "basics" | "instructions" | "capabilities";
   /** Small line under the control. */
   hint?: string;
+  required?: boolean;
 }
 
 export interface FileSource {
@@ -548,7 +550,7 @@ export function createMainViews(host: MainHost) {
       ${runStrip}
       ${metaBar}
       <div class="h-px bg-base-200"></div>
-      ${pending.map(output => approvalCard(output, busy, taskPlan)).join("")}
+      ${pending.map((output, index) => approvalCard(output, busy, taskPlan, index > 0)).join("")}
       <div class="flex flex-col gap-0">
         ${conversationView(primary, conversation)}
       </div>
@@ -771,7 +773,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex items-center gap-1">
           ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
-          ${pendingOutput ? `<button class="btn btn-success btn-sm" data-action="approve-output" data-id="${pendingOutput.id}" ${run && ["queued", "running"].includes(run.status) ? "disabled" : ""}>Approve</button>` : ""}
+          ${pendingOutput ? approvalButtons(pendingOutput.id, Boolean(run && ["queued", "running"].includes(run.status))) : ""}
           ${runControls}
           ${tab === "files" && host.shell.boardFileRef
             ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
@@ -2683,7 +2685,7 @@ export function createMainViews(host: MainHost) {
       .join("");
   }
 
-  function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint }: EditorField): string {
+  function editorFieldHtml({ name, label, value = "", type = "text", placeholder = "", options = [], checked = [], hint, required = false }: EditorField): string {
     if (type === "note")
       return `<p class="text-sm text-muted">${host.shell.escapeHtml(value)}</p>`;
     if (type === "workspace-privacy")
@@ -2700,18 +2702,19 @@ export function createMainViews(host: MainHost) {
           </div>
         </div>
       </details>`;
-    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}">`;
+    const requiredAttribute = required ? " required" : "";
+    let control = `<input class="input input-bordered w-full" type="${type === "password" ? "password" : "text"}" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(value)}" placeholder="${host.shell.escapeHtml(placeholder)}"${requiredAttribute}>`;
     if (type === "textarea") {
-      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}">${host.shell.escapeHtml(value)}</textarea>`;
+      control = `<textarea class="textarea textarea-bordered min-h-24 w-full" name="${host.shell.escapeHtml(name)}" placeholder="${host.shell.escapeHtml(placeholder)}"${requiredAttribute}>${host.shell.escapeHtml(value)}</textarea>`;
     }
     if (type === "select") {
-      control = `<select class="select select-bordered w-full" name="${host.shell.escapeHtml(name)}">${options
+      control = `<select class="select select-bordered w-full" name="${host.shell.escapeHtml(name)}"${requiredAttribute}>${options
         .map((option) => `<option value="${host.shell.escapeHtml(option.value)}" ${option.value === value ? "selected" : ""}>${host.shell.escapeHtml(option.label)}</option>`)
         .join("")}</select>`;
     }
     if (type === "toggle") {
       control = `<div class="join grid w-full" style="grid-template-columns: repeat(${Math.max(1, options.length)}, minmax(0, 1fr))" role="radiogroup" aria-label="${host.shell.escapeHtml(label)}">${options
-        .map((option) => `<input class="btn join-item min-w-0" type="radio" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}" aria-label="${host.shell.escapeHtml(option.label)}" ${option.value === value ? "checked" : ""}>`)
+        .map((option) => `<input class="btn join-item min-w-0" type="radio" name="${host.shell.escapeHtml(name)}" value="${host.shell.escapeHtml(option.value)}" aria-label="${host.shell.escapeHtml(option.label)}" ${option.value === value ? "checked" : ""}${requiredAttribute}>`)
         .join("")}</div>`;
     }
     if (type === "switch") {

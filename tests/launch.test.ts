@@ -269,7 +269,9 @@ describe("lean launch modules", () => {
     expect(approval).toContain("campaign/brief.md");
     expect(approval).toContain('data-action="preview-inbox-output" data-id="pending-output"');
     expect(approval).toContain('id="inbox-output-preview"');
+    expect(approval).toContain("data-inbox-output-preview-reject");
     expect(approval).toContain("data-inbox-output-preview-approve");
+    expect(approval).toContain('data-action="reject-output" data-id="pending-output"');
     expect(approval).toContain('data-action="approve-output" data-id="pending-output"');
   });
 

@@ -62,6 +62,21 @@ describe("task actions", () => {
     expect(actions).not.toContain('owner: String(data.get("owner")');
   });
 
+  it("keeps rejection feedback explicit and scoped", () => {
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+    const runs = readFileSync(new URL("../src/run-controller.ts", import.meta.url), "utf8");
+
+    expect(actions).toContain('label: "What should be different next time?"');
+    expect(actions).toContain('"Retry this task"');
+    expect(actions).toContain('label: "Standing rule for future tasks"');
+    expect(actions).toContain('edit("Make a standing rule"');
+    expect(actions).toContain('await host.runs.rememberRejection(item, standingRule)');
+    expect(actions).toContain('Archive the task instead if it should not run again.');
+    expect(actions).toContain('it will not repeat automatically.');
+    expect(runs).toContain("async function attachTeamSkill");
+    expect(runs).toContain("output.logicalDestination.slice(TEAM_SKILLS_OUTPUT_PREFIX.length)");
+  });
+
   it("offers library processes directly when creating a task", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
