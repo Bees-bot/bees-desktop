@@ -590,7 +590,8 @@ export function schedulesView(items: WorkItem[], schedules: Schedule[], processe
                 <td><div class="font-semibold">${escapeHtml(item?.title ?? "Unknown task")}</div><div class="text-xs text-muted">${escapeHtml(schedule.name)}</div></td>
                 <td>${escapeHtml(process)}</td>
                 <td><code>${escapeHtml(cronSchedule(schedule))}</code><div class="text-xs text-muted">${escapeHtml(schedule.timezone)} · next ${when(schedule.nextRunAt)}</div></td>
-                <td><div class="flex justify-end gap-2"><button class="btn btn-primary btn-xs" data-action="run-schedule" data-id="${schedule.id}">Run now</button>
+                <td><div class="flex justify-end gap-2"><button class="btn btn-ghost btn-xs" data-action="edit-schedule" data-id="${schedule.id}">Edit</button>
+                  <button class="btn btn-primary btn-xs" data-action="run-schedule" data-id="${schedule.id}">Run now</button>
                   <button class="btn btn-ghost btn-xs" data-action="toggle-schedule" data-id="${schedule.id}">${schedule.enabled ? "Pause" : "Enable"}</button>
                   <button class="btn btn-ghost btn-xs text-error" data-action="delete-schedule" data-id="${schedule.id}">Remove</button></div></td>
               </tr>`;
