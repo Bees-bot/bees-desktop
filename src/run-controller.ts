@@ -686,35 +686,27 @@ export function createRunController(host: MainHost) {
   }
 
   async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
-    if (schedule.mode === "run")
-      return schedule.workItemId;
     const template = await host.repository.getWorkItem(schedule.workItemId);
-    const process = template ? host.workspaceController.processes.find(({ id }) => id === template.processId) : null;
-    const stages = process ? taskPlanStages(process) : null;
-    if (!template || !process || !stages) {
-      throw new Error("A task-plan occurrence schedule must target a task-plan work item");
-    }
-    const worker = taskWorkerRoles().find(({ role }) => role.toLowerCase() === schedule.role?.toLowerCase());
-    if (!worker)
-      throw new Error(`Scheduled task role is unavailable: ${schedule.role ?? ""}`);
-    const key = `schedule:${schedule.id}:${schedule.nextRunAt}`;
+    const process = template
+      ? host.workspaceController.processes.find(({ id }) => id === template.processId)
+      : null;
+    const stage = process?.stages[0];
+    if (!template || !process || !stage)
+      throw new Error("The scheduled work item has no active process");
+    const key = `schedule:${schedule.id}:${schedule.updatedAt}`;
     const existing = (await host.repository.listWorkItems(process.id)).find((item) => item.goal?.key === key);
     if (existing)
       return existing.id;
-    const due = new Date(schedule.nextRunAt).toISOString();
+    const agent = agentForItem({ ...template, stageId: stage.id, goal: null });
     return host.repository.createWorkItem(process.id, {
-      stageId: stages.work.id,
-      parentId: template.id,
-      title: `${template.title} — ${due}`.slice(0, 180),
-      description: [
-        template.description,
-        `Scheduled occurrence: ${due}. Cover the current window, use stable task keys to deduplicate findings, and propose every external action as its own external_write task.`
-      ].filter(Boolean).join("\n\n"),
+      stageId: stage.id,
+      title: template.title,
+      description: template.description,
       ...(template.owner ? { owner: template.owner } : {}),
       logicalFiles: template.logicalFiles,
       goal: {
         key,
-        role: worker.role,
+        role: agent ? configuredAgentRole(agent) : "",
         effect: "prepare",
         planOutputId: null,
         authorizedAt: new Date().toISOString(),
@@ -725,26 +717,12 @@ export function createRunController(host: MainHost) {
 
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
     const itemId = await scheduledWorkItemId(schedule);
-    if (schedule.mode === "spawn_goal" &&
-      (await host.repository.listExecutionsForWorkItem(itemId)).length) {
-      await host.workflowRuntime.command(schedule.workItemId, {
-        type: "ack_schedule",
-        scheduleId: schedule.id
-      });
-      return;
-    }
-    try {
+    if (!(await host.repository.listExecutionsForWorkItem(itemId)).length)
       await runItem(itemId, auto, undefined, undefined, true);
-      await host.workflowRuntime.command(schedule.workItemId, {
-        type: "ack_schedule",
-        scheduleId: schedule.id
-      });
-    }
-    catch (error) {
-      if (schedule.mode === "spawn_goal")
-        await host.workspaceController.refresh();
-      throw error;
-    }
+    await host.workflowRuntime.command(schedule.workItemId, {
+      type: "ack_schedule",
+      scheduleId: schedule.id
+    });
   }
 
   // Async so a bridged connection's process is up before the run is handed an address.
