@@ -7,8 +7,8 @@ export type KnowledgePolicy =
   | { mode: "remote"; url: string };
 
 export const KNOWLEDGE_POLICY_KEY = "knowledge";
-export const KNOWLEDGE_CONNECTION_ID = "knowledge";
-export const KNOWLEDGE_TOOL: McpTool = {
+const KNOWLEDGE_CONNECTION_ID = "knowledge";
+const KNOWLEDGE_TOOL: McpTool = {
   name: "knowledge_search",
   description: "Search workspace documents available to this team and return cited evidence.",
   readOnly: true

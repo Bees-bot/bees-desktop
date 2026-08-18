@@ -202,9 +202,12 @@ function parseAction(value: unknown): AssistantAction | null {
 export function parseTurn(raw: string): AssistantTurn {
   const parsed = extractJson(raw);
   if (!parsed) return { reply: raw.trim(), actions: [] };
-  const actions = Array.isArray(parsed.actions)
-    ? parsed.actions.map(parseAction).filter((action): action is AssistantAction => action !== null)
-    : [];
+  // The envelope carries an actions list, but a model that answers with one bare action is still
+  // saying something unambiguous, and the alternative is printing our own protocol at the user.
+  const proposed = Array.isArray(parsed.actions) ? parsed.actions : parsed.type ? [parsed] : [];
+  const actions = proposed
+    .map(parseAction)
+    .filter((action): action is AssistantAction => action !== null);
   return { reply: text(parsed.reply) || (actions.length ? "" : raw.trim()), actions };
 }
 
@@ -626,8 +629,12 @@ export function resolveModelChoice(
       model: !model || model === "default" ? DEFAULT_CODEX_MODEL_ID : model
     };
   }
-  if (provider === AUTO_PROVIDER)
-    return catalog.length ? preferredModelChoice(catalog) : active;
+  if (provider === AUTO_PROVIDER) {
+    // `active` is itself auto until the user picks something, and "auto/auto" reaches the runtime
+    // as an unknown provider that fails the whole submission, so resolving never returns auto.
+    const resolved = catalog.length ? preferredModelChoice(catalog) : active;
+    return isAutoChoice(resolved) ? DEFAULT_MODEL_CHOICE : resolved;
+  }
   return provider && model && !(provider === LOCAL_PROVIDER && model === "active")
     ? { provider, model }
     : active;

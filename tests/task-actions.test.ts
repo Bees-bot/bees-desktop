@@ -76,6 +76,30 @@ describe("task actions", () => {
     expect(runs).toContain("output.logicalDestination.slice(TEAM_SKILLS_OUTPUT_PREFIX.length)");
   });
 
+  it("edits an existing schedule without resetting its identity or paused state", () => {
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+
+    expect(actions).toContain('action === "new-schedule" || action === "edit-schedule"');
+    expect(actions).toContain('id: schedule?.id ?? crypto.randomUUID()');
+    expect(actions).toContain('enabled: schedule?.enabled ?? true');
+    expect(actions).toContain('schedule.workItemId !== workItemId');
+    expect(actions).toContain('type: "delete_schedule"');
+  });
+
+  it("schedules the current board run again without occurrence choices", () => {
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+
+    expect(views).toContain("Schedule new recurring run");
+    expect(views).toContain('data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"`');
+    expect(views).toContain('<span>Scheduled tasks</span>');
+    expect(views).not.toContain('<span>Schedules</span>');
+    expect(actions).toContain('value: schedule?.workItemId ?? requestedItem?.id');
+    expect(actions).toContain('mode: "run"');
+    expect(actions).not.toContain('label: "On each occurrence"');
+    expect(actions).not.toContain('label: "Occurrence worker role"');
+  });
+
   it("offers library processes directly when creating a task", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");

@@ -46,7 +46,12 @@ async function getContext(dir: string): Promise<BrowserContext> {
       return await chromium.launchPersistentContext(dir, {
         channel: "chrome",
         headless: false,
-        viewport: null
+        viewport: null,
+        // Google refuses a sign-in in a window that announces itself as automated, and the whole
+        // point of this window is that the user signs in themselves. Drop the banner and the flag
+        // it reads; everything else about the launch is unchanged.
+        ignoreDefaultArgs: ["--enable-automation"],
+        args: ["--disable-blink-features=AutomationControlled"]
       });
     } catch (error) {
       contexts.delete(dir);

@@ -15,7 +15,7 @@ import { TOGETHER_MODELS } from "@earendil-works/pi-ai/providers/together.models
 import { XAI_MODELS } from "@earendil-works/pi-ai/providers/xai.models";
 import type { ThinkingLevel } from "./domain.js";
 
-export const LOCAL_PROVIDER_MODEL = "bees-local/active";
+const LOCAL_PROVIDER_MODEL = "bees-local/active";
 export const DEFAULT_LOCAL_MODEL_ID = "nanbeige-4-2-3b-q6-k";
 export const DEFAULT_CODEX_MODEL_ID = "gpt-5.6-sol";
 

@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { AgentConfig, McpConnection, McpTool } from "./domain.js";
 import { requiredText } from "./domain.js";
 import type { SettingsStore } from "./ai-connections.js";
@@ -73,6 +74,31 @@ export function newMcpConnection(input: {
   };
 }
 
+/**
+ * The tools the server exposes right now.
+ *
+ * `connection.tools` is only a record of the last check. Flue refuses a whole submission when the
+ * allowlist names a tool the server has since dropped, and scrubs the reason on the way out, so
+ * anything about to run asks the server again rather than trusting that record.
+ */
+export async function discoverMcpTools(
+  connection: McpConnection,
+  runtime: { baseUrl: string; token: string }
+): Promise<McpTool[]> {
+  const response = await tauriFetch(`${runtime.baseUrl}/connections/discover`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${runtime.token}` },
+    // A public API has nothing in the vault, so it is asked for nothing.
+    body: JSON.stringify(
+      connection.authType === "none" ? { ...connection, secretRef: undefined } : connection
+    )
+  });
+  const body = (await response.json()) as { tools?: McpTool[]; error?: string };
+  if (!response.ok || !body.tools)
+    throw new Error(body.error ?? `HTTP ${response.status}`);
+  return body.tools;
+}
+
 export function withMcpHealth(
   connection: McpConnection,
   tools: McpTool[],
@@ -109,7 +135,13 @@ export function mcpConnectionForAgent(
   config: AgentConfig
 ): McpConnection {
   if (connection.allTools) return { ...connection, url: secureMcpUrl(connection.url) };
-  const selected = config.mcpToolRefs?.[connection.id] ?? connection.allowedTools;
+  const chosen = config.mcpToolRefs?.[connection.id];
+  // A tool the owner disallows is a refusal and stays refused. A name the server no longer
+  // exposes at all is stale config, not a decision: once every name in the subset has gone that
+  // way, the agent follows the connection's own allowlist instead of falling silent.
+  const stale = Boolean(chosen?.length)
+    && chosen!.every((name) => !connection.tools.some((tool) => tool.name === name));
+  const selected = chosen && !stale ? chosen : connection.allowedTools;
   return {
     ...connection,
     url: secureMcpUrl(connection.url),

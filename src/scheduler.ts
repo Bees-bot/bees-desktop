@@ -60,7 +60,7 @@ export function nextScheduleStart(
   return next;
 }
 
-export function nextScheduleRun(recurrence: ScheduleRecurrence, previous: Date, timezone: string): Date {
+function nextScheduleRun(recurrence: ScheduleRecurrence, previous: Date, timezone: string): Date {
   const tz = safeTz(timezone);
   let next = new Date(previous);
   if (recurrence === "hourly") next.setTime(next.getTime() + 3_600_000);

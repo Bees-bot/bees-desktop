@@ -22,7 +22,7 @@ export function visible(element: HTMLElement): boolean {
   return box.width > 0 || box.height > 0;
 }
 
-export function controlName(element: HTMLElement): string {
+function controlName(element: HTMLElement): string {
   const input = element as HTMLInputElement;
   const labelled = "labels" in input ? input.labels?.[0]?.innerText : "";
   const name = [

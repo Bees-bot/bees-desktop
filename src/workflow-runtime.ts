@@ -96,6 +96,11 @@ interface LocalRuntimeInfo {
   token: string;
 }
 
+/** Why something failed, in the one shape every message here wants. */
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export class WorkflowRuntimeClient {
   private local: Promise<LocalRuntimeInfo> | null = null;
 
@@ -110,9 +115,9 @@ export class WorkflowRuntimeClient {
     try {
       this.local ??= invoke<LocalRuntimeInfo>("ensure_local_workflow_runtime");
       runtime = await this.local;
-    } catch {
+    } catch (error) {
       this.local = null;
-      throw new Error("The local process service is unavailable");
+      throw new Error(`The local process service did not start: ${reason(error)}`);
     }
     try {
       response = await tauriFetch(
@@ -126,9 +131,9 @@ export class WorkflowRuntimeClient {
           ...(body === undefined ? {} : { body: JSON.stringify(body) })
         }
       );
-    } catch {
+    } catch (error) {
       this.local = null;
-      throw new Error("The local process service is unavailable");
+      throw new Error(`The local process service is unreachable: ${reason(error)}`);
     }
     const value = (await response.json().catch(() => ({}))) as { error?: string };
     if (!response.ok) throw new Error(value.error ?? "The process command was rejected");

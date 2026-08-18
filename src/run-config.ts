@@ -46,7 +46,12 @@ function instructions(
       : "Read task inputs from /workspace/inputs. Write every proposed output under /workspace/outputs.",
     browser
       ? "You can use the browser tools. If a site needs a login, call browser_wait_for_login so the user signs in themselves; never ask for or type a password."
-      : ""
+      : "",
+    // A run that cannot reach its source and invents the answer reads exactly like one that
+    // worked, and lands in the approval queue looking finished. Say so and stop instead.
+    "Every fact you report comes from a tool result or the task itself. If a tool is missing or a "
+      + "source is unreachable, write one line saying which and stop. Never assume, and never "
+      + "illustrate with an example as though it were real."
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -101,11 +106,13 @@ export function buildBeesRunInitialData(input: {
       transport: connection.transport,
       ...(connection.secretRef ? { secretRef: connection.secretRef } : {}),
       ...(connection.headers ? { headers: connection.headers } : {}),
+      // Named off the tools the server actually has: an allowlist entry with nothing behind it
+      // fails the whole submission inside Flue.
       ...(connection.allTools ? {} : {
-        tools: connection.allowedTools.filter((name) => {
-          const tool = connection.tools.find((candidate) => candidate.name === name);
-          return tool?.readOnly || granted(input.agent, `mcp:${connection.id}`);
-        })
+        tools: connection.tools
+          .filter(({ name }) => connection.allowedTools.includes(name))
+          .filter(({ readOnly }) => readOnly || granted(input.agent, `mcp:${connection.id}`))
+          .map(({ name }) => name)
       }),
       optional: connection.optional
     })),
