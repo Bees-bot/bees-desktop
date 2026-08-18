@@ -60,8 +60,10 @@ import { TaskPlanController, taskPlanWaitKey } from "./processes/goals/controlle
 import {
   completedTaskPlanParentsReadyForReview,
   hasTaskPlanCapability,
+  requireTaskPlanAgentStage,
+  taskPlanAgentStages,
   taskPlanContextForRun,
-  taskPlanStages,
+  taskPlanStages
 } from "./processes/goals/runtime.js";
 import {
   processEngine
@@ -484,7 +486,10 @@ export function createRunController(host: MainHost) {
       ? host.workspaceController.processes.find(({ id }) => id === item.processId)
       : undefined;
     if (!item || !process) throw new Error("The work item's process is unavailable");
-    const target = processEngine.resolveTarget(process, item, requested);
+    const target = requireTaskPlanAgentStage(
+      process,
+      processEngine.resolveTarget(process, item, requested)
+    );
     if (requested?.trim() && !target) {
       throw new Error(`Unknown status ID "${requested.trim()}"`);
     }
@@ -1304,6 +1309,7 @@ export function createRunController(host: MainHost) {
     if (!process || !stage)
       throw new Error("This work item has no active process step");
     const taskPlan = taskPlanContextForRun(process, stage);
+    const availableStages = taskPlanAgentStages(process);
     const currentAgent = agentForItem(item);
     const originalAgent = continuation
       ? host.workspaceController.agents.find(({ id }) => id === continuation.execution.agentId)
@@ -1437,7 +1443,7 @@ export function createRunController(host: MainHost) {
           ? { executionId: continuation.execution.id, message: continuation.message }
           : {}),
         ...(restartedFromExecutionId ? { restartedFromExecutionId } : {}),
-        stages: process.stages.map(({ id, name }) => ({
+        stages: availableStages.map(({ id, name }) => ({
           id,
           name,
           ...(process.definition.outputFolders?.[id]

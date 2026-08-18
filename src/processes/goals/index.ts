@@ -105,8 +105,12 @@ When you tell the human what you did, describe the deliverable in plain language
 ready for their review. Never mention output file names or paths; the human reviews and approves
 it in the app, not by opening a file.`;
 
-export const GOAL_REVIEWER_PROMPT = `Check whether the completed wave and approved files satisfy the task and its parent goal.
+export const GOAL_REVIEWER_PROMPT = `Check whether the approved files satisfy the current task.
 
-Choose Done only when the task is complete. Choose Work when concrete corrections remain, or
-Plan when another safe wave is required. Never mark an ongoing campaign Done while its stop
-condition remains unmet. Write an output only when a human needs to approve a change or decision.`;
+Judge this task against its own acceptance criteria, even when a Parent goal is shown. Choose Done
+when this task is complete, Work when it needs direct corrections, or Plan when it needs another
+safe wave of independently executable child tasks. Never choose Waiting; Bees enters Waiting
+itself after creating children and returns the task to Review after every child is done.
+
+Never mark an ongoing task Done while its stop condition remains unmet.
+Write an output only when a human needs to approve a change or decision.`;

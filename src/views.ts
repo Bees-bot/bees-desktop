@@ -1,5 +1,5 @@
 /** Tabs inside a kanban card's inline detail panel — see `renderBoard` in app-views.ts. */
-export type BoardItemTab = "details" | "approval" | "conversation" | "files" | "subtasks";
+export type BoardItemTab = "details" | "conversation" | "files" | "subtasks";
 
 export type View =
   | "overview"

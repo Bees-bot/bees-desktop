@@ -39,9 +39,6 @@ export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: 
     <button class="btn btn-ghost btn-sm text-base-content/70 hover:bg-error/10 hover:text-error" data-action="reject-output" data-id="${output.id}" ${
       busy ? "disabled" : ""
     }>Reject</button>
-    <button class="btn btn-success btn-sm shadow-sm" data-action="approve-output" data-id="${output.id}" ${
-      busy ? "disabled" : ""
-    }>Approve</button>
   </div>`;
   const headerIcon = `<svg class="size-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>`;
 
@@ -441,6 +438,7 @@ export function runView(input: {
 }): string {
   const { execution, item, outputs, snapshot, previews, remoteConnections = [] } = input;
   const busy = ["queued", "running"].includes(execution.status);
+  const pendingOutput = outputs.find(({ status }) => status === "pending");
   const taskPlan = taskPlanOutput(execution);
   const model = String(
     execution.model?.id ?? execution.model?.model ?? modelRef(execution.config)
@@ -451,9 +449,10 @@ export function runView(input: {
         <p class="text-sm text-muted">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</p>
       </div>
       <div class="flex gap-2">
+        ${pendingOutput ? `<button class="btn btn-success btn-sm" data-action="approve-output" data-id="${pendingOutput.id}" ${busy ? "disabled" : ""}>Approve</button>` : ""}
         ${
           execution.status === "running"
-            ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${execution.id}">Stop</button>`
+            ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${execution.id}">Stop run</button>`
             : execution.status === "queued"
               ? `<button class="btn btn-sm" disabled>Starting…</button>`
               : `<button class="btn btn-primary btn-sm" data-action="restart-run" data-id="${execution.id}"

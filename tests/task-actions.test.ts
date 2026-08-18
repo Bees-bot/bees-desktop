@@ -13,6 +13,7 @@ describe("task actions", () => {
     expect(views).toContain('actionIconButton("archive-item"');
     expect(views).toContain('icon("edit-item", `Edit ${item.title}`');
     expect(views).toContain('icon("archive-item", `Archive ${item.title}`');
+    expect(views).toContain('data-action="archive-item" data-id="${host.shell.escapeHtml(root.id)}"');
     expect(actions).toContain('label: "Archived"');
     expect(actions).toContain('type: "switch"');
     expect(actions).toContain('name: "stageId"');

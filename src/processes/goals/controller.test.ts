@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Execution, ExecutionOutput, Process, WorkItem } from "../../domain.js";
 import { goalsProcess } from "./definition.js";
 import { TaskPlanController, type TaskPlanHost } from "./controller.js";
+import { GOAL_REVIEWER_PROMPT, GOAL_WORKER_PROMPT } from "./index.js";
 import { persistProcessDefinition } from "../types.js";
 
 describe("Goals process controller", () => {
@@ -70,5 +71,15 @@ describe("Goals process controller", () => {
     expect(host.finishOutputReview).toHaveBeenCalledWith(execution);
     // Approval answers an earlier rejection of the same plan, so its wait is cleared.
     expect(host.resolveWait).toHaveBeenCalledWith(item.id, "plan:output");
+
+    item.parentId = "parent-goal";
+    await expect(controller.approveTaskPlan(output, execution, "/team")).resolves.toBe(1);
+    expect(host.approveTaskPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows every task to plan another child wave", () => {
+    expect(GOAL_WORKER_PROMPT).toContain("independently executable child tasks");
+    expect(GOAL_REVIEWER_PROMPT).toContain("Plan when it needs another");
+    expect(GOAL_REVIEWER_PROMPT).toContain("Never choose Waiting");
   });
 });

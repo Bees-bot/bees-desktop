@@ -19,6 +19,20 @@ export function taskPlanContextForRun(
     : undefined;
 }
 
+/** Waiting is entered only when Bees has atomically created children for this task. */
+export function taskPlanAgentStages(process: Process): Stage[] {
+  const waiting = processEngine.capability(process, "task-plan")?.stageIds.waiting;
+  return process.stages.filter(({ id }) => id !== waiting);
+}
+
+export function requireTaskPlanAgentStage(process: Process, stage: Stage | undefined): Stage | undefined {
+  const waiting = processEngine.capability(process, "task-plan")?.stageIds.waiting;
+  if (stage && stage.id === waiting) {
+    throw new Error(`${stage.name} is managed by Bees; create a task plan instead of choosing it directly`);
+  }
+  return stage;
+}
+
 export function taskPlanStages(
   process: Process
 ): { plan: Stage; work: Stage; waiting: Stage; review: Stage; done: Stage } | null {

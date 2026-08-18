@@ -477,6 +477,7 @@ describe("lean launch modules", () => {
     expect(html).toContain('data-action="view-markdown-output"');
     expect(html).toContain(">approval-request.md</span>");
     expect(html.match(/data-action="approve-output"/g)).toHaveLength(1);
+    expect(html.indexOf('data-action="approve-output"')).toBeLessThan(html.indexOf("<h3 class=\"mb-3 font-bold\">Conversation</h3>"));
     expect(html.match(/data-action="reject-output"/g)).toHaveLength(1);
   });
 

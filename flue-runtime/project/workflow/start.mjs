@@ -140,11 +140,27 @@ function isNondeterminism(error) {
   return message.includes("TMPRL1100") || message.includes("Workflow Task in failed state");
 }
 
+async function queryArchivedState(input, archived) {
+  let lastError;
+  for (const delay of [0, 25, 100, 250, 1000]) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const current = await (await ensure(input)).query(stateQuery);
+      if (Boolean(current.archivedAt) === archived) return current;
+    } catch (error) {
+      if (isNondeterminism(error)) throw error;
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  throw new Error(`The workflow did not ${archived ? "archive" : "restore"}`);
+}
+
 async function setArchived(input, archived) {
   let handle = await ensure(input);
   await handle.signal(archiveStateSignal, archived);
   try {
-    return await handle.query(stateQuery);
+    return await queryArchivedState(input, archived);
   } catch (error) {
     if (!isNondeterminism(error)) throw error;
     // ponytail: invalid history cannot expose runtime-only schedules. Replace only that broken
@@ -152,7 +168,7 @@ async function setArchived(input, archived) {
     await handle.terminate("Recovering a task with invalid workflow history");
     handle = await ensure(input);
     await handle.signal(archiveStateSignal, archived);
-    return handle.query(stateQuery);
+    return queryArchivedState(input, archived);
   }
 }
 

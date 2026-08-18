@@ -230,6 +230,15 @@ export function itemTree<T extends { id: string; parentId: string | null }>(
   return tree;
 }
 
+/** Queued and running executions belonging to one top-level workflow run, including subtasks. */
+export function activeExecutionsInItemTree<
+  T extends { id: string; parentId: string | null },
+  E extends { workItemId: string; status: ExecutionStatus }
+>(items: T[], executions: E[], rootId: string): E[] {
+  const ids = new Set(itemTree(items, rootId).map(({ id }) => id));
+  return executions.filter(({ workItemId, status }) => ids.has(workItemId) && ["queued", "running"].includes(status));
+}
+
 /** The top-level task an item belongs to — the nav row and board scope that hold it. */
 export function rootItemId<T extends { id: string; parentId: string | null }>(
   all: T[],
