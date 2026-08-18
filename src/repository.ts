@@ -1742,8 +1742,7 @@ export class LocalRepository {
   ): Promise<string[]> {
     if (!tasks.length) throw new Error("Select at least one task to approve");
     const pending = await this.database.query<Row>(
-      `SELECT w.process_id AS processId, w.logical_files_json AS logicalFilesJson,
-              o.execution_id AS executionId
+      `SELECT w.logical_files_json AS logicalFilesJson, o.execution_id AS executionId
        FROM execution_outputs o
        JOIN executions e ON e.id = o.execution_id
        JOIN work_items w ON w.id = e.work_item_id
@@ -1852,13 +1851,14 @@ export class LocalRepository {
       throw new Error("The task-plan process definition has changed");
     }
 
-    // ponytail: one small process-wide scan beats a dependency graph or dedupe service.
+    // Stable task keys dedupe retries and later waves of this parent. Another run of the same
+    // scheduled goal is a separate parent and must be allowed to create the same planned tasks.
     const existingKeys = new Set(
       (
         await this.database.query<Row>(
           `SELECT json_extract(goal_json, '$.key') AS goalKey FROM work_items
-           WHERE process_id = ? AND json_extract(goal_json, '$.key') IS NOT NULL`,
-          [stringValue(pending[0].processId)]
+           WHERE parent_id = ? AND json_extract(goal_json, '$.key') IS NOT NULL`,
+          [parentId]
         )
       ).map((row) => stringValue(row.goalKey))
     );

@@ -1897,16 +1897,8 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "run-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
-        if (schedule) {
-          const state = await host.workflowRuntime.command(schedule.workItemId, {
-            type: "trigger_schedule",
-            scheduleId: schedule.id
-          });
-          const triggered = state.schedules.find(({ id }) => id === schedule.id);
-          if (!triggered)
-            throw new Error("The schedule is unavailable");
-          await host.runs.runScheduledOccurrence({ ...schedule, ...triggered }, false);
-        }
+        if (schedule)
+          await host.runs.runScheduledOccurrence(schedule, false);
         return;
       }
       if (action === "toggle-schedule") {

@@ -448,7 +448,7 @@ describe("local repository", () => {
     });
     await repository.recordExecutionOutputs(duplicateExecutionId, [TASK_PLAN_OUTPUT]);
     const [duplicateOutput] = await repository.listExecutionOutputs(duplicateExecutionId);
-    await expect(repository.approveTaskPlan(
+    const [duplicateChildId] = await repository.approveTaskPlan(
       duplicateOutput!.id,
       duplicateParentId,
       plan!.id,
@@ -456,8 +456,26 @@ describe("local repository", () => {
       waiting!.id,
       review!.id,
       [{ key: "build", title: "Build again", description: "Duplicate", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] }]
+    );
+    expect(await repository.getWorkItem(duplicateChildId!)).toMatchObject({ parentId: duplicateParentId });
+
+    const retryExecutionId = await repository.createExecution({
+      agentId: "planner",
+      config: { prompt: "Plan again." },
+      workItemId: duplicateParentId,
+      runtime: "flue"
+    });
+    await repository.recordExecutionOutputs(retryExecutionId, [TASK_PLAN_OUTPUT]);
+    const [retryOutput] = await repository.listExecutionOutputs(retryExecutionId);
+    await expect(repository.approveTaskPlan(
+      retryOutput!.id,
+      duplicateParentId,
+      plan!.id,
+      work!.id,
+      waiting!.id,
+      review!.id,
+      [{ key: "build", title: "Build yet again", description: "Retry", role: "goal-worker", effect: "prepare", inputs: ["brief.md"] }]
     )).resolves.toEqual([]);
-    expect(await repository.getWorkItem(duplicateParentId)).toMatchObject({ stageId: plan!.id });
   });
 
   it("accepts plan inputs named by the folder the run staged them in", async () => {

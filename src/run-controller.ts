@@ -708,11 +708,11 @@ export function createRunController(host: MainHost) {
     });
   }
 
-  async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
+  async function scheduledWorkItemId(schedule: Schedule, occurrenceId: string): Promise<string> {
     const template = await host.repository.getWorkItem(schedule.workItemId);
     if (!template)
       throw new Error("The scheduled work item is unavailable");
-    const key = `schedule:${schedule.id}:${schedule.updatedAt}`;
+    const key = `schedule:${schedule.id}:${occurrenceId}`;
     const existing = (await host.repository.listWorkItems(template.processId)).find((item) => item.goal?.key === key);
     return existing?.id ?? createRunOccurrence(template, key);
   }
@@ -726,13 +726,18 @@ export function createRunController(host: MainHost) {
   }
 
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
-    const itemId = await scheduledWorkItemId(schedule);
+    const itemId = await scheduledWorkItemId(
+      schedule,
+      auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`
+    );
     if (!(await host.repository.listExecutionsForWorkItem(itemId)).length)
       await runItem(itemId, auto, undefined, undefined, true);
-    await host.workflowRuntime.command(schedule.workItemId, {
-      type: "ack_schedule",
-      scheduleId: schedule.id
-    });
+    if (auto) {
+      await host.workflowRuntime.command(schedule.workItemId, {
+        type: "ack_schedule",
+        scheduleId: schedule.id
+      });
+    }
   }
 
   // Async so a bridged connection's process is up before the run is handed an address.
@@ -1032,6 +1037,7 @@ export function createRunController(host: MainHost) {
     return host.workspaceController.teamItems.find((item) => {
       const agent = agentForItem(item);
       return (runningProcesses.has(item.processId) &&
+        !startingItemIds.has(item.id) &&
         Boolean(agent?.config.prompt.trim()) &&
         Boolean(agent && host.workspaceController.eligibilityForAgent(agent).active) &&
         needsAutonomousRun(item, work, autopilotDone));
@@ -1325,10 +1331,10 @@ export function createRunController(host: MainHost) {
     return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
   }
 
-  /** `executions` only learns of a run at `onCreated`, so two near-simultaneous calls both started. */
+  /** `executions` only learns of a run at `onCreated`, so guard each item until that refresh. */
   const startingItemIds = new Set<string>();
 
-  /** Claimed before any await. Body split out so the guard does not reindent two hundred lines. */
+  /** Claimed before any await. `finally` covers failures that happen before `onCreated` releases it. */
   async function runItem(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
@@ -1534,6 +1540,9 @@ export function createRunController(host: MainHost) {
             host.shell.view = "run";
           }
           await host.workspaceController.refresh();
+          // The refreshed execution now prevents duplicate starts. Releasing here also lets
+          // autopilot continue the item if this run later moves it to another process stage.
+          startingItemIds.delete(item.id);
         },
         // Rust marks the row running straight after hand-over, without an event — re-read it, or
         // the card reads "Queued" for the whole run and only corrects on `run-settled`.

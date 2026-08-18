@@ -99,9 +99,14 @@ describe("task actions", () => {
     expect(actions).toContain('mode: "run"');
     expect(actions).not.toContain('label: "On each occurrence"');
     expect(actions).not.toContain('label: "Occurrence worker role"');
-    expect(actions).toContain("runScheduledOccurrence({ ...schedule, ...triggered }, false)");
-    expect(runs).toContain("const key = `schedule:${schedule.id}:${schedule.updatedAt}`");
+    expect(actions).toContain("runScheduledOccurrence(schedule, false)");
+    expect(actions).not.toContain('type: "trigger_schedule"');
+    expect(runs).toContain('auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`');
+    expect(runs).toContain("if (auto) {\n      await host.workflowRuntime.command(schedule.workItemId");
     expect(runs).toContain("await runItem(itemId, auto, undefined, undefined, true)");
+    expect(runs).toContain("!startingItemIds.has(item.id) &&");
+    expect(runs).toContain("await host.workspaceController.refresh();\n          // The refreshed execution now prevents duplicate starts.");
+    expect(runs).toContain("startingItemIds.delete(item.id);");
     expect(runs).not.toContain("Scheduled task role is unavailable");
   });
 
