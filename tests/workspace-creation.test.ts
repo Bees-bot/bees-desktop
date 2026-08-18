@@ -10,14 +10,10 @@ describe("workspace creation", () => {
     expect(views).toContain('data-action="create-workspace"');
     expect(views).not.toContain('data-action="create-local-org"');
     expect(views).not.toContain('data-action="create-connected-org"');
-    expect(views).toContain("<details data-workspace-privacy");
-    expect(views).not.toContain("<details open data-workspace-privacy");
-    expect(views).toContain("I acknowledge I won’t be able to add team members.");
-    expect(views).toContain("I acknowledge I won’t be able to convert this workspace later.");
-    expect(actions).toContain("saveButton.disabled = enabled && !acknowledgementBoxes.every");
+    expect(views).toContain("<div data-workspace-privacy");
+    expect(views).toContain("Make this workspace private");
+    expect(views).toContain("Keep it on this device only. You cannot add members later.");
     expect(session).toContain('type: "workspace-privacy"');
     expect(session).toContain('data.get("deviceOnly") === "true"');
-    expect(session).toContain('data.get("acknowledgeNoMembers") !== "true"');
-    expect(session).toContain('data.get("acknowledgeNoConversion") !== "true"');
   });
 });

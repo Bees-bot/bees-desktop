@@ -13,7 +13,8 @@ import {
   overviewView,
   runsView,
   schedulesView,
-  searchResultsView
+  searchResultsView,
+  welcomeView
 } from "./launch-views.js";
 import type { MainHost, SettingsTab, TeamTab, ThemePreset } from "./main.js";
 import { renderMarkdown } from "./markdown.js";
@@ -334,8 +335,15 @@ export function createAppShell(host: MainHost) {
   }
 
   function render(): void {
+    if (!host.session.currentTeam() && ["overview", "inbox", "board", "process", "process-runs", "process-library", "item", "item-new", "runs", "run", "schedules", "team-settings"].includes(view)) {
+      view = "welcome";
+    }
     rememberView();
     host.views.renderNavigation();
+    if (view === "welcome") {
+      setHeader("Welcome to your Workspace", host.session.currentOrganization()?.name);
+      swap(welcomeView());
+    }
     if (view === "overview") {
       setHeader("What do you want to do today?", host.session.currentTeam()?.name);
       swap(overviewView());

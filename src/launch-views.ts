@@ -138,6 +138,20 @@ export function overviewView(): string {
   </div>`;
 }
 
+export function welcomeView(): string {
+  return `<div class="mx-auto flex max-w-2xl flex-col items-center justify-center pt-24 text-center">
+    <div class="mb-6 flex size-20 items-center justify-center rounded-3xl bg-primary/10 text-primary">
+      <svg class="size-10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </div>
+    <h2 class="mb-3 text-3xl font-bold tracking-tight">Let's get started</h2>
+    <p class="mb-8 max-w-md text-base text-base-content/70">A workspace is organized into teams. Create your first team to invite members, manage processes, and start collaborating.</p>
+    <button class="btn btn-primary btn-lg rounded-xl px-8 shadow-sm transition-transform active:scale-95" data-action="new-team">
+      <svg class="mr-2 size-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
+      Create a team
+    </button>
+  </div>`;
+}
+
 /**
  * One row per work item that owes a person an answer, newest cause first. `escalationGroups`
  * decides what is stuck and how it reads; pending outputs supply the inline approval controls.

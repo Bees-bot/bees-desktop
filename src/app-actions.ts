@@ -878,6 +878,7 @@ export function createMainActions(host: MainHost) {
     if (saveButton) {
       saveButton.textContent = submitLabel;
       saveButton.disabled = false;
+      saveButton.hidden = !submitLabel;
     }
     host.shell.dialogFooter.innerHTML = footerLabel
       ? `<button class="link link-primary text-sm" type="submit" name="__action" value="footer">${host.shell.escapeHtml(footerLabel)}</button>`
@@ -920,24 +921,14 @@ export function createMainActions(host: MainHost) {
         }
       });
     }
-    const privacy = host.shell.dialogFields.querySelector<HTMLElement>("[data-workspace-privacy]");
-    const privateToggle = privacy?.querySelector<HTMLInputElement>('input[name="deviceOnly"]');
-    const acknowledgements = privacy?.querySelector<HTMLElement>("[data-workspace-privacy-acknowledgements]");
-    const acknowledgementBoxes = [...(acknowledgements?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])];
-    const updatePrivacy = (): void => {
-      const enabled = privateToggle?.checked ?? false;
-      if (acknowledgements)
-        acknowledgements.hidden = !enabled;
-      for (const checkbox of acknowledgementBoxes) {
-        checkbox.disabled = !enabled;
-        checkbox.required = enabled;
+    const checkRequired = (): void => {
+      if (saveButton) {
+        saveButton.disabled = !host.shell.dialogForm.checkValidity();
       }
-      if (saveButton)
-        saveButton.disabled = enabled && !acknowledgementBoxes.every(({ checked }) => checked);
     };
-    privateToggle?.addEventListener("change", updatePrivacy);
-    acknowledgementBoxes.forEach((checkbox) => checkbox.addEventListener("change", updatePrivacy));
-    updatePrivacy();
+    host.shell.dialogForm.addEventListener("input", checkRequired);
+    checkRequired();
+
     linkModelThinking();
     host.shell.dialog.showModal();
     const focusFirstField = (): void => {
@@ -1937,7 +1928,17 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "switch-org") {
-        await host.session.switchConnection(button.dataset.id!, button.dataset.account ?? "");
+        const orgId = button.dataset.id;
+        const accountId = button.dataset.account;
+        const currentOrgId = host.workspaceController.workspace.organizationId;
+        const currentAccount = host.session.currentUser();
+        if (orgId === currentOrgId && accountId === currentAccount?.id) {
+          host.shell.view = "settings";
+          host.shell.settingsTab = "workspaces";
+          host.shell.render();
+          return;
+        }
+        await host.session.switchConnection(orgId!, accountId ?? "");
         return;
       }
       if (action === "toggle-color-mode") {
@@ -2293,7 +2294,7 @@ export function createMainActions(host: MainHost) {
         }
         else {
           host.workspaceController.workspace.teamId = "";
-          host.shell.view = "settings";
+          host.shell.view = "welcome";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Team deleted", "success");
@@ -2383,9 +2384,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "new-workspace") {
-        host.shell.view = "settings";
-        host.shell.settingsTab = "workspaces";
-        host.shell.render();
+        await host.session.createWorkspace();
         return;
       }
       if (action === "new-team") {

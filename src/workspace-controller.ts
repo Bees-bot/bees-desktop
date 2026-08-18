@@ -436,6 +436,7 @@ export function createWorkspaceController(host: MainHost) {
     activeBoard = null;
     activeProcess = null;
     host.shell.view = nextView;
+    host.shell.expandTeam(teamId);
     await refresh();
     await seedDefaultRegistry();
     await seedInstalledWorkflows();
