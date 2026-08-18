@@ -1744,21 +1744,35 @@ export function createMainViews(host: MainHost) {
     const user = host.session.currentUser();
     const signedIn = host.session.orgSignedIn() && !!user;
     const social = Object.entries(host.session.providerLabel)
-      .map(([provider, label]) => `<button class="btn btn-outline btn-sm" data-action="social-signin" data-provider="${provider}">Continue with ${label}</button>`)
+      .map(([provider, label]) => `<button class="btn btn-outline btn-sm gap-2" data-action="social-signin" data-provider="${provider}">Continue with ${label}</button>`)
       .join("");
     const authBlock = !connected
       ? ""
       : signedIn
-        ? `<div class="flex flex-wrap items-center justify-between gap-3">
-             <span class="text-sm">Signed in as <strong>${host.shell.escapeHtml(user!.email)}</strong></span>
+        ? `<div class="mt-4 flex items-center justify-between gap-3 p-3 rounded-box border border-base-300 bg-base-100 shadow-sm">
+             <span class="text-sm">Signed in as <strong class="font-medium">${host.shell.escapeHtml(user!.email)}</strong></span>
              <button class="btn btn-ghost btn-sm text-error" data-action="sign-out">Sign out</button>
            </div>`
-        : `<div class="flex flex-wrap items-center gap-2">
-             <span class="w-full text-sm text-muted">Signed out of this workspace.</span>
+        : `<div class="mt-4 flex flex-col items-start gap-3 p-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+             <div class="flex flex-col gap-1">
+               <span class="text-sm font-medium">Sign in to collaborate</span>
+               <span class="text-sm text-muted">You are currently signed out. Connect your account to sync data and invite others.</span>
+             </div>
              ${social}
-             <button class="btn btn-outline btn-sm" data-action="signin-email">Email sign in</button>
-             <button class="btn btn-outline btn-sm" data-action="signup-email">Create account</button>
+             <button class="btn btn-outline btn-sm gap-2" data-action="signin-email">Email sign in</button>
+             <button class="btn btn-primary btn-sm gap-2" data-action="signup-email">${ACTION_ICONS.add} Create account</button>
            </div>`;
+
+    const anotherWorkspaceBlock = !connected 
+      ? `<div class="mt-4 flex flex-col items-start gap-3 p-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
+           <div class="flex flex-col gap-1">
+             <span class="text-sm font-medium">Want to collaborate?</span>
+             <span class="text-sm text-muted">Create a new shared workspace to invite teammates.</span>
+           </div>
+           ${createAnotherWorkspaceButton(true)}
+         </div>`
+      : "";
+
     return `<div class="space-y-10">
       <section>
         <div class="flex items-center justify-between gap-3">
@@ -1771,9 +1785,8 @@ export function createMainViews(host: MainHost) {
         <p class="mt-1 text-sm text-muted">${connected
         ? `Start on your own or invite teammates to coordinate across devices. ${host.shell.escapeHtml(WORKSPACE_BETA_COPY)}`
         : "Only you can use this workspace. It stays on this device, and you cannot add team members to it later."}</p>
-        <div class="mt-4 space-y-4">
-          ${authBlock}${createAnotherWorkspaceButton(!connected)}
-        </div>
+        ${authBlock}
+        ${anotherWorkspaceBlock}
       </section>
 
       <section>
@@ -1795,12 +1808,23 @@ export function createMainViews(host: MainHost) {
         ? `<button class="btn btn-ghost btn-sm" data-action="remove-logo">Remove logo</button>`
         : ""}
         </div>
-        <div class="mt-4 grid gap-3 sm:grid-cols-2">
-          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Color</span>
-            <input class="h-10 w-full cursor-pointer rounded-lg border border-base-300 bg-base-100" type="color"
-              data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}"></label>
-          <label class="form-control grid gap-1.5"><span class="label-text text-sm font-semibold">Logo</span>
-            <input class="file-input file-input-bordered w-full" type="file" accept="image/*" data-branding="logo"></label>
+        <div class="mt-4 flex flex-col sm:flex-row gap-6">
+          <div class="form-control shrink-0">
+            <div class="label px-0 pb-1.5"><span class="label-text text-sm font-semibold">Color</span></div>
+            <label class="relative flex h-12 w-32 cursor-pointer items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3 shadow-sm transition-colors hover:border-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+              <div class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
+              <span class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
+              <input class="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="color"
+                data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}">
+            </label>
+          </div>
+          <div class="form-control flex-1">
+            <div class="label px-0 pb-1.5"><span class="label-text text-sm font-semibold">Logo</span></div>
+            <label class="relative flex h-12 cursor-pointer items-center justify-center rounded-lg border border-dashed border-base-300 bg-base-50 transition-colors hover:border-primary hover:bg-base-100 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+              <span class="text-sm font-medium text-base-content/70">Click to upload image...</span>
+              <input class="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="file" accept="image/*" data-branding="logo">
+            </label>
+          </div>
         </div>
       </section>
 
@@ -1818,15 +1842,33 @@ export function createMainViews(host: MainHost) {
       return deviceOnlyWorkspaceNotice(DEVICE_ONLY_WORKSPACE_HINT, true);
     if (!token)
       return deviceOnlyWorkspaceNotice("Sign in to manage workspace members.");
-    let memberships;
+    
+    let memberships: any[] = [];
+    let pending: any[] = [];
+    let isAdmin = false;
+
     try {
       ({ memberships } = await host.api.listMemberships(token, host.workspaceController.workspace.organizationId));
+      isAdmin = true;
     }
     catch {
       return `<div class="p-8 text-center text-sm text-muted">Only workspace admins can view members.</div>`;
     }
-    return `<section>
-        <h2 class="font-bold text-lg">Members</h2>
+
+    try {
+      if (isAdmin) {
+        pending = (await host.api.listWorkspaceInvitations(token, host.workspaceController.workspace.organizationId)).invitations;
+      }
+    }
+    catch {
+      // not an admin, or none — leave the list empty
+    }
+
+    const membersBlock = `<section>
+        <div class="flex items-start justify-between gap-3">
+          <div><h2 class="font-bold text-lg">Members</h2><p class="mt-1 text-sm text-muted">Manage who has access to this workspace.</p></div>
+          ${isAdmin ? `<button class="btn btn-primary btn-sm" data-action="invite-org-member">Invite someone</button>` : ""}
+        </div>
         <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
           <ul class="divide-y divide-base-200 p-2">${memberships
         .map((member) => `<li class="flex items-center gap-2 px-3 py-2 text-sm">
@@ -1841,29 +1883,9 @@ export function createMainViews(host: MainHost) {
         .join("")}</ul>
         </div>
       </section>`;
-  }
 
-  async function orgInvitesContent(): Promise<string> {
-    const connected = host.session.orgIsConnected();
-    if (!connected)
-      return deviceOnlyWorkspaceNotice(DEVICE_ONLY_WORKSPACE_HINT, true);
-    let pending: {
-      email: string;
-      role: string;
-    }[] = [];
-    const token = host.session.orgToken();
-    try {
-      if (token)
-        pending = (await host.api.listWorkspaceInvitations(token, host.workspaceController.workspace.organizationId)).invitations; // 403 for non-admins
-    }
-    catch {
-      // not an admin, or none — leave the list empty
-    }
-    return `<section>
-        <div class="flex items-start justify-between gap-3">
-          <div><h2 class="font-bold text-lg">Invitations</h2><p class="mt-1 text-sm text-muted">Pending invites to this workspace.</p></div>
-          <button class="btn btn-primary btn-sm" data-action="invite-org-member">Invite someone</button>
-        </div>
+    const invitesBlock = isAdmin ? `<section>
+        <h2 class="font-bold text-lg">Pending invitations</h2>
         <div class="mt-4 rounded-box border border-base-300 bg-base-100 shadow-sm">
           <ul class="divide-y divide-base-200 p-2">${pending.length
         ? pending
@@ -1874,7 +1896,12 @@ export function createMainViews(host: MainHost) {
           .join("")
         : `<li class="px-3 py-6 text-center text-sm text-muted">No pending invitations.</li>`}</ul>
         </div>
-      </section>`;
+      </section>` : "";
+
+    return `<div class="space-y-10">
+      ${membersBlock}
+      ${invitesBlock}
+    </div>`;
   }
 
   /** Settings → Root Folder: the root all workspace/team folders default under. */
@@ -2252,14 +2279,14 @@ export function createMainViews(host: MainHost) {
   async function settingsSigninsContent(): Promise<string> {
     const description = `<p class="text-sm text-muted">You can sign in with multiple user IDs. Each user ID can belong to multiple workspaces, and you can work across all of them at the same time.</p>`;
     const sso = Object.entries(host.session.providerLabel)
-      .map(([provider, label]) => `<button class="btn btn-outline btn-sm justify-start" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
+      .map(([provider, label]) => `<button class="btn btn-outline btn-sm gap-2" data-action="social-signin" data-provider="${provider}">Sign in to another account using ${host.shell.escapeHtml(label)} SSO</button>`)
       .join("");
     const addBlock = `<section>
         <h2 class="font-bold text-lg">Add a sign-in</h2>
-        <div class="mt-4 flex flex-col gap-2">
+        <div class="mt-4 flex flex-col items-start gap-3">
           ${sso}
-          <button class="btn btn-outline btn-sm justify-start" data-action="signin-email">Sign in using an email</button>
-          <button class="btn btn-outline btn-sm justify-start" data-action="signup-email">Create a new account using your email</button>
+          <button class="btn btn-outline btn-sm gap-2" data-action="signin-email">Sign in using an email</button>
+          <button class="btn btn-primary btn-sm gap-2" data-action="signup-email">${ACTION_ICONS.add} Create a new account using your email</button>
         </div>
       </section>`;
     if (host.session.accounts.size === 0)
@@ -2403,7 +2430,6 @@ export function createMainViews(host: MainHost) {
     const orgTabs = org ? [
       { id: "org-general", label: "General", content: orgGeneralContent },
       { id: "org-members", label: "Members", content: orgMembersContent },
-      { id: "org-invites", label: "Invites", content: orgInvitesContent },
       { id: "org-onboarding", label: "Onboarding", content: orgOnboardingContent },
       { id: "org-folder", label: "Folder", content: orgWorkspaceContent },
       { id: "org-knowledge", label: "Knowledge", content: orgKnowledgeContent }
@@ -3006,7 +3032,6 @@ export function createMainViews(host: MainHost) {
     teamDangerContent,
     orgGeneralContent,
     orgMembersContent,
-    orgInvitesContent,
     settingsRootFolderContent,
     orgWorkspaceContent,
     orgKnowledgeContent,
