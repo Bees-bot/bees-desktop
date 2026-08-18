@@ -13,7 +13,10 @@ import {
 } from "./assistant.js";
 import { withBridgeUrl } from "./api-bridge.js";
 import {
-  mcpConnectionForAgent
+  discoverMcpTools,
+  mcpConnectionForAgent,
+  saveMcpConnection,
+  withMcpHealth
 } from "./connections.js";
 import {
   decide as decideControl,
@@ -771,21 +774,61 @@ export function createRunController(host: MainHost) {
       ...helpers.flatMap(({ agent: helper }) => selectedAgentCapabilities(host.workspaceController.registries, helper.config).filter(({ kind }) => kind === "skill"))
     ];
     const seen = new Set<string>();
-    const selectedConnections = await Promise.all(
+    const selectedConnections = (await Promise.all(
       (agent.config.mcpConnectionRefs ?? []).map(async (id) => {
         const connection = host.workspaceController.mcpConnections.find((candidate) => candidate.id === id);
         if (!connection)
           throw new Error("A selected MCP connection is unavailable");
-        // Start the bridge first: a bridged connection has no address yet, and narrowing it to the
-        // agent's allowlist validates the one it does not have.
-        return mcpConnectionForAgent(await withBridgeUrl(connection), agent.config);
+        const checked = await checkedConnection(connection);
+        return checked && mcpConnectionForAgent(checked, agent.config);
       })
-    );
+    )).filter((connection) => connection !== null);
     return {
       capabilities: selected.filter(({ ref }) => !seen.has(ref) && Boolean(seen.add(ref))),
       mcpConnections: [...selectedConnections, ...(host.session.knowledgeConnection ? [host.session.knowledgeConnection] : [])],
       delegates: helpers
     };
+  }
+
+  /**
+   * A connection's tools as the server has them now, written back so the rest of the app agrees.
+   *
+   * The stored list is only a record of the last check. Flue refuses a whole submission when the
+   * allowlist names a tool the server has since dropped, and the reason is scrubbed to "an
+   * internal error" before anyone sees it. Asking first turns a changed server into what the
+   * connection already promises: an optional one steps aside, a required one says which and why.
+   */
+  async function checkedConnection(stored: McpConnection): Promise<McpConnection | null> {
+    // Start the bridge first: a bridged connection has no address until it runs.
+    const reachable = await withBridgeUrl(stored);
+    // A plugin's server publishes its own catalogue at connection time, so it has no allowlist
+    // that can go stale.
+    if (reachable.allTools)
+      return reachable;
+    // The bridge port belongs to this run, so storing it would only show a dead one later.
+    const save = (connection: McpConnection): Promise<void> =>
+      saveMcpConnection(host.repository, { ...connection, url: stored.url });
+    try {
+      const tools = await discoverMcpTools(reachable, await host.ensureFlueRuntime());
+      const checked = withMcpHealth(reachable, tools);
+      await save(checked);
+      // Pruning every name off a connection that had some is a server that moved on, not a choice.
+      // A run would drop it and leave the agent short a connection it was told it had.
+      if (stored.allowedTools.length && !checked.allowedTools.length && !stored.optional) {
+        throw new Error(
+          `${stored.name} no longer offers ${stored.allowedTools.join(", ")}. `
+          + `It now offers ${tools.map(({ name }) => name).join(", ") || "nothing"}.`
+        );
+      }
+      return checked;
+    }
+    catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await save(withMcpHealth(reachable, stored.tools, reason));
+      if (stored.optional)
+        return null;
+      throw new Error(`${stored.name} is unavailable: ${reason}`);
+    }
   }
 
   function controlInput(action: string, resource: ControlInput["resource"], context: Partial<ControlInput["context"]> = {}): ControlInput {

@@ -112,7 +112,7 @@ export interface RunHost {
   awaitSettled(executionId: string, signal?: AbortSignal): Promise<SettledRun>;
 }
 
-export const tauriRunHost: RunHost = {
+const tauriRunHost: RunHost = {
   startRun: (request) => invoke("start_run", { request }),
   resumeRun: (request, submissionId) => invoke("resume_run", { request, submissionId }),
   stopRun: (request, submissionId) => invoke("stop_run", { request, submissionId }),

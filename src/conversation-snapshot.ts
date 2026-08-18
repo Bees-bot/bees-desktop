@@ -45,10 +45,6 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export function emptySnapshot(): BeesConversationSnapshotV1 {
-  return { version: 1, capturedAt: new Date().toISOString(), messages: [] };
-}
-
 /** Last thing the agent said — the summary a reviewer needs before approving. */
 export function lastAssistantText(snapshot: BeesConversationSnapshotV1 | null): string {
   for (const message of [...(snapshot?.messages ?? [])].reverse()) {

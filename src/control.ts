@@ -2,10 +2,10 @@ import type { ApiClient } from "./api.js";
 import type { LocalRepository } from "./repository.js";
 import { errorText } from "./domain.js";
 
-export const PRIVATE_CONTROL_KEY = "private-control";
-export const DEFAULT_SYNC_TIME = "02:00";
+const PRIVATE_CONTROL_KEY = "private-control";
+const DEFAULT_SYNC_TIME = "02:00";
 
-export const METRIC_CATALOG = {
+const METRIC_CATALOG = {
   "agent.inventory": { unit: "agent", dimensions: ["team"] },
   "run.started": { unit: "run", dimensions: ["team", "agent"] },
   "run.completed": { unit: "run", dimensions: ["team", "agent", "outcome"] },

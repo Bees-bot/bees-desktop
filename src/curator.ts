@@ -193,7 +193,7 @@ export function resolveCuratorPlan(
   });
 }
 
-export function applicableCuratorActions(
+function applicableCuratorActions(
   resolved: ResolvedCuratorAction[]
 ): ResolvedCuratorAction[] {
   return resolved.filter((entry) => !entry.error && entry.archives.length > 0);

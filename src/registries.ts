@@ -14,7 +14,7 @@ export function registryCapabilities(registries: Registry[]): Capability[] {
   })));
 }
 
-export function selectedCapabilities(registries: Registry[], refs: string[]): Capability[] {
+function selectedCapabilities(registries: Registry[], refs: string[]): Capability[] {
   const selected = new Set(refs);
   return registryCapabilities(registries).filter(({ ref }) => selected.has(ref));
 }

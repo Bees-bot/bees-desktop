@@ -811,7 +811,7 @@ export function logicalPaths(values: unknown): string[] {
 }
 
 /** Coordination stores a stable location id, never a machine-specific absolute folder. */
-export const FILE_LOCATION_SEPARATOR = "::";
+const FILE_LOCATION_SEPARATOR = "::";
 
 export function parseLogicalFileReference(value: unknown): {
   locationId: string | null;
