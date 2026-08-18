@@ -350,6 +350,7 @@ describe("lean launch modules", () => {
     expect(html).toContain("Send update");
     expect(html).toContain("Outreach");
     expect(html).toContain("15 9 * * 1-5");
+    expect(html).toContain('data-action="edit-schedule" data-id="schedule"');
   });
 
   it("renders a run as a readable conversation with a follow-up box", () => {

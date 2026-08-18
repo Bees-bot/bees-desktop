@@ -1811,50 +1811,49 @@ export function createMainActions(host: MainHost) {
         URL.revokeObjectURL(url);
         return;
       }
-      if (action === "new-schedule") {
-        const schedulable = host.scheduleItems();
+      if (action === "new-schedule" || action === "edit-schedule") {
+        const schedule = action === "edit-schedule"
+          ? host.runs.schedules.find(({ id }) => id === button.dataset.id)
+          : undefined;
+        if (action === "edit-schedule" && !schedule)
+          return;
+        const requestedItem = action === "new-schedule"
+          ? host.workspaceController.teamItems.find(({ id }) => id === button.dataset.id)
+          : undefined;
+        const schedulable = requestedItem
+          ? host.workspaceController.teamItems.filter(({ processId }) => processId === requestedItem.processId)
+          : host.scheduleItems();
         if (!schedulable.length)
           throw new Error("Create a work item before adding a schedule");
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const roles = host.runs.taskWorkerRoles();
-        const data = await edit("New schedule", [
-          { name: "name", label: "Name", value: "Scheduled work" },
+        const timezone = schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const time = schedule
+          ? new Intl.DateTimeFormat("en-GB", {
+            timeZone: timezone,
+            hourCycle: "h23",
+            hour: "2-digit",
+            minute: "2-digit"
+          }).format(new Date(schedule.nextRunAt))
+          : "07:00";
+        const data = await edit(schedule ? "Edit schedule" : "New schedule", [
+          { name: "name", label: "Name", value: schedule?.name ?? "Scheduled work" },
           {
             name: "workItemId",
             label: "Work item",
             type: "select",
+            value: schedule?.workItemId ?? requestedItem?.id ?? schedulable[0]?.id ?? "",
             options: schedulable.map(({ id, title }) => ({ label: title, value: id }))
-          },
-          {
-            name: "mode",
-            label: "On each occurrence",
-            type: "select",
-            value: "run",
-            options: [
-              { label: "Run this item again", value: "run" },
-              { label: "Create a new task-plan occurrence", value: "spawn_goal" }
-            ],
-            hint: "Task-plan occurrences preserve history and can propose separately approved actions."
-          },
-          {
-            name: "role",
-            label: "Occurrence worker role",
-            type: "select",
-            value: roles[0]?.role ?? "",
-            options: roles.map(({ role }) => ({ label: role, value: role })),
-            hint: "Used only when creating a task-plan occurrence."
           },
           {
             name: "recurrence",
             label: "Recurrence",
             type: "select",
-            value: "daily",
+            value: schedule?.recurrence ?? "daily",
             options: ["hourly", "daily", "weekdays"].map((value) => ({ label: value, value }))
           },
           {
             name: "time",
             label: "Time of day",
-            value: "07:00",
+            value: time,
             placeholder: "07:00",
             hint: "Ignored by an hourly schedule, which runs an hour from now."
           },
@@ -1863,33 +1862,36 @@ export function createMainActions(host: MainHost) {
         if (!data)
           return;
         const recurrence = String(data.get("recurrence")) as Schedule["recurrence"];
-        const mode = String(data.get("mode")) as Schedule["mode"];
         const workItemId = String(data.get("workItemId"));
-        const scheduledItem = host.workspaceController.teamItems.find(({ id }) => id === workItemId);
-        const scheduledProcess = scheduledItem
-          ? host.workspaceController.processes.find(({ id }) => id === scheduledItem.processId)
-          : null;
-        if (mode === "spawn_goal" && (!scheduledItem || !hasTaskPlanCapability(scheduledProcess))) {
-          throw new Error("New task-plan occurrences require a task-plan work item");
-        }
-        const role = mode === "spawn_goal" ? String(data.get("role")) : null;
-        if (mode === "spawn_goal" && !roles.some((worker) => worker.role === role)) {
-          throw new Error("Choose an available goal worker role");
-        }
         const nextRunAt = nextScheduleStart(recurrence, String(data.get("time")), new Date(), String(data.get("timezone"))).toISOString();
-        await host.workflowRuntime.command(workItemId, {
+        const command = {
           type: "upsert_schedule",
           schedule: {
-            id: crypto.randomUUID(),
+            id: schedule?.id ?? crypto.randomUUID(),
             name: String(data.get("name")),
             recurrence,
-            mode,
-            ...(role ? { role } : {}),
+            mode: "run",
             timezone: String(data.get("timezone")),
-            enabled: true,
+            enabled: schedule?.enabled ?? true,
             nextRunAt
           }
-        });
+        } as const;
+        await host.workflowRuntime.command(workItemId, command);
+        if (schedule && schedule.workItemId !== workItemId) {
+          try {
+            await host.workflowRuntime.command(schedule.workItemId, {
+              type: "delete_schedule",
+              scheduleId: schedule.id
+            });
+          }
+          catch (error) {
+            await host.workflowRuntime.command(workItemId, {
+              type: "delete_schedule",
+              scheduleId: schedule.id
+            }).catch(() => undefined);
+            throw error;
+          }
+        }
         await host.workspaceController.refresh();
         return;
       }

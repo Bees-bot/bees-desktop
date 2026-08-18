@@ -873,7 +873,7 @@ export function createMainViews(host: MainHost) {
             </button>
             <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
-              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-schedules" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.schedule}<span>Schedules</span></button></li>
+              <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"` : ""}>${ACTION_ICONS.schedule}<span>Schedule new recurring run</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>
               <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-board" data-id="${host.workspaceController.activeBoard.id}">${ACTION_ICONS.settings}<span>Dashboard settings</span></button></li>
