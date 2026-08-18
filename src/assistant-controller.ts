@@ -85,6 +85,8 @@ export function createAssistantController(host: MainHost) {
 
   async function loadAssistantSettings(): Promise<void> {
     const stored = await host.repository.getSetting<ModelChoice | null>(ASSISTANT_MODEL_KEY, null);
+    // Auto is a standing instruction to follow this machine's catalogue, not a model. Treating a
+    // stored one as a fixed choice is what sent the literal "auto/auto" to the runtime.
     if (stored?.provider && stored.model && !isAutoChoice(stored)) {
       assistantModel = stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
         ? { ...stored, model: stored.localModelId }
@@ -95,6 +97,12 @@ export function createAssistantController(host: MainHost) {
   }
 
   async function rememberModelChoice(choice: ModelChoice): Promise<void> {
+    if (isAutoChoice(choice)) {
+      hasUserModelChoice = false;
+      assistantModel = preferredModelChoice(assistantCatalog);
+      await host.repository.setSetting(ASSISTANT_MODEL_KEY, null);
+      return;
+    }
     const localModelId = choice.provider === LOCAL_PROVIDER
       ? choice.localModelId ?? (choice.model === "active" ? host.localModels.wantedRunId : choice.model)
       : null;

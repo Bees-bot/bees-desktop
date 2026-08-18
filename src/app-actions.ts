@@ -51,6 +51,7 @@ import {
   setCliToolEnabled
 } from "./cli-tools.js";
 import {
+  discoverMcpTools,
   listMcpConnections,
   newMcpConnection,
   removeMcpConnection,
@@ -610,26 +611,17 @@ export function createMainActions(host: MainHost) {
   }
 
   async function discoverMcpConnection(connection: McpConnection): Promise<McpConnection> {
-    const { baseUrl, token } = await host.ensureFlueRuntime();
     const reachable = await withBridgeUrl(connection);
-    const response = await tauriFetch(`${baseUrl}/connections/discover`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      // A public API has no stored credential, so it is asked for nothing.
-      body: JSON.stringify(
-        reachable.authType === "none" ? { ...reachable, secretRef: undefined } : reachable
-      )
-    });
-    const body = (await response.json()) as {
-      tools?: McpConnection["tools"];
-      error?: string;
-    };
-    if (!response.ok || !body.tools) {
-      const failed = withMcpHealth(reachable, connection.tools, body.error ?? `HTTP ${response.status}`);
-      await saveMcpConnection(host.repository, failed);
-      throw new Error(failed.lastError ?? "MCP discovery failed");
+    let tools: McpConnection["tools"];
+    try {
+      tools = await discoverMcpTools(reachable, await host.ensureFlueRuntime());
     }
-    const discovered = withMcpHealth(reachable, body.tools);
+    catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await saveMcpConnection(host.repository, withMcpHealth(reachable, connection.tools, reason));
+      throw new Error(reason);
+    }
+    const discovered = withMcpHealth(reachable, tools);
     // flue drops the server's readOnlyHint, so carry our own marks across a re-check
     const wasReadOnly = new Set(connection.tools.filter(({ readOnly }) => readOnly).map(({ name }) => name));
     const data = await edit(`Tools from ${connection.name}`, [

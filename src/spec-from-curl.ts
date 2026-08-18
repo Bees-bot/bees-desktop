@@ -17,7 +17,7 @@ export interface ParsedRequest {
   body?: string;
 }
 
-export function parseCurl(command: string): ParsedRequest {
+function parseCurl(command: string): ParsedRequest {
   const text = command.trim();
   if (!text) throw new Error("Paste a curl command.");
   // `--url https://…` is as common as the bare form, and either may be quoted or not.
@@ -167,7 +167,7 @@ function safeOperationId(candidate: string | undefined, path: string): string {
   return /^[A-Za-z]/.test(cleaned) ? cleaned : fallbackId(path);
 }
 
-export function buildSpec(request: ParsedRequest, described: Described): unknown {
+function buildSpec(request: ParsedRequest, described: Described): unknown {
   return {
     openapi: "3.0.3",
     info: {
