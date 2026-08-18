@@ -6,6 +6,7 @@ import {
   ASSISTANT_EXTRA_MODELS_KEY,
   ASSISTANT_MODEL_KEY,
   DEFAULT_MODEL_CHOICE,
+  isAutoChoice,
   modelCatalog,
   modelLabel,
   preferredModelChoice,
@@ -84,7 +85,7 @@ export function createAssistantController(host: MainHost) {
 
   async function loadAssistantSettings(): Promise<void> {
     const stored = await host.repository.getSetting<ModelChoice | null>(ASSISTANT_MODEL_KEY, null);
-    if (stored?.provider && stored.model) {
+    if (stored?.provider && stored.model && !isAutoChoice(stored)) {
       assistantModel = stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
         ? { ...stored, model: stored.localModelId }
         : stored;

@@ -23,8 +23,19 @@ const agentSource = readFileSync(
   fileURLToPath(new URL("../flue-runtime/project/.flue/agents/bees-assistant.ts", import.meta.url)),
   "utf8"
 );
+const appActionsSource = readFileSync(
+  fileURLToPath(new URL("../src/app-actions.ts", import.meta.url)),
+  "utf8"
+);
 
 describe("assistant contract", () => {
+  it("resolves Overview Auto selection before submitting to Flue", () => {
+    expect(appActionsSource).toContain(
+      "await pickAssistantModel(preferredModelChoice(host.assistant.assistantCatalog))"
+    );
+    expect(appActionsSource).not.toContain("rememberModelChoice(AUTO_MODEL_CHOICE)");
+  });
+
   it("keeps the bundled agent's instructions in step with the parser", () => {
     for (const type of ACTION_TYPES) {
       expect(agentSource, `${type} is missing from the agent instructions`).toContain(
