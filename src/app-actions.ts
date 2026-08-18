@@ -2861,6 +2861,15 @@ export function createMainActions(host: MainHost) {
 
   // Live preview for the Files-tab editor: the right pane re-renders as the left one is typed in.
   host.shell.app.addEventListener("input", (event) => {
+    const color = (event.target as Element).closest<HTMLInputElement>('input[data-branding="color"]');
+    if (color) {
+      const label = color.closest("label");
+      label?.querySelector<HTMLElement>("[data-branding-swatch]")?.style.setProperty("background-color", color.value);
+      const hex = label?.querySelector<HTMLElement>("[data-branding-hex]");
+      if (hex)
+        hex.textContent = color.value;
+      return;
+    }
     const area = (event.target as Element).closest<HTMLTextAreaElement>('form[data-board-file-form] textarea[name="contents"]');
     const preview = area?.form?.querySelector("[data-board-file-preview]");
     if (!area || !preview)
@@ -3000,6 +3009,21 @@ export function createMainActions(host: MainHost) {
 
   // Inline org branding controls save on change (no popup).
   document.addEventListener("change", (event) => {
+    const workspaceSelect = (event.target as Element).closest<HTMLSelectElement>("[data-settings-workspace]");
+    if (workspaceSelect) {
+      if (workspaceSelect.value === host.workspaceController.workspace.organizationId)
+        return;
+      const settingsTab = host.shell.settingsTab;
+      workspaceSelect.disabled = true;
+      void host.workspaceController.switchOrganization(workspaceSelect.value)
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          host.shell.view = "settings";
+          host.shell.settingsTab = settingsTab;
+          host.shell.render();
+        });
+      return;
+    }
     const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
     if (themeDefault && host.shell.isThemePreset(themeDefault.value)) {
       const mode = themeDefault.dataset.themeDefault;
@@ -3080,6 +3104,10 @@ export function createMainActions(host: MainHost) {
       try {
         if (input.dataset.branding === "color") {
           await host.session.setBrandingValue(org.id, { color: input.value });
+          // No re-render: the native color panel stays open over the page, and swapping #app out
+          // detaches the input it is bound to, so every pick after the first one was lost.
+          host.views.renderNavigation();
+          return;
         }
         else if (input.dataset.branding === "logo") {
           const file = input.files?.[0];

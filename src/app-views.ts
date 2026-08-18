@@ -1819,8 +1819,8 @@ export function createMainViews(host: MainHost) {
           <div class="form-control shrink-0">
             <div class="label px-0 pb-1.5"><span class="label-text text-sm font-semibold">Color</span></div>
             <label class="relative flex h-12 w-32 cursor-pointer items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3 shadow-sm transition-colors hover:border-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-              <div class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
-              <span class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
+              <div data-branding-swatch class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
+              <span data-branding-hex class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
               <input class="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="color"
                 data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}">
             </label>
@@ -2446,6 +2446,10 @@ export function createMainViews(host: MainHost) {
       { title: "Global settings", tabs: globalTabs },
       ...(org ? [{ title: "Workspace settings", tabs: orgTabs }] : []),
     ];
+    const workspaceOptions = [...host.workspaceController.organizations]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === host.workspaceController.workspace.organizationId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
+      .join("");
 
     let activeContent = "";
     const activeId = host.shell.settingsTab;
@@ -2476,6 +2480,7 @@ export function createMainViews(host: MainHost) {
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
             <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
+            ${title === "Workspace settings" ? `<li class="px-2 pb-2"><select class="select select-bordered select-sm w-full" data-settings-workspace aria-label="Workspace">${workspaceOptions}</select></li>` : ""}
             ${tabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.settingsTab)}" data-settings-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
           `).join("")}
         </ul>
