@@ -39,7 +39,6 @@ describe("task actions", () => {
 
     expect(actions).toContain("await createItem(button.dataset.stage, host.shell.boardRootItemId)");
     expect(actions).toContain("host.shell.newItemStageId = stageId ?? \"\"");
-    expect(actions).toContain("createItem(rootId ? process?.stages[0]?.id : undefined, rootId)");
     expect(actions).not.toContain("plannedWorkStage");
     expect(actions).toContain("...(parent ? { parentId: parent.id } : {})");
     expect(actions).toContain("host.shell.boardRootItemId = parent?.id ?? itemId");

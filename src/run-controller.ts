@@ -974,8 +974,10 @@ export function createRunController(host: MainHost) {
         await host.runCoordinator.stop(execution.id).catch(() => undefined);
         await releaseClaim(execution.workItemId).catch(() => undefined);
       }
+      if (inFlight.length) await host.workspaceController.refresh();
     }
-    await host.workspaceController.refresh();
+    host.shell.render();
+    if (running) void autopilot();
     host.shell.showNotice(running ? "Process running" : "Process stopped", "success");
   }
 

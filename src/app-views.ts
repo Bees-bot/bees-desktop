@@ -820,9 +820,7 @@ export function createMainViews(host: MainHost) {
     const scoped = root
       ? itemTree(host.workspaceController.items, root.id)
       : host.workspaceController.items;
-    const scopedExecutions = root
-      ? activeExecutionsInItemTree(host.workspaceController.items, host.runs.executions, root.id)
-      : [];
+
     const visible = scoped.filter((item) => !isFiltered(item, filters));
     const filtered = scoped.filter((item) => isFiltered(item, filters))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -857,11 +855,7 @@ export function createMainViews(host: MainHost) {
         <!-- Run is what this toolbar is for. The four occasional workflow actions moved behind one menu. -->
         <div class="flex flex-wrap items-center gap-2">
           ${root
-            ? `${scopedExecutions.length
-              ? `<button class="btn btn-ghost btn-sm text-error" data-action="stop-workflow-run" data-id="${host.shell.escapeHtml(root.id)}">
-                  <svg class="size-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop run
-                </button>`
-              : ""}
+            ? `${processRunButtons(host.workspaceController.activeProcess.id, "btn-sm")}
                <button class="btn btn-ghost btn-sm" data-action="archive-item" data-id="${host.shell.escapeHtml(root.id)}">
                  ${ACTION_ICONS.archive} Archive
                </button>`

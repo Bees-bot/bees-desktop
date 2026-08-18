@@ -1528,20 +1528,7 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice("Run stopped", "success");
         return;
       }
-      if (action === "stop-workflow-run") {
-        const activeExecutions = activeExecutionsInItemTree(
-          host.workspaceController.teamItems,
-          host.runs.executions,
-          button.dataset.id!
-        );
-        for (const execution of activeExecutions)
-          await host.runCoordinator.stop(execution.id);
-        for (const workItemId of new Set(activeExecutions.map(({ workItemId }) => workItemId)))
-          await host.runs.releaseClaim(workItemId).catch(() => undefined);
-        await host.workspaceController.refresh();
-        host.shell.showNotice("Run stopped; other runs are still running", "success");
-        return;
-      }
+
       if (action === "delete-run") {
         await host.runs.deleteRun(button.dataset.id!);
         return;
@@ -3099,13 +3086,6 @@ export function createMainActions(host: MainHost) {
         host.shell.showNotice(errorText(error), "error");
       }
     })();
-  });
-
-  host.shell.newItem.addEventListener("click", () => {
-    const rootId = host.shell.boardRootItemId;
-    const process = host.workspaceController.activeProcess;
-    void createItem(rootId ? process?.stages[0]?.id : undefined, rootId)
-      .catch((error) => host.shell.showNotice(errorText(error), "error"));
   });
 
   host.shell.viewBack.addEventListener("click", () => {
