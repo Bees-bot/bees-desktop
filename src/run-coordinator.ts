@@ -168,7 +168,10 @@ export function runPrompt({
   return [
     agent.config.prompt,
     `Work item: ${item.title}\n${item.description}`,
-    parent ? `Parent goal: ${parent.title}\n${parent.description}` : "",
+    parent ? `Parent goal (context only): ${parent.title}\n${parent.description}` : "",
+    parent
+      ? "CHILD SCOPE: Complete and review only this Work item. Do not perform, plan, or launch later Parent goal iterations or sibling tasks. If this child meets its own acceptance criteria, choose Done even when the Parent goal is unfinished. A task plan here may only decompose unfinished work required by this child."
+      : "",
     item.logicalFiles.length
       ? `Approved input files, staged in ${inputRoot}: ${item.logicalFiles
           .map((reference) => stagedInputPath(reference, fileLocations))
@@ -180,7 +183,9 @@ export function runPrompt({
           .join("\n")}`
       : "",
     taskPlan
-      ? `Task plans must be written only to outputs/${taskPlan.output} as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["file.md"]}]}. Every field is required. Use only approved input paths, written exactly as listed above. An external action must be its own external_write task.`
+      ? `Task plans must be written only to outputs/${taskPlan.output} as {"tasks":[{"key":"stable campaign-scoped deduplication key","title":"specific outcome","description":"context and acceptance criteria","role":"one available worker role","effect":"read|prepare|external_write","inputs":["file.md"]}]}. Every field is required. Use only approved input paths, written exactly as listed above. An external action must be its own external_write task.
+
+OUTPUT CONTRACT: Writing a task plan is an alternative to producing deliverables in this run. If you write ${taskPlan.output}, write no other file under outputs except ${STATUS_OUTPUT}. If this Work item is already one concrete runnable task, execute it directly and do not create a task plan. If planned work needs a new file, make its creation part of the first task. For dependent or sequential work that belongs to this Work item, plan only the next runnable wave. After those children reach Done, Bees returns this same item to Review with their approved files so it can plan the following wave.`
       : "",
     goalEffect === "external_write"
       ? `This approved task authorizes one external action. Perform exactly the described action using only approved inputs. Do not revise its substance. On confirmed success, write outputs/${ACTION_RECEIPT_OUTPUT} as {"status":"succeeded","destination":"service or recipient","externalId":"confirmation id or empty string","url":"result URL or empty string","timestamp":"ISO-8601 UTC"}. If success is uncertain, write no receipt and stop; Bees will block the task instead of retrying.`

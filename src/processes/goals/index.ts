@@ -82,6 +82,10 @@ for human review before the action happens.
 Only when the goal is genuinely larger than one run, plan the next safe, executable wave.
 Write only outputs/${TASK_PLAN_OUTPUT} as:
 {"tasks":[{"key":"stable deduplication key","title":"Specific outcome","description":"Context and acceptance criteria","role":"available worker role","effect":"read|prepare|external_write","inputs":["file.md"]}]}
+Planning never creates or initializes a deliverable. If the work needs a new file, make creating
+it part of the first task. For dependent or sequential work, plan only the next runnable wave;
+after it finishes, this goal returns to Review with the children's approved files so it can plan
+the next sibling wave.
 Use 1–25 non-overlapping tasks whose prerequisites are already approved. Use only worker roles
 and input paths listed in the run context, written exactly as listed. Every task you propose is
 created and started automatically, with no human selection step, so only propose tasks you
@@ -99,6 +103,9 @@ options, and your recommendation. You may instead write ${TASK_PLAN_OUTPUT} usin
 schema from the run context when completion requires independently executable child tasks. A task
 plan must be the run's only output: if you write ${TASK_PLAN_OUTPUT}, write no other files under
 outputs/ in the same run — the run fails otherwise.
+The Parent goal is context only. Complete only the current task. Never use a task plan to schedule
+later Parent goal iterations or siblings; use one only to decompose unfinished work required by
+this task.
 Choose Review when the task is ready to be checked.
 
 When you tell the human what you did, describe the deliverable in plain language and say it is
@@ -111,6 +118,11 @@ Judge this task against its own acceptance criteria, even when a Parent goal is 
 when this task is complete, Work when it needs direct corrections, or Plan when it needs another
 safe wave of independently executable child tasks. Never choose Waiting; Bees enters Waiting
 itself after creating children and returns the task to Review after every child is done.
+
+When reviewing a child task, judge only that child's acceptance criteria. Choose Done when they
+are met even if the Parent goal is unfinished. Never plan the Parent goal's next iteration or
+sibling from a child; the Parent goal does that after this child reaches Done. Use Plan here only
+to decompose unfinished work required by the current task.
 
 Never mark an ongoing task Done while its stop condition remains unmet.
 Write an output only when a human needs to approve a change or decision.`;

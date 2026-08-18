@@ -8,9 +8,19 @@ pub fn validate_run(
         return Ok(());
     }
     if outputs.len() != 1 {
-        return Err(format!(
-            "{task_plan_output} must be the run's only reviewable output"
-        ));
+        let extras = outputs
+            .iter()
+            .filter(|output| *output != task_plan_output)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(if extras.is_empty() {
+            format!("{task_plan_output} must be the run's only reviewable output")
+        } else {
+            format!(
+                "This planning step also created: {extras}. Put file creation in the first planned task and retry"
+            )
+        });
     }
     let state = current_state.trim().to_lowercase();
     if output_blocked_states
@@ -32,13 +42,12 @@ mod tests {
         let plan = vec!["plan.json".into()];
         assert!(validate_run("plan", "plan.json", &blocked, &plan).is_ok());
         assert!(validate_run("waiting", "plan.json", &blocked, &plan).is_err());
-        assert!(validate_run(
+        assert_eq!(validate_run(
             "work",
             "plan.json",
             &blocked,
             &["plan.json".into(), "draft.md".into()]
-        )
-        .is_err());
+        ), Err("This planning step also created: draft.md. Put file creation in the first planned task and retry".into()));
         assert!(validate_run("plan", "plan.json", &blocked, &[]).is_ok());
     }
 }
