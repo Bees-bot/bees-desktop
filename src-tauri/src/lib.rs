@@ -3790,15 +3790,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            if let Ok((node, project)) = bundled_flue_paths(app.handle()) {
-                reap_orphaned_node_sidecars(
-                    &node,
-                    &[
-                        project.join("start.mjs"),
-                        project.join("capability-server.mjs"),
-                        project.join("workflow").join("start.mjs"),
-                    ],
-                );
+            if let Ok((node, _)) = bundled_flue_paths(app.handle()) {
+                reap_orphaned_node_sidecars(&node);
             }
             let app_data = app.path().app_data_dir()?;
             let database_path = app_data.join("bees.db");

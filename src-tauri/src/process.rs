@@ -2,7 +2,7 @@
 //! host, the knowledge worker, and one llama-server per running local model.
 
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Child;
 use std::thread;
 use std::time::Duration;
@@ -23,21 +23,13 @@ pub fn available_loopback_port() -> Result<u16, String> {
     bind_loopback().map(|(_, port)| port)
 }
 
-fn managed_node_sidecar(
-    executable: Option<&Path>,
-    command: &[std::ffi::OsString],
-    node: &Path,
-    entrypoints: &[PathBuf],
-) -> bool {
+fn managed_node_sidecar(executable: Option<&Path>, node: &Path) -> bool {
     executable == Some(node)
-        && command
-            .iter()
-            .any(|argument| entrypoints.iter().any(|entry| Path::new(argument) == entry))
 }
 
 /// Remove a Node sidecar whose Bees parent was hard-killed before `Drop` could reap it.
-/// Exact executable and entrypoint paths keep this from touching another app's Node process.
-pub fn reap_orphaned_node_sidecars(node: &Path, entrypoints: &[PathBuf]) -> usize {
+/// The exact bundled executable path keeps this from touching another app's Node process.
+pub fn reap_orphaned_node_sidecars(node: &Path) -> usize {
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
     let mut reaped = 0;
@@ -45,10 +37,7 @@ pub fn reap_orphaned_node_sidecars(node: &Path, entrypoints: &[PathBuf]) -> usiz
         let orphaned = process
             .parent()
             .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
-        if orphaned
-            && managed_node_sidecar(process.exe(), process.cmd(), node, entrypoints)
-            && process.kill()
-        {
+        if orphaned && managed_node_sidecar(process.exe(), node) && process.kill() {
             reaped += 1;
         }
     }
@@ -99,28 +88,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn orphan_reaper_matches_only_our_exact_node_and_entrypoint() {
+    fn orphan_reaper_matches_only_our_exact_node_executable() {
         let node = Path::new("/Applications/Bees.app/Contents/MacOS/bees-node");
-        let start = PathBuf::from("/Applications/Bees.app/Contents/Resources/flue/start.mjs");
-        let command = vec![node.as_os_str().to_owned(), start.as_os_str().to_owned()];
-
-        assert!(managed_node_sidecar(
-            Some(node),
-            &command,
-            node,
-            &[start.clone()]
-        ));
+        assert!(managed_node_sidecar(Some(node), node));
         assert!(!managed_node_sidecar(
             Some(Path::new("/usr/bin/node")),
-            &command,
-            node,
-            &[start.clone()]
+            node
         ));
-        assert!(!managed_node_sidecar(
-            Some(node),
-            &command,
-            node,
-            &[PathBuf::from("/another/start.mjs")]
-        ));
+        assert!(!managed_node_sidecar(None, node));
     }
 }
