@@ -655,16 +655,19 @@ export function createMainViews(host: MainHost) {
     return `<div class="grid gap-4">${sections.join("")}</div>`;
   }
 
-  /** One `<details>` per run, mirroring `workItemView` — the most recent run first, open only
-   *  when it is waiting on a person. */
+  /** The run a task panel is showing: an explicit deep link wins, then pending work, then latest. */
+  function boardRun(runs: Execution[]): Execution | undefined {
+    const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
+    return ordered.find(({ id }) => id === host.shell.activeExecutionId) ?? ordered.find(r =>
+      host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending")
+    ) ?? ordered[0];
+  }
+
   function boardItemConversation(item: WorkItem, runs: Execution[]): string {
-    if (!runs.length)
+    const primary = boardRun(runs);
+    if (!primary)
       return `<div class="py-10 text-center text-sm text-base-content/40">This item has not run yet.</div>`;
     const ordered = [...runs].sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt));
-    // Surface the run with pending output first, otherwise the latest.
-    const primary = ordered.find(r =>
-      host.runs.executionOutputs.some(({ executionId, status }) => executionId === r.id && status === "pending")
-    ) ?? ordered[0]!;
     const conversation = conversationFor(primary);
     const outputs = host.runs.executionOutputs.filter(({ executionId }) => executionId === primary.id);
     const pending = outputs.filter(({ status }) => status === "pending");
@@ -698,26 +701,12 @@ export function createMainViews(host: MainHost) {
         </div>`
       : "";
 
-    // Compact meta + action bar
-    const metaBar = `<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/40">
-        ${statusBadge(primary.status)}
-        <span>${when(primary.startedAt ?? primary.createdAt)} · ${duration(primary)}</span>
-        ${model ? `<span>${host.shell.escapeHtml(model)}</span>` : ""}
-        ${usage !== "Not reported" ? `<span>${host.shell.escapeHtml(usage)}</span>` : ""}
-        ${primary.restartedFromExecutionId ? `<button class="link link-hover text-[11px]" data-action="open-run" data-id="${primary.restartedFromExecutionId}">Earlier run</button>` : ""}
-      </div>
-      <div class="flex items-center gap-1.5">
-        ${
-          primary.status === "running"
-            ? `<button class="btn btn-error btn-xs" data-action="stop-run" data-id="${primary.id}">Stop</button>`
-            : primary.status === "queued"
-            ? `<button class="btn btn-xs" disabled>Starting…</button>`
-            : `<button class="btn btn-ghost btn-xs border border-base-300" data-action="restart-run" data-id="${primary.id}" title="Restart with current config">Restart</button>`
-        }
-        <button class="btn btn-ghost btn-xs border border-base-300" data-action="download-receipt" data-id="${primary.id}">Receipt</button>
-        <button class="btn btn-ghost btn-xs text-error/70 hover:text-error" data-action="delete-run" data-id="${primary.id}" title="Delete this run and its conversation">Delete</button>
-      </div>
+    const metaBar = `<div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/40">
+      ${statusBadge(primary.status)}
+      <span>${when(primary.startedAt ?? primary.createdAt)} · ${duration(primary)}</span>
+      ${model ? `<span>${host.shell.escapeHtml(model)}</span>` : ""}
+      ${usage !== "Not reported" ? `<span>${host.shell.escapeHtml(usage)}</span>` : ""}
+      ${primary.restartedFromExecutionId ? `<button class="link link-hover text-[11px]" data-action="open-run" data-id="${primary.restartedFromExecutionId}">Earlier run</button>` : ""}
     </div>`;
 
     return `<div class="flex flex-col gap-3">
@@ -913,6 +902,15 @@ export function createMainViews(host: MainHost) {
     const tab = host.shell.boardTab;
     const stage = process.stages.find(({ id }) => id === item.stageId);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
+    const run = boardRun(runs);
+    const runControls = run
+      ? `${run.status === "running"
+          ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${run.id}">Stop</button>`
+          : run.status === "queued"
+            ? `<button class="btn btn-sm" disabled>Starting…</button>`
+            : `<button class="btn btn-primary btn-sm" data-action="restart-run" data-id="${run.id}" title="Restart with current config">Restart</button>`}
+        <button class="btn btn-ghost btn-sm text-error" data-action="delete-run" data-id="${run.id}" title="Delete this run and its conversation">Delete</button>`
+      : "";
     const subtaskCount = host.workspaceController.teamItems.filter(({ parentId }) => parentId === item.id).length;
     const pendingCount = host.runs.executionOutputs
       .filter(({ executionId, status }) => status === "pending" && runs.some(({ id }) => id === executionId)).length;
@@ -937,6 +935,7 @@ export function createMainViews(host: MainHost) {
         <div class="flex items-center gap-1">
           ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
+          ${runControls}
           ${tab === "files" && host.shell.boardFileRef
             ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
                 data-action="toggle-board-file-edit">${host.shell.boardFileEditing ? "Done editing" : "Edit file"}</button>`
@@ -1368,7 +1367,7 @@ export function createMainViews(host: MainHost) {
             <span class="ml-2">${statusBadge(execution.status)}</span>
             <span class="mt-1 block text-xs text-muted">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
           </div>
-          <button class="btn btn-ghost btn-xs border border-base-300" data-action="open-item" data-id="${host.shell.escapeHtml(item.id)}">Open task</button>
+          <button class="btn btn-ghost btn-xs border border-base-300" data-action="open-item" data-id="${host.shell.escapeHtml(item.id)}" data-execution="${host.shell.escapeHtml(execution.id)}">Open task</button>
         </div>
         <div class="mt-3 grid gap-3 text-xs">
           ${execution.error
@@ -1424,14 +1423,23 @@ export function createMainViews(host: MainHost) {
       const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
       const files = outputsOf(execution).length;
       const picked = execution.id === host.shell.openRunStepId;
-      return `<button class="block w-full rounded-box border bg-base-100 p-2 text-left shadow-sm hover:border-primary ${picked ? "border-primary ring-1 ring-primary" : "border-base-300"}"
-        data-action="open-process-run-step" data-id="${host.shell.escapeHtml(execution.id)}" aria-pressed="${picked}">
-        <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
-        <span class="mt-1 block text-[0.7rem] text-muted">${clock(at)} · ${duration(execution)}</span>
-        <span class="mt-1 flex flex-wrap items-center gap-1">${statusBadge(execution.status)}${files
-        ? `<span class="badge badge-ghost badge-sm">${files} file${files === 1 ? "" : "s"}</span>`
-        : ""}</span>
-      </button>`;
+      const failed = execution.status === "failed" || execution.status === "interrupted";
+      const restartable = failed || execution.status === "completed";
+      return `<div class="overflow-hidden rounded-box border bg-base-100 shadow-sm ${picked ? "border-primary ring-1 ring-primary" : "border-base-300"}">
+        <button class="block w-full p-2 text-left hover:bg-base-200/50"
+          data-action="${failed ? "open-item" : "open-process-run-step"}"
+          data-id="${host.shell.escapeHtml(failed ? item.id : execution.id)}"
+          ${failed ? `data-execution="${host.shell.escapeHtml(execution.id)}"` : `aria-pressed="${picked}"`}>
+          <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
+          <span class="mt-1 block text-[0.7rem] text-muted">${clock(at)} · ${duration(execution)}</span>
+          <span class="mt-1 flex flex-wrap items-center gap-1">${statusBadge(execution.status)}${files
+          ? `<span class="badge badge-ghost badge-sm">${files} file${files === 1 ? "" : "s"}</span>`
+          : ""}</span>
+        </button>
+        ${restartable
+          ? `<button class="btn btn-ghost btn-xs h-auto min-h-0 w-full rounded-none border-t border-base-300 py-1 text-[0.65rem]" data-action="restart-run" data-id="${host.shell.escapeHtml(execution.id)}">Restart with current config</button>`
+          : ""}
+      </div>`;
     };
     const eventRow = (event: RunTimelineEvent): string => {
       const from = columnOf(event.stageId);
@@ -3117,6 +3125,7 @@ export function createMainViews(host: MainHost) {
     renderSettingsButton,
     searchBox,
     renderWorkItemDetail,
+    renderBoardItemPanel,
     conversationFor,
     renderRunDetail,
     workItemBadges,

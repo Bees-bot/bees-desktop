@@ -198,7 +198,13 @@ impl CredentialStore {
         // Keep the lock through refresh: ChatGPT rotates refresh tokens, so two simultaneous
         // task starts must not both exchange the same one and persist different successors.
         let connection = self.0.lock().map_err(|error| error.to_string())?;
-        connection_token(&connection, secret_ref)
+        connection_token(&connection, secret_ref, false)
+    }
+
+    fn refreshed_token(&self, secret_ref: &str) -> Result<String, String> {
+        // The provider may revoke an access token before the expiry encoded in the JWT.
+        let connection = self.0.lock().map_err(|error| error.to_string())?;
+        connection_token(&connection, secret_ref, true)
     }
 }
 
@@ -329,14 +335,19 @@ fn refresh_oauth(
     )
 }
 
-fn connection_token(connection: &Connection, secret_ref: &str) -> Result<String, String> {
+fn connection_token(
+    connection: &Connection,
+    secret_ref: &str,
+    force_refresh: bool,
+) -> Result<String, String> {
     let stored = read_secret(connection, secret_ref)?;
     let Ok(mut oauth) = serde_json::from_str::<OAuthCredential>(&stored) else {
         return Ok(stored);
     };
-    if oauth
-        .expires_at
-        .is_some_and(|expires| expires <= epoch_seconds() + 60)
+    if force_refresh
+        || oauth
+            .expires_at
+            .is_some_and(|expires| expires <= epoch_seconds() + 60)
     {
         refresh_oauth(connection, secret_ref, &mut oauth)?;
     }
@@ -350,6 +361,7 @@ struct BrokerSecretRequest {
     connection_id: String,
     execution_id: Option<String>,
     discovery: bool,
+    refresh: bool,
 }
 
 fn broker_secret_request(path: &str) -> Result<BrokerSecretRequest, String> {
@@ -383,6 +395,7 @@ fn broker_secret_request(path: &str) -> Result<BrokerSecretRequest, String> {
         connection_id: safe_identifier(&connection_id, "connection ID")?,
         discovery: params.get("purpose").map(String::as_str) == Some("discovery")
             && execution_id.is_none(),
+        refresh: params.get("refresh").map(String::as_str) == Some("true"),
         execution_id: execution_id
             .map(|value| safe_identifier(&value, "execution ID"))
             .transpose()?,
@@ -549,7 +562,11 @@ fn start_credential_broker(
                     if broker_authorized(&database_path, &request)? {
                         return Ok(String::new());
                     }
-                    credentials.token(&request.secret_ref)
+                    if request.refresh {
+                        credentials.refreshed_token(&request.secret_ref)
+                    } else {
+                        credentials.token(&request.secret_ref)
+                    }
                 });
             let (status, body) = match result {
                 Ok(value) => ("200 OK", serde_json::json!({ "token": value }).to_string()),
@@ -4229,9 +4246,10 @@ mod tests {
             )
             .expect("run");
         let request = broker_secret_request(
-            "/secrets/secret-1?teamId=team-1&connectionId=connection-1&executionId=run-1",
+            "/secrets/secret-1?teamId=team-1&connectionId=connection-1&executionId=run-1&refresh=true",
         )
         .expect("request");
+        assert!(request.refresh);
         assert!(broker_authorized(&path, &request).is_ok());
         let denied = BrokerSecretRequest {
             connection_id: "connection-2".into(),

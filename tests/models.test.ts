@@ -1,4 +1,35 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  AssistantMessageEventStream,
+  Model,
+  ProviderStreams
+} from "@earendil-works/pi-ai";
+
+const message = (model: Model<Api>, stopReason: "stop" | "error", errorMessage?: string): AssistantMessage => ({
+  role: "assistant",
+  content: [],
+  api: model.api,
+  provider: model.provider,
+  model: model.id,
+  usage: {
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+  },
+  stopReason,
+  ...(errorMessage ? { errorMessage } : {}),
+  timestamp: 0
+});
+
+function terminalStream(final: AssistantMessage): AssistantMessageEventStream {
+  const stream = createAssistantMessageEventStream();
+  queueMicrotask(() => stream.push(final.stopReason === "error"
+    ? { type: "error", reason: "error", error: final }
+    : { type: "done", reason: "stop", message: final }));
+  return stream;
+}
 
 /** models.ts reads the per-model windows out of the environment once, at import. */
 async function load(windows?: Record<string, unknown> | string) {
@@ -13,6 +44,30 @@ afterEach(() => {
 });
 
 describe("Bees-owned model limits", () => {
+  it("refreshes and retries once when Codex rejects a nominally unexpired token", async () => {
+    const { recoverCodexAuthentication } = await load();
+    const model = {
+      id: "gpt-test", name: "test", api: "openai-codex-responses", provider: "openai-codex",
+      baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1, maxTokens: 1
+    } satisfies Model<"openai-codex-responses">;
+    const run = vi.fn((_model, _context, options) => terminalStream(
+      options?.apiKey === "fresh"
+        ? message(model, "stop")
+        : message(model, "error", "Provided authentication token is expired.")
+    ));
+    const api = recoverCodexAuthentication(
+      { stream: run, streamSimple: run } as ProviderStreams,
+      vi.fn(async () => "fresh")
+    );
+
+    const final = await api.stream(model, { messages: [] }, { apiKey: "stale" }).result();
+
+    expect(final.stopReason).toBe("stop");
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[1]?.[2]).toMatchObject({ apiKey: "fresh" });
+  });
+
   // Every local model gets its own llama-server with its own window, because what a token
   // costs is set by the model's layers and KV heads — a 3B and a 235B are not comparable.
   it("declares each model's own window, not one shared number", async () => {

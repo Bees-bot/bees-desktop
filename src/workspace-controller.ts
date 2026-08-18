@@ -193,7 +193,8 @@ export function createWorkspaceController(host: MainHost) {
         const roots = own
           .filter(({ parentId }) => !parentId)
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-          .map((item) => ({ item, open: openWork(itemTree(own, item.id)).length }));
+          // The row already represents the root; its badge counts only additional open work.
+          .map((item) => ({ item, open: openWork(itemTree(own, item.id).filter(({ id }) => id !== item.id)).length }));
         return [{ board, process, count: openWork(own).length, roots }];
       }));
     }

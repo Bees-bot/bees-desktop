@@ -2,8 +2,16 @@
 // consumers need them and must not disagree: `app.ts` registers the pi-ai models, and the
 // agents derive their compaction settings from the same windows.
 
-import { createProvider } from "@earendil-works/pi-ai";
-import type { Model, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, createProvider } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  AssistantMessageEvent,
+  AssistantMessageEventStream,
+  Model,
+  ProviderStreams,
+  ThinkingLevelMap
+} from "@earendil-works/pi-ai";
 import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
@@ -15,6 +23,70 @@ import { aiConnectionSecret } from "./credentials.ts";
 const selfUrl = process.env.BEES_SELF_URL ?? "http://127.0.0.1:1";
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 export const OPENAI_CODEX_PROVIDER = "openai-codex";
+
+function failedMessage(model: Model<Api>, error: unknown): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason: "error",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now()
+  };
+}
+
+function expiredAuthentication(event: AssistantMessageEvent): boolean {
+  return event.type === "error"
+    && /authentication token is expired/i.test(event.error.errorMessage ?? "");
+}
+
+/** Retry one pre-stream Codex auth rejection with a freshly exchanged token. */
+export function recoverCodexAuthentication(
+  api: ProviderStreams,
+  refresh: () => Promise<string>
+): ProviderStreams {
+  const recover = (
+    model: Model<Api>,
+    start: (apiKey?: string) => AssistantMessageEventStream
+  ): AssistantMessageEventStream => {
+    const output = createAssistantMessageEventStream();
+    void (async () => {
+      let source = start();
+      let emitted = false;
+      for await (const event of source) {
+        if (!emitted && expiredAuthentication(event)) {
+          source = start(await refresh());
+          for await (const retry of source) output.push(retry);
+          output.end(await source.result());
+          return;
+        }
+        emitted = true;
+        output.push(event);
+      }
+      output.end(await source.result());
+    })().catch((error) => {
+      const failure = failedMessage(model, error);
+      output.push({ type: "error", reason: "error", error: failure });
+    });
+    return output;
+  };
+  return {
+    stream: (model, context, options) => recover(
+      model,
+      (apiKey) => api.stream(model, context, apiKey ? { ...options, apiKey } : options)
+    ),
+    streamSimple: (model, context, options) => recover(
+      model,
+      (apiKey) => api.streamSimple(model, context, apiKey ? { ...options, apiKey } : options)
+    )
+  };
+}
 
 /**
  * Used when a local model is not in the map below — it started outside this runtime's view,
@@ -237,7 +309,10 @@ export function registerOpenAICodexProvider(): void {
       }
     },
     models: Object.values(OPENAI_CODEX_MODELS),
-    api: openAICodexResponsesApi()
+    api: recoverCodexAuthentication(
+      openAICodexResponsesApi(),
+      () => aiConnectionSecret(secretRef, organizationId, connectionId, true)
+    )
   }));
 }
 

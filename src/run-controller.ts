@@ -37,11 +37,13 @@ import type {
 } from "./domain.js";
 import {
   activeExecutionForItem,
+  activeWorkItemWaits,
   autonomousRunKeys,
   errorText,
   isProposal,
   needsAutonomousRun,
   parseLogicalFileReference,
+  workItemForRetry,
   workItemCondition
 } from "./domain.js";
 import {
@@ -1282,10 +1284,17 @@ export function createRunController(host: MainHost) {
     execution: Execution;
     message: string;
   }, restartedFromExecutionId?: string, scheduled = false): Promise<void> {
-    const item = host.workspaceController.teamItems.find(({ id }) => id === itemId)
+    let item = host.workspaceController.teamItems.find(({ id }) => id === itemId)
       ?? (await host.repository.getWorkItem(itemId));
     if (!item)
       throw new Error("Work item not found");
+    if (restartedFromExecutionId) {
+      const errors = activeWorkItemWaits(item).filter(({ kind }) => kind === "error");
+      for (const { id: waitId } of errors) {
+        await host.workflowRuntime.command(item.id, { type: "resolve_wait", waitId });
+      }
+      item = workItemForRetry(item);
+    }
     const condition = workItemCondition(item, executions);
     if (condition !== "ready") {
       throw new Error(`This work item cannot run while it is ${condition}`);

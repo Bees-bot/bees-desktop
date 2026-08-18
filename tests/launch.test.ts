@@ -210,6 +210,7 @@ describe("lean launch modules", () => {
     const failedView = inboxView(failed, [execution], [], [process]);
     expect(failedView).toContain("Onboarding campaign");
     expect(failedView).toContain("Runtime unavailable");
+    expect(failedView).toContain('data-action="restart-run" data-id="failed-run">Restart</button>');
     expect(failedView).not.toMatch(/<th[^>]*>Org<|<th[^>]*>Team</);
     expect(inboxView([], [execution], [], [process])).toContain("Nothing waiting on you");
     // A step only a person can start belongs here too — it produces no run at all, so a
@@ -273,9 +274,11 @@ describe("lean launch modules", () => {
   });
 
   it("renders the team assistant without context dropdowns", () => {
-    const html = overviewView([], [], [], [], []);
+    const html = overviewView();
 
-    expect(html.indexOf("data-overview-assistant")).toBeLessThan(html.indexOf("Recent AI work"));
+    expect(html).toContain("data-overview-assistant");
+    expect(html).not.toContain("Needs your approval");
+    expect(html).not.toContain("Recent AI work");
     expect(html).toContain('class="textarea w-full resize-none border-none bg-transparent');
     expect(html).not.toContain("<select");
     expect(html).not.toMatch(/Running|Needs attention|Completed/);
@@ -538,6 +541,7 @@ describe("lean launch modules", () => {
     expect(html).toContain("The model stopped early.");
     // A settled run offers the clean restart, never a resume of this conversation.
     expect(html).toContain('data-action="restart-run"');
+    expect(html).not.toContain('data-action="download-receipt"');
     expect(html).toContain('data-id="earlier-run"');
   });
 });

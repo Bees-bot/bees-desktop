@@ -338,13 +338,7 @@ export function createAppShell(host: MainHost) {
     host.views.renderNavigation();
     if (view === "overview") {
       setHeader("What do you want to do today?", host.session.currentTeam()?.name);
-      swap(overviewView(
-        host.workspaceController.teamItems,
-        host.runs.executions,
-        escalationGroups(host.runs.supervise(), host.workspaceController.teamItems),
-        host.runs.executionOutputs,
-        host.workspaceController.processes
-      ));
+      swap(overviewView());
     }
     if (view === "inbox") {
       setHeader("Tasks waiting on you", host.session.currentTeam()?.name);

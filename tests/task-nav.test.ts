@@ -29,13 +29,14 @@ function navFor(roots: Array<{ id: string; title: string; isTerminal: boolean; o
 describe("left menu task rows", () => {
   it("shows one primary task per active run under the label", () => {
     const nav = navFor([
-      { id: "live", title: "Live task", isTerminal: false, open: 1 },
+      { id: "live", title: "Live task", isTerminal: false, open: 0 },
       { id: "finished", title: "Finished task", isTerminal: true, open: 0 },
       { id: "wrapping-up", title: "Wrapping up", isTerminal: true, open: 2 }
     ]);
 
     expect(nav).toContain("Active tasks");
     expect(nav).toContain("Live task");
+    expect(nav).not.toContain('title="1 open task"');
     // The primary task has finished, but its run still has open child work.
     expect(nav).toContain("Wrapping up");
     expect(nav).not.toContain("Finished task");

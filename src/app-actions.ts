@@ -1187,7 +1187,7 @@ export function createMainActions(host: MainHost) {
    * Expands one card's panel under the board: fresh run history loaded, file/edit state reset,
    * and the tab landing on Approval when something is waiting for a decision.
    */
-  async function expandBoardItem(id: string): Promise<void> {
+  async function expandBoardItem(id: string, executionId = ""): Promise<void> {
     host.shell.boardItemId = id;
     host.shell.boardFileRef = "";
     host.shell.boardFileEditing = false;
@@ -1196,9 +1196,16 @@ export function createMainActions(host: MainHost) {
     if (latest)
       await host.runs.loadExecutionHistory(latest);
     const itemRunIds = new Set(host.runs.executions.filter(({ workItemId }) => workItemId === id).map(({ id: runId }) => runId));
-    host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
-      ? "approval"
-      : "details";
+    if (executionId && itemRunIds.has(executionId)) {
+      host.shell.activeExecutionId = executionId;
+      host.shell.boardTab = "conversation";
+    }
+    else {
+      host.shell.activeExecutionId = "";
+      host.shell.boardTab = host.runs.executionOutputs.some(({ executionId, status }) => status === "pending" && itemRunIds.has(executionId))
+        ? "approval"
+        : "details";
+    }
   }
 
 
@@ -1394,6 +1401,7 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "open-item") {
         const id = button.dataset.id!;
+        const executionId = button.dataset.execution ?? "";
         const item = host.workspaceController.teamItems.find((candidate) => candidate.id === id);
         const process = item ? host.workspaceController.processes.find(({ id: processId }) => processId === item.processId) : null;
         const renderer = process
@@ -1409,12 +1417,13 @@ export function createMainActions(host: MainHost) {
           // Scope the board to the run this item belongs to, or a subtask opened from the
           // Inbox would land on a board that filters its own card out.
           host.shell.boardRootItemId = rootItemId(host.workspaceController.items, id);
-          await expandBoardItem(id);
+          await expandBoardItem(id, executionId);
           host.shell.view = "board";
           host.shell.render();
           return;
         }
         host.shell.activeItemId = id;
+        host.shell.activeExecutionId = executionId;
         const latest = host.runs.executions.find(({ workItemId }) => workItemId === id);
         if (latest)
           await host.runs.loadExecutionHistory(latest);
