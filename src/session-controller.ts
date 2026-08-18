@@ -679,7 +679,7 @@ export function createSessionController(host: MainHost) {
     host.workspaceController.workspace.teamId = organizationTeams[0]?.id ?? "";
     host.workspaceController.activeBoard = null;
     host.workspaceController.activeProcess = null;
-    host.shell.view = organizationTeams.length ? "overview" : "settings";
+    host.shell.view = organizationTeams.length ? "overview" : "welcome";
     await host.assistant.refreshAssistantCatalog();
     await host.workspaceController.refresh();
   }

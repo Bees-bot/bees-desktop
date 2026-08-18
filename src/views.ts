@@ -16,7 +16,8 @@ export type View =
   | "schedules"
   | "settings"
   | "team-settings"
-  | "getting-started";
+  | "getting-started"
+  | "welcome";
 
 /**
  * The views worth reopening the app on. Everything else — one item, one run, one process editor —
@@ -31,7 +32,8 @@ export const RESTORABLE_VIEWS = new Set<View>([
   "process-library",
   "settings",
   "team-settings",
-  "getting-started"
+  "getting-started",
+  "welcome"
 ]);
 
 /**

@@ -1885,7 +1885,17 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "switch-org") {
-        await host.session.switchConnection(button.dataset.id!, button.dataset.account ?? "");
+        const orgId = button.dataset.id;
+        const accountId = button.dataset.account;
+        const currentOrgId = host.workspaceController.workspace.organizationId;
+        const currentAccount = host.session.currentUser();
+        if (orgId === currentOrgId && accountId === currentAccount?.id) {
+          host.shell.view = "settings";
+          host.shell.settingsTab = "workspaces";
+          host.shell.render();
+          return;
+        }
+        await host.session.switchConnection(orgId!, accountId ?? "");
         return;
       }
       if (action === "toggle-color-mode") {
@@ -2241,7 +2251,7 @@ export function createMainActions(host: MainHost) {
         }
         else {
           host.workspaceController.workspace.teamId = "";
-          host.shell.view = "settings";
+          host.shell.view = "welcome";
           await host.workspaceController.refresh();
         }
         host.shell.showNotice("Team deleted", "success");

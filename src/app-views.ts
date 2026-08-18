@@ -283,10 +283,10 @@ export function createMainViews(host: MainHost) {
       ${host.workspaceController.teams.length
         ? host.workspaceController.teams.map((team) => {
           const selected = team.id === host.workspaceController.workspace.teamId;
-          // Entering a team re-opens it; past that the user's choice stands, even on the active team.
-          const expanded = !host.shell.teamCollapsed(team.id);
+          // The active team is always expanded, otherwise respect the user's toggle state.
+          const expanded = selected || !host.shell.teamCollapsed(team.id);
           return `<section class="group/team mb-0.5">
-                  <div class="flex items-stretch gap-0 rounded-md hover:bg-base-content/[0.06] transition-colors">
+                  <div class="flex items-stretch gap-0 rounded-md transition-colors ${selected ? "bg-base-content/10" : "hover:bg-base-content/[0.06]"}">
                     <button type="button" class="sidebar-icon-btn shrink-0" data-action="toggle-team" data-team="${team.id}"
                       aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${host.shell.escapeHtml(team.name)}"
                       title="${expanded ? "Collapse" : "Expand"} ${host.shell.escapeHtml(team.name)}">
