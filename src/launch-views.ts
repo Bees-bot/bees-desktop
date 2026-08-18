@@ -108,9 +108,12 @@ export function statusBadge(status: string): string {
 }
 
 function empty(title: string, detail: string): string {
-  return `<div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
-    <h3 class="font-bold">${escapeHtml(title)}</h3>
-    <p class="mt-2 text-sm text-muted">${escapeHtml(detail)}</p>
+  return `<div class="flex flex-col items-center justify-center p-12 text-center">
+    <div class="mb-4 flex size-16 items-center justify-center rounded-full bg-base-200/50 text-base-content/40">
+      <svg class="size-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+    </div>
+    <h3 class="text-lg font-medium text-base-content/80">${escapeHtml(title)}</h3>
+    <p class="mt-2 max-w-sm text-sm text-muted">${escapeHtml(detail)}</p>
   </div>`;
 }
 

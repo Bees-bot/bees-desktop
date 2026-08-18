@@ -42,6 +42,7 @@ import {
   parseTurn,
   preferredModelChoice,
   resolveActions,
+  resolveModelChoice,
   sameChoice,
   turnPrompt,
   type ModelChoice
@@ -3123,18 +3124,27 @@ export function createMainActions(host: MainHost) {
     host.shell.render();
   });
 
+  async function assistantModelForRun(): Promise<ModelChoice> {
+    const model = resolveModelChoice(
+      host.assistant.assistantModel,
+      preferredModelChoice(host.assistant.assistantCatalog),
+      host.assistant.assistantCatalog
+    );
+    if (model.provider === LOCAL_PROVIDER)
+      await host.localModels.requireRunning(model.model);
+    return model;
+  }
+
   async function sendAssistantMessage(message: string): Promise<void> {
     host.assistant.assistantLogEntries.push({ role: "you", text: message });
     host.assistant.assistantBusy = true;
     host.views.renderAssistant();
     try {
-      if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
-        await host.localModels.requireRunning(host.assistant.assistantModel.model);
-      }
+      const model = await assistantModelForRun();
       const { baseUrl, token } = await host.ensureFlueRuntime();
       const result = await new FlueRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
-        conversationId: assistantInstanceId(host.workspaceController.workspace.teamId, host.assistant.assistantModel),
+        conversationId: assistantInstanceId(host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog),
         agentName: ASSISTANT_AGENT,
         prompt: turnPrompt(message, host.assistant.assistantContext())
       });
@@ -3172,13 +3182,11 @@ export function createMainActions(host: MainHost) {
     host.assistant.curatorPlan = null;
     host.shell.render();
     try {
-      if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
-        await host.localModels.requireRunning(host.assistant.assistantModel.model);
-      }
+      const model = await assistantModelForRun();
       const { baseUrl, token } = await host.ensureFlueRuntime();
       const result = await new FlueRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
-        conversationId: instanceModelId(CURATOR_AGENT, host.workspaceController.workspace.teamId, host.assistant.assistantModel),
+        conversationId: instanceModelId(CURATOR_AGENT, host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog),
         agentName: CURATOR_AGENT,
         prompt: curatorPrompt(host.assistant.skillReviews)
       });
@@ -3224,12 +3232,10 @@ export function createMainActions(host: MainHost) {
     message: string;
     steps: string[];
   }> {
-    if (host.assistant.assistantModel.provider === LOCAL_PROVIDER) {
-      await host.localModels.requireRunning(host.assistant.assistantModel.model);
-    }
+    const model = await assistantModelForRun();
     const { baseUrl, token } = await host.ensureFlueRuntime();
     const runtime = new FlueRuntime(baseUrl, undefined, token);
-    const instanceId = assistantInstanceId(host.workspaceController.workspace.teamId, host.assistant.assistantModel);
+    const instanceId = assistantInstanceId(host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog);
     const steps: string[] = [];
     let lastResult = "The user approved this operation.";
     for (let index = 0; index < 24; index += 1) {
@@ -3281,15 +3287,14 @@ export function createMainActions(host: MainHost) {
    * arrow at the wrong button — it never clicks one.
    */
   async function locateTourStep(step: TourStep, index: number, total: number): Promise<string> {
-    if (host.assistant.assistantModel.provider === LOCAL_PROVIDER)
-      await host.localModels.requireRunning(host.assistant.assistantModel.model);
+    const model = await assistantModelForRun();
     const { baseUrl, token } = await host.ensureFlueRuntime();
     const result = await new FlueRuntime(baseUrl, undefined, token).execute({
       executionId: crypto.randomUUID(),
       // A fresh conversation per step. Snapshots are large and the previous step's is worthless
       // once the screen has moved on, so replaying them would only burn the context window. The
       // model still rides in the instance id — see `modelForInstance`.
-      conversationId: instanceModelId(ASSISTANT_AGENT, `tour-${crypto.randomUUID()}`, host.assistant.assistantModel),
+      conversationId: instanceModelId(ASSISTANT_AGENT, `tour-${crypto.randomUUID()}`, model, host.assistant.assistantCatalog),
       agentName: ASSISTANT_AGENT,
       prompt: [
         `Bees guided tour, step ${index + 1} of ${total}. Point the arrow at one control.`,

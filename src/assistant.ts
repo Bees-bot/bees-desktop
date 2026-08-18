@@ -69,16 +69,20 @@ export function isAutoChoice(config: { provider?: string; model?: string }): boo
 export function instanceModelId(
   agentName: string,
   teamId: string,
-  choice: ModelChoice
+  choice: ModelChoice,
+  catalog: ModelOption[] = []
 ): string {
-  const hex = [...new TextEncoder().encode(modelRef(choice))]
+  // Auto is a UI choice, not a provider. Resolve it at the last shared boundary so no caller can
+  // hand Flue the invalid literal model "auto/auto".
+  const selected = resolveModelChoice(choice, preferredModelChoice(catalog), catalog);
+  const hex = [...new TextEncoder().encode(modelRef(selected))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   return `${agentName}--${hex}--${teamId}`;
 }
 
-export function assistantInstanceId(teamId: string, choice: ModelChoice): string {
-  return instanceModelId(ASSISTANT_AGENT, teamId, choice);
+export function assistantInstanceId(teamId: string, choice: ModelChoice, catalog: ModelOption[] = []): string {
+  return instanceModelId(ASSISTANT_AGENT, teamId, choice, catalog);
 }
 
 // ---- What the model is allowed to propose ----
