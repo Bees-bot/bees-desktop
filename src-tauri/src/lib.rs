@@ -38,7 +38,9 @@ use std::{
 };
 use tauri::{Manager, State};
 
-use crate::process::{available_loopback_port, bind_loopback, Sidecar};
+use crate::process::{
+    available_loopback_port, bind_loopback, reap_orphaned_node_sidecars, Sidecar,
+};
 
 struct Database(Mutex<Connection>);
 
@@ -1572,6 +1574,7 @@ fn ensure_flue_runtime_blocking(
         .env("BEES_FLUE_TOKEN", &token)
         .env("BEES_CREDENTIAL_BROKER_URL", &broker.url)
         .env("BEES_CREDENTIAL_BROKER_TOKEN", &broker.token)
+        .env("BEES_PARENT_PIPE", "1")
         // Run pointers and browser profiles are mutable runtime state, not build inputs.
         .env("BEES_STATE_DIR", &state_dir)
         // Trusted local modules live in a separate process with no provider or broker secrets.
@@ -1623,7 +1626,7 @@ fn ensure_flue_runtime_blocking(
     // Both children are Sidecars from here on, so any `?` below reaps whatever already started.
     let mut child = Sidecar::new(
         command
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log_errors))
             .spawn()
@@ -1702,7 +1705,8 @@ fn spawn_capability_host(
             .env("PORT", port.to_string())
             .env("BEES_STATE_DIR", state_dir)
             .env("BEES_CAPABILITY_TOKEN", token)
-            .stdin(Stdio::null())
+            .env("BEES_PARENT_PIPE", "1")
+            .stdin(Stdio::piped())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(errors))
             .spawn()
@@ -3786,6 +3790,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            if let Ok((node, _)) = bundled_flue_paths(app.handle()) {
+                reap_orphaned_node_sidecars(&node);
+            }
             let app_data = app.path().app_data_dir()?;
             let database_path = app_data.join("bees.db");
             let database = initialize_database(app)?;

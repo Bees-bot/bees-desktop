@@ -143,6 +143,9 @@ describe("runPrompt", () => {
     });
     expect(prompt).toContain('"effect":"read|prepare|external_write"');
     expect(prompt).toContain("publisher: Publishes approved replies");
+    expect(prompt).toContain("Writing a task plan is an alternative to producing deliverables");
+    expect(prompt).toContain("execute it directly and do not create a task plan");
+    expect(prompt).toContain("make its creation part of the first task");
     expect(prompt).toContain("action-receipt.json");
     expect(prompt).toContain("If success is uncertain");
   });
@@ -157,7 +160,10 @@ describe("runPrompt", () => {
       teamRoot: "/team",
       stages: stages("Work", "Review")
     });
-    expect(prompt).toContain("Parent goal: Draft");
+    expect(prompt).toContain("Parent goal (context only): Draft");
+    expect(prompt).toContain("CHILD SCOPE");
+    expect(prompt).toContain("Do not perform, plan, or launch later Parent goal iterations");
+    expect(prompt).toContain("choose Done even when the Parent goal is unfinished");
     expect(prompt).toContain("[done] Write copy — files: copy.md");
   });
 

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { bindParentLifecycle } from "./parent-lifecycle.mjs";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -134,6 +135,4 @@ function stop() {
   server.close(() => process.exit(0));
 }
 
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
-process.on("disconnect", stop);
+bindParentLifecycle(stop);

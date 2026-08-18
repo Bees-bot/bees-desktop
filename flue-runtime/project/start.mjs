@@ -1,4 +1,5 @@
 import { startFlueNodeServer } from "./dist/app.mjs";
+import { bindParentLifecycle } from "./parent-lifecycle.mjs";
 
 const lifecycle = await startFlueNodeServer({
   port: Number.parseInt(process.env.PORT ?? "3000", 10),
@@ -11,6 +12,4 @@ async function stop(code) {
   process.exit(code);
 }
 
-process.on("SIGINT", () => void stop(130));
-process.on("SIGTERM", () => void stop(143));
-process.on("disconnect", () => void stop(0));
+bindParentLifecycle(stop);

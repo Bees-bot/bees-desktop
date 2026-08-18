@@ -2,9 +2,11 @@
 //! host, the knowledge worker, and one llama-server per running local model.
 
 use std::net::TcpListener;
+use std::path::Path;
 use std::process::Child;
 use std::thread;
 use std::time::Duration;
+use sysinfo::{ProcessesToUpdate, System};
 
 /// A loopback listener on whichever ephemeral port the OS handed out, and that port.
 pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
@@ -19,6 +21,27 @@ pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
 /// An ephemeral port the OS picked, released again before the caller binds it for real.
 pub fn available_loopback_port() -> Result<u16, String> {
     bind_loopback().map(|(_, port)| port)
+}
+
+fn managed_node_sidecar(executable: Option<&Path>, node: &Path) -> bool {
+    executable == Some(node)
+}
+
+/// Remove a Node sidecar whose Bees parent was hard-killed before `Drop` could reap it.
+/// The exact bundled executable path keeps this from touching another app's Node process.
+pub fn reap_orphaned_node_sidecars(node: &Path) -> usize {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut reaped = 0;
+    for process in system.processes().values() {
+        let orphaned = process
+            .parent()
+            .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
+        if orphaned && managed_node_sidecar(process.exe(), node) && process.kill() {
+            reaped += 1;
+        }
+    }
+    reaped
 }
 
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever
@@ -57,5 +80,21 @@ impl Drop for Sidecar {
             thread::sleep(Duration::from_millis(50));
         }
         // ponytail: still stuck — leak it rather than block. Only a reboot clears such a process.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn orphan_reaper_matches_only_our_exact_node_executable() {
+        let node = Path::new("/Applications/Bees.app/Contents/MacOS/bees-node");
+        assert!(managed_node_sidecar(Some(node), node));
+        assert!(!managed_node_sidecar(
+            Some(Path::new("/usr/bin/node")),
+            node
+        ));
+        assert!(!managed_node_sidecar(None, node));
     }
 }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Execution, ExecutionOutput, Process, WorkItem } from "../../domain.js";
 import { goalsProcess } from "./definition.js";
 import { TaskPlanController, type TaskPlanHost } from "./controller.js";
-import { GOAL_REVIEWER_PROMPT, GOAL_WORKER_PROMPT } from "./index.js";
+import { GOAL_PLANNER_PROMPT, GOAL_REVIEWER_PROMPT, GOAL_WORKER_PROMPT } from "./index.js";
 import { persistProcessDefinition } from "../types.js";
 
 describe("Goals process controller", () => {
@@ -77,9 +77,14 @@ describe("Goals process controller", () => {
     expect(host.approveTaskPlan).toHaveBeenCalledTimes(2);
   });
 
-  it("allows every task to plan another child wave", () => {
+  it("keeps recursive plans scoped to the current task", () => {
+    expect(GOAL_PLANNER_PROMPT).toContain("Planning never creates or initializes a deliverable");
+    expect(GOAL_PLANNER_PROMPT).toContain("next runnable wave");
     expect(GOAL_WORKER_PROMPT).toContain("independently executable child tasks");
+    expect(GOAL_WORKER_PROMPT).toContain("Never use a task plan to schedule");
     expect(GOAL_REVIEWER_PROMPT).toContain("Plan when it needs another");
+    expect(GOAL_REVIEWER_PROMPT).toContain("Choose Done when they");
+    expect(GOAL_REVIEWER_PROMPT).toContain("Never plan the Parent goal's next iteration");
     expect(GOAL_REVIEWER_PROMPT).toContain("Never choose Waiting");
   });
 });

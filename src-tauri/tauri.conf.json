@@ -61,6 +61,7 @@
       "../flue-runtime/node_modules": "flue-runtime/node_modules",
       "../flue-runtime/project/dist": "flue-runtime/project/dist",
       "../flue-runtime/project/capability-server.mjs": "flue-runtime/project/capability-server.mjs",
+      "../flue-runtime/project/parent-lifecycle.mjs": "flue-runtime/project/parent-lifecycle.mjs",
       "../flue-runtime/project/start.mjs": "flue-runtime/project/start.mjs",
       "../flue-runtime/project/workflow": "flue-runtime/project/workflow",
       "../llama-runtime": "llama-runtime",

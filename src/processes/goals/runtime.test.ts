@@ -55,9 +55,9 @@ const item = (value: Partial<WorkItem>): WorkItem =>
 describe("Goals process runtime", () => {
   it("resumes a waiting goal only after every child is done", () => {
     const parent = item({});
-    const done = item({ id: "child-1", parentId: parent.id, isTerminal: true, logicalFiles: ["a.md"] });
+    const done = item({ id: "child-1", parentId: parent.id, isTerminal: true, logicalFiles: ["counter.txt"] });
     expect(completedTaskPlanParentsReadyForReview([parent, done], [goals])).toEqual([
-      expect.objectContaining({ parent, review: stages[3], logicalFiles: ["a.md"] })
+      expect.objectContaining({ parent, review: stages[3], logicalFiles: ["counter.txt"] })
     ]);
     expect(completedTaskPlanParentsReadyForReview([parent, { ...done, isTerminal: false }], [goals])).toEqual([]);
   });

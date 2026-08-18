@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { bindParentLifecycle } from "../parent-lifecycle.mjs";
 import {
   Connection,
   WorkflowClient,
@@ -288,6 +289,4 @@ async function stop(code) {
   process.exit(code);
 }
 
-process.once("SIGINT", () => void stop(130));
-process.once("SIGTERM", () => void stop(143));
-process.once("disconnect", () => void stop(0));
+bindParentLifecycle(stop);
