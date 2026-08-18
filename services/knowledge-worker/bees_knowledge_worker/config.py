@@ -81,13 +81,16 @@ class WorkerConfig:
                 source_path = base / source_path
             if source_id in sources:
                 raise ValueError(f"duplicate source: {source_id}")
+            enabled = value.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValueError("source.enabled must be true or false")
             sources[source_id] = Source(
                 id=source_id,
                 organization_id=organization_id,
                 team_id=team_id,
                 name=name.strip(),
                 path=source_path.resolve(),
-                enabled=value.get("enabled", True) is True,
+                enabled=enabled,
             )
 
         tokens: list[TokenScope] = []
