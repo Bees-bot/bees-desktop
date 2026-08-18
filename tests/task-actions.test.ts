@@ -89,6 +89,7 @@ describe("task actions", () => {
   it("schedules the current board run again without occurrence choices", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+    const runs = readFileSync(new URL("../src/run-controller.ts", import.meta.url), "utf8");
 
     expect(views).toContain("Schedule new recurring run");
     expect(views).toContain('data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"`');
@@ -98,6 +99,10 @@ describe("task actions", () => {
     expect(actions).toContain('mode: "run"');
     expect(actions).not.toContain('label: "On each occurrence"');
     expect(actions).not.toContain('label: "Occurrence worker role"');
+    expect(actions).toContain("runScheduledOccurrence({ ...schedule, ...triggered }, false)");
+    expect(runs).toContain("const key = `schedule:${schedule.id}:${schedule.updatedAt}`");
+    expect(runs).toContain("await runItem(itemId, auto, undefined, undefined, true)");
+    expect(runs).not.toContain("Scheduled task role is unavailable");
   });
 
   it("offers library processes directly when creating a task", () => {
