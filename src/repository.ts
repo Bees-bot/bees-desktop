@@ -422,16 +422,6 @@ export class LocalRepository {
   constructor(private readonly database: Database) {}
 
   async bootstrap(): Promise<LocalWorkspace> {
-    await this.database.execute(
-      `UPDATE organizations SET name = ?, updated_at = ?
-       WHERE name = ? AND updated_at = created_at
-         AND EXISTS (
-           SELECT 1 FROM teams
-           WHERE teams.organization_id = organizations.id
-             AND teams.name = ? AND teams.created_at = organizations.created_at
-         )`,
-      ["My workspace", now(), "Local org", "Marketing"]
-    );
     const existing = await this.database.query<Row>(
       `SELECT o.id AS organizationId, t.id AS teamId, p.id AS processId
        FROM organizations o
