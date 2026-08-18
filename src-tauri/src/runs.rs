@@ -514,7 +514,9 @@ fn settle(app: &tauri::AppHandle, request: RunRequest, resume_from: Option<Admis
     let settled = match outcome {
         Ok(settled) => settled,
         Err(error) => {
-            let _ = record(
+            // The webview trusts the row, not the event. Drop this write silently and the run
+            // sits at "running" forever with nothing anywhere saying why.
+            let error = match record(
                 &database,
                 &request.execution_id,
                 "failed",
@@ -522,7 +524,16 @@ fn settle(app: &tauri::AppHandle, request: RunRequest, resume_from: Option<Admis
                 Some(&error),
                 &[],
                 "",
-            );
+            ) {
+                Ok(()) => error,
+                Err(write_error) => {
+                    eprintln!(
+                        "could not record the failed run {}: {write_error}",
+                        request.execution_id
+                    );
+                    format!("{error} (and saving that failure failed too: {write_error})")
+                }
+            };
             RunSettled {
                 execution_id: request.execution_id.clone(),
                 status: "failed".into(),

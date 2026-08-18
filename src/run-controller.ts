@@ -1010,17 +1010,31 @@ export function createRunController(host: MainHost) {
       runningProcesses.delete(processId);
     }
     await host.repository.setSetting(RUNNING_PROCESSES_KEY, [...runningProcesses]);
+    const stuck: string[] = [];
     if (!running) {
       const inFlight = executions.filter(({ workItemId, status }) => ["queued", "running"].includes(status) &&
         host.workspaceController.teamItems.some((item) => item.id === workItemId && item.processId === processId));
       for (const execution of inFlight) {
-        await host.runCoordinator.stop(execution.id).catch(() => undefined);
-        await releaseClaim(execution.workItemId).catch(() => undefined);
+        // A run we failed to stop is still burning tokens and still writing files. Saying
+        // "Process stopped" over the top of that is worse than saying nothing.
+        try {
+          await host.runCoordinator.stop(execution.id);
+          await releaseClaim(execution.workItemId);
+        } catch (error) {
+          stuck.push(errorText(error));
+        }
       }
       if (inFlight.length) await host.workspaceController.refresh();
     }
     host.shell.render();
     if (running) void autopilot();
+    if (stuck.length) {
+      host.shell.showNotice(
+        `${stuck.length} run${stuck.length > 1 ? "s" : ""} would not stop and ${stuck.length > 1 ? "are" : "is"} still going: ${stuck[0]}`,
+        "error"
+      );
+      return;
+    }
     host.shell.showNotice(running ? "Process running" : "Process stopped", "success");
   }
 

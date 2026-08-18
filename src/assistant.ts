@@ -18,6 +18,7 @@ import {
 import {
   CLI_TOOLS
 } from "./cli-tools.js";
+import { jsonObjects, text, textList } from "./model-json.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
 import {
@@ -122,33 +123,6 @@ export interface AssistantTurn {
   actions: AssistantAction[];
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function textList(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(text).filter(Boolean) : [];
-}
-
-/**
- * Small models wrap JSON in fences and in apologies. Rather than fight that with a retry, take
- * the outermost braces and try those — and if there is no usable JSON at all, treat the whole
- * answer as prose. A chatty reply is still a useful reply; it just proposes nothing.
- */
-function extractJson(raw: string): Record<string, unknown> | null {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw.slice(start, end + 1));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 /** One action, or null when it is missing a field we would have to invent. */
 function parseAction(value: unknown): AssistantAction | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -200,15 +174,19 @@ function parseAction(value: unknown): AssistantAction | null {
 }
 
 export function parseTurn(raw: string): AssistantTurn {
-  const parsed = extractJson(raw);
-  if (!parsed) return { reply: raw.trim(), actions: [] };
-  // The envelope carries an actions list, but a model that answers with one bare action is still
-  // saying something unambiguous, and the alternative is printing our own protocol at the user.
-  const proposed = Array.isArray(parsed.actions) ? parsed.actions : parsed.type ? [parsed] : [];
+  const objects = jsonObjects(raw);
+  if (!objects.length) return { reply: raw.trim(), actions: [] };
+  // The envelope carries reply and actions together. A model that answers with bare actions and no
+  // envelope is still saying something unambiguous, and the alternative is printing our own
+  // protocol at the user.
+  const envelope = objects.find((object) => "reply" in object || "actions" in object);
+  const proposed = Array.isArray(envelope?.actions)
+    ? envelope.actions
+    : objects.filter((object) => object.type);
   const actions = proposed
     .map(parseAction)
     .filter((action): action is AssistantAction => action !== null);
-  return { reply: text(parsed.reply) || (actions.length ? "" : raw.trim()), actions };
+  return { reply: text(envelope?.reply) || (actions.length ? "" : raw.trim()), actions };
 }
 
 // ---- Resolving names against what exists ----
@@ -437,7 +415,7 @@ export type BeesUiCommand =
  * time; the renderer resolves opaque refs against the latest visible Bees UI snapshot.
  */
 export function parseBeesUiCommand(raw: string): BeesUiCommand | null {
-  const parsed = extractJson(raw);
+  const parsed = jsonObjects(raw).find((object) => "command" in object);
   const value = parsed?.command;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const command = value as Record<string, unknown>;

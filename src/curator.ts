@@ -9,6 +9,7 @@
 
 import type { Capability } from "./domain.js";
 import { errorText } from "./domain.js";
+import { jsonObjects, text, textList } from "./model-json.js";
 
 /** Name of the bundled agent in `.flue/agents/bees-curator.ts`. */
 export const CURATOR_AGENT = "bees-curator";
@@ -96,29 +97,6 @@ export interface CuratorPlan {
   actions: CuratorAction[];
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function textList(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(text).filter(Boolean) : [];
-}
-
-/** Same tolerance as the assistant: fenced or apologetic JSON still parses; prose proposes nothing. */
-function extractJson(raw: string): Record<string, unknown> | null {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw.slice(start, end + 1));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function parseAction(value: unknown): CuratorAction | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -138,12 +116,12 @@ function parseAction(value: unknown): CuratorAction | null {
 }
 
 export function parseCuratorPlan(raw: string): CuratorPlan {
-  const parsed = extractJson(raw);
-  if (!parsed) return { summary: raw.trim(), actions: [] };
-  const actions = Array.isArray(parsed.actions)
-    ? parsed.actions.map(parseAction).filter((action): action is CuratorAction => action !== null)
+  const plan = jsonObjects(raw).find((object) => "summary" in object || "actions" in object);
+  if (!plan) return { summary: raw.trim(), actions: [] };
+  const actions = Array.isArray(plan.actions)
+    ? plan.actions.map(parseAction).filter((action): action is CuratorAction => action !== null)
     : [];
-  return { summary: text(parsed.summary) || (actions.length ? "" : raw.trim()), actions };
+  return { summary: text(plan.summary) || (actions.length ? "" : raw.trim()), actions };
 }
 
 // ---- Resolving names against the skills that exist ----
