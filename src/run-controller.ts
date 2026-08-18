@@ -993,6 +993,7 @@ export function createRunController(host: MainHost) {
 
   /** Rejections at one status before Bees offers to rewrite that status's skill. */
   const PROPOSAL_THRESHOLD = 3;
+  const TEAM_SKILLS_OUTPUT_PREFIX = "plugins/team-skills/";
 
   const SKILL_EDITOR_PROMPT = `You improve the written procedure a team's agents follow.
   
@@ -1065,6 +1066,21 @@ export function createRunController(host: MainHost) {
     await host.workspaceController.refresh();
   }
 
+  /** Selects one team-owned skill for an agent without duplicating an existing reference. */
+  async function attachTeamSkill(agent: Agent, teamRoot: string, skillPath: string): Promise<void> {
+    const registry = (await host.repository.listRegistries(host.workspaceController.workspace.teamId))
+      .find(({ sourcePath }) => sourcePath === `${teamRoot}/plugins/team-skills`);
+    if (!registry)
+      throw new Error("The team skills registry is unavailable");
+    const ref = `${registry.id}:${skillPath}`;
+    if (!agent.config.skillRefs?.includes(ref)) {
+      await host.actions.writeAgent({
+        ...agent,
+        config: { ...agent.config, skillRefs: [...(agent.config.skillRefs ?? []), ref] }
+      });
+    }
+  }
+
   /** Turns explicit "future items" feedback into a direct, reversible standing rule. */
   async function rememberRejection(item: WorkItem, reason: string): Promise<() => Promise<void>> {
     const stage = host.workspaceController.processes.find(({ id }) => id === item.processId)?.stages.find(({ id }) => id === item.stageId);
@@ -1075,11 +1091,7 @@ export function createRunController(host: MainHost) {
     const slug = skillSlug(`${stage.name}-${host.workspaceController.activeProcess?.name ?? "process"}`);
     await invoke("update_team_skill_rule", { teamRoot: mapping.localPath, slug, reason });
     await host.workspaceController.ensureTeamSkillsRegistry(mapping.localPath);
-    const registry = (await host.repository.listRegistries(host.workspaceController.workspace.teamId)).find(({ sourcePath }) => sourcePath === `${mapping.localPath}/plugins/team-skills`)!;
-    const ref = `${registry.id}:skills/${slug}/SKILL.md`;
-    if (!agent.config.skillRefs?.includes(ref)) {
-      await host.actions.writeAgent({ ...agent, config: { ...agent.config, skillRefs: [...(agent.config.skillRefs ?? []), ref] } });
-    }
+    await attachTeamSkill(agent, mapping.localPath, `skills/${slug}/SKILL.md`);
     return async () => {
       await invoke("update_team_skill_rule", { teamRoot: mapping.localPath, slug, reason, remove: true });
       await host.workspaceController.ensureTeamSkillsRegistry(mapping.localPath);
@@ -1629,6 +1641,21 @@ export function createRunController(host: MainHost) {
       const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
       if (mapping?.localPath && outputs.some(({ status }) => status === "approved")) {
         await host.workspaceController.ensureTeamSkillsRegistry(mapping.localPath);
+        const item = await host.repository.getWorkItem(execution.workItemId);
+        const stageId = execution.config.proposalStageId;
+        const agent = item && typeof stageId === "string"
+          ? agentForItem({ ...item, stageId })
+          : agentForStage(typeof stageId === "string" ? stageId : undefined);
+        if (agent) {
+          for (const output of outputs.filter(({ status, logicalDestination }) =>
+            status === "approved" && logicalDestination.startsWith(TEAM_SKILLS_OUTPUT_PREFIX))) {
+            await attachTeamSkill(
+              agent,
+              mapping.localPath,
+              output.logicalDestination.slice(TEAM_SKILLS_OUTPUT_PREFIX.length)
+            );
+          }
+        }
       }
       return;
     }

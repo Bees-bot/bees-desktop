@@ -119,8 +119,25 @@ describe("task panel run controls", () => {
     const activeTabs = activeHtml.indexOf('role="tablist"');
 
     expect(activeHtml.indexOf('data-action="stop-run" data-id="run">Stop run</button>')).toBeLessThan(activeTabs);
+    expect(activeHtml.indexOf('data-action="reject-output" data-id="output" disabled>Reject</button>')).toBeLessThan(activeTabs);
     expect(activeHtml.indexOf('data-action="approve-output" data-id="output" disabled>Approve</button>')).toBeLessThan(activeTabs);
+    expect(activeHtml.match(/data-action="reject-output"/g)).toHaveLength(1);
     expect(activeHtml.match(/data-action="approve-output"/g)).toHaveLength(1);
     expect(activeHtml).not.toContain('data-board-tab="approval"');
+  });
+});
+
+describe("editor field validation", () => {
+  it("renders required feedback fields with native form validation", () => {
+    const host = { shell: { escapeHtml: (value: unknown) => String(value ?? "") } } as unknown as MainHost;
+    const html = createMainViews(host).editorFieldHtml({
+      name: "reason",
+      label: "Reason",
+      type: "textarea",
+      required: true
+    });
+
+    expect(html).toContain('name="reason"');
+    expect(html).toContain(" required>");
   });
 });

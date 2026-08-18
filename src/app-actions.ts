@@ -34,13 +34,13 @@ import {
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
-  AUTO_MODEL_CHOICE,
   AUTO_PROVIDER,
   applyActions,
   assistantInstanceId,
   instanceModelId,
   parseBeesUiCommand,
   parseTurn,
+  preferredModelChoice,
   resolveActions,
   sameChoice,
   turnPrompt,
@@ -1569,8 +1569,9 @@ export function createMainActions(host: MainHost) {
         const panel = host.shell.app.querySelector<HTMLElement>("[data-inbox-output-preview]");
         const title = panel?.querySelector<HTMLElement>("[data-inbox-output-preview-title]");
         const body = panel?.querySelector<HTMLElement>("[data-inbox-output-preview-body]");
+        const reject = panel?.querySelector<HTMLButtonElement>("[data-inbox-output-preview-reject]");
         const approve = panel?.querySelector<HTMLButtonElement>("[data-inbox-output-preview-approve]");
-        if (!output || !execution?.workspaceRef || !mapping || !panel || !title || !body || !approve)
+        if (!output || !execution?.workspaceRef || !mapping || !panel || !title || !body || !reject || !approve)
           throw new Error("File preview is unavailable");
         const preview = await host.workspaces.preview(execution.workspaceRef, output.logicalOutput, mapping.localPath, output.logicalDestination);
         title.textContent = output.logicalDestination;
@@ -1593,6 +1594,9 @@ export function createMainActions(host: MainHost) {
           note.textContent = "Preview truncated to 256 KB.";
           body.append(note);
         }
+        reject.dataset.id = output.id;
+        reject.setAttribute("aria-label", `Reject ${output.logicalDestination}`);
+        reject.disabled = execution.status === "queued" || execution.status === "running";
         approve.dataset.id = output.id;
         approve.setAttribute("aria-label", `Approve ${output.logicalDestination}`);
         approve.disabled = execution.status === "queued" || execution.status === "running";
@@ -1718,6 +1722,11 @@ export function createMainActions(host: MainHost) {
         const execution = output ? await host.repository.getExecution(output.executionId) : null;
         if (!output || !execution)
           return;
+        const item = host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId) ??
+          await host.repository.getWorkItem(execution.workItemId);
+        const externalAction = item?.goal?.effect === "external_write";
+        const skillProposal = isProposal(execution);
+        const canSaveStandingRule = Boolean(item && !skillProposal);
         // The reason is the only instruction the retry gets, so ask for it here rather than
         // leaving the agent to guess what was wrong with the same task it just did.
         const data = await edit(host.runs.taskPlanController.matchesOutput(output.logicalOutput, execution)
@@ -1727,37 +1736,79 @@ export function createMainActions(host: MainHost) {
             name: "reason",
             label: "What should be different next time?",
             type: "textarea",
-            placeholder: "Too long, wrong tone, missing the pricing section…"
+            placeholder: "Too long, wrong tone, missing the pricing section…",
+            required: true
           },
           {
             name: "scope",
             label: "Apply to",
             type: "toggle",
             value: "item",
-            options: [
-              { label: "This item", value: "item" },
-              { label: "Future items too", value: "future" }
-            ]
+            options: canSaveStandingRule
+              ? [
+                { label: externalAction ? "This task only" : "Retry this task", value: "item" },
+                { label: "Standing rule for future tasks", value: "future" }
+              ]
+              : [{ label: "Reject this proposal", value: "item" }],
+            hint: "Task feedback applies only at this process step. A standing rule becomes editable agent guidance for future tasks."
+          },
+          {
+            name: "retryMeaning",
+            label: "",
+            type: "note",
+            value: skillProposal
+              ? "Rejecting discards this skill proposal; it does not change the task's agent instructions."
+              : externalAction
+              ? "Rejecting blocks this external action for human review; it will not repeat automatically."
+              : "Rejecting requests another attempt. Archive the task instead if it should not run again."
           }
-        ], "Reject");
+        ], externalAction || skillProposal ? "Reject" : "Reject and retry");
         if (!data)
           return;
-        const reason = String(data.get("reason") ?? "");
-        const item = host.workspaceController.teamItems.find(({ id }) => id === execution.workItemId);
-        if (data.get("scope") === "future" && !reason.trim()) {
-          throw new Error("Add a reason before saving feedback for future items");
+        const reason = String(data.get("reason") ?? "").trim();
+        if (!reason) {
+          throw new Error("Add feedback so the next attempt knows what to change");
+        }
+        let standingRule: string | undefined;
+        if (data.get("scope") === "future" && item && canSaveStandingRule) {
+          const rule = await edit("Make a standing rule", [
+            {
+              name: "standingRuleMeaning",
+              label: "",
+              type: "note",
+              value: "This exact rule will be saved in the team's skills and attached to this step's agent. You can edit the skill later or undo this change from the confirmation notice."
+            },
+            {
+              name: "standingRule",
+              label: "Standing rule for future tasks",
+              type: "textarea",
+              value: reason,
+              required: true
+            }
+          ], "Save rule and reject");
+          if (!rule)
+            return;
+          standingRule = String(rule.get("standingRule") ?? "").trim();
+          if (!standingRule)
+            throw new Error("Add the standing rule to save for future tasks");
         }
         await host.repository.decideExecutionOutput(output.id, "rejected", undefined, reason);
-        const undo = data.get("scope") === "future" && item && !isProposal(execution)
-          ? await host.runs.rememberRejection(item, reason)
+        const undo = standingRule && item
+          ? await host.runs.rememberRejection(item, standingRule)
           : undefined;
         await host.runs.finishOutputReview(execution);
         await host.workspaceController.refresh();
         host.shell.showNotice(undo
-          ? "Rejected — feedback saved for future items"
+          ? externalAction
+            ? "Rejected — standing rule saved; review required before another external attempt"
+            : "Rejected — standing rule saved for future tasks"
           : host.runs.taskPlanController.matchesOutput(output.logicalOutput, execution)
             ? "Task plan rejected — the planner will try again"
-            : "File change rejected — the agent will try again", "success", undo);
+            : skillProposal
+              ? "Skill proposal rejected"
+              : externalAction
+              ? "External action rejected — review required before another attempt"
+              : "File change rejected — the agent will try again", "success", undo);
         if (!undo && item && !isProposal(execution)) {
           void host.runs.proposeSkillEdit(item).catch((error) => host.shell.showNotice(errorText(error), "error"));
         }
@@ -2897,8 +2948,8 @@ export function createMainActions(host: MainHost) {
         submit.textContent = "Going…";
       }
       void (async () => {
-        await host.assistant.rememberModelChoice(AUTO_MODEL_CHOICE);
         await toggleAssistant(true);
+        await pickAssistantModel(preferredModelChoice(host.assistant.assistantCatalog));
         await sendAssistantMessage(message);
       })().catch((error) => {
         if (submit?.isConnected) {
