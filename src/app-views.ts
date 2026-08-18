@@ -1172,23 +1172,32 @@ export function createMainViews(host: MainHost) {
     const list = runs
       .map(({ item, steps, startedAt }) => {
         const last = steps.at(-1);
-        return `<li><button class="${host.shell.activeClass(item.id === host.shell.openRunItemId)} block h-auto py-2 text-left"
+        const isActive = item.id === host.shell.openRunItemId;
+        return `<li><button class="flex flex-col items-start gap-1 p-3 transition-colors rounded-xl ${isActive ? "bg-base-content/10 text-base-content shadow-sm ring-1 ring-base-content/10" : "hover:bg-base-content/5 text-base-content/80"} text-left w-full h-auto"
           data-action="open-process-run" data-id="${host.shell.escapeHtml(item.id)}">
-          <span class="block truncate text-sm font-semibold">${host.shell.escapeHtml(item.title)}</span>
-          <span class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
-            ${when(startedAt)} · ${steps.length} step${steps.length === 1 ? "" : "s"} ${last ? statusBadge(last.status) : '<span class="badge badge-ghost badge-sm">Not started</span>'}
+          <span class="block truncate w-full text-sm font-medium ${isActive ? "text-base-content" : "text-base-content/90"}">${host.shell.escapeHtml(item.title)}</span>
+          <span class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted w-full">
+            <span class="font-mono tracking-tight">${when(startedAt)}</span>
+            <span class="w-1 h-1 rounded-full bg-base-content/20"></span>
+            <span>${steps.length} step${steps.length === 1 ? "" : "s"}</span>
+            <span class="flex-1 text-right">${last ? statusBadge(last.status) : '<span class="badge badge-ghost badge-xs uppercase font-bold tracking-wider">Ready</span>'}</span>
           </span>
         </button></li>`;
       })
       .join("");
-    host.shell.swap(`<div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <h3 class="border-b border-base-300 p-4 font-bold">Runs, newest first</h3>
-        ${runs.length
-        ? `<ul class="menu menu-sm gap-1 p-2">${list}</ul>`
-        : '<p class="p-8 text-center text-sm text-muted">This process has no work items yet.</p>'}
+    host.shell.swap(`<div class="grid gap-6 lg:grid-cols-[20rem_1fr] items-start h-full">
+      <section class="flex flex-col max-h-full bg-base-100 rounded-2xl ring-1 ring-base-content/5 shadow-sm overflow-hidden">
+        <header class="px-5 py-4 border-b border-base-200/60 bg-base-100/50 backdrop-blur-md sticky top-0 z-10 flex flex-col gap-0.5">
+          <h3 class="text-sm font-semibold tracking-tight text-base-content/90 uppercase">Runs</h3>
+          <p class="text-[11px] text-muted">Newest first</p>
+        </header>
+        <div class="flex-1 overflow-y-auto p-3">
+          ${runs.length
+          ? `<ul class="flex flex-col gap-1.5">${list}</ul>`
+          : '<div class="p-8 text-center text-sm text-muted">This process has no work items yet.</div>'}
+        </div>
       </section>
-      <section class="grid min-w-0 gap-4">${open ? processRunDetail(process, open) : ""}</section>
+      <section class="grid min-w-0 gap-6">${open ? processRunDetail(process, open) : ""}</section>
     </div>`);
   }
 
@@ -1205,29 +1214,31 @@ export function createMainViews(host: MainHost) {
       const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
       const outputs = outputsOf(execution);
       const logs = execution.logs.trim().slice(-4000);
-      return `<div class="rounded-box border border-base-300 bg-base-100 p-3">
-        <div class="flex flex-wrap items-start justify-between gap-2">
-          <div class="min-w-0">
-            <span class="text-sm font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
-            <span class="ml-2">${statusBadge(execution.status)}</span>
-            <span class="mt-1 block text-xs text-muted">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
+      return `<div class="rounded-xl bg-base-100 ring-1 ring-base-content/5 shadow-sm p-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0 flex flex-col gap-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-base-content">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
+              ${statusBadge(execution.status)}
+            </div>
+            <span class="block text-xs text-muted font-mono tracking-tight">${when(execution.startedAt ?? execution.createdAt)} · ${duration(execution)}</span>
           </div>
-          <button class="btn btn-ghost btn-xs border border-base-300" data-action="open-item" data-id="${host.shell.escapeHtml(item.id)}" data-execution="${host.shell.escapeHtml(execution.id)}">Open task</button>
+          <button class="btn btn-ghost btn-xs ring-1 ring-base-content/10 shadow-xs" data-action="open-item" data-id="${host.shell.escapeHtml(item.id)}" data-execution="${host.shell.escapeHtml(execution.id)}">Open task</button>
         </div>
-        <div class="mt-3 grid gap-3 text-xs">
+        <div class="mt-4 grid gap-4 text-[13px]">
           ${execution.error
-          ? `<div><div class="font-semibold text-error">Error</div><pre class="mt-1 whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(execution.error)}</pre></div>`
+          ? `<div><div class="font-semibold text-error mb-1">Error</div><pre class="whitespace-pre-wrap break-words font-sans bg-error/5 text-error rounded-lg p-3 ring-1 ring-error/10">${host.shell.escapeHtml(execution.error)}</pre></div>`
           : ""}
-          <div><div class="font-semibold text-muted">Logs</div>
-            <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">${host.shell.escapeHtml(logs) || "No logs recorded."}</pre></div>
-          <div><div class="font-semibold text-muted">Files</div>
+          <div><div class="font-semibold text-base-content/70 mb-1">Logs</div>
+            <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed bg-base-200/50 rounded-lg p-3 ring-1 ring-base-content/5">${host.shell.escapeHtml(logs) || "No logs recorded."}</pre></div>
+          <div><div class="font-semibold text-base-content/70 mb-1">Files</div>
             ${outputs.length
-          ? `<ul class="mt-1 grid gap-1">${outputs
-            .map((output) => `<li>${host.shell.escapeHtml(output.logicalOutput)} → ${host.shell.escapeHtml(output.logicalDestination)} ${statusBadge(output.status)}</li>`)
+          ? `<ul class="grid gap-2">${outputs
+            .map((output) => `<li class="flex items-center gap-2 rounded-lg bg-base-200/30 px-3 py-2 ring-1 ring-base-content/5"><span class="font-mono text-[11px] truncate flex-1">${host.shell.escapeHtml(output.logicalOutput)} <span class="text-muted mx-1">→</span> ${host.shell.escapeHtml(output.logicalDestination)}</span> ${statusBadge(output.status)}</li>`)
             .join("")}</ul>`
-          : '<p class="mt-1 text-muted">No files proposed by this step.</p>'}
+          : '<p class="text-muted text-[13px] italic">No files proposed by this step.</p>'}
           </div>
-          <div><button class="btn btn-ghost btn-xs border border-base-300" data-action="open-run" data-id="${execution.id}">Open full conversation</button></div>
+          <div class="pt-2"><button class="btn btn-neutral btn-sm shadow-sm" data-action="open-run" data-id="${execution.id}">Open full conversation</button></div>
         </div>
       </div>`;
     };
@@ -1261,8 +1272,7 @@ export function createMainViews(host: MainHost) {
       return index === -1 ? columns.length - 1 : index;
     };
     const grid = `display:grid;grid-template-columns:repeat(${columns.length},minmax(0,1fr));`;
-    // A status a run never touched still draws its lifeline, so the columns read as one diagram.
-    const lifeline = '<div class="flex justify-center"><span class="block w-px bg-base-300"></span></div>';
+    const lifeline = '<div class="flex justify-center"><span class="block w-px bg-base-content/10"></span></div>';
     const clock = (at: string): string => when(at).split(", ").at(-1) ?? when(at);
     const runCard = (execution: Execution, at: string): string => {
       const agent = host.workspaceController.agents.find(({ id }) => id === execution.agentId);
@@ -1270,19 +1280,19 @@ export function createMainViews(host: MainHost) {
       const picked = execution.id === host.shell.openRunStepId;
       const failed = execution.status === "failed" || execution.status === "interrupted";
       const restartable = failed || execution.status === "completed";
-      return `<div class="overflow-hidden rounded-box border bg-base-100 shadow-sm ${picked ? "border-primary ring-1 ring-primary" : "border-base-300"}">
-        <button class="block w-full p-2 text-left hover:bg-base-200/50"
+      return `<div class="overflow-hidden rounded-xl bg-base-100 shadow-sm transition-all ${picked ? "ring-2 ring-primary shadow-md" : "ring-1 ring-base-content/10 hover:shadow-md hover:-translate-y-0.5"}">
+        <button class="block w-full p-2.5 text-left hover:bg-base-200/40 transition-colors"
           data-action="${failed ? "open-item" : "open-process-run-step"}"
           data-id="${host.shell.escapeHtml(failed ? item.id : execution.id)}"
           ${failed ? `data-execution="${host.shell.escapeHtml(execution.id)}"` : `aria-pressed="${picked}"`}>
-          <span class="block truncate text-xs font-semibold">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
-          <span class="mt-1 block text-[0.7rem] text-muted">${clock(at)} · ${duration(execution)}</span>
-          <span class="mt-1 flex flex-wrap items-center gap-1">${statusBadge(execution.status)}${files
-          ? `<span class="badge badge-ghost badge-sm">${files} file${files === 1 ? "" : "s"}</span>`
+          <span class="block truncate text-[13px] font-semibold text-base-content/90">${host.shell.escapeHtml(agent?.name ?? "Removed agent")}</span>
+          <span class="mt-1 block text-[10px] uppercase tracking-wider font-mono text-muted">${clock(at)} · ${duration(execution)}</span>
+          <span class="mt-1.5 flex flex-wrap items-center gap-1.5">${statusBadge(execution.status)}${files
+          ? `<span class="badge badge-neutral badge-sm shadow-xs">${files} file${files === 1 ? "" : "s"}</span>`
           : ""}</span>
         </button>
         ${restartable
-          ? `<button class="btn btn-ghost btn-xs h-auto min-h-0 w-full rounded-none border-t border-base-300 py-1 text-[0.65rem]" data-action="restart-run" data-id="${host.shell.escapeHtml(execution.id)}">Restart with current config</button>`
+          ? `<button class="btn btn-ghost h-auto min-h-0 w-full rounded-none border-t border-base-200/60 py-1.5 text-[10px] font-medium text-base-content/70 hover:text-base-content uppercase tracking-wider hover:bg-base-200/50" data-action="restart-run" data-id="${host.shell.escapeHtml(execution.id)}">Restart</button>`
           : ""}
       </div>`;
     };
@@ -1291,40 +1301,40 @@ export function createMainViews(host: MainHost) {
       if (event.kind === "moved") {
         const to = columnOf(event.toStageId ?? null);
         const start = Math.min(from, to);
-        return `<div style="${grid}"><div class="flex items-center gap-2 px-1.5 py-2 text-[0.7rem] text-muted"
+        return `<div style="${grid}"><div class="flex items-center gap-2 px-1.5 py-2 text-[10px] font-mono tracking-tight text-muted"
           style="grid-column:${start + 1}/span ${Math.abs(to - from) + 1}">
-          <span class="h-px flex-1 bg-base-300"></span>
-          <span class="whitespace-nowrap">${host.shell.escapeHtml(columns[from]?.name ?? "")} → ${host.shell.escapeHtml(columns[to]?.name ?? "")} · ${clock(event.at)}</span>
-          <span class="h-px flex-1 bg-base-300"></span>
+          <span class="h-px flex-1 bg-base-content/10"></span>
+          <span class="whitespace-nowrap px-2 py-0.5 rounded-full bg-base-200/50 ring-1 ring-base-content/5">${host.shell.escapeHtml(columns[from]?.name ?? "")} → ${host.shell.escapeHtml(columns[to]?.name ?? "")} · ${clock(event.at)}</span>
+          <span class="h-px flex-1 bg-base-content/10"></span>
         </div></div>`;
       }
       const card = event.kind === "created"
-        ? `<div class="rounded-box border border-dashed border-base-300 px-2 py-1.5 text-[0.7rem] text-muted">Created · ${clock(event.at)}</div>`
+        ? `<div class="rounded-xl border border-dashed border-base-content/20 bg-base-100/50 px-3 py-2 text-center text-[11px] font-medium text-muted">Created · ${clock(event.at)}</div>`
         : runCard(event.execution!, event.at);
       return `<div style="${grid}">${columns
-        .map((_, position) => position === from ? `<div class="px-1.5 py-2">${card}</div>` : lifeline)
+        .map((_, position) => position === from ? `<div class="px-2 py-2">${card}</div>` : lifeline)
         .join("")}</div>`;
     };
-    return `<article class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <header class="border-b border-base-300 p-4">
-          <h3 class="font-bold">${host.shell.escapeHtml(item.title)}</h3>
-          <p class="mt-1 text-sm text-muted">${steps.length ? "Started" : "Created"} ${when(run.startedAt)} · now on ${host.shell.escapeHtml(process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status")}</p>
+    return `<article class="flex flex-col h-full rounded-2xl bg-base-100 ring-1 ring-base-content/5 shadow-sm overflow-hidden">
+        <header class="border-b border-base-200/60 px-6 py-5 bg-base-100/50 backdrop-blur-md">
+          <h3 class="text-lg font-bold tracking-tight text-base-content">${host.shell.escapeHtml(item.title)}</h3>
+          <p class="mt-1 flex items-center gap-2 text-[13px] text-muted"><span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full ${steps.length ? 'bg-success' : 'bg-base-content/20'}"></span>${steps.length ? "Started" : "Created"} ${when(run.startedAt)}</span> <span>·</span> <span>Now on <strong class="font-medium text-base-content/80">${host.shell.escapeHtml(process.stages.find(({ id }) => id === item.stageId)?.name ?? "an archived status")}</strong></span></p>
         </header>
-        <div class="overflow-x-auto p-4">
-          <div style="min-width:${columns.length * 11}rem">
-            <div class="sticky top-0 z-10 mb-1 border-b border-base-300 bg-base-100" style="${grid}">${columns
-      .map((column) => `<div class="truncate px-1.5 py-2 text-center text-xs font-semibold text-muted">${host.shell.escapeHtml(column.name)}${column.id === item.stageId ? " · now here" : ""}</div>`)
+        <div class="flex-1 overflow-x-auto overflow-y-hidden p-6 bg-base-50/30">
+          <div style="min-width:${columns.length * 13}rem">
+            <div class="sticky top-0 z-10 mb-2 border-b border-base-200/80 bg-base-50/90 backdrop-blur-md pb-2" style="${grid}">${columns
+      .map((column) => `<div class="truncate px-2 py-1 text-center text-[11px] font-bold uppercase tracking-wider text-base-content/60 flex flex-col items-center gap-1"><span>${host.shell.escapeHtml(column.name)}</span>${column.id === item.stageId ? '<span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] leading-none">NOW HERE</span>' : '<span class="h-3"></span>'}</div>`)
       .join("")}</div>
             ${events.map(eventRow).join("")}
           </div>
-          <p class="mt-3 text-xs text-muted">Time runs downward. A status someone changed by hand on the board is not recorded anywhere, so only agent checkpoints appear as moves.</p>
+          <p class="mt-6 text-center text-[11px] font-medium text-muted/70 flex items-center justify-center gap-2"><svg viewBox="0 0 24 24" class="size-3.5 opacity-60" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Time runs downward. Only agent checkpoints appear as moves.</p>
         </div>
         ${steps.length
-        ? `<div class="grid gap-2 border-t border-base-300 p-4">
-            <h4 class="text-xs font-semibold text-muted">Step details</h4>
+        ? `<div class="grid gap-3 border-t border-base-200/60 p-6 bg-base-100">
+            <h4 class="text-[11px] font-bold uppercase tracking-wider text-base-content/60">Step details</h4>
             ${picked
           ? stepCard(picked)
-          : '<p class="text-sm text-muted">Pick a step above to see its logs and the files it proposed.</p>'}
+          : '<div class="rounded-xl border border-dashed border-base-content/10 bg-base-200/30 p-8 text-center"><p class="text-[13px] font-medium text-muted">Select a step from the timeline above to view its logs and files.</p></div>'}
           </div>`
         : ""}
       </article>`;
