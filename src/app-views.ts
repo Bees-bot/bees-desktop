@@ -181,7 +181,7 @@ export function createMainViews(host: MainHost) {
       .flatMap(({ board, process, roots }) => roots
         .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
         .map(({ item, open }) => ({ board, process, item, open })));
-    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active Runs</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
         : `<li style="list-style:none" class="px-2 py-1.5 text-xs text-base-content/40">
@@ -309,8 +309,7 @@ export function createMainViews(host: MainHost) {
                         </button>
                         <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13.5rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-xl">
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="browse-process-library" data-team="${team.id}">${ACTION_ICONS.workflows}<span>Processes</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span>Scheduled tasks</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Run history</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Previous Runs</span></button></li>
                           <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="team-settings" data-team="${team.id}">${ACTION_ICONS.settings}<span>Team settings</span></button></li>
                         </ul>
@@ -318,10 +317,11 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Overview</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Start a new task</span></button></li>
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled tasks</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;

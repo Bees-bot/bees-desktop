@@ -20,7 +20,7 @@ describe("task actions", () => {
     expect(actions).toContain('label: "Status"');
     expect(actions).toContain('{ type: "move", targetStageId: stageId }');
     expect(views).toContain('data-action="edit-item" data-id="${host.shell.escapeHtml(item.id)}">Change</button>');
-    expect(views).toContain("Active tasks");
+    expect(views).toContain("Active Runs");
     expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');
@@ -93,7 +93,7 @@ describe("task actions", () => {
 
     expect(views).toContain("Schedule new recurring run");
     expect(views).toContain('data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"`');
-    expect(views).toContain('<span>Scheduled tasks</span>');
+    expect(views).toContain('truncate">Scheduled tasks</span>');
     expect(views).not.toContain('<span>Schedules</span>');
     expect(actions).toContain('value: schedule?.workItemId ?? requestedItem?.id');
     expect(actions).toContain('mode: "run"');
