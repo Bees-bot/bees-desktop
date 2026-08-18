@@ -46,8 +46,8 @@ export function jsonObjects(raw: string): Record<string, unknown>[] {
     } else if (character === "}" && depth > 0) {
       depth -= 1;
       if (depth > 0) continue;
-      const object = parseObject(raw.slice(start, index + 1));
-      if (object) found.push(object);
+      const parsed = parseObject(raw.slice(start, index + 1));
+      if (parsed) found.push(parsed);
       start = -1;
     }
   }
