@@ -375,7 +375,7 @@ export function createAppShell(host: MainHost) {
       void host.views.renderRunDetail();
     if (view === "schedules") {
       const process = host.workspaceController.processes.find(({ id }) => id === configProcessId);
-      setHeader(process ? "Schedules" : "Scheduled tasks", process?.name ?? host.session.currentTeam()?.name);
+      setHeader(process ? "Schedules" : "Scheduled Runs", process?.name ?? host.session.currentTeam()?.name);
       if (!process)
         viewBack.hidden = true;
       const items = host.scheduleItems();

@@ -685,18 +685,11 @@ export function createRunController(host: MainHost) {
       : agentForStage(item.stageId);
   }
 
-  async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
-    const template = await host.repository.getWorkItem(schedule.workItemId);
-    const process = template
-      ? host.workspaceController.processes.find(({ id }) => id === template.processId)
-      : null;
+  async function createRunOccurrence(template: WorkItem, key: string): Promise<string> {
+    const process = host.workspaceController.processes.find(({ id }) => id === template.processId);
     const stage = process?.stages[0];
-    if (!template || !process || !stage)
-      throw new Error("The scheduled work item has no active process");
-    const key = `schedule:${schedule.id}:${schedule.updatedAt}`;
-    const existing = (await host.repository.listWorkItems(process.id)).find((item) => item.goal?.key === key);
-    if (existing)
-      return existing.id;
+    if (!process || !stage)
+      throw new Error("The primary task has no active process");
     const agent = agentForItem({ ...template, stageId: stage.id, goal: null });
     return host.repository.createWorkItem(process.id, {
       stageId: stage.id,
@@ -713,6 +706,23 @@ export function createRunController(host: MainHost) {
         occurrenceOf: template.id
       }
     });
+  }
+
+  async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
+    const template = await host.repository.getWorkItem(schedule.workItemId);
+    if (!template)
+      throw new Error("The scheduled work item is unavailable");
+    const key = `schedule:${schedule.id}:${schedule.updatedAt}`;
+    const existing = (await host.repository.listWorkItems(template.processId)).find((item) => item.goal?.key === key);
+    return existing?.id ?? createRunOccurrence(template, key);
+  }
+
+  async function startNewRun(templateId: string): Promise<void> {
+    const template = await host.repository.getWorkItem(templateId);
+    if (!template)
+      throw new Error("The primary task is unavailable");
+    const itemId = await createRunOccurrence(template, `run:${crypto.randomUUID()}`);
+    await runItem(itemId);
   }
 
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
@@ -1801,6 +1811,7 @@ export function createRunController(host: MainHost) {
     taskWorkerRoles,
     agentForItem,
     runScheduledOccurrence,
+    startNewRun,
     controlInput,
     enforceControl,
     setProcessRunning,

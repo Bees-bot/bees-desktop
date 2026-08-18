@@ -321,7 +321,7 @@ export function createMainViews(host: MainHost) {
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled tasks</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled Runs</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
@@ -866,6 +866,7 @@ export function createMainViews(host: MainHost) {
               <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
             <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
+              ${root ? `<li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="start-new-run" data-id="${host.shell.escapeHtml(root.id)}">${ACTION_ICONS.add}<span>Start a new Run</span></button></li>` : ""}
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"` : ""}>${ACTION_ICONS.schedule}<span>Schedule new recurring run</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>

@@ -1533,6 +1533,10 @@ export function createMainActions(host: MainHost) {
           await host.runs.runItem(execution.workItemId, false, undefined, execution.id);
         return;
       }
+      if (action === "start-new-run") {
+        await host.runs.startNewRun(button.dataset.id!);
+        return;
+      }
       if (action === "preview-inbox-output") {
         const output = host.runs.executionOutputs.find(({ id }) => id === button.dataset.id);
         const execution = output ? await host.repository.getExecution(output.executionId) : null;

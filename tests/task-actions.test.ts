@@ -93,7 +93,7 @@ describe("task actions", () => {
 
     expect(views).toContain("Schedule new recurring run");
     expect(views).toContain('data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"`');
-    expect(views).toContain('truncate">Scheduled tasks</span>');
+    expect(views).toContain('truncate">Scheduled Runs</span>');
     expect(views).not.toContain('<span>Schedules</span>');
     expect(actions).toContain('value: schedule?.workItemId ?? requestedItem?.id');
     expect(actions).toContain('mode: "run"');
@@ -103,6 +103,18 @@ describe("task actions", () => {
     expect(runs).toContain("const key = `schedule:${schedule.id}:${schedule.updatedAt}`");
     expect(runs).toContain("await runItem(itemId, auto, undefined, undefined, true)");
     expect(runs).not.toContain("Scheduled task role is unavailable");
+  });
+
+  it("starts a fresh occurrence from an active or previous run board", () => {
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+    const runs = readFileSync(new URL("../src/run-controller.ts", import.meta.url), "utf8");
+
+    expect(views).toContain('data-action="start-new-run" data-id="${host.shell.escapeHtml(root.id)}"');
+    expect(views).toContain("Start a new Run");
+    expect(actions).toContain("await host.runs.startNewRun(button.dataset.id!)");
+    expect(runs).toContain("createRunOccurrence(template, `run:${crypto.randomUUID()}`)");
+    expect(runs).toContain("await runItem(itemId)");
   });
 
   it("offers library processes directly when creating a task", () => {
