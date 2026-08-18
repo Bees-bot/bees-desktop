@@ -28,7 +28,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-http = "2"
 tauri-plugin-notification = "2"
-sysinfo = { version = "0.36.1", default-features = false, features = ["system", "disk"] }
+sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 

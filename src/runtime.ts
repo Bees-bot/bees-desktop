@@ -1,3 +1,4 @@
+import { object } from "./model-json.js";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { createFlueClient, type FlueClient } from "@flue/sdk";
 
@@ -49,11 +50,6 @@ interface ActiveExecution {
   status: RuntimeExecutionStatus;
 }
 
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 /**
  * A thin adapter over `@flue/sdk`. Flue 2 removed `?wait=result`, `?view=history`, and the

@@ -19,6 +19,7 @@ import { setProvider } from "@flue/runtime";
 import type { CompactionConfig } from "@flue/runtime";
 import { CLI_PROVIDERS, type CliProvider } from "./cli-provider.ts";
 import { aiConnectionSecret } from "./credentials.ts";
+import { envObject } from "./env-json.ts";
 
 const selfUrl = process.env.BEES_SELF_URL ?? "http://127.0.0.1:1";
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
@@ -104,16 +105,18 @@ const FALLBACK_LOCAL_WINDOW = 8192;
 const LOCAL_WINDOWS: Record<string, number> = parseWindows(process.env.BEES_LOCAL_CTX);
 
 function parseWindows(raw: string | undefined): Record<string, number> {
-  if (!raw) return {};
+  let declared: [string, unknown][];
   try {
-    return Object.fromEntries(
-      Object.entries(JSON.parse(raw) as Record<string, unknown>).filter(
-        (entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > 0
-      )
-    );
-  } catch {
+    declared = Object.entries(envObject("BEES_LOCAL_CTX", raw));
+  } catch (error) {
+    // Every model here has a safe default window, so a bad map costs tuning rather than the whole
+    // run. It still gets said out loud instead of quietly becoming "nothing was configured".
+    console.warn(String(error));
     return {};
   }
+  return Object.fromEntries(
+    declared.filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > 0)
+  );
 }
 
 /**

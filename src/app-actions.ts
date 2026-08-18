@@ -2932,13 +2932,15 @@ export function createMainActions(host: MainHost) {
         await toggleAssistant(true);
         await pickAssistantModel(preferredModelChoice(host.assistant.assistantCatalog));
         await sendAssistantMessage(message);
-      })().catch((error) => {
-        if (submit?.isConnected) {
+        // Only on success: a failed send leaves the text where the user can retry or copy it.
+        assistant.reset();
+      })()
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          if (!submit?.isConnected) return;
           submit.disabled = false;
           submit.textContent = "Go";
-        }
-        host.shell.showNotice(errorText(error), "error");
-      });
+        });
       return;
     }
     const search = (event.target as Element).closest<HTMLFormElement>("form[data-run-search]");

@@ -1,3 +1,4 @@
+import { object } from "./model-json.js";
 import type { RuntimeEvent } from "./runtime.js";
 
 /**
@@ -35,11 +36,6 @@ export type ToolState = "input-available" | "output-available" | "output-error";
 
 const ROLES = ["user", "assistant", "system"];
 
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";

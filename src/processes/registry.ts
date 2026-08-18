@@ -23,10 +23,6 @@ export const PROCESS_LIBRARY: readonly ProcessLibraryEntry[] = PROCESS_MODULES.m
 /** Form value for a library process that has not been materialized in the current team yet. */
 export const PROCESS_LIBRARY_SELECTION_PREFIX = "library:";
 
-export function processModuleById(moduleId: string): ProcessModule | undefined {
-  return PROCESS_MODULES.find(({ definition }) => definition.id === moduleId);
-}
-
 export function starterProcessModule(): ProcessModule {
   const module = PROCESS_MODULES.find(({ starter }) => starter);
   if (!module) throw new Error("The bundled starter process is missing");

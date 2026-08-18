@@ -1,17 +1,13 @@
+import { envObject } from "./env-json.ts";
 type Forward = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export function localModelRoutes(raw = process.env.BEES_LOCAL_AI_URLS): Record<string, string> {
-  if (!raw) return {};
-  try {
-    return Object.fromEntries(
-      Object.entries(JSON.parse(raw) as Record<string, unknown>).filter(
-        (entry): entry is [string, string] =>
-          typeof entry[1] === "string" && /^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(entry[1])
-      )
-    );
-  } catch {
-    return {};
-  }
+  return Object.fromEntries(
+    Object.entries(envObject("BEES_LOCAL_AI_URLS", raw)).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" && /^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(entry[1])
+    )
+  );
 }
 
 function error(message: string, status: number): Response {
