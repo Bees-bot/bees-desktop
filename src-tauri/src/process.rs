@@ -2,9 +2,11 @@
 //! host, the knowledge worker, and one llama-server per running local model.
 
 use std::net::TcpListener;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::thread;
 use std::time::Duration;
+use sysinfo::{ProcessesToUpdate, System};
 
 /// A loopback listener on whichever ephemeral port the OS handed out, and that port.
 pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
@@ -19,6 +21,38 @@ pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
 /// An ephemeral port the OS picked, released again before the caller binds it for real.
 pub fn available_loopback_port() -> Result<u16, String> {
     bind_loopback().map(|(_, port)| port)
+}
+
+fn managed_node_sidecar(
+    executable: Option<&Path>,
+    command: &[std::ffi::OsString],
+    node: &Path,
+    entrypoints: &[PathBuf],
+) -> bool {
+    executable == Some(node)
+        && command
+            .iter()
+            .any(|argument| entrypoints.iter().any(|entry| Path::new(argument) == entry))
+}
+
+/// Remove a Node sidecar whose Bees parent was hard-killed before `Drop` could reap it.
+/// Exact executable and entrypoint paths keep this from touching another app's Node process.
+pub fn reap_orphaned_node_sidecars(node: &Path, entrypoints: &[PathBuf]) -> usize {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut reaped = 0;
+    for process in system.processes().values() {
+        let orphaned = process
+            .parent()
+            .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
+        if orphaned
+            && managed_node_sidecar(process.exe(), process.cmd(), node, entrypoints)
+            && process.kill()
+        {
+            reaped += 1;
+        }
+    }
+    reaped
 }
 
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever
@@ -57,5 +91,36 @@ impl Drop for Sidecar {
             thread::sleep(Duration::from_millis(50));
         }
         // ponytail: still stuck — leak it rather than block. Only a reboot clears such a process.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn orphan_reaper_matches_only_our_exact_node_and_entrypoint() {
+        let node = Path::new("/Applications/Bees.app/Contents/MacOS/bees-node");
+        let start = PathBuf::from("/Applications/Bees.app/Contents/Resources/flue/start.mjs");
+        let command = vec![node.as_os_str().to_owned(), start.as_os_str().to_owned()];
+
+        assert!(managed_node_sidecar(
+            Some(node),
+            &command,
+            node,
+            &[start.clone()]
+        ));
+        assert!(!managed_node_sidecar(
+            Some(Path::new("/usr/bin/node")),
+            &command,
+            node,
+            &[start.clone()]
+        ));
+        assert!(!managed_node_sidecar(
+            Some(node),
+            &command,
+            node,
+            &[PathBuf::from("/another/start.mjs")]
+        ));
     }
 }
