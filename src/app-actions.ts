@@ -34,18 +34,14 @@ import {
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
-  AUTO_PROVIDER,
   applyActions,
   assistantInstanceId,
   instanceModelId,
   parseBeesUiCommand,
   parseTurn,
-  preferredModelChoice,
   resolveActions,
-  resolveModelChoice,
   sameChoice,
-  turnPrompt,
-  type ModelChoice
+  turnPrompt
 } from "./assistant.js";
 import {
   setCliToolPath,
@@ -103,6 +99,12 @@ import {
   thinkingOptionsForModel
 } from "./local-models.js";
 import type { KnowledgeRuntimeInfo, MainHost, SettingsTab, TeamTab } from "./main.js";
+import {
+  AUTO_PROVIDER,
+  preferredModelChoice,
+  resolveModelChoice,
+  type ModelChoice
+} from "./model-routing.js";
 import { renderMarkdown } from "./markdown.js";
 import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
@@ -2170,6 +2172,7 @@ export function createMainActions(host: MainHost) {
         // The runtime learns about a CLI from an environment variable set at launch, so it has
         // to come back up before the change reaches runs.
         await host.flueProjectPort.restart();
+        await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(enabled ? "AI subscription switched on" : "AI subscription switched off", "success");
         return;
@@ -2182,6 +2185,7 @@ export function createMainActions(host: MainHost) {
         await setCliToolPath(button.dataset.tool ?? "", picked);
         // The path reaches the CLI providers as an environment variable set at launch.
         await host.flueProjectPort.restart();
+        await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(picked ? "Claude Code path saved" : "Claude Code disconnected", "success");
         return;

@@ -36,7 +36,14 @@ export const MODEL_PROVIDERS: { id: string; label: string; models: string[] }[] 
   },
   // Claude Code remains a native agent runtime. Codex uses pi-ai's ChatGPT OAuth provider.
   { id: "claude-cli", label: "Claude Code (CLI)", models: ["default", "sonnet", "opus", "haiku"] },
-  { id: "openai-codex", label: "Codex (ChatGPT)", models: Object.keys(OPENAI_CODEX_MODELS) },
+  {
+    id: "openai-codex",
+    label: "Codex (ChatGPT)",
+    models: [
+      DEFAULT_CODEX_MODEL_ID,
+      ...Object.keys(OPENAI_CODEX_MODELS).filter((id) => id !== DEFAULT_CODEX_MODEL_ID)
+    ]
+  },
   // Deliberately short: every id the provider's pi-ai catalog carries works, and custom
   // ids can be added through the assistant model picker.
   {

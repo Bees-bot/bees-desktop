@@ -9,11 +9,8 @@ import {
 } from "./api.js";
 import {
   applicable,
-  AUTO_MODEL_CHOICE,
   effectiveAgentEligibility,
-  isAutoChoice,
   modelLabel,
-  preferredModelChoice,
   sameChoice,
   type ResolvedAction,
   DISABLED_ON_THIS_MACHINE
@@ -86,6 +83,13 @@ import {
   type LocalModelView
 } from "./local-models.js";
 import type { MainHost, SettingsTab, ThemePreset } from "./main.js";
+import {
+  AUTO_ALTERNATIVE_MODEL_CHOICE,
+  AUTO_MODEL_CHOICE,
+  isAutoChoice,
+  preferredModelChoice,
+  resolveModelChoice
+} from "./model-routing.js";
 import { taskPlanStages } from "./processes/goals/runtime.js";
 import {
   PROCESS_LIBRARY,
@@ -1014,7 +1018,7 @@ export function createMainViews(host: MainHost) {
     const card = (agent: Agent): string => {
       const eligibility = host.workspaceController.eligibilityForAgent(agent);
       const model = isAutoChoice(agent.config)
-        ? `Auto · ${modelRef(eligibility.model)}`
+        ? `${agent.config.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"} · ${modelRef(eligibility.model)}`
         : agent.config.provider && agent.config.model
           ? `${agent.config.provider} · ${agent.config.model}`
           : "No model";
@@ -1401,7 +1405,9 @@ export function createMainViews(host: MainHost) {
         </header>
         <div class="flex-1 overflow-y-auto p-5 grid gap-4 content-start">${PROCESS_LIBRARY.map((entry) => {
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
-      const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent) ? "Auto" : `${agent.provider}/${agent.model}`))];
+      const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent)
+        ? agent.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"
+        : `${agent.provider}/${agent.model}`))];
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
@@ -2535,12 +2541,13 @@ export function createMainViews(host: MainHost) {
 
   function agentEditorFields(agent?: Agent): EditorField[] {
     const config = agent?.config;
-    const auto = !agent || isAutoChoice(config ?? {});
     const selected = config?.provider?.trim() && config.model?.trim()
       ? { provider: config.provider, model: config.model }
-      : host.assistant.assistantModel;
-    const autoRef = modelRef(AUTO_MODEL_CHOICE);
-    const selectedRef = auto ? autoRef : modelRef(selected);
+      : AUTO_MODEL_CHOICE;
+    const auto = isAutoChoice(selected);
+    const selectedRef = modelRef(selected);
+    const bestRef = modelRef(AUTO_MODEL_CHOICE);
+    const alternativeRef = modelRef(AUTO_ALTERNATIVE_MODEL_CHOICE);
     const catalog = host.assistant.overviewAssistantModels();
     const modelOptions = catalog.map(({ group, label, choice }) => ({
       label: `${group} · ${label}`,
@@ -2548,13 +2555,23 @@ export function createMainViews(host: MainHost) {
     }));
     // Keep an unavailable or custom model from an existing agent selectable instead of
     // silently rewriting the file on its next save.
-    if (!modelOptions.some(({ value }) => value === selectedRef) && selectedRef !== autoRef) {
+    if (!modelOptions.some(({ value }) => value === selectedRef) &&
+      selectedRef !== bestRef && selectedRef !== alternativeRef) {
       modelOptions.unshift({ label: `Configured · ${selectedRef}`, value: selectedRef });
     }
-    modelOptions.unshift({
-      label: `Auto · ${modelRef(preferredModelChoice(host.assistant.assistantCatalog))}`,
-      value: autoRef
-    });
+    const best = preferredModelChoice(host.assistant.assistantCatalog);
+    const alternative = resolveModelChoice(
+      AUTO_ALTERNATIVE_MODEL_CHOICE,
+      best,
+      host.assistant.assistantCatalog
+    );
+    modelOptions.unshift(
+      { label: `Best available (Auto) · ${modelRef(best)}`, value: bestRef },
+      {
+        label: `Best alternative · ${modelRef(alternative)}${sameChoice(best, alternative) ? " · same model" : ""}`,
+        value: alternativeRef
+      }
+    );
     const capabilities = registryCapabilities(host.workspaceController.registries);
     const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
     const selectedGrants = config?.grants ?? [];
@@ -2588,7 +2605,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: selectedRef,
         options: modelOptions,
-        hint: "Auto picks the best AI available on this computer: connected Codex, then explicitly configured Claude Code, then the largest local model, then the largest remote one.",
+        hint: "Automatic choices use connected Codex, Claude Code, running local models by size, then connected API models. Best alternative prefers a different runtime or provider.",
         step: "instructions"
       },
       {

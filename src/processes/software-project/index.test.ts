@@ -250,6 +250,8 @@ describe("studio agent triggers", () => {
     expect(definition.renderer).toBe("software-project");
     expect(perStage.get("architecture")).toBe(2);
     expect([...perStage.values()].some((count) => count > 1)).toBe(true);
+    expect(definition.agents.filter(({ state }) => state === "architecture").map(({ model }) => model))
+      .toEqual(["best", "alternative"]);
   });
 });
 

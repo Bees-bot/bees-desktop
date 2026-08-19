@@ -7,10 +7,6 @@ import {
   apiBaseUrl
 } from "./api.js";
 import type { RuntimeClaim, WorkItemCommand } from "./workflow-runtime.js";
-import {
-  isAutoChoice,
-  resolveModelChoice
-} from "./assistant.js";
 import { withBridgeUrl } from "./api-bridge.js";
 import {
   discoverMcpTools,
@@ -59,6 +55,10 @@ import {
   modelRef
 } from "./local-models.js";
 import type { ControlInput, MainHost } from "./main.js";
+import {
+  isAutoChoice,
+  resolveModelChoice
+} from "./model-routing.js";
 import { TaskPlanController, taskPlanWaitKey } from "./processes/goals/controller.js";
 import {
   completedTaskPlanParentsReadyForReview,
@@ -1390,8 +1390,7 @@ export function createRunController(host: MainHost) {
         : "No agent is set to run on this status");
     }
     const selectedModel = resolveModelChoice(agent.config, host.assistant.assistantModel, host.assistant.assistantCatalog);
-    // A continuation keeps the model the conversation started on, but "auto" is not a model —
-    // it has to be resolved even then, or the run is handed the literal `auto/auto`.
+    // A continuation keeps the model the conversation started on; a new run resolves Auto here.
     let runAgent = (!continuation || isAutoChoice(agent.config)) && modelRef(agent.config) !== modelRef(selectedModel)
       ? {
         ...agent,

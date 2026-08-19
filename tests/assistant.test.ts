@@ -5,18 +5,20 @@ import {
   ACTION_TYPES,
   applyActions,
   assistantInstanceId,
-  AUTO_MODEL_CHOICE,
   contextPrompt,
   effectiveAgentEligibility,
   modelCatalog,
   parseTurn,
   parseBeesUiCommand,
-  preferredModelChoice,
-  resolveModelChoice,
   resolveActions
 } from "../src/assistant.js";
 import { LocalRepository } from "../src/repository.js";
-import { DEFAULT_CODEX_MODEL_ID, type LocalModelView } from "../src/local-models.js";
+import { type LocalModelView } from "../src/local-models.js";
+import {
+  AUTO_MODEL_CHOICE,
+  preferredModelChoice,
+  resolveModelChoice
+} from "../src/model-routing.js";
 import { NodeDatabase } from "./node-database.js";
 
 const agentSource = readFileSync(
@@ -400,22 +402,6 @@ describe("model catalog", () => {
     ).toEqual({ provider: "anthropic", model: "claude-sonnet-5" });
   });
 
-  it("keeps agents saved with the retired Codex CLI provider runnable", () => {
-    const latest = { provider: "bees-local", model: "active" };
-    expect(resolveModelChoice({ provider: "codex-cli", model: "default" }, latest)).toEqual({
-      provider: "openai-codex",
-      model: DEFAULT_CODEX_MODEL_ID
-    });
-    expect(
-      effectiveAgentEligibility(
-        { name: "Old Codex agent", config: { prompt: "Work.", provider: "codex-cli", model: "default" } },
-        latest,
-        true,
-        { localModelIds: [], connectedProviders: [], cliProviders: [] }
-      )
-    ).toMatchObject({ active: false, reason: "Connect Codex (ChatGPT) on this machine" });
-  });
-
   it("combines the local switch with model availability", () => {
     const videoAgent = {
       name: "Video agent",
@@ -453,5 +439,26 @@ describe("model catalog", () => {
         localModelIds: []
       })
     ).toMatchObject({ active: false, reason: 'Local model "local-1" is not running on this machine' });
+  });
+
+  it("rejects a retired provider before Flue submission", () => {
+    expect(
+      effectiveAgentEligibility(
+        {
+          name: "Old Goal planner",
+          config: { prompt: "Plan.", provider: "codex-cli", model: "default" }
+        },
+        { provider: "openai-codex", model: "gpt-5.6-sol" },
+        true,
+        {
+          localModelIds: [],
+          connectedProviders: ["openai-codex"],
+          cliProviders: []
+        }
+      )
+    ).toMatchObject({
+      active: false,
+      reason: 'Model provider "codex-cli" is no longer supported. Choose Best available (Auto) or another model'
+    });
   });
 });
