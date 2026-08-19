@@ -66,6 +66,7 @@ import {
 import {
   approvalButtons,
   approvalCard,
+  browserButton,
   conversationView,
   duration,
   runView,
@@ -745,6 +746,11 @@ export function createMainViews(host: MainHost) {
     const stage = process.stages.find(({ id }) => id === item.stageId);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
     const run = boardRun(runs);
+    const state = host.runs.supervise().get(item.id) ?? null;
+    const pageButton = run ? browserButton(run.id, conversationFor(run)) : "";
+    const promotedPageButton = state?.kind === "waiting" && run
+      ? browserButton(run.id, conversationFor(run), "sm", true)
+      : "";
     const pendingOutput = run
       ? host.runs.executionOutputs.find(({ executionId, status }) => executionId === run.id && status === "pending")
       : undefined;
@@ -769,7 +775,7 @@ export function createMainViews(host: MainHost) {
           ? boardItemSubtasks(item)
           : await boardItemDetails(item, runs);
     return `<div data-scroll-anchor class="mt-2 rounded-xl bg-base-100 p-6 shadow-sm ring-1 ring-base-content/5">
-      ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
+      ${escalationBanner(state, promotedPageButton)}
       <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-primary/80">${host.shell.escapeHtml(stage?.name ?? "")}</p>
@@ -779,6 +785,7 @@ export function createMainViews(host: MainHost) {
           ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
           ${pendingOutput ? approvalButtons(pendingOutput.id, Boolean(run && ["queued", "running"].includes(run.status))) : ""}
+          ${promotedPageButton ? "" : pageButton}
           ${runControls}
           ${tab === "files" && host.shell.boardFileRef
             ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
@@ -1147,7 +1154,7 @@ export function createMainViews(host: MainHost) {
   }
 
   /** One line of "why is this not moving", or nothing when it is. */
-  function escalationBanner(state: WorkState | null): string {
+  function escalationBanner(state: WorkState | null, action = ""): string {
     if (!needsAttention(state))
       return "";
     const isError = state!.kind === "stalled";
@@ -1158,6 +1165,7 @@ export function createMainViews(host: MainHost) {
         <div class="text-[13px] font-semibold leading-tight">${host.shell.escapeHtml(state!.label)}</div>
         <div class="text-[13px] leading-snug opacity-90">${host.shell.escapeHtml(state!.detail)}</div>
       </div>
+      ${action ? `<div class="ml-auto shrink-0">${action}</div>` : ""}
     </div>`;
   }
 
@@ -1400,10 +1408,13 @@ export function createMainViews(host: MainHost) {
         <header class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
           <div>
             <h2 class="font-bold">Process Library</h2>
-            <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
+            <p class="mt-1 text-sm text-muted">Curated processes available offline. Edit the team's installed process, or create a separate copy only when you need another workflow.</p>
           </div>
         </header>
         <div class="flex-1 overflow-y-auto p-5 grid gap-4 content-start">${PROCESS_LIBRARY.map((entry) => {
+      const installed = host.workspaceController.processes.find(
+        ({ definition }) => definition.moduleId === entry.id
+      );
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
       const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent)
         ? agent.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"
@@ -1421,10 +1432,13 @@ export function createMainViews(host: MainHost) {
               ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
             ${unavailable
-          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. Create a custom copy to change them.</p>`
+          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. ${installed ? "Edit the team process" : "Create a custom copy"} to change them.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
-              <button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>
+              ${installed
+          ? `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create another copy</button>
+                 <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(installed.id)}">Edit team process</button>`
+          : `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>`}
             </div>
           </div>
         </article>`;
@@ -1721,7 +1735,7 @@ export function createMainViews(host: MainHost) {
       <div class="flex items-start justify-between gap-4">
         <div><h2 class="font-bold text-lg">Browser</h2>
         <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
-        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
+        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Team Browser</button>
       </div>
     </section>`;
   }
@@ -2431,8 +2445,8 @@ export function createMainViews(host: MainHost) {
     const team = host.session.currentTeam();
 
     const globalTabs = [
+      { id: "ai-cli", label: "AI Subscriptions", content: cliToolsSection },
       { id: "local-ai", label: "Local AI", content: settingsLocalAiContent },
-      { id: "ai-cli", label: "AI CLI", content: cliToolsSection },
       { id: "ai-apis", label: "AI APIs", content: settingsAiApisContent },
       { id: "mcp-servers", label: "MCP servers", content: settingsMcpServersContent },
       { id: "signins", label: "Sign-ins", content: settingsSigninsContent },
