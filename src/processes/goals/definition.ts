@@ -9,6 +9,7 @@ import {
   TASK_PLAN_OUTPUT
 } from "./index.js";
 import type { ProcessModule } from "../types.js";
+import { AUTO_BEST_MODEL, AUTO_PROVIDER } from "../../model-routing.js";
 
 export const goalsProcess = {
   starter: true,
@@ -48,8 +49,8 @@ export const goalsProcess = {
         purpose: "Breaks large goals into an approved task plan",
         state: "plan",
         prompt: GOAL_PLANNER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["bees-file-work"]
       },
       {
@@ -58,8 +59,8 @@ export const goalsProcess = {
         purpose: "Executes one concrete task at a time",
         state: "work",
         prompt: GOAL_WORKER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["bees-file-work"]
       },
       {
@@ -68,8 +69,8 @@ export const goalsProcess = {
         purpose: "Checks completed work and closes or redirects it",
         state: "review",
         prompt: GOAL_REVIEWER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["bees-file-work"]
       }
     ]

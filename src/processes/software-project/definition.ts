@@ -14,6 +14,11 @@ import {
   TESTER_PROMPT
 } from "./index.js";
 import type { ProcessModule } from "../types.js";
+import {
+  AUTO_ALTERNATIVE_MODEL,
+  AUTO_BEST_MODEL,
+  AUTO_PROVIDER
+} from "../../model-routing.js";
 
 export const softwareProjectProcess = {
   definition: {
@@ -41,8 +46,8 @@ export const softwareProjectProcess = {
         purpose: "Inspects the selected repository and turns one free-form brief into approvable requirements",
         state: "requirements",
         prompt: REQUIREMENTS_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["software-requirements"]
       },
       {
@@ -51,8 +56,8 @@ export const softwareProjectProcess = {
         purpose: "Proposes and defends an independent project architecture",
         state: "architecture",
         prompt: OPENAI_ARCHITECT_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["software-architecture", "ponytail"]
       },
       {
@@ -61,8 +66,8 @@ export const softwareProjectProcess = {
         purpose: "Proposes and critiques an independent project architecture",
         state: "architecture",
         prompt: ANTHROPIC_ARCHITECT_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_ALTERNATIVE_MODEL,
         skills: ["software-architecture", "ponytail"]
       },
       {
@@ -71,8 +76,8 @@ export const softwareProjectProcess = {
         purpose: "Breaks an approved architecture into small reviewable phases",
         state: "plan",
         prompt: PLANNER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["software-planning", "ponytail"]
       },
       {
@@ -81,8 +86,8 @@ export const softwareProjectProcess = {
         purpose: "Implements one approved phase directly in the project worktree",
         state: "implement",
         prompt: CODER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["software-implementation", "ponytail"]
       },
       {
@@ -91,8 +96,8 @@ export const softwareProjectProcess = {
         purpose: "Independently verifies each committed phase and the final project",
         state: "implement",
         prompt: TESTER_PROMPT,
-        provider: "auto",
-        model: "auto",
+        provider: AUTO_PROVIDER,
+        model: AUTO_BEST_MODEL,
         skills: ["software-testing", "ponytail"]
       }
     ]

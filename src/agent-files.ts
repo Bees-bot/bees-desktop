@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { stringify } from "yaml";
 import { createId, now, requiredText, type Agent, type AgentConfig } from "./domain.js";
+import { AUTO_BEST_MODEL, AUTO_PROVIDER } from "./model-routing.js";
 
 export interface AgentFilePort {
   list(teamRoot: string): Promise<string[]>;
@@ -185,8 +186,13 @@ export function newAgent(input: Partial<Agent> = {}): Agent {
     purpose: "",
     description: "",
     triggerStageId: null,
-    config: { prompt: "" },
     ...input,
+    config: {
+      prompt: "",
+      provider: AUTO_PROVIDER,
+      model: AUTO_BEST_MODEL,
+      ...input.config
+    },
     id: createId(),
     updatedAt: now()
   };

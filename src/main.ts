@@ -21,7 +21,6 @@ import { createAssistantController } from "./assistant-controller.js";
 import {
   type EffectiveAgentEligibility,
   type MachineModelAvailability,
-  type ModelChoice,
   type ModelOption,
   type ResolvedAction
 } from "./assistant.js";
@@ -47,6 +46,7 @@ import type {
   Team,
   WorkItem
 } from "./domain.js";
+import type { ModelChoice } from "./model-routing.js";
 import {
   FlueProjectService,
   TauriFlueProjectPort

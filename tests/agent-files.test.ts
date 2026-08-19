@@ -22,7 +22,7 @@ describe("agent files", () => {
 
   it("allows an incomplete agent only while it is first created", async () => {
     await expect(new AgentFileStore(port()).save("/team", agent, true)).resolves.toMatchObject({
-      config: { prompt: "" }
+      config: { prompt: "", provider: "auto", model: "best" }
     });
   });
 });

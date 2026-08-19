@@ -22,13 +22,20 @@ import { jsonObjects, text, textList } from "./model-json.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
 import {
-  DEFAULT_CODEX_MODEL_ID,
   LOCAL_PROVIDER,
   MODEL_PROVIDERS,
   localModelParameterBillions,
   modelRef,
   type LocalModelView
 } from "./local-models.js";
+import {
+  AUTO_MODEL_CHOICE,
+  isAutoChoice,
+  preferredModelChoice,
+  resolveModelChoice,
+  type ModelChoice,
+  type ModelRoute
+} from "./model-routing.js";
 
 /**
  * Name of the bundled agent in `.flue/agents/bees-assistant.ts`. Not "assistant": an older
@@ -39,28 +46,6 @@ export const ASSISTANT_AGENT = "bees-assistant";
 export const ASSISTANT_MODEL_KEY = "assistant_model";
 /** Model ids the user typed in for a provider that ships no catalog (OpenAI, OpenRouter). */
 export const ASSISTANT_EXTRA_MODELS_KEY = "assistant_extra_models";
-
-export interface ModelChoice {
-  provider: string;
-  model: string;
-  /** Stable id of a downloaded GGUF, kept for persisted choices from older releases. */
-  localModelId?: string;
-}
-
-export const DEFAULT_MODEL_CHOICE: ModelChoice = { provider: LOCAL_PROVIDER, model: "active" };
-
-export const AUTO_PROVIDER = "auto";
-
-/**
- * "Let Bees pick." A stage carrying this is resolved at run time by `preferredModelChoice`
- * against whatever this machine can run right now, so a workflow keeps working on a computer
- * that has a different set of native agents, keys, and downloaded models than the one it was built on.
- */
-export const AUTO_MODEL_CHOICE: ModelChoice = { provider: AUTO_PROVIDER, model: AUTO_PROVIDER };
-
-export function isAutoChoice(config: { provider?: string; model?: string }): boolean {
-  return config.provider?.trim() === AUTO_PROVIDER;
-}
 
 /**
  * Hex payload between "--" separators: the agent name and a team UUID both contain single
@@ -73,8 +58,7 @@ export function instanceModelId(
   choice: ModelChoice,
   catalog: ModelOption[] = []
 ): string {
-  // Auto is a UI choice, not a provider. Resolve it at the last shared boundary so no caller can
-  // hand Flue the invalid literal model "auto/auto".
+  // Auto is a policy, not a provider. Resolve it at the last shared boundary before Flue.
   const selected = resolveModelChoice(choice, preferredModelChoice(catalog), catalog);
   const hex = [...new TextEncoder().encode(modelRef(selected))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -490,6 +474,8 @@ export interface ModelOption {
   group: string;
   label: string;
   choice: ModelChoice;
+  route: ModelRoute;
+  runnable: boolean;
   /** Shown in small text on the row — why it is or is not instant. */
   note?: string;
 }
@@ -528,11 +514,16 @@ export function modelCatalog(input: {
       group: "On this computer",
       label: model.name,
       choice: { provider: LOCAL_PROVIDER, model: model.id, localModelId: model.id },
+      route: "local",
+      runnable: model.runtime.running,
       note: model.runtime.running ? "running" : "not running"
     });
   }
 
-  const connected = new Set(input.connections.map(({ provider }) => provider));
+  const connected = new Set<string>(input.connections.map(({ provider }) => provider));
+  const enabledCliProviders = new Set(
+    CLI_TOOLS.filter(({ id }) => input.cliInstalled[id]?.enabled).map(({ provider }) => provider)
+  );
   for (const provider of MODEL_PROVIDERS) {
     if (provider.id === LOCAL_PROVIDER || !connected.has(provider.id as AiConnection["provider"]))
       continue;
@@ -540,7 +531,9 @@ export function modelCatalog(input: {
       options.push({
         group: AI_PROVIDER_LABEL[provider.id as AiConnection["provider"]] ?? provider.label,
         label: model,
-        choice: { provider: provider.id, model }
+        choice: { provider: provider.id, model },
+        route: provider.id === "openai-codex" ? "codex" : "api",
+        runnable: true
       });
     }
   }
@@ -550,7 +543,13 @@ export function modelCatalog(input: {
       continue;
     const models = MODEL_PROVIDERS.find(({ id }) => id === tool.provider)?.models ?? ["default"];
     for (const model of models) {
-      options.push({ group: tool.label, label: model, choice: { provider: tool.provider, model } });
+      options.push({
+        group: tool.label,
+        label: model,
+        choice: { provider: tool.provider, model },
+        route: tool.provider === "codex-cli" ? "codex" : "claude-cli",
+        runnable: true
+      });
     }
   }
 
@@ -560,62 +559,23 @@ export function modelCatalog(input: {
     options.push({
       group: provider?.label ?? extra.provider,
       label: extra.model,
-      choice: extra
+      choice: extra,
+      route: extra.provider === "openai-codex" || extra.provider === "codex-cli"
+        ? "codex"
+        : extra.provider === "claude-cli"
+          ? "claude-cli"
+          : extra.provider === LOCAL_PROVIDER
+            ? "local"
+            : "api",
+      runnable: connected.has(extra.provider) ||
+        enabledCliProviders.has(extra.provider) ||
+        input.local.some(({ id, runtime }) =>
+          extra.provider === LOCAL_PROVIDER && id === extra.model && runtime.running
+        )
     });
   }
 
   return options;
-}
-
-/**
- * What "Auto" means, and the first-run default: connected Codex, explicitly configured Claude
- * Code, then the biggest downloaded local model, then the biggest remote one.
- * `modelCatalog` already lists local models largest-first and each provider's own models
- * largest-first, so "first match wins" is the size order without a second sort.
- */
-export function preferredModelChoice(catalog: ModelOption[]): ModelChoice {
-  const isCli = (provider: string): boolean => CLI_TOOLS.some((tool) => tool.provider === provider);
-  return (
-    catalog.find(({ choice }) => choice.provider === "openai-codex" && choice.model === DEFAULT_CODEX_MODEL_ID)
-      ?.choice ??
-    catalog.find(({ choice }) => choice.provider === "claude-cli" && choice.model === "default")
-      ?.choice ??
-    catalog.find(({ choice }) => isCli(choice.provider))?.choice ??
-    catalog.find(({ choice }) => choice.provider === LOCAL_PROVIDER)?.choice ??
-    catalog.find(({ choice }) => !isCli(choice.provider) && choice.provider !== LOCAL_PROVIDER)
-      ?.choice ??
-    DEFAULT_MODEL_CHOICE
-  );
-}
-
-/**
- * Missing models and `bees-local/active` follow the user's current global choice; `auto/auto`
- * follows this machine's catalog instead, falling back to the global choice when nothing is
- * installed yet.
- */
-export function resolveModelChoice(
-  config: { provider?: string; model?: string },
-  active: ModelChoice,
-  catalog: ModelOption[] = []
-): ModelChoice {
-  const provider = config.provider?.trim();
-  const model = config.model?.trim();
-  // Agent files created before direct Codex OAuth still carry the retired CLI provider.
-  if (provider === "codex-cli") {
-    return {
-      provider: "openai-codex",
-      model: !model || model === "default" ? DEFAULT_CODEX_MODEL_ID : model
-    };
-  }
-  if (provider === AUTO_PROVIDER) {
-    // `active` is itself auto until the user picks something, and "auto/auto" reaches the runtime
-    // as an unknown provider that fails the whole submission, so resolving never returns auto.
-    const resolved = catalog.length ? preferredModelChoice(catalog) : active;
-    return isAutoChoice(resolved) ? DEFAULT_MODEL_CHOICE : resolved;
-  }
-  return provider && model && !(provider === LOCAL_PROVIDER && model === "active")
-    ? { provider, model }
-    : active;
 }
 
 export interface MachineModelAvailability {
@@ -646,6 +606,17 @@ export function effectiveAgentEligibility(
 ): EffectiveAgentEligibility {
   const model = resolveModelChoice(agent.config, activeModel, catalog);
   if (!enabledOnMachine) return { active: false, reason: DISABLED_ON_THIS_MACHINE, model };
+
+  const knownProvider = model.provider === LOCAL_PROVIDER ||
+    MODEL_PROVIDERS.some(({ id }) => id === model.provider) ||
+    CLI_TOOLS.some(({ provider }) => provider === model.provider);
+  if (!knownProvider) {
+    return {
+      active: false,
+      reason: `Model provider "${model.provider}" is no longer supported. Choose Best available (Auto) or another model`,
+      model
+    };
+  }
 
   if (model.provider === LOCAL_PROVIDER) {
     const running =
