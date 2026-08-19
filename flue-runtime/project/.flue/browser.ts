@@ -190,7 +190,18 @@ process.once("beforeExit", () => {
 
 const MAX_TEXT = 6000;
 
+/** Longest a page that never stops fetching may hold up a run. */
+const SETTLE_TIMEOUT_MS = 10_000;
+
+/**
+ * Visible text, read once the page has stopped fetching.
+ *
+ * Reading at domcontentloaded returns a single-page app's loading shell: Gmail answers
+ * "If you're having trouble loading…" and the model concludes the inbox is empty. Network
+ * idle is the signal that the app has finished pulling its content in.
+ */
 async function pageText(page: Page): Promise<string> {
+  await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
   const text = await page.evaluate(() => document.body?.innerText ?? "");
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…[truncated]` : text;
 }
