@@ -206,6 +206,20 @@ async function pageText(page: Page): Promise<string> {
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…[truncated]` : text;
 }
 
+/**
+ * Chrome aborts a goto that only changes the #fragment, because that is a move inside the
+ * current document rather than a request. Gmail addresses every thread that way, so once
+ * the tab is on the mailbox a plain goto fails with ERR_ABORTED and the agent gets nothing.
+ */
+async function navigate(page: Page, url: string): Promise<void> {
+  const target = new URL(url, page.url());
+  if (target.href.split("#")[0] === page.url().split("#")[0]) {
+    await page.evaluate((href) => { window.location.href = href; }, target.href);
+    return;
+  }
+  await page.goto(target.href, { waitUntil: "domcontentloaded" });
+}
+
 export function browserTools(instanceId: string, allowWrite = true): ToolDefinition[] {
   const readTools: ToolDefinition[] = [
     defineTool({
@@ -215,7 +229,7 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
       input: v.object({ url: v.string() }),
       async run({ data }) {
         const page = await getPage(instanceId);
-        await page.goto(data.url, { waitUntil: "domcontentloaded" });
+        await navigate(page, data.url);
         return { output: { title: await page.title(), url: page.url(), text: await pageText(page) } };
       }
     }),
