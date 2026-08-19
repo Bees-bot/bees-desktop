@@ -277,9 +277,12 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
       async run({ data }) {
         const page = await getPage(instanceId);
         if (data.selector) await page.click(data.selector, { timeout: 15000 });
-        else if (data.text) await page.getByText(data.text, { exact: false }).first().click({ timeout: 15000 });
+        // `visible=true` matters: Gmail's inbox matches a subject twice and the first hit is
+        // the hidden tab summary, so `.first()` clicks something nobody can see and times out.
+        else if (data.text)
+          await page.getByText(data.text, { exact: false })
+            .locator("visible=true").first().click({ timeout: 15000 });
         else throw new Error("browser_click needs `text` or `selector`");
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
         return { output: { url: page.url(), title: await page.title(), text: await pageText(page) } };
       }
     }),
