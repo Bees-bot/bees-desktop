@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { stringify } from "yaml";
 import { createId, now, requiredText, type Agent, type AgentConfig } from "./domain.js";
 import { AUTO_BEST_MODEL, AUTO_PROVIDER } from "./model-routing.js";
+import type { ProcessLibraryAgent } from "./processes/registry.js";
 
 export interface AgentFilePort {
   list(teamRoot: string): Promise<string[]>;
@@ -196,4 +197,29 @@ export function newAgent(input: Partial<Agent> = {}): Agent {
     id: createId(),
     updatedAt: now()
   };
+}
+
+/** The agent a Process Library definition installs onto one status of a team's process.
+ *
+ * No toolRefs or grants key. An empty list would mean this agent has no tools, and both
+ * run-config and the agent form read an absent list as "browser on". */
+export function libraryAgent(
+  definition: ProcessLibraryAgent,
+  triggerStageId: string,
+  skills: { ref: string; name: string }[]
+): Agent {
+  return newAgent({
+    name: definition.name,
+    purpose: definition.purpose,
+    triggerStageId,
+    config: {
+      role: definition.role,
+      prompt: definition.prompt,
+      provider: definition.provider,
+      model: definition.model,
+      skillRefs: skills
+        .filter(({ name }) => definition.skills?.includes(name))
+        .map(({ ref }) => ref)
+    }
+  });
 }

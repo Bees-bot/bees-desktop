@@ -3,10 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  firstTriggerConflict,
-  newAgent
-} from "./agent-files.js";
+import { firstTriggerConflict, libraryAgent, newAgent } from "./agent-files.js";
 import {
   AI_PROVIDER_LABEL,
   addAiConnection,
@@ -282,24 +279,7 @@ export function createMainActions(host: MainHost) {
       // empty. Only an agent already on one of this process's statuses counts as present.
       if (existingAgents.some(({ config, triggerStageId }) => config.role === definition.role && triggerStageId === stage.id))
         continue;
-      await host.agentFiles.save(teamRoot, newAgent({
-        name: definition.name,
-        purpose: definition.purpose,
-        triggerStageId: stage.id,
-        config: {
-          role: definition.role,
-          prompt: definition.prompt,
-          provider: definition.provider,
-          model: definition.model,
-          // No toolRefs key at all, not an empty one. An empty list means "this agent has no
-          // tools", which switched the browser off for every process installed from the
-          // library — while both run-config and the agent form treat an absent list as
-          // "browser on". Grants stay absent too, so it can read pages but not type into them.
-          skillRefs: skills
-            .filter(({ name }) => definition.skills?.includes(name))
-            .map(({ ref }) => ref)
-        }
-      }));
+      await host.agentFiles.save(teamRoot, libraryAgent(definition, stage.id, skills));
     }
     const hasBoard = (await host.repository.listBoards(host.workspaceController.workspace.teamId, true)).some(({ processId }) => processId === process.id);
     if (!hasBoard) {
@@ -3388,7 +3368,9 @@ export function createMainActions(host: MainHost) {
           return installLibraryProcess(template);
         },
         saveAgent: async ({ name, purpose, prompt, triggerStageId }) => {
-          await writeAgent(newAgent({ name, purpose, triggerStageId, config: { prompt, toolRefs: [], grants: [] } }));
+          // Same as a library install: no toolRefs key, so the agent gets the browser the
+          // rest of the app defaults it to rather than being born with no tools at all.
+          await writeAgent(newAgent({ name, purpose, triggerStageId, config: { prompt } }));
         }
       });
       entry.applied = true;
