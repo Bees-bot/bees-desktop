@@ -18,6 +18,7 @@ import {
 import {
   CLI_TOOLS
 } from "./cli-tools.js";
+import { PROCESS_LIBRARY } from "./processes/registry.js";
 import { jsonObjects, text, textList } from "./model-json.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
@@ -186,6 +187,10 @@ export interface ResolvedAction {
   processId?: string | undefined;
   stageId?: string | undefined;
   targetStageId?: string | undefined;
+  /** Set when the process is one Bees ships and the team has not added it yet. */
+  libraryId?: string | undefined;
+  /** Status to resolve once that process exists, since it has no ids until then. */
+  stageName?: string | undefined;
 }
 
 function sameName(left: string, right: string): boolean {
@@ -241,11 +246,32 @@ export function resolveActions(
 
     const process = findProcess(processes, action.process);
     if (!process) {
+      // A brand new team owns no processes, so a plan naming one Bees ships used to dead-end on
+      // a card that could not be applied. Add it on apply instead, the way the new task form does.
+      const library = PROCESS_LIBRARY.find((entry) => sameName(entry.name, action.process));
+      if (!library) {
+        return {
+          action,
+          summary: `Process "${action.process}"`,
+          items: [],
+          error: `No process called "${action.process}"`
+        };
+      }
+      const stageName = "stage" in action ? action.stage : "";
+      const what = action.type === "create_agent"
+        ? `add agent "${action.name}" to its "${stageName}" status`
+        : action.type === "create_item"
+          ? `add "${action.title}" to its "${stageName}" status`
+          : "use it";
       return {
         action,
-        summary: `Process "${action.process}"`,
+        summary: `Add the "${library.name}" process to this team, then ${what}`,
         items: [],
-        error: `No process called "${action.process}"`
+        libraryId: library.id,
+        stageName,
+        ...(library.states.some(({ name }) => sameName(name, stageName))
+          ? {}
+          : { error: `"${stageName}" is not a status of ${library.name}` })
       };
     }
 
@@ -323,6 +349,8 @@ export interface ApplyContext {
   moveWorkItem?(id: string, stageId: string): Promise<void>;
   /** Runs only after Apply; the desktop app drives its own visible semantic controls. */
   operateBees(goal: string): Promise<void>;
+  /** Adds a process Bees ships to this team, for a plan that named one the team lacks. */
+  installLibraryProcess(libraryId: string): Promise<Process>;
   /** Agents are files in the team folder, not rows — main.ts owns that write and the restart. */
   saveAgent(input: {
     name: string;
@@ -346,6 +374,14 @@ export async function applyActions(
   for (const entry of applicable(resolved)) {
     const { action } = entry;
     try {
+      // The process only exists from here on, so its statuses only get ids now.
+      if (entry.libraryId) {
+        const installed = await context.installLibraryProcess(entry.libraryId);
+        const stage = installed.stages.find(({ name }) => sameName(name, entry.stageName ?? ""));
+        if (!stage) throw new Error(`"${entry.stageName}" is not a status of ${installed.name}`);
+        entry.processId = installed.id;
+        entry.stageId = stage.id;
+      }
       if (action.type === "operate_bees") {
         await context.operateBees(action.goal);
       } else if (action.type === "create_process") {

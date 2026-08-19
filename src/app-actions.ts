@@ -3380,6 +3380,11 @@ export function createMainActions(host: MainHost) {
           const result = await runApprovedBeesOperation(goal);
           operationNotes.push(`${result.message}${result.steps.length ? `\n${result.steps.join("\n")}` : ""}`);
         },
+        installLibraryProcess: async (libraryId) => {
+          const template = processLibraryEntry(libraryId);
+          if (!template) throw new Error("Bees does not ship that process");
+          return installLibraryProcess(template);
+        },
         saveAgent: async ({ name, purpose, prompt, triggerStageId }) => {
           await writeAgent(newAgent({ name, purpose, triggerStageId, config: { prompt, toolRefs: [], grants: [] } }));
         }
