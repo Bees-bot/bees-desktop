@@ -50,3 +50,39 @@ describe("task board", () => {
     expect(html).toContain('data-action="start-process"');
   });
 });
+
+describe("settings", () => {
+  it("defaults the workspace settings picker to the current workspace", async () => {
+    let html = "";
+    const host = {
+      session: {
+        currentOrganization: () => ({ id: "workspace-2", name: "Second" }),
+        currentTeam: () => null
+      },
+      shell: {
+        view: "settings",
+        settingsTab: "theme",
+        themePreset: "bees",
+        darkDefaultTheme: "bees-dark",
+        lightDefaultTheme: "bees",
+        themePresets: [],
+        setHeader: () => undefined,
+        swap: (value: string) => { html = value; },
+        escapeHtml: (value: string) => value,
+        activeClass: () => ""
+      },
+      workspaceController: {
+        organizations: [
+          { id: "workspace-1", name: "First" },
+          { id: "workspace-2", name: "Second" }
+        ],
+        workspace: { organizationId: "workspace-2" }
+      }
+    } as unknown as MainHost;
+
+    await createMainViews(host).renderSettings();
+
+    expect(html).toContain('data-settings-workspace');
+    expect(html).toContain('<option value="workspace-2" selected>Second</option>');
+  });
+});

@@ -20,7 +20,7 @@ describe("task actions", () => {
     expect(actions).toContain('label: "Status"');
     expect(actions).toContain('{ type: "move", targetStageId: stageId }');
     expect(views).toContain('data-action="edit-item" data-id="${host.shell.escapeHtml(item.id)}">Change</button>');
-    expect(views).toContain("Active tasks");
+    expect(views).toContain("Active Runs");
     expect(views).not.toContain("Archived tasks (${archived.length})");
     expect(workspace).toContain(".filter(({ parentId }) => !parentId)");
     expect(actions).toContain('command(item.id, { type: "archive" })');
@@ -93,16 +93,33 @@ describe("task actions", () => {
 
     expect(views).toContain("Schedule new recurring run");
     expect(views).toContain('data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"`');
-    expect(views).toContain('<span>Scheduled tasks</span>');
+    expect(views).toContain('truncate">Scheduled Runs</span>');
     expect(views).not.toContain('<span>Schedules</span>');
     expect(actions).toContain('value: schedule?.workItemId ?? requestedItem?.id');
     expect(actions).toContain('mode: "run"');
     expect(actions).not.toContain('label: "On each occurrence"');
     expect(actions).not.toContain('label: "Occurrence worker role"');
-    expect(actions).toContain("runScheduledOccurrence({ ...schedule, ...triggered }, false)");
-    expect(runs).toContain("const key = `schedule:${schedule.id}:${schedule.updatedAt}`");
+    expect(actions).toContain("runScheduledOccurrence(schedule, false)");
+    expect(actions).not.toContain('type: "trigger_schedule"');
+    expect(runs).toContain('auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`');
+    expect(runs).toContain("if (auto) {\n      await host.workflowRuntime.command(schedule.workItemId");
     expect(runs).toContain("await runItem(itemId, auto, undefined, undefined, true)");
+    expect(runs).toContain("!startingItemIds.has(item.id) &&");
+    expect(runs).toContain("await host.workspaceController.refresh();\n          // The refreshed execution now prevents duplicate starts.");
+    expect(runs).toContain("startingItemIds.delete(item.id);");
     expect(runs).not.toContain("Scheduled task role is unavailable");
+  });
+
+  it("starts a fresh occurrence from an active or previous run board", () => {
+    const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
+    const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
+    const runs = readFileSync(new URL("../src/run-controller.ts", import.meta.url), "utf8");
+
+    expect(views).toContain('data-action="start-new-run" data-id="${host.shell.escapeHtml(root.id)}"');
+    expect(views).toContain("Start a new Run");
+    expect(actions).toContain("await host.runs.startNewRun(button.dataset.id!)");
+    expect(runs).toContain("createRunOccurrence(template, `run:${crypto.randomUUID()}`)");
+    expect(runs).toContain("await runItem(itemId)");
   });
 
   it("offers library processes directly when creating a task", () => {

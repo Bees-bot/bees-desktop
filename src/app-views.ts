@@ -181,7 +181,7 @@ export function createMainViews(host: MainHost) {
       .flatMap(({ board, process, roots }) => roots
         .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
         .map(({ item, open }) => ({ board, process, item, open })));
-    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active Runs</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
         : `<li style="list-style:none" class="px-2 py-1.5 text-xs text-base-content/40">
@@ -309,8 +309,7 @@ export function createMainViews(host: MainHost) {
                         </button>
                         <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13.5rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-xl">
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="browse-process-library" data-team="${team.id}">${ACTION_ICONS.workflows}<span>Processes</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span>Scheduled tasks</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Run history</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Previous Runs</span></button></li>
                           <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="team-settings" data-team="${team.id}">${ACTION_ICONS.settings}<span>Team settings</span></button></li>
                         </ul>
@@ -318,10 +317,11 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Overview</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Start a new task</span></button></li>
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled Runs</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
@@ -866,6 +866,7 @@ export function createMainViews(host: MainHost) {
               <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
             <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
+              ${root ? `<li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="start-new-run" data-id="${host.shell.escapeHtml(root.id)}">${ACTION_ICONS.add}<span>Start a new Run</span></button></li>` : ""}
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"` : ""}>${ACTION_ICONS.schedule}<span>Schedule new recurring run</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>
@@ -1819,8 +1820,8 @@ export function createMainViews(host: MainHost) {
           <div class="form-control shrink-0">
             <div class="label px-0 pb-1.5"><span class="label-text text-sm font-semibold">Color</span></div>
             <label class="relative flex h-12 w-32 cursor-pointer items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3 shadow-sm transition-colors hover:border-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-              <div class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
-              <span class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
+              <div data-branding-swatch class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
+              <span data-branding-hex class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
               <input class="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="color"
                 data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}">
             </label>
@@ -2446,6 +2447,10 @@ export function createMainViews(host: MainHost) {
       { title: "Global settings", tabs: globalTabs },
       ...(org ? [{ title: "Workspace settings", tabs: orgTabs }] : []),
     ];
+    const workspaceOptions = [...host.workspaceController.organizations]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === host.workspaceController.workspace.organizationId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
+      .join("");
 
     let activeContent = "";
     const activeId = host.shell.settingsTab;
@@ -2476,6 +2481,7 @@ export function createMainViews(host: MainHost) {
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
             <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
+            ${title === "Workspace settings" ? `<li class="px-2 pb-2"><select class="select select-bordered select-sm w-full" data-settings-workspace aria-label="Workspace">${workspaceOptions}</select></li>` : ""}
             ${tabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.settingsTab)}" data-settings-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
           `).join("")}
         </ul>

@@ -49,6 +49,12 @@ it("creates the complete fresh-install schema", () => {
     database.prepare("SELECT name FROM pragma_table_info('execution_outputs') ORDER BY cid").all()
   ).toContainEqual({ name: "reason" });
   expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  expect(
+    database
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_work_items_%goal_key' ORDER BY name")
+      .all()
+      .map(({ name }) => name)
+  ).toEqual(["idx_work_items_child_goal_key", "idx_work_items_root_goal_key"]);
 
   database.close();
 });

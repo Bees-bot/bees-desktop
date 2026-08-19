@@ -312,7 +312,7 @@ bound to a status starts by itself when an item lands there.
 This wizard walks the setup in order. Do each step in the app — the tooltip stays out of your
 way — then press **Next**.
 
-Target: the Overview item in the left menu
+Target: the Start a new task item in the left menu
 
 ## Open Settings
 Everything that belongs to *this computer and this person* lives here: models, API keys,

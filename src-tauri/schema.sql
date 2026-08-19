@@ -274,9 +274,13 @@ CREATE INDEX IF NOT EXISTS idx_stages_process ON stages(process_id, position);
 CREATE INDEX IF NOT EXISTS idx_file_locations_org_team ON file_locations(organization_id, team_id, name);
 CREATE INDEX IF NOT EXISTS idx_work_items_stage ON work_items(stage_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_work_items_parent ON work_items(parent_id, updated_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_goal_key
+DROP INDEX IF EXISTS idx_work_items_goal_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_root_goal_key
 ON work_items(process_id, json_extract(goal_json, '$.key'))
-WHERE json_extract(goal_json, '$.key') IS NOT NULL;
+WHERE parent_id IS NULL AND json_extract(goal_json, '$.key') IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_child_goal_key
+ON work_items(parent_id, json_extract(goal_json, '$.key'))
+WHERE parent_id IS NOT NULL AND json_extract(goal_json, '$.key') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_kanban_boards_team ON kanban_boards(team_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_executions_work_item ON executions(work_item_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status, created_at DESC);

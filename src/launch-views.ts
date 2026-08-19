@@ -123,7 +123,7 @@ function overviewAssistant(): string {
     <label class="mb-2 ml-1 text-sm font-bold tracking-tight text-base-content/80" for="overview-assistant-message">Ask AI Assistant</label>
     <form class="group flex w-full flex-col overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm transition-all focus-within:border-primary/40 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/20" data-overview-assistant>
       <textarea id="overview-assistant-message" name="message"
-        class="textarea w-full resize-none border-none bg-transparent p-5 text-base leading-relaxed focus:outline-none focus:ring-0 min-h-32" maxlength="20000" required
+        class="textarea w-full resize-none border-none bg-transparent p-5 text-base leading-relaxed focus:outline-none focus:ring-0 min-h-64" maxlength="20000" required
         placeholder="What would you like the team to do? Start a process, check on a task, or summarize work..."></textarea>
       
       <div class="flex items-center justify-between border-t border-base-200/50 bg-base-200/30 px-5 py-3">
