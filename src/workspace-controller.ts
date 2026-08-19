@@ -1,7 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import {
-  newAgent
-} from "./agent-files.js";
+import { libraryAgent } from "./agent-files.js";
 import {
   effectiveAgentEligibility
 } from "./assistant.js";
@@ -356,22 +354,10 @@ export function createWorkspaceController(host: MainHost) {
           ({ config, triggerStageId }) =>
             config.role === definition.role && triggerStageId === stage.id
         )) continue;
-        const saved = await host.agentFiles.save(mapping.localPath, newAgent({
-          name: definition.name,
-          purpose: definition.purpose,
-          triggerStageId: stage.id,
-          config: {
-            role: definition.role,
-            prompt: definition.prompt,
-            provider: definition.provider,
-            model: definition.model,
-            toolRefs: [],
-            grants: [],
-            skillRefs: skills
-              .filter(({ name }) => definition.skills?.includes(name))
-              .map(({ ref }) => ref)
-          }
-        }));
+        const saved = await host.agentFiles.save(
+          mapping.localPath,
+          libraryAgent(definition, stage.id, skills)
+        );
         agents.push(saved);
         changed = true;
       }

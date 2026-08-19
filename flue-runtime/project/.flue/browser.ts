@@ -149,7 +149,7 @@ async function getPage(instanceId: string): Promise<Page> {
 // team's Chrome window at a URL so the user can log in manually, no run involved.
 export async function openSite(profileKey: string, url: string): Promise<{ url: string; title: string }> {
   const page = await getPageForKey(profileKey, "manual");
-  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await navigate(page, url);
   await showPage(profileKey, page, true);
   return { url: page.url(), title: await page.title() };
 }
@@ -190,9 +190,34 @@ process.once("beforeExit", () => {
 
 const MAX_TEXT = 6000;
 
+/** Longest a page that never stops fetching may hold up a run. */
+const SETTLE_TIMEOUT_MS = 10_000;
+
+/**
+ * Visible text, read once the page has stopped fetching.
+ *
+ * Reading at domcontentloaded returns a single-page app's loading shell: Gmail answers
+ * "If you're having trouble loading…" and the model concludes the inbox is empty. Network
+ * idle is the signal that the app has finished pulling its content in.
+ */
 async function pageText(page: Page): Promise<string> {
+  await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
   const text = await page.evaluate(() => document.body?.innerText ?? "");
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…[truncated]` : text;
+}
+
+/**
+ * Chrome aborts a goto that only changes the #fragment, because that is a move inside the
+ * current document rather than a request. Gmail addresses every thread that way, so once
+ * the tab is on the mailbox a plain goto fails with ERR_ABORTED and the agent gets nothing.
+ */
+async function navigate(page: Page, url: string): Promise<void> {
+  const target = new URL(url, page.url());
+  if (target.href.split("#")[0] === page.url().split("#")[0]) {
+    await page.evaluate((href) => { window.location.href = href; }, target.href);
+    return;
+  }
+  await page.goto(target.href, { waitUntil: "domcontentloaded" });
 }
 
 export function browserTools(instanceId: string, allowWrite = true): ToolDefinition[] {
@@ -204,7 +229,7 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
       input: v.object({ url: v.string() }),
       async run({ data }) {
         const page = await getPage(instanceId);
-        await page.goto(data.url, { waitUntil: "domcontentloaded" });
+        await navigate(page, data.url);
         return { output: { title: await page.title(), url: page.url(), text: await pageText(page) } };
       }
     }),
@@ -266,9 +291,12 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
       async run({ data }) {
         const page = await getPage(instanceId);
         if (data.selector) await page.click(data.selector, { timeout: 15000 });
-        else if (data.text) await page.getByText(data.text, { exact: false }).first().click({ timeout: 15000 });
+        // `visible=true` matters: Gmail's inbox matches a subject twice and the first hit is
+        // the hidden tab summary, so `.first()` clicks something nobody can see and times out.
+        else if (data.text)
+          await page.getByText(data.text, { exact: false })
+            .locator("visible=true").first().click({ timeout: 15000 });
         else throw new Error("browser_click needs `text` or `selector`");
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
         return { output: { url: page.url(), title: await page.title(), text: await pageText(page) } };
       }
     }),

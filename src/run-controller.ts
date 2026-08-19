@@ -43,7 +43,8 @@ import {
   needsAutonomousRun,
   parseLogicalFileReference,
   workItemForRetry,
-  workItemCondition
+  workItemCondition,
+  type Process
 } from "./domain.js";
 import {
   runtimeAgentName
@@ -483,12 +484,22 @@ export function createRunController(host: MainHost) {
     }
   }
 
+  async function processInItemTeam(itemId: string, processId: string): Promise<Process | undefined> {
+    const scope = await host.repository.getWorkItemScope(itemId);
+    if (!scope) return undefined;
+    const processes = await host.repository.listProcesses(scope.teamId, true);
+    return processes.find(({ id }) => id === processId);
+  }
+
   async function checkpointTargetId(itemId: string, requested?: string): Promise<string | undefined> {
     const item = await host.repository.getWorkItem(itemId);
-    const process = item
-      ? host.workspaceController.processes.find(({ id }) => id === item.processId)
-      : undefined;
-    if (!item || !process) throw new Error("The work item's process is unavailable");
+    if (!item) throw new Error("The work item's process is unavailable");
+    // Runs finish whichever team you happen to be looking at, and the loaded list only holds
+    // the current one. Reading the item's own team keeps a run from dying because you clicked
+    // elsewhere while it worked.
+    const process = host.workspaceController.processes.find(({ id }) => id === item.processId)
+      ?? await processInItemTeam(itemId, item.processId);
+    if (!process) throw new Error("The work item's process is unavailable");
     const target = requireTaskPlanAgentStage(
       process,
       processEngine.resolveTarget(process, item, requested)

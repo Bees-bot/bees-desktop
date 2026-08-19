@@ -18,6 +18,7 @@ import {
 import {
   CLI_TOOLS
 } from "./cli-tools.js";
+import { PROCESS_LIBRARY } from "./processes/registry.js";
 import { jsonObjects, text, textList } from "./model-json.js";
 import type { Agent, Process, WorkItem } from "./domain.js";
 import { errorText } from "./domain.js";
@@ -90,6 +91,11 @@ export type AssistantAction =
       prompt: string;
       process: string;
       stage: string;
+      /** What the agent may do in the team's browser. */
+      browser: "none" | "read" | "write";
+      /** Skills and MCP connections named as the team already knows them. */
+      skills: string[];
+      mcpConnections: string[];
     }
   | { type: "create_item"; process: string; stage: string; title: string; description: string }
   | { type: "move_items"; process: string; fromStage: string; toStage: string };
@@ -127,6 +133,7 @@ function parseAction(value: unknown): AssistantAction | null {
     case "create_agent": {
       const name = text(raw.name);
       const stage = text(raw.stage) || text(raw.triggerStage);
+      const browser = text(raw.browser);
       return name && process && stage
         ? {
             type: "create_agent",
@@ -134,7 +141,10 @@ function parseAction(value: unknown): AssistantAction | null {
             purpose: text(raw.purpose) || name,
             prompt: text(raw.prompt) || text(raw.instructions),
             process,
-            stage
+            stage,
+            browser: browser === "none" || browser === "write" ? browser : "read",
+            skills: textList(raw.skills),
+            mcpConnections: textList(raw.mcpConnections)
           }
         : null;
     }
@@ -186,9 +196,13 @@ export interface ResolvedAction {
   processId?: string | undefined;
   stageId?: string | undefined;
   targetStageId?: string | undefined;
+  /** Set when the process is one Bees ships and the team has not added it yet. */
+  libraryId?: string | undefined;
+  /** Status to resolve once that process exists, since it has no ids until then. */
+  stageName?: string | undefined;
 }
 
-function sameName(left: string, right: string): boolean {
+export function sameName(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
@@ -241,11 +255,32 @@ export function resolveActions(
 
     const process = findProcess(processes, action.process);
     if (!process) {
+      // A brand new team owns no processes, so a plan naming one Bees ships used to dead-end on
+      // a card that could not be applied. Add it on apply instead, the way the new task form does.
+      const library = PROCESS_LIBRARY.find((entry) => sameName(entry.name, action.process));
+      if (!library) {
+        return {
+          action,
+          summary: `Process "${action.process}"`,
+          items: [],
+          error: `No process called "${action.process}"`
+        };
+      }
+      const stageName = "stage" in action ? action.stage : "";
+      const what = action.type === "create_agent"
+        ? `add agent "${action.name}" to its "${stageName}" status`
+        : action.type === "create_item"
+          ? `add "${action.title}" to its "${stageName}" status`
+          : "use it";
       return {
         action,
-        summary: `Process "${action.process}"`,
+        summary: `Add the "${library.name}" process to this team, then ${what}`,
         items: [],
-        error: `No process called "${action.process}"`
+        libraryId: library.id,
+        stageName,
+        ...(library.states.some(({ name }) => sameName(name, stageName))
+          ? {}
+          : { error: `"${stageName}" is not a status of ${library.name}` })
       };
     }
 
@@ -253,7 +288,10 @@ export function resolveActions(
       const stage = findStage(process, action.stage);
       return {
         action,
-        summary: `Create agent "${action.name}", running on "${action.stage}" in ${process.name}`,
+        summary: `Create agent "${action.name}" on "${action.stage}" in ${process.name}`
+          + `, browser ${action.browser}`
+          + (action.skills.length ? `, skills: ${action.skills.join(", ")}` : "")
+          + (action.mcpConnections.length ? `, connections: ${action.mcpConnections.join(", ")}` : ""),
         items: [],
         processId: process.id,
         stageId: stage?.id,
@@ -323,12 +361,18 @@ export interface ApplyContext {
   moveWorkItem?(id: string, stageId: string): Promise<void>;
   /** Runs only after Apply; the desktop app drives its own visible semantic controls. */
   operateBees(goal: string): Promise<void>;
+  /** Adds a process Bees ships to this team, for a plan that named one the team lacks. */
+  installLibraryProcess(libraryId: string): Promise<Process>;
   /** Agents are files in the team folder, not rows — main.ts owns that write and the restart. */
   saveAgent(input: {
     name: string;
     purpose: string;
     prompt: string;
     triggerStageId: string;
+    browser: "none" | "read" | "write";
+    /** Skill and connection names as the team knows them; unknown ones fail the action. */
+    skills: string[];
+    mcpConnections: string[];
   }): Promise<void>;
 }
 
@@ -346,6 +390,14 @@ export async function applyActions(
   for (const entry of applicable(resolved)) {
     const { action } = entry;
     try {
+      // The process only exists from here on, so its statuses only get ids now.
+      if (entry.libraryId) {
+        const installed = await context.installLibraryProcess(entry.libraryId);
+        const stage = installed.stages.find(({ name }) => sameName(name, entry.stageName ?? ""));
+        if (!stage) throw new Error(`"${entry.stageName}" is not a status of ${installed.name}`);
+        entry.processId = installed.id;
+        entry.stageId = stage.id;
+      }
       if (action.type === "operate_bees") {
         await context.operateBees(action.goal);
       } else if (action.type === "create_process") {
@@ -362,7 +414,10 @@ export async function applyActions(
           name: action.name,
           purpose: action.purpose,
           prompt: action.prompt,
-          triggerStageId: entry.stageId!
+          triggerStageId: entry.stageId!,
+          browser: action.browser,
+          skills: action.skills,
+          mcpConnections: action.mcpConnections
         });
       } else if (action.type === "create_item") {
         await context.repository.createWorkItem(entry.processId!, {
