@@ -7,7 +7,7 @@ import type {
   SkillSnapshot
 } from "./domain.js";
 import { isCliProvider } from "./cli-tools.js";
-import { modelRef } from "./local-models.js";
+import { LOCAL_PROVIDER, LOCAL_PROVIDER_MODEL, modelRef } from "./local-models.js";
 
 export const BEES_RUN_AGENT = "bees-run";
 export const BROWSER_TOOL_REF = "builtin:browser";
@@ -76,7 +76,12 @@ export function buildBeesRunInitialData(input: {
     .filter(({ kind }) => kind === "tool")
     .map(({ ref }) => ref);
   const browser = browserEnabled(input.agent);
-  const model = modelRef(input.agent.config);
+  // The runtime declares one local model, "active", meaning whichever is loaded. Naming a
+  // specific one only works while that one happens to be running, and fails the run with
+  // "Unknown model ID" the moment it stops.
+  const model = input.agent.config.provider === LOCAL_PROVIDER
+    ? LOCAL_PROVIDER_MODEL
+    : modelRef(input.agent.config);
   const delegateNames = new Set<string>();
   return {
     version: 1,
