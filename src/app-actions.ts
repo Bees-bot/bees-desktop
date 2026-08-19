@@ -1473,6 +1473,23 @@ export function createMainActions(host: MainHost) {
         await host.runs.openRun(button.dataset.id!);
         return;
       }
+      if (action === "view-browser") {
+        const { baseUrl, token } = await host.ensureFlueRuntime();
+        const response = await tauriFetch(`${baseUrl}/browser/show`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            instanceId: button.dataset.id,
+            ...(button.dataset.url ? { url: button.dataset.url } : {})
+          })
+        });
+        if (!response.ok) {
+          host.shell.showNotice(`Could not show browser: ${await response.text()}`, "error");
+          return;
+        }
+        host.shell.showNotice("Browser opened for this run.", "success");
+        return;
+      }
       if (action === "clear-search") {
         host.shell.searchQuery = "";
         host.shell.searchHits = [];

@@ -16,6 +16,12 @@ import { instancePointer, stateDir } from "./state.ts";
 
 const contexts = new Map<string, Promise<BrowserContext>>();
 
+// One tab per owner, not one tab per team. Runs for a team share the profile (that is the
+// point — logins persist), but they must not share a tab: two concurrent runs on page 0
+// navigate each other's page out from under the model between tool calls.
+const pages = new Map<string, Promise<Page>>();
+const humanVisibleProfiles = new Set<string>();
+
 // Per-workspace profile dir, keyed by a stable hash of the *team folder* (teamRoot).
 // teamRoot is stable across runs (unlike the per-run temp workspace), so a login the
 // user did once — whether mid-run or via the "connect a site" button — is reused by
@@ -35,15 +41,37 @@ async function profileKeyForInstance(instanceId: string): Promise<string> {
   return parsed.teamRoot ?? parsed.workspace;
 }
 
+async function setWindowState(page: Page, windowState: "normal" | "minimized"): Promise<void> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    const { windowId } = await session.send("Browser.getWindowForTarget");
+    await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState } });
+  } finally {
+    await session.detach().catch(() => {});
+  }
+}
+
+async function showPage(profileKey: string, page: Page, chosenByHuman: boolean): Promise<void> {
+  await setWindowState(page, "normal");
+  await page.bringToFront();
+  if (chosenByHuman) humanVisibleProfiles.add(profileDirForKey(profileKey));
+}
+
+async function hideAfterHandoff(profileKey: string, page: Page): Promise<void> {
+  if (humanVisibleProfiles.has(profileDirForKey(profileKey)) || page.isClosed()) return;
+  await setWindowState(page, "minimized").catch(() => {});
+}
+
 async function getContext(dir: string): Promise<BrowserContext> {
   const cached = contexts.get(dir);
   if (cached) return cached;
   // ponytail: single shared context per profile dir. Chrome locks the dir, so one
   // window per workspace at a time — matches the per-workspace-profile decision.
-  const opening = (async () => {
+  let opening: Promise<BrowserContext>;
+  opening = (async () => {
     await mkdir(dir, { recursive: true });
     try {
-      return await chromium.launchPersistentContext(dir, {
+      const context = await chromium.launchPersistentContext(dir, {
         channel: "chrome",
         headless: false,
         viewport: null,
@@ -51,8 +79,25 @@ async function getContext(dir: string): Promise<BrowserContext> {
         // point of this window is that the user signs in themselves. Drop the banner and the flag
         // it reads; everything else about the launch is unchanged.
         ignoreDefaultArgs: ["--enable-automation"],
-        args: ["--disable-blink-features=AutomationControlled"]
+        args: ["--disable-blink-features=AutomationControlled", "--start-minimized"]
       });
+      context.on("close", () => {
+        if (contexts.get(dir) === opening) contexts.delete(dir);
+        humanVisibleProfiles.delete(dir);
+        for (const key of pages.keys()) {
+          if (key.startsWith(`${dir}::`)) pages.delete(key);
+        }
+      });
+      // Keep Chrome headful so the exact page state can be handed to a person, but do not
+      // expose the window while the agent is working independently.
+      const page = context.pages()[0] ?? await context.newPage();
+      try {
+        await setWindowState(page, "minimized");
+      } catch (error) {
+        await context.close().catch(() => {});
+        throw error;
+      }
+      return context;
     } catch (error) {
       contexts.delete(dir);
       throw new Error(
@@ -64,17 +109,13 @@ async function getContext(dir: string): Promise<BrowserContext> {
   return opening;
 }
 
-// One tab per owner, not one tab per team. Runs for a team share the profile (that is the
-// point — logins persist), but they must not share a tab: two concurrent runs on page 0
-// navigate each other's page out from under the model between tool calls.
-const pages = new Map<string, Promise<Page>>();
-
 // ponytail: LRU cap instead of run-lifecycle teardown, because a tool has no run-end hook.
 // Give browser.ts a close(instanceId) call if runs ever need their tab gone on settlement.
 const MAX_PAGES = 8;
 
 async function getPageForKey(profileKey: string, owner: string): Promise<Page> {
-  const key = `${profileKey}::${owner}`;
+  const dir = profileDirForKey(profileKey);
+  const key = `${dir}::${owner}`;
   const cached = pages.get(key);
   if (cached) {
     const page = await cached.catch(() => null);
@@ -86,10 +127,11 @@ async function getPageForKey(profileKey: string, owner: string): Promise<Page> {
     }
     pages.delete(key);
   }
-  const opening = getContext(profileDirForKey(profileKey)).then(async (context) => {
+  const opening = getContext(dir).then(async (context) => {
     // Reuse the window's existing blank tab for the first owner rather than leaving it empty.
     const blank = context.pages().find((page) => page.url() === "about:blank");
-    return blank && !pages.size ? blank : context.newPage();
+    const profileHasOwner = [...pages.keys()].some((candidate) => candidate.startsWith(`${dir}::`));
+    return blank && !profileHasOwner ? blank : context.newPage();
   });
   pages.set(key, opening);
   for (const [stale] of [...pages].slice(0, Math.max(0, pages.size - MAX_PAGES))) {
@@ -108,7 +150,36 @@ async function getPage(instanceId: string): Promise<Page> {
 export async function openSite(profileKey: string, url: string): Promise<{ url: string; title: string }> {
   const page = await getPageForKey(profileKey, "manual");
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.bringToFront().catch(() => {});
+  await showPage(profileKey, page, true);
+  return { url: page.url(), title: await page.title() };
+}
+
+function safeBrowserUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" || url === "about:blank"
+      ? url
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Restore the tab owned by a particular execution. If Chrome was restarted, the last safe URL
+// from the receipt gives the user a useful place to resume without sharing another run's tab.
+export async function showExecution(
+  instanceId: string,
+  lastUrl?: string
+): Promise<{ url: string; title: string }> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(instanceId)) throw new Error("Invalid browser owner");
+  const profileKey = await profileKeyForInstance(instanceId);
+  const page = await getPageForKey(profileKey, instanceId);
+  const url = safeBrowserUrl(lastUrl);
+  if (page.url() === "about:blank" && url && url !== "about:blank") {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+  }
+  await showPage(profileKey, page, true);
   return { url: page.url(), title: await page.title() };
 }
 
@@ -156,8 +227,10 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
         timeoutMs: v.optional(v.number())
       }),
       async run({ data }) {
-        const page = await getPage(instanceId);
+        const profileKey = await profileKeyForInstance(instanceId);
+        const page = await getPageForKey(profileKey, instanceId);
         const timeout = data.timeoutMs ?? 300000;
+        await showPage(profileKey, page, false);
         try {
           if (data.successSelector) await page.waitForSelector(data.successSelector, { timeout });
           else if (data.successText) await page.getByText(data.successText, { exact: false }).first().waitFor({ timeout });
@@ -165,6 +238,8 @@ export function browserTools(instanceId: string, allowWrite = true): ToolDefinit
           return { output: { loggedIn: true, url: page.url() } };
         } catch {
           return { output: { loggedIn: false, url: page.url(), note: "Login not detected before timeout." } };
+        } finally {
+          await hideAfterHandoff(profileKey, page);
         }
       }
     }),

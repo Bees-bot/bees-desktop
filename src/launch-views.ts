@@ -9,6 +9,7 @@ import type {
 import { itemTree, workItemCondition, workItemConditionLabel } from "./domain.js";
 import { modelRef } from "./local-models.js";
 import {
+  browserPageReference,
   lastAssistantText,
   type BeesConversationSnapshotV1,
   type SnapshotMessage,
@@ -42,6 +43,17 @@ export function approvalButtons(outputId: string, busy: boolean, size: "xs" | "s
   <button class="btn btn-success btn-${size}" data-action="approve-output" data-id="${escapeHtml(outputId)}" ${
     busy ? "disabled" : ""
   }>Approve</button>`;
+}
+
+export function browserButton(
+  executionId: string,
+  snapshot: BeesConversationSnapshotV1 | null,
+  size: "xs" | "sm" = "sm",
+  emphasized = false
+): string {
+  const page = browserPageReference(snapshot);
+  if (!page) return "";
+  return `<button class="btn ${emphasized ? "btn-warning" : "btn-ghost border border-base-300"} btn-${size}" data-action="view-browser" data-id="${escapeHtml(executionId)}"${page.url ? ` data-url="${escapeHtml(page.url)}"` : ""}>View Browser</button>`;
 }
 
 export function approvalCard(output: ExecutionOutput, busy: boolean, taskPlan?: string, showActions = true): string {
@@ -188,6 +200,9 @@ export function inboxView(
           const reviewRun = [...itemRuns]
             .filter(({ id }) => pending.some(({ executionId }) => executionId === id))
             .sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt))[0];
+          const browserRun = [...itemRuns]
+            .sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt))
+            .find((candidate) => browserPageReference(candidate.conversationSnapshot));
           const message = lastAssistantText(reviewRun?.conversationSnapshot ?? null) || state.detail;
           const process = processes.find(({ id }) => id === item.processId)?.name ?? "—";
           return `<tr>
@@ -198,7 +213,7 @@ export function inboxView(
               ? `<div class="flex flex-wrap gap-1">${pending.map((output) =>
                 `<button class="link link-hover text-sm" data-action="preview-inbox-output" data-id="${output.id}" aria-controls="inbox-output-preview" aria-expanded="false">${escapeHtml(output.logicalDestination)}</button>`).join("")}</div>`
               : "—"}</td>
-            <td><div class="flex flex-wrap justify-end gap-1"><button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>${restartRun
+            <td><div class="flex flex-wrap justify-end gap-1"><button class="btn btn-ghost btn-xs" data-action="edit-item" data-id="${item.id}">Edit</button>${browserRun ? browserButton(browserRun.id, browserRun.conversationSnapshot, "xs", true) : ""}${restartRun
               ? `<button class="btn btn-primary btn-xs" data-action="restart-run" data-id="${restartRun.id}">Restart</button>`
               : ""}${pending.map((output) => {
               const run = itemRuns.find(({ id }) => id === output.executionId);
@@ -471,6 +486,7 @@ export function runView(input: {
       </div>
       <div class="flex gap-2">
         ${pendingOutput ? approvalButtons(pendingOutput.id, busy) : ""}
+        ${browserButton(execution.id, snapshot)}
         ${
           execution.status === "running"
             ? `<button class="btn btn-error btn-sm" data-action="stop-run" data-id="${execution.id}">Stop run</button>`
