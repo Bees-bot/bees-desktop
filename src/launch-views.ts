@@ -1,3 +1,4 @@
+import { object } from "./model-json.js";
 import type {
   Execution,
   ExecutionOutput,
@@ -280,11 +281,6 @@ export function searchResultsView(hits: SearchHit[]): string {
     .join("")}</div>`;
 }
 
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function readableValue(value: unknown, depth = 0): string {
   if (value === null || value === undefined) return "None";

@@ -122,6 +122,10 @@ type ControlRecord =
 let activeOrganizationId = "";
 let activeControl: ControlDocument | null = null;
 let lastApplyError = "";
+// Set only when a policy document exists and we could not honour it: a bad hash, a source that
+// will not evaluate, a cached document that no longer parses. Empty means there is nothing to
+// enforce, which is the normal state for a workspace that has never configured one.
+let unusableControl = "";
 
 function object(value: unknown, name: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -283,12 +287,14 @@ export async function loadCachedControl(
   activeOrganizationId = organizationId;
   activeControl = null;
   lastApplyError = "";
+  unusableControl = "";
   const cached = await repository.getSetting<unknown>(cacheKey(organizationId), null);
   if (cached === null) return;
   try {
     activeControl = parseControlDocument(cached);
   } catch (error) {
     lastApplyError = errorText(error);
+    unusableControl = errorText(error);
   }
 }
 
@@ -370,7 +376,17 @@ export async function decide(
   identity: ReportIdentity,
   input: Omit<PolicyInput, "now" | "activeExceptionPolicyIds">
 ): Promise<PolicyDecision> {
-  if (activeOrganizationId !== identity.organizationId || !activeControl) return { decision: "allow" };
+  if (activeOrganizationId !== identity.organizationId) return { decision: "allow" };
+  if (!activeControl) {
+    // A policy we cannot apply is not the same as no policy. Allowing here is how a tampered
+    // document or a broken source quietly turns enforcement off for the whole workspace.
+    if (!unusableControl) return { decision: "allow" };
+    return {
+      decision: "approval_required",
+      policyId: PRIVATE_CONTROL_KEY,
+      reason: `The workspace policy could not be applied, so this needs approval: ${unusableControl}`
+    };
+  }
   const now = new Date().toISOString();
   const policyInput = { ...input, now, activeExceptionPolicyIds: [] };
   const exceptions = matchingExceptions(activeControl, policyInput);
@@ -416,13 +432,19 @@ export async function syncControl(
   if (!isControlSyncDue(lastSync, activeControl?.syncTime ?? DEFAULT_SYNC_TIME, at)) return false;
   let applied = false;
   let contacted = false;
+  // A network failure and a policy we cannot honour are different problems, and only the second
+  // one may tighten what the app allows.
+  let validating = false;
   try {
     const policies = (await api.listPolicies(token, identity.organizationId)).policies;
     contacted = true;
     const remote = policies.find(
       ({ key }) => key === PRIVATE_CONTROL_KEY
     );
-    if (remote) {
+    if (!remote) {
+      unusableControl = "";
+    } else {
+      validating = true;
       const candidate = parseControlDocument(remote.value);
       if ((await sha256(candidate.policy.source)) !== candidate.policy.sha256) {
         throw new Error("Policy source hash does not match");
@@ -441,10 +463,12 @@ export async function syncControl(
       await repository.setSetting(cacheKey(identity.organizationId), candidate);
       activeControl = candidate;
       lastApplyError = "";
+      unusableControl = "";
       applied = true;
     }
   } catch (error) {
     lastApplyError = errorText(error);
+    if (validating) unusableControl = errorText(error);
   } finally {
     if (contacted) await repository.setSetting(syncKey(identity.organizationId), at.toISOString());
   }

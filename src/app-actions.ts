@@ -1851,7 +1851,15 @@ export function createMainActions(host: MainHost) {
           return;
         const recurrence = String(data.get("recurrence")) as Schedule["recurrence"];
         const workItemId = String(data.get("workItemId"));
-        const nextRunAt = nextScheduleStart(recurrence, String(data.get("time")), new Date(), String(data.get("timezone"))).toISOString();
+        // safeTz would quietly swap a typo for UTC, so a "7am" schedule would fire at the wrong
+        // hour while the row still displayed what was typed. Refuse it here instead.
+        const scheduleTimezone = String(data.get("timezone")).trim();
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: scheduleTimezone });
+        } catch {
+          throw new Error(`${scheduleTimezone} is not a timezone. Use a name like Asia/Kathmandu.`);
+        }
+        const nextRunAt = nextScheduleStart(recurrence, String(data.get("time")), new Date(), scheduleTimezone).toISOString();
         const command = {
           type: "upsert_schedule",
           schedule: {
@@ -1859,7 +1867,7 @@ export function createMainActions(host: MainHost) {
             name: String(data.get("name")),
             recurrence,
             mode: "run",
-            timezone: String(data.get("timezone")),
+            timezone: scheduleTimezone,
             enabled: schedule?.enabled ?? true,
             nextRunAt
           }
@@ -1886,11 +1894,14 @@ export function createMainActions(host: MainHost) {
       if (action === "run-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule) {
-          await host.workflowRuntime.command(schedule.workItemId, {
+          const state = await host.workflowRuntime.command(schedule.workItemId, {
             type: "trigger_schedule",
             scheduleId: schedule.id
           });
-          await host.runs.runScheduledOccurrence(schedule, false);
+          const triggered = state.schedules.find(({ id }) => id === schedule.id);
+          if (!triggered)
+            throw new Error("The schedule is unavailable");
+          await host.runs.runScheduledOccurrence({ ...schedule, ...triggered }, false);
         }
         return;
       }
@@ -2932,13 +2943,15 @@ export function createMainActions(host: MainHost) {
         await toggleAssistant(true);
         await pickAssistantModel(preferredModelChoice(host.assistant.assistantCatalog));
         await sendAssistantMessage(message);
-      })().catch((error) => {
-        if (submit?.isConnected) {
+        // Only on success: a failed send leaves the text where the user can retry or copy it.
+        assistant.reset();
+      })()
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          if (!submit?.isConnected) return;
           submit.disabled = false;
           submit.textContent = "Go";
-        }
-        host.shell.showNotice(errorText(error), "error");
-      });
+        });
       return;
     }
     const search = (event.target as Element).closest<HTMLFormElement>("form[data-run-search]");

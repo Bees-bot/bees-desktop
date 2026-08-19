@@ -935,7 +935,12 @@ async fn probe_api_endpoint(request: ApiProbe) -> Result<ApiAnswer, String> {
         let response = call.send().map_err(|error| error.to_string())?;
         let status = response.status().as_u16();
         // Enough for any document worth serving, and a ceiling on what one answer can cost.
-        let body = response.text().unwrap_or_default().chars().take(4_000_000).collect();
+        let body = response
+            .text()
+            .map_err(|error| error.to_string())?
+            .chars()
+            .take(4_000_000)
+            .collect();
         Ok(ApiAnswer { status, body })
     })
     .await
@@ -1747,40 +1752,6 @@ fn resolve_python() -> Option<String> {
         .map(str::trim)
         .find(|line| line.starts_with('/') && Path::new(line).exists())
         .map(str::to_string)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SystemCapacity {
-    total_memory_bytes: u64,
-    free_disk_bytes: u64,
-    /// "macOS", "Windows", "Linux", … as reported by the OS.
-    os_name: String,
-    /// Product version, e.g. "26.1" on macOS. Empty when the OS does not report one.
-    os_version: String,
-}
-
-/// What this machine can carry, used to pick which seeded model to start on first launch.
-/// Free space is measured on the volume the downloaded models land on, not the boot volume.
-#[tauri::command]
-fn system_capacity(app: tauri::AppHandle) -> Result<SystemCapacity, String> {
-    let models = local_models::models_directory(&app)?;
-    let system = sysinfo::System::new_with_specifics(
-        sysinfo::RefreshKind::nothing().with_memory(sysinfo::MemoryRefreshKind::everything()),
-    );
-    // The mount point that is the longest prefix of the models path owns that path.
-    let free_disk_bytes = sysinfo::Disks::new_with_refreshed_list()
-        .iter()
-        .filter(|disk| models.starts_with(disk.mount_point()))
-        .max_by_key(|disk| disk.mount_point().as_os_str().len())
-        .map(|disk| disk.available_space())
-        .unwrap_or(0);
-    Ok(SystemCapacity {
-        total_memory_bytes: system.total_memory(),
-        free_disk_bytes,
-        os_name: sysinfo::System::name().unwrap_or_default(),
-        os_version: sysinfo::System::os_version().unwrap_or_default(),
-    })
 }
 
 /// An agent CLI Bees can run through.
@@ -3867,7 +3838,6 @@ pub fn run() {
             configured_cli_tools,
             set_cli_tool_path,
             set_cli_tool_enabled,
-            system_capacity,
             oauth_start,
             oauth_await,
             connection_oauth_start,
