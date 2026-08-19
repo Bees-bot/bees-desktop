@@ -149,7 +149,7 @@ async function getPage(instanceId: string): Promise<Page> {
 // team's Chrome window at a URL so the user can log in manually, no run involved.
 export async function openSite(profileKey: string, url: string): Promise<{ url: string; title: string }> {
   const page = await getPageForKey(profileKey, "manual");
-  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await navigate(page, url);
   await showPage(profileKey, page, true);
   return { url: page.url(), title: await page.title() };
 }
