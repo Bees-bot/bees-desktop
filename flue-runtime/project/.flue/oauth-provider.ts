@@ -6,13 +6,9 @@ const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 
-interface DeviceCode {
-  verificationUri: string;
-  userCode: string;
-}
-
 interface PendingLogin {
-  started: Promise<DeviceCode>;
+  /** Where the person finishes signing in to ChatGPT. */
+  started: Promise<{ authUrl: string }>;
   result: Promise<OAuthCredential>;
   abort: AbortController;
 }
@@ -34,19 +30,24 @@ function deferred<T>(): {
 function beginCodexLogin(): PendingLogin {
   const oauth = openaiCodexProvider().auth.oauth;
   if (!oauth) throw new Error("This pi-ai build has no Codex OAuth provider");
-  const ready = deferred<DeviceCode>();
+  const ready = deferred<{ authUrl: string }>();
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("Codex sign-in timed out")), LOGIN_TIMEOUT_MS);
   const result = oauth.login({
     signal: abort.signal,
+    // Browser login, not device code. Device code is refused outright unless the ChatGPT
+    // account has switched it on, and almost nobody has, so it turned every sign-in into a
+    // dead end telling the person to go and change an account setting.
     prompt: async (prompt: AuthPrompt) => {
-      if (prompt.type === "select") return "device_code";
+      if (prompt.type === "select") return "browser";
+      // Browser login races a local callback server against a paste-the-code prompt. Bees has
+      // nowhere to paste, and answering this at all — even by throwing — cancels the server
+      // before the person has finished logging in. Leaving it unanswered lets the redirect win.
+      if (prompt.type === "manual_code") return new Promise<string>(() => {});
       throw new Error(`Unexpected Codex OAuth prompt: ${prompt.type}`);
     },
     notify: (event: AuthEvent) => {
-      if (event.type === "device_code") {
-        ready.resolve({ verificationUri: event.verificationUri, userCode: event.userCode });
-      }
+      if (event.type === "auth_url") ready.resolve({ authUrl: event.url });
     }
   }).finally(() => clearTimeout(timer));
   void result.catch(ready.reject);

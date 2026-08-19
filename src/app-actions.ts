@@ -3,10 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  firstTriggerConflict,
-  newAgent
-} from "./agent-files.js";
+import { firstTriggerConflict, libraryAgent, newAgent } from "./agent-files.js";
 import {
   AI_PROVIDER_LABEL,
   addAiConnection,
@@ -31,18 +28,7 @@ import {
   searchMcpRegistry,
   type McpRegistryServer
 } from "./catalog.js";
-import {
-  ASSISTANT_AGENT,
-  ASSISTANT_EXTRA_MODELS_KEY,
-  applyActions,
-  assistantInstanceId,
-  instanceModelId,
-  parseBeesUiCommand,
-  parseTurn,
-  resolveActions,
-  sameChoice,
-  turnPrompt
-} from "./assistant.js";
+import { ASSISTANT_AGENT, ASSISTANT_EXTRA_MODELS_KEY, applyActions, assistantInstanceId, instanceModelId, parseBeesUiCommand, parseTurn, resolveActions, sameChoice, sameName, turnPrompt } from "./assistant.js";
 import {
   setCliToolPath,
   setCliToolEnabled
@@ -282,22 +268,7 @@ export function createMainActions(host: MainHost) {
       // empty. Only an agent already on one of this process's statuses counts as present.
       if (existingAgents.some(({ config, triggerStageId }) => config.role === definition.role && triggerStageId === stage.id))
         continue;
-      await host.agentFiles.save(teamRoot, newAgent({
-        name: definition.name,
-        purpose: definition.purpose,
-        triggerStageId: stage.id,
-        config: {
-          role: definition.role,
-          prompt: definition.prompt,
-          provider: definition.provider,
-          model: definition.model,
-          toolRefs: [],
-          grants: [],
-          skillRefs: skills
-            .filter(({ name }) => definition.skills?.includes(name))
-            .map(({ ref }) => ref)
-        }
-      }));
+      await host.agentFiles.save(teamRoot, libraryAgent(definition, stage.id, skills));
     }
     const hasBoard = (await host.repository.listBoards(host.workspaceController.workspace.teamId, true)).some(({ processId }) => processId === process.id);
     if (!hasBoard) {
@@ -754,33 +725,43 @@ export function createMainActions(host: MainHost) {
     host.shell.showNotice(note, "success");
   }
 
-  async function addApiKeyMcp(found?: McpRegistryServer): Promise<void> {
+  /** Add a server by URL, whether it wants a bearer token or nothing at all. */
+  async function addMcpServer(found?: McpRegistryServer): Promise<void> {
     const data = await edit(found ? `Connect ${found.title}` : "Add MCP connection", [
       { name: "name", label: "Name", placeholder: "Linear", value: found?.title ?? "" },
       { name: "url", label: "HTTPS endpoint", placeholder: "https://example.com/mcp", value: found?.url ?? "" },
-      { name: "token", label: "API key / bearer token", type: "password", hint: found ? "Get this from the server's own publisher. Bees keeps it in local app storage." : "" },
+      {
+        name: "token",
+        label: "API key / bearer token",
+        type: "password",
+        hint: found?.requiresKey === false
+          ? "This one declares no headers, so leave it empty."
+          : "Get this from the server's own publisher. Leave empty if it does not use one. Bees keeps it in local app storage."
+      },
       { name: "transport", label: "Transport", type: "toggle", value: found?.transport ?? "streamable-http", options: [{ label: "Streamable HTTP", value: "streamable-http" }, { label: "Legacy SSE", value: "sse" }] },
       { name: "offline", label: "When unavailable", type: "toggle", value: "required", options: [{ label: "Fail the run", value: "required" }, { label: "Continue without it", value: "optional" }] }
     ]);
     if (!data)
       return;
+    // Registry servers are a mix: some take a bearer token, plenty take none and sign you in
+    // instead. Demanding a key here meant a whole class of them could never be connected.
+    const secret = String(data.get("token") ?? "").trim();
     const connection = newMcpConnection({
       teamId: host.workspaceController.workspace.teamId,
       name: String(data.get("name") ?? ""),
       url: String(data.get("url") ?? ""),
-      authType: "api-key",
+      authType: secret ? "api-key" : "none",
       transport: String(data.get("transport")) as McpConnection["transport"],
       optional: data.get("offline") === "optional"
     });
-    const secret = String(data.get("token") ?? "").trim();
-    if (!secret)
-      throw new Error("API key is required");
-    await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
+    if (secret)
+      await invoke("store_connection_secret", { secretRef: connection.secretRef, secret });
     try {
       await saveMcpConnection(host.repository, connection);
     }
     catch (error) {
-      await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
+      if (secret)
+        await invoke("delete_connection_secret", { secretRef: connection.secretRef }).catch(() => undefined);
       throw error;
     }
     await discoverMcpConnection(connection);
@@ -2096,7 +2077,8 @@ export function createMainActions(host: MainHost) {
           type: "select",
           options: found.map((server) => ({
             value: server.name,
-            label: `${server.title} · ${server.url}${server.description ? ` — ${server.description}` : ""}`
+            label: `${server.title} · ${server.requiresKey ? "needs an API key" : "no key needed"}`
+              + ` · ${server.url}${server.description ? ` — ${server.description}` : ""}`
           })),
           hint: "Anyone may publish to the registry, and an agent's tool calls go to whoever runs the server. Check the publisher before connecting."
         }], "Continue");
@@ -2104,11 +2086,11 @@ export function createMainActions(host: MainHost) {
           return;
         const server = found.find(({ name }) => name === String(picked.get("server")));
         if (server)
-          await addApiKeyMcp(server);
+          await addMcpServer(server);
         return;
       }
       if (action === "add-mcp-api") {
-        await addApiKeyMcp();
+        await addMcpServer();
         return;
       }
       if (action === "add-mcp-from-curl") {
@@ -2147,15 +2129,11 @@ export function createMainActions(host: MainHost) {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
         });
-        const device = await started.json() as {
-          verificationUri?: string;
-          userCode?: string;
-          error?: string;
-        };
-        if (!started.ok || !device.verificationUri || !device.userCode)
-          throw new Error(device.error ?? "Codex sign-in failed");
-        await openUrl(device.verificationUri);
-        host.shell.showNotice(`Enter Codex code ${device.userCode} in your browser`, "info");
+        const login = await started.json() as { authUrl?: string; error?: string };
+        if (!started.ok || !login.authUrl)
+          throw new Error(login.error ?? "Codex sign-in failed");
+        await openUrl(login.authUrl);
+        host.shell.showNotice("Finish signing in to ChatGPT in your browser", "info");
         const completed = await tauriFetch(`${baseUrl}/oauth/openai-codex/await`, {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
@@ -3384,8 +3362,42 @@ export function createMainActions(host: MainHost) {
           const result = await runApprovedBeesOperation(goal);
           operationNotes.push(`${result.message}${result.steps.length ? `\n${result.steps.join("\n")}` : ""}`);
         },
-        saveAgent: async ({ name, purpose, prompt, triggerStageId }) => {
-          await writeAgent(newAgent({ name, purpose, triggerStageId, config: { prompt, toolRefs: [], grants: [] } }));
+        installLibraryProcess: async (libraryId) => {
+          const template = processLibraryEntry(libraryId);
+          if (!template) throw new Error("Bees does not ship that process");
+          const installed = await installLibraryProcess(template);
+          // The next action in this batch adds an item to it, and that item starts running
+          // straight away. Without this the runtime looks the process up before the
+          // controller knows it exists and the run dies on "process is unavailable".
+          await host.workspaceController.refresh();
+          return installed;
+        },
+        saveAgent: async ({ name, purpose, prompt, triggerStageId, browser, skills, mcpConnections }) => {
+          const available = registryCapabilities(host.workspaceController.registries)
+            .filter(({ kind }) => kind === "skill");
+          const skillRefs = skills.map((wanted) => {
+            const match = available.find((skill) => sameName(skill.name, wanted));
+            if (!match) throw new Error(`This team has no skill called "${wanted}"`);
+            return match.ref;
+          });
+          const mcpConnectionRefs = mcpConnections.map((wanted) => {
+            const match = host.workspaceController.mcpConnections
+              .find((connection) => sameName(connection.name, wanted));
+            if (!match) throw new Error(`This team has no MCP connection called "${wanted}"`);
+            return match.id;
+          });
+          await writeAgent(newAgent({
+            name,
+            purpose,
+            triggerStageId,
+            config: {
+              prompt,
+              toolRefs: browser === "none" ? [] : [BROWSER_TOOL_REF],
+              grants: browser === "write" ? [BROWSER_WRITE_GRANT] : [],
+              skillRefs,
+              mcpConnectionRefs
+            }
+          }));
         }
       });
       entry.applied = true;
@@ -3580,7 +3592,7 @@ export function createMainActions(host: MainHost) {
     stopLocalModel,
     connectAiProvider,
     discoverMcpConnection,
-    addApiKeyMcp,
+    addMcpServer,
     addOAuthMcp,
     readFileAsDataUrl,
     linkModelThinking,

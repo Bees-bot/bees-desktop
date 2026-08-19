@@ -157,6 +157,7 @@ describe("resolving against real data", () => {
       repository,
       teamId: local.teamId,
       moveWorkItem: async (itemId, stageId) => { moved.push([itemId, stageId]); },
+      installLibraryProcess: () => { throw new Error("not used here"); },
       operateBees: async () => {
         throw new Error("no Bees operation expected");
       },
@@ -190,6 +191,7 @@ describe("resolving against real data", () => {
     const result = await applyActions(resolved, {
       repository,
       teamId: local.teamId,
+      installLibraryProcess: () => { throw new Error("not used here"); },
       operateBees: async (goal) => {
         goals.push(goal);
       },
@@ -225,6 +227,7 @@ describe("resolving against real data", () => {
     const result = await applyActions(resolved, {
       repository,
       teamId: local.teamId,
+      installLibraryProcess: () => { throw new Error("not used here"); },
       operateBees: async () => {
         throw new Error("external work must not run in the dashboard");
       },

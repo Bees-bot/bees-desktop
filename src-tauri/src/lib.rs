@@ -2722,6 +2722,8 @@ struct McpRegistryServer {
     description: String,
     url: String,
     transport: String,
+    /// The entry declares headers it expects, so connecting it takes a key from its publisher.
+    requires_key: bool,
 }
 
 fn catalog_client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
@@ -3024,6 +3026,10 @@ fn search_mcp_registry_blocking(query: &str) -> Result<Vec<McpRegistryServer>, S
                     .to_string(),
                 url: remote.get("url").and_then(JsonValue::as_str)?.to_string(),
                 transport: remote.get("type").and_then(JsonValue::as_str)?.to_string(),
+                requires_key: remote
+                    .get("headers")
+                    .and_then(JsonValue::as_array)
+                    .is_some_and(|headers| !headers.is_empty()),
             })
         })
         .collect())
