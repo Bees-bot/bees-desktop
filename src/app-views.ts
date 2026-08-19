@@ -900,7 +900,7 @@ export function createMainViews(host: MainHost) {
               <h2 class="text-sm font-bold tracking-tight text-base-content/80">${host.shell.escapeHtml(stage.name)}</h2>
               <span class="text-xs font-semibold text-base-content/50">${cards.length}</span>
             </header>
-            <div class="flex-1 overflow-y-auto px-2 pb-2">
+            <div class="flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2">
               <div class="grid gap-3">${cards
               .map((item) => `<article class="kanban-card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary shadow-md" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="flex flex-col gap-3.5 p-5">
