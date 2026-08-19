@@ -291,8 +291,10 @@ export function createMainActions(host: MainHost) {
           prompt: definition.prompt,
           provider: definition.provider,
           model: definition.model,
-          toolRefs: [],
-          grants: [],
+          // No toolRefs key at all, not an empty one. An empty list means "this agent has no
+          // tools", which switched the browser off for every process installed from the
+          // library — while both run-config and the agent form treat an absent list as
+          // "browser on". Grants stay absent too, so it can read pages but not type into them.
           skillRefs: skills
             .filter(({ name }) => definition.skills?.includes(name))
             .map(({ ref }) => ref)
