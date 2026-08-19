@@ -86,3 +86,35 @@ describe("settings", () => {
     expect(html).toContain('<option value="workspace-2" selected>Second</option>');
   });
 });
+
+describe("process library", () => {
+  it("opens an installed library process for editing without making a copy", () => {
+    let html = "";
+    const host = {
+      session: { currentTeam: () => ({ name: "Team" }) },
+      shell: {
+        setHeader: () => undefined,
+        swap: (value: string) => { html = value; },
+        escapeHtml: (value: string) => value
+      },
+      workspaceController: {
+        processes: [{ id: "goals-process", definition: { moduleId: "goals" } }],
+        agents: []
+      },
+      assistant: {
+        assistantModel: { provider: "openai-codex", model: "gpt-5.6-sol" },
+        assistantCatalog: [],
+        machineModelAvailability: {
+          localModelIds: [],
+          connectedProviders: ["openai-codex"],
+          cliProviders: []
+        }
+      }
+    } as unknown as MainHost;
+
+    createMainViews(host).renderProcessLibrary();
+
+    expect(html).toContain('data-action="edit-process" data-id="goals-process">Edit team process</button>');
+    expect(html).toContain("Create another copy");
+  });
+});

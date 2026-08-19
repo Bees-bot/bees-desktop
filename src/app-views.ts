@@ -1400,10 +1400,13 @@ export function createMainViews(host: MainHost) {
         <header class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
           <div>
             <h2 class="font-bold">Process Library</h2>
-            <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
+            <p class="mt-1 text-sm text-muted">Curated processes available offline. Edit the team's installed process, or create a separate copy only when you need another workflow.</p>
           </div>
         </header>
         <div class="flex-1 overflow-y-auto p-5 grid gap-4 content-start">${PROCESS_LIBRARY.map((entry) => {
+      const installed = host.workspaceController.processes.find(
+        ({ definition }) => definition.moduleId === entry.id
+      );
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
       const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent)
         ? agent.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"
@@ -1421,10 +1424,13 @@ export function createMainViews(host: MainHost) {
               ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
             ${unavailable
-          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. Create a custom copy to change them.</p>`
+          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. ${installed ? "Edit the team process" : "Create a custom copy"} to change them.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
-              <button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>
+              ${installed
+          ? `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create another copy</button>
+                 <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(installed.id)}">Edit team process</button>`
+          : `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>`}
             </div>
           </div>
         </article>`;
@@ -2431,8 +2437,8 @@ export function createMainViews(host: MainHost) {
     const team = host.session.currentTeam();
 
     const globalTabs = [
+      { id: "ai-cli", label: "AI Subscriptions", content: cliToolsSection },
       { id: "local-ai", label: "Local AI", content: settingsLocalAiContent },
-      { id: "ai-cli", label: "AI CLI", content: cliToolsSection },
       { id: "ai-apis", label: "AI APIs", content: settingsAiApisContent },
       { id: "mcp-servers", label: "MCP servers", content: settingsMcpServersContent },
       { id: "signins", label: "Sign-ins", content: settingsSigninsContent },
