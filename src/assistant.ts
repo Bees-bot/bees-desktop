@@ -91,6 +91,11 @@ export type AssistantAction =
       prompt: string;
       process: string;
       stage: string;
+      /** What the agent may do in the team's browser. */
+      browser: "none" | "read" | "write";
+      /** Skills and MCP connections named as the team already knows them. */
+      skills: string[];
+      mcpConnections: string[];
     }
   | { type: "create_item"; process: string; stage: string; title: string; description: string }
   | { type: "move_items"; process: string; fromStage: string; toStage: string };
@@ -128,6 +133,7 @@ function parseAction(value: unknown): AssistantAction | null {
     case "create_agent": {
       const name = text(raw.name);
       const stage = text(raw.stage) || text(raw.triggerStage);
+      const browser = text(raw.browser);
       return name && process && stage
         ? {
             type: "create_agent",
@@ -135,7 +141,10 @@ function parseAction(value: unknown): AssistantAction | null {
             purpose: text(raw.purpose) || name,
             prompt: text(raw.prompt) || text(raw.instructions),
             process,
-            stage
+            stage,
+            browser: browser === "none" || browser === "write" ? browser : "read",
+            skills: textList(raw.skills),
+            mcpConnections: textList(raw.mcpConnections)
           }
         : null;
     }
@@ -193,7 +202,7 @@ export interface ResolvedAction {
   stageName?: string | undefined;
 }
 
-function sameName(left: string, right: string): boolean {
+export function sameName(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
@@ -279,7 +288,10 @@ export function resolveActions(
       const stage = findStage(process, action.stage);
       return {
         action,
-        summary: `Create agent "${action.name}", running on "${action.stage}" in ${process.name}`,
+        summary: `Create agent "${action.name}" on "${action.stage}" in ${process.name}`
+          + `, browser ${action.browser}`
+          + (action.skills.length ? `, skills: ${action.skills.join(", ")}` : "")
+          + (action.mcpConnections.length ? `, connections: ${action.mcpConnections.join(", ")}` : ""),
         items: [],
         processId: process.id,
         stageId: stage?.id,
@@ -357,6 +369,10 @@ export interface ApplyContext {
     purpose: string;
     prompt: string;
     triggerStageId: string;
+    browser: "none" | "read" | "write";
+    /** Skill and connection names as the team knows them; unknown ones fail the action. */
+    skills: string[];
+    mcpConnections: string[];
   }): Promise<void>;
 }
 
@@ -398,7 +414,10 @@ export async function applyActions(
           name: action.name,
           purpose: action.purpose,
           prompt: action.prompt,
-          triggerStageId: entry.stageId!
+          triggerStageId: entry.stageId!,
+          browser: action.browser,
+          skills: action.skills,
+          mcpConnections: action.mcpConnections
         });
       } else if (action.type === "create_item") {
         await context.repository.createWorkItem(entry.processId!, {

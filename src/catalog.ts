@@ -49,6 +49,8 @@ export interface McpRegistryServer {
   description: string;
   url: string;
   transport: "streamable-http" | "sse";
+  /** The entry declares headers, so connecting it takes a key from its publisher. */
+  requiresKey: boolean;
 }
 
 const SOURCE_PREFIX = "github://";
