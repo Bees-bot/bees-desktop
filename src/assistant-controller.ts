@@ -5,13 +5,9 @@ import {
 import {
   ASSISTANT_EXTRA_MODELS_KEY,
   ASSISTANT_MODEL_KEY,
-  DEFAULT_MODEL_CHOICE,
-  isAutoChoice,
   modelCatalog,
   modelLabel,
-  preferredModelChoice,
   type MachineModelAvailability,
-  type ModelChoice,
   type ModelOption
 } from "./assistant.js";
 import {
@@ -24,11 +20,16 @@ import {
   type SkillReview
 } from "./curator.js";
 import {
-  DEFAULT_CODEX_MODEL_ID,
   LOCAL_PROVIDER,
   type LocalModelProgress
 } from "./local-models.js";
 import type { AssistantEntry, MainHost } from "./main.js";
+import {
+  DEFAULT_MODEL_CHOICE,
+  isAutoChoice,
+  preferredModelChoice,
+  type ModelChoice
+} from "./model-routing.js";
 
 export function createAssistantController(host: MainHost) {
   const localModelProgress = new Map<string, LocalModelProgress>();
@@ -85,8 +86,7 @@ export function createAssistantController(host: MainHost) {
 
   async function loadAssistantSettings(): Promise<void> {
     const stored = await host.repository.getSetting<ModelChoice | null>(ASSISTANT_MODEL_KEY, null);
-    // Auto is a standing instruction to follow this machine's catalogue, not a model. Treating a
-    // stored one as a fixed choice is what sent the literal "auto/auto" to the runtime.
+    // Auto is a standing instruction to follow this machine's catalogue, not a model.
     if (stored?.provider && stored.model && !isAutoChoice(stored)) {
       assistantModel = stored.provider === LOCAL_PROVIDER && stored.model === "active" && stored.localModelId
         ? { ...stored, model: stored.localModelId }
@@ -141,7 +141,13 @@ export function createAssistantController(host: MainHost) {
   function overviewAssistantModels(): ModelOption[] {
     return assistantCatalog.length
       ? assistantCatalog
-      : [{ group: "Selected", label: modelLabel(assistantModel, assistantCatalog), choice: assistantModel }];
+      : [{
+        group: "Selected",
+        label: modelLabel(assistantModel, assistantCatalog),
+        choice: assistantModel,
+        route: assistantModel.provider === LOCAL_PROVIDER ? "local" : "api",
+        runnable: false
+      }];
   }
 
   return {

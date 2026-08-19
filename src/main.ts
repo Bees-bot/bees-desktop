@@ -21,7 +21,6 @@ import { createAssistantController } from "./assistant-controller.js";
 import {
   type EffectiveAgentEligibility,
   type MachineModelAvailability,
-  type ModelChoice,
   type ModelOption,
   type ResolvedAction
 } from "./assistant.js";
@@ -47,6 +46,7 @@ import type {
   Team,
   WorkItem
 } from "./domain.js";
+import type { ModelChoice } from "./model-routing.js";
 import {
   FlueProjectService,
   TauriFlueProjectPort
@@ -361,6 +361,7 @@ export interface RunController {
   runItem: (itemId: string, auto?: boolean, continuation?: { execution: Execution; message: string; }, restartedFromExecutionId?: string, scheduled?: boolean) => Promise<void>;
   runProcessAgentTurns: (item: WorkItem, turns: ProcessAgentTurn[], projectMode?: boolean) => Promise<Execution[]>;
   runScheduledOccurrence: (schedule: Schedule, auto: boolean) => Promise<void>;
+  startNewRun: (templateId: string) => Promise<void>;
   runStageId: (execution: Execution) => string | null;
   runnerId: string;
   runningProcesses: Set<string>;

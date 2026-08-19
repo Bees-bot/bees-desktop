@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  browserPageReference,
   isSnapshot,
   conversationToSnapshotV1,
   snapshotText,
@@ -149,6 +150,53 @@ describe("conversationToSnapshotV1", () => {
     ]);
     expect(snapshot.messages).toEqual([]);
     expect(snapshot.version).toBe(1);
+  });
+});
+
+describe("browserPageReference", () => {
+  it("appears as soon as a browser tool acquires the run's tab", () => {
+    const snapshot = conversationToSnapshotV1([
+      updates({
+        type: "tool-input",
+        messageId: "m1",
+        toolCallId: "c1",
+        toolName: "browser_navigate",
+        input: { url: "https://example.com/start" }
+      })
+    ]);
+    expect(browserPageReference(snapshot)).toEqual({ url: "https://example.com/start" });
+    expect(browserPageReference(conversationToSnapshotV1([]))).toBeNull();
+  });
+
+  it("uses the latest safe page URL and does not expose unsafe schemes", () => {
+    const snapshot = conversationToSnapshotV1([
+      updates(
+        {
+          type: "tool-input",
+          messageId: "m1",
+          toolCallId: "c1",
+          toolName: "browser_navigate",
+          input: { url: "javascript:alert(1)" }
+        },
+        {
+          type: "tool-output",
+          toolCallId: "c1",
+          output: { output: { url: "https://example.com/after" } }
+        }
+      )
+    ]);
+    expect(browserPageReference(snapshot)).toEqual({ url: "https://example.com/after" });
+
+    const unsafeOnly = conversationToSnapshotV1([
+      updates({
+        type: "tool-input",
+        messageId: "m1",
+        toolCallId: "c1",
+        toolName: "browser_navigate",
+        input: { url: "data:text/html,secret" }
+      })
+    ]);
+    expect(browserPageReference(unsafeOnly)).toEqual({ url: null });
   });
 });
 

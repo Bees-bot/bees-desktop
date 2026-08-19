@@ -34,7 +34,7 @@ describe("left menu task rows", () => {
       { id: "wrapping-up", title: "Wrapping up", isTerminal: true, open: 2 }
     ]);
 
-    expect(nav).toContain("Active tasks");
+    expect(nav).toContain("Active Runs");
     expect(nav).toContain("Live task");
     expect(nav).not.toContain('title="1 open task"');
     // The primary task has finished, but its run still has open child work.

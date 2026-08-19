@@ -7,10 +7,6 @@ import {
   apiBaseUrl
 } from "./api.js";
 import type { RuntimeClaim, WorkItemCommand } from "./workflow-runtime.js";
-import {
-  isAutoChoice,
-  resolveModelChoice
-} from "./assistant.js";
 import { withBridgeUrl } from "./api-bridge.js";
 import {
   discoverMcpTools,
@@ -59,6 +55,10 @@ import {
   modelRef
 } from "./local-models.js";
 import type { ControlInput, MainHost } from "./main.js";
+import {
+  isAutoChoice,
+  resolveModelChoice
+} from "./model-routing.js";
 import { TaskPlanController, taskPlanWaitKey } from "./processes/goals/controller.js";
 import {
   completedTaskPlanParentsReadyForReview,
@@ -685,18 +685,11 @@ export function createRunController(host: MainHost) {
       : agentForStage(item.stageId);
   }
 
-  async function scheduledWorkItemId(schedule: Schedule): Promise<string> {
-    const template = await host.repository.getWorkItem(schedule.workItemId);
-    const process = template
-      ? host.workspaceController.processes.find(({ id }) => id === template.processId)
-      : null;
+  async function createRunOccurrence(template: WorkItem, key: string): Promise<string> {
+    const process = host.workspaceController.processes.find(({ id }) => id === template.processId);
     const stage = process?.stages[0];
-    if (!template || !process || !stage)
-      throw new Error("The scheduled work item has no active process");
-    const key = `schedule:${schedule.id}:${schedule.updatedAt}`;
-    const existing = (await host.repository.listWorkItems(process.id)).find((item) => item.goal?.key === key);
-    if (existing)
-      return existing.id;
+    if (!process || !stage)
+      throw new Error("The primary task has no active process");
     const agent = agentForItem({ ...template, stageId: stage.id, goal: null });
     return host.repository.createWorkItem(process.id, {
       stageId: stage.id,
@@ -715,14 +708,36 @@ export function createRunController(host: MainHost) {
     });
   }
 
+  async function scheduledWorkItemId(schedule: Schedule, occurrenceId: string): Promise<string> {
+    const template = await host.repository.getWorkItem(schedule.workItemId);
+    if (!template)
+      throw new Error("The scheduled work item is unavailable");
+    const key = `schedule:${schedule.id}:${occurrenceId}`;
+    const existing = (await host.repository.listWorkItems(template.processId)).find((item) => item.goal?.key === key);
+    return existing?.id ?? createRunOccurrence(template, key);
+  }
+
+  async function startNewRun(templateId: string): Promise<void> {
+    const template = await host.repository.getWorkItem(templateId);
+    if (!template)
+      throw new Error("The primary task is unavailable");
+    const itemId = await createRunOccurrence(template, `run:${crypto.randomUUID()}`);
+    await runItem(itemId);
+  }
+
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
-    const itemId = await scheduledWorkItemId(schedule);
+    const itemId = await scheduledWorkItemId(
+      schedule,
+      auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`
+    );
     if (!(await host.repository.listExecutionsForWorkItem(itemId)).length)
       await runItem(itemId, auto, undefined, undefined, true);
-    await host.workflowRuntime.command(schedule.workItemId, {
-      type: "ack_schedule",
-      scheduleId: schedule.id
-    });
+    if (auto) {
+      await host.workflowRuntime.command(schedule.workItemId, {
+        type: "ack_schedule",
+        scheduleId: schedule.id
+      });
+    }
   }
 
   // Async so a bridged connection's process is up before the run is handed an address.
@@ -1022,6 +1037,7 @@ export function createRunController(host: MainHost) {
     return host.workspaceController.teamItems.find((item) => {
       const agent = agentForItem(item);
       return (runningProcesses.has(item.processId) &&
+        !startingItemIds.has(item.id) &&
         Boolean(agent?.config.prompt.trim()) &&
         Boolean(agent && host.workspaceController.eligibilityForAgent(agent).active) &&
         needsAutonomousRun(item, work, autopilotDone));
@@ -1315,10 +1331,10 @@ export function createRunController(host: MainHost) {
     return settled.map((result) => (result as PromiseFulfilledResult<Execution>).value);
   }
 
-  /** `executions` only learns of a run at `onCreated`, so two near-simultaneous calls both started. */
+  /** `executions` only learns of a run at `onCreated`, so guard each item until that refresh. */
   const startingItemIds = new Set<string>();
 
-  /** Claimed before any await. Body split out so the guard does not reindent two hundred lines. */
+  /** Claimed before any await. `finally` covers failures that happen before `onCreated` releases it. */
   async function runItem(itemId: string, auto = false, continuation?: {
     execution: Execution;
     message: string;
@@ -1374,8 +1390,7 @@ export function createRunController(host: MainHost) {
         : "No agent is set to run on this status");
     }
     const selectedModel = resolveModelChoice(agent.config, host.assistant.assistantModel, host.assistant.assistantCatalog);
-    // A continuation keeps the model the conversation started on, but "auto" is not a model —
-    // it has to be resolved even then, or the run is handed the literal `auto/auto`.
+    // A continuation keeps the model the conversation started on; a new run resolves Auto here.
     let runAgent = (!continuation || isAutoChoice(agent.config)) && modelRef(agent.config) !== modelRef(selectedModel)
       ? {
         ...agent,
@@ -1524,6 +1539,9 @@ export function createRunController(host: MainHost) {
             host.shell.view = "run";
           }
           await host.workspaceController.refresh();
+          // The refreshed execution now prevents duplicate starts. Releasing here also lets
+          // autopilot continue the item if this run later moves it to another process stage.
+          startingItemIds.delete(item.id);
         },
         // Rust marks the row running straight after hand-over, without an event — re-read it, or
         // the card reads "Queued" for the whole run and only corrects on `run-settled`.
@@ -1801,6 +1819,7 @@ export function createRunController(host: MainHost) {
     taskWorkerRoles,
     agentForItem,
     runScheduledOccurrence,
+    startNewRun,
     controlInput,
     enforceControl,
     setProcessRunning,

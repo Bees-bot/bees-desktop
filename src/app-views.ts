@@ -9,11 +9,8 @@ import {
 } from "./api.js";
 import {
   applicable,
-  AUTO_MODEL_CHOICE,
   effectiveAgentEligibility,
-  isAutoChoice,
   modelLabel,
-  preferredModelChoice,
   sameChoice,
   type ResolvedAction,
   DISABLED_ON_THIS_MACHINE
@@ -69,6 +66,7 @@ import {
 import {
   approvalButtons,
   approvalCard,
+  browserButton,
   conversationView,
   duration,
   runView,
@@ -86,6 +84,13 @@ import {
   type LocalModelView
 } from "./local-models.js";
 import type { MainHost, SettingsTab, ThemePreset } from "./main.js";
+import {
+  AUTO_ALTERNATIVE_MODEL_CHOICE,
+  AUTO_MODEL_CHOICE,
+  isAutoChoice,
+  preferredModelChoice,
+  resolveModelChoice
+} from "./model-routing.js";
 import { taskPlanStages } from "./processes/goals/runtime.js";
 import {
   PROCESS_LIBRARY,
@@ -181,7 +186,7 @@ export function createMainViews(host: MainHost) {
       .flatMap(({ board, process, roots }) => roots
         .filter(({ item, open }) => !item.archivedAt && (!item.isTerminal || open > 0))
         .map(({ item, open }) => ({ board, process, item, open })));
-    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active tasks</p></li>
+    return `<li style="list-style:none"><p class="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-base-content/80">Active Runs</p></li>
       ${rows.length
         ? rows.map(({ board, process, item, open }) => taskNavItem(teamId, board, process, item, open)).join("")
         : `<li style="list-style:none" class="px-2 py-1.5 text-xs text-base-content/40">
@@ -309,8 +314,7 @@ export function createMainViews(host: MainHost) {
                         </button>
                         <ul tabindex="0" class="dropdown-content menu menu-sm z-[200] min-w-[13.5rem] gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-xl">
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="browse-process-library" data-team="${team.id}">${ACTION_ICONS.workflows}<span>Processes</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span>Scheduled tasks</span></button></li>
-                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Run history</span></button></li>
+                          <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="runs" data-team="${team.id}">${ACTION_ICONS.history}<span>Previous Runs</span></button></li>
                           <li class="my-1 -mx-1 border-t border-base-300/70" style="height:0;min-height:0;padding:0" aria-hidden="true"></li>
                           <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-team-view="team-settings" data-team="${team.id}">${ACTION_ICONS.settings}<span>Team settings</span></button></li>
                         </ul>
@@ -318,10 +322,11 @@ export function createMainViews(host: MainHost) {
                     </div>
                   </div>
                   <ul class="team-sub-nav pl-1 pr-0 ${expanded ? "" : "hidden"}" style="list-style:none">
-                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Overview</span></button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "overview" ? " task-nav-btn--active" : ""}" data-team-view="overview" data-team="${team.id}">${ACTION_ICONS.assistant}<span class="min-w-0 truncate">Start a new task</span></button></li>
                     <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "inbox" ? " task-nav-btn--active" : ""}" data-team-view="inbox" data-team="${team.id}">${ACTION_ICONS.inbox}<span class="min-w-0 truncate">Tasks waiting on you</span>${selected && inboxCount
         ? ` <span class="badge badge-warning badge-xs ml-auto">${inboxCount}</span>`
         : ""}</button></li>
+                    <li style="list-style:none"><button class="task-nav-btn${selected && host.shell.view === "schedules" ? " task-nav-btn--active" : ""}" data-team-view="schedules" data-team="${team.id}">${ACTION_ICONS.schedule}<span class="min-w-0 truncate">Scheduled Runs</span></button></li>
                     ${teamTaskNav(team.id)}
                   </ul>
                 </section>`;
@@ -741,6 +746,11 @@ export function createMainViews(host: MainHost) {
     const stage = process.stages.find(({ id }) => id === item.stageId);
     const runs = host.runs.executions.filter(({ workItemId }) => workItemId === item.id);
     const run = boardRun(runs);
+    const state = host.runs.supervise().get(item.id) ?? null;
+    const pageButton = run ? browserButton(run.id, conversationFor(run)) : "";
+    const promotedPageButton = state?.kind === "waiting" && run
+      ? browserButton(run.id, conversationFor(run), "sm", true)
+      : "";
     const pendingOutput = run
       ? host.runs.executionOutputs.find(({ executionId, status }) => executionId === run.id && status === "pending")
       : undefined;
@@ -765,7 +775,7 @@ export function createMainViews(host: MainHost) {
           ? boardItemSubtasks(item)
           : await boardItemDetails(item, runs);
     return `<div data-scroll-anchor class="mt-2 rounded-xl bg-base-100 p-6 shadow-sm ring-1 ring-base-content/5">
-      ${escalationBanner(host.runs.supervise().get(item.id) ?? null)}
+      ${escalationBanner(state, promotedPageButton)}
       <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-primary/80">${host.shell.escapeHtml(stage?.name ?? "")}</p>
@@ -775,6 +785,7 @@ export function createMainViews(host: MainHost) {
           ${actionIconButton("edit-item", `Edit ${item.title}`, ACTION_ICONS.edit, item.id, "btn-ghost btn-sm text-base-content/60 hover:text-base-content", "tooltip-bottom")}
           ${item.archivedAt ? "" : actionIconButton("archive-item", `Archive ${item.title}`, ACTION_ICONS.archive, item.id, "btn-ghost btn-sm text-base-content/40 hover:text-error hover:bg-error/10", "tooltip-bottom")}
           ${pendingOutput ? approvalButtons(pendingOutput.id, Boolean(run && ["queued", "running"].includes(run.status))) : ""}
+          ${promotedPageButton ? "" : pageButton}
           ${runControls}
           ${tab === "files" && host.shell.boardFileRef
             ? `<button class="btn btn-neutral btn-sm px-3 shadow-sm ml-1"
@@ -866,6 +877,7 @@ export function createMainViews(host: MainHost) {
               <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
             </button>
             <ul tabindex="0" class="dropdown-content menu menu-sm z-50 w-max min-w-56 gap-0.5 rounded-box border border-base-300 bg-base-100 p-1.5 shadow-lg">
+              ${root ? `<li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="start-new-run" data-id="${host.shell.escapeHtml(root.id)}">${ACTION_ICONS.add}<span>Start a new Run</span></button></li>` : ""}
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="open-process-runs" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.history}<span>Runs</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="new-schedule"${root ? ` data-id="${host.shell.escapeHtml(root.id)}"` : ""}>${ACTION_ICONS.schedule}<span>Schedule new recurring run</span></button></li>
               <li><button type="button" class="w-full text-left flex items-center gap-2.5" data-action="edit-process" data-id="${host.workspaceController.activeProcess.id}">${ACTION_ICONS.edit}<span>Edit process</span></button></li>
@@ -895,7 +907,7 @@ export function createMainViews(host: MainHost) {
               <h2 class="text-sm font-bold tracking-tight text-base-content/80">${host.shell.escapeHtml(stage.name)}</h2>
               <span class="text-xs font-semibold text-base-content/50">${cards.length}</span>
             </header>
-            <div class="flex-1 overflow-y-auto px-2 pb-2">
+            <div class="flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2">
               <div class="grid gap-3">${cards
               .map((item) => `<article class="kanban-card group/card cursor-pointer border ${item.id === expandedItemId ? "border-primary ring-1 ring-primary shadow-md" : "border-base-300"}" data-action="toggle-board-item" data-id="${item.id}">
                   <div class="flex flex-col gap-3.5 p-5">
@@ -1013,7 +1025,7 @@ export function createMainViews(host: MainHost) {
     const card = (agent: Agent): string => {
       const eligibility = host.workspaceController.eligibilityForAgent(agent);
       const model = isAutoChoice(agent.config)
-        ? `Auto · ${modelRef(eligibility.model)}`
+        ? `${agent.config.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"} · ${modelRef(eligibility.model)}`
         : agent.config.provider && agent.config.model
           ? `${agent.config.provider} · ${agent.config.model}`
           : "No model";
@@ -1142,7 +1154,7 @@ export function createMainViews(host: MainHost) {
   }
 
   /** One line of "why is this not moving", or nothing when it is. */
-  function escalationBanner(state: WorkState | null): string {
+  function escalationBanner(state: WorkState | null, action = ""): string {
     if (!needsAttention(state))
       return "";
     const isError = state!.kind === "stalled";
@@ -1153,6 +1165,7 @@ export function createMainViews(host: MainHost) {
         <div class="text-[13px] font-semibold leading-tight">${host.shell.escapeHtml(state!.label)}</div>
         <div class="text-[13px] leading-snug opacity-90">${host.shell.escapeHtml(state!.detail)}</div>
       </div>
+      ${action ? `<div class="ml-auto shrink-0">${action}</div>` : ""}
     </div>`;
   }
 
@@ -1395,12 +1408,17 @@ export function createMainViews(host: MainHost) {
         <header class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
           <div>
             <h2 class="font-bold">Process Library</h2>
-            <p class="mt-1 text-sm text-muted">Curated processes available offline. Pick any of them when creating a task, or create a custom copy you can change.</p>
+            <p class="mt-1 text-sm text-muted">Curated processes available offline. Edit the team's installed process, or create a separate copy only when you need another workflow.</p>
           </div>
         </header>
         <div class="flex-1 overflow-y-auto p-5 grid gap-4 content-start">${PROCESS_LIBRARY.map((entry) => {
+      const installed = host.workspaceController.processes.find(
+        ({ definition }) => definition.moduleId === entry.id
+      );
       const unavailable = entry.agents.filter((agent) => !libraryAgentEligibility(agent).active).length;
-      const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent) ? "Auto" : `${agent.provider}/${agent.model}`))];
+      const models = [...new Set(entry.agents.map((agent) => isAutoChoice(agent)
+        ? agent.model === AUTO_ALTERNATIVE_MODEL_CHOICE.model ? "Best alternative" : "Best available"
+        : `${agent.provider}/${agent.model}`))];
       return `<article class="card border border-base-300 bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
@@ -1414,10 +1432,13 @@ export function createMainViews(host: MainHost) {
               ${models.map((model) => `<span class="badge badge-ghost badge-sm">${host.shell.escapeHtml(model)}</span>`).join("")}
             </div>
             ${unavailable
-          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. Create a custom copy to change them.</p>`
+          ? `<p class="text-xs text-warning">${unavailable} configured agent model${unavailable === 1 ? " is" : "s are"} unavailable on this computer. ${installed ? "Edit the team process" : "Create a custom copy"} to change them.</p>`
           : `<p class="text-xs text-success">All configured agent models are available on this computer.</p>`}
             <div class="card-actions justify-end">
-              <button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>
+              ${installed
+          ? `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create another copy</button>
+                 <button class="btn btn-primary btn-sm" data-action="edit-process" data-id="${host.shell.escapeHtml(installed.id)}">Edit team process</button>`
+          : `<button class="btn btn-ghost btn-sm border border-base-300" data-action="copy-library-process" data-template="${host.shell.escapeHtml(entry.id)}">Create a copy</button>`}
             </div>
           </div>
         </article>`;
@@ -1714,7 +1735,7 @@ export function createMainViews(host: MainHost) {
       <div class="flex items-start justify-between gap-4">
         <div><h2 class="font-bold text-lg">Browser</h2>
         <p class="mt-1 text-sm text-muted">Each team has its own isolated browser and browser profile. Open this team's Chrome instance to sign in to websites once. Agents can reuse your logged-in session, while your passwords and cookies remain on your computer. Bees never has access to your passwords or cookies.</p></div>
-        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Browser</button>
+        <button class="btn btn-primary btn-sm" data-action="connect-site">Open Team Browser</button>
       </div>
     </section>`;
   }
@@ -1819,8 +1840,8 @@ export function createMainViews(host: MainHost) {
           <div class="form-control shrink-0">
             <div class="label px-0 pb-1.5"><span class="label-text text-sm font-semibold">Color</span></div>
             <label class="relative flex h-12 w-32 cursor-pointer items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3 shadow-sm transition-colors hover:border-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-              <div class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
-              <span class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
+              <div data-branding-swatch class="h-6 w-6 shrink-0 rounded-full border border-base-200 shadow-inner" style="background-color: ${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")};"></div>
+              <span data-branding-hex class="font-mono text-[11px] font-medium uppercase text-base-content/80">${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4F46E5")}</span>
               <input class="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="color"
                 data-branding="color" value="${host.shell.escapeHtml(host.session.brandingFor(host.workspaceController.workspace.organizationId).color || "#4f46e5")}">
             </label>
@@ -2424,8 +2445,8 @@ export function createMainViews(host: MainHost) {
     const team = host.session.currentTeam();
 
     const globalTabs = [
+      { id: "ai-cli", label: "AI Subscriptions", content: cliToolsSection },
       { id: "local-ai", label: "Local AI", content: settingsLocalAiContent },
-      { id: "ai-cli", label: "AI CLI", content: cliToolsSection },
       { id: "ai-apis", label: "AI APIs", content: settingsAiApisContent },
       { id: "mcp-servers", label: "MCP servers", content: settingsMcpServersContent },
       { id: "signins", label: "Sign-ins", content: settingsSigninsContent },
@@ -2446,6 +2467,10 @@ export function createMainViews(host: MainHost) {
       { title: "Global settings", tabs: globalTabs },
       ...(org ? [{ title: "Workspace settings", tabs: orgTabs }] : []),
     ];
+    const workspaceOptions = [...host.workspaceController.organizations]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(({ id, name }) => `<option value="${host.shell.escapeHtml(id)}" ${id === host.workspaceController.workspace.organizationId ? "selected" : ""}>${host.shell.escapeHtml(name)}</option>`)
+      .join("");
 
     let activeContent = "";
     const activeId = host.shell.settingsTab;
@@ -2476,6 +2501,7 @@ export function createMainViews(host: MainHost) {
         <ul class="menu menu-sm gap-0.5">
           ${groups.map(({ title, tabs }) => `
             <li><h2 class="menu-title">${host.shell.escapeHtml(title)}</h2></li>
+            ${title === "Workspace settings" ? `<li class="px-2 pb-2"><select class="select select-bordered select-sm w-full" data-settings-workspace aria-label="Workspace">${workspaceOptions}</select></li>` : ""}
             ${tabs.map(({ id, label }) => `<li><button class="${host.shell.activeClass(id === host.shell.settingsTab)}" data-settings-tab="${id}">${host.shell.escapeHtml(label)}</button></li>`).join("")}
           `).join("")}
         </ul>
@@ -2529,12 +2555,13 @@ export function createMainViews(host: MainHost) {
 
   function agentEditorFields(agent?: Agent): EditorField[] {
     const config = agent?.config;
-    const auto = !agent || isAutoChoice(config ?? {});
     const selected = config?.provider?.trim() && config.model?.trim()
       ? { provider: config.provider, model: config.model }
-      : host.assistant.assistantModel;
-    const autoRef = modelRef(AUTO_MODEL_CHOICE);
-    const selectedRef = auto ? autoRef : modelRef(selected);
+      : AUTO_MODEL_CHOICE;
+    const auto = isAutoChoice(selected);
+    const selectedRef = modelRef(selected);
+    const bestRef = modelRef(AUTO_MODEL_CHOICE);
+    const alternativeRef = modelRef(AUTO_ALTERNATIVE_MODEL_CHOICE);
     const catalog = host.assistant.overviewAssistantModels();
     const modelOptions = catalog.map(({ group, label, choice }) => ({
       label: `${group} · ${label}`,
@@ -2542,13 +2569,23 @@ export function createMainViews(host: MainHost) {
     }));
     // Keep an unavailable or custom model from an existing agent selectable instead of
     // silently rewriting the file on its next save.
-    if (!modelOptions.some(({ value }) => value === selectedRef) && selectedRef !== autoRef) {
+    if (!modelOptions.some(({ value }) => value === selectedRef) &&
+      selectedRef !== bestRef && selectedRef !== alternativeRef) {
       modelOptions.unshift({ label: `Configured · ${selectedRef}`, value: selectedRef });
     }
-    modelOptions.unshift({
-      label: `Auto · ${modelRef(preferredModelChoice(host.assistant.assistantCatalog))}`,
-      value: autoRef
-    });
+    const best = preferredModelChoice(host.assistant.assistantCatalog);
+    const alternative = resolveModelChoice(
+      AUTO_ALTERNATIVE_MODEL_CHOICE,
+      best,
+      host.assistant.assistantCatalog
+    );
+    modelOptions.unshift(
+      { label: `Best available (Auto) · ${modelRef(best)}`, value: bestRef },
+      {
+        label: `Best alternative · ${modelRef(alternative)}${sameChoice(best, alternative) ? " · same model" : ""}`,
+        value: alternativeRef
+      }
+    );
     const capabilities = registryCapabilities(host.workspaceController.registries);
     const selectedTools = config?.toolRefs ?? [BROWSER_TOOL_REF];
     const selectedGrants = config?.grants ?? [];
@@ -2582,7 +2619,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: selectedRef,
         options: modelOptions,
-        hint: "Auto picks the best AI available on this computer: connected Codex, then explicitly configured Claude Code, then the largest local model, then the largest remote one.",
+        hint: "Automatic choices use connected Codex, Claude Code, running local models by size, then connected API models. Best alternative prefers a different runtime or provider.",
         step: "instructions"
       },
       {

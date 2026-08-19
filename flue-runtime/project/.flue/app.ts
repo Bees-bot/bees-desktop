@@ -4,7 +4,7 @@ import { createProvider } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { openSite } from "./browser.ts";
+import { openSite, showExecution } from "./browser.ts";
 import { cliProviderRoutes } from "./cli-provider.ts";
 import { oauthProviderRoutes } from "./oauth-provider.ts";
 import { connectionSecret } from "./credentials.ts";
@@ -84,6 +84,17 @@ app.post("/browser/open", async (context) => {
   if (!profileKey || !url) return context.json({ error: "profileKey and url are required" }, 400);
   try {
     return context.json(await openSite(profileKey, url));
+  } catch (error) {
+    return context.json({ error: (error as Error).message }, 500);
+  }
+});
+
+// Restore the Chrome tab owned by one execution when the user explicitly asks to see it.
+app.post("/browser/show", async (context) => {
+  const { instanceId, url } = await context.req.json<{ instanceId?: string; url?: string }>();
+  if (!instanceId) return context.json({ error: "instanceId is required" }, 400);
+  try {
+    return context.json(await showExecution(instanceId, url));
   } catch (error) {
     return context.json({ error: (error as Error).message }, 500);
   }

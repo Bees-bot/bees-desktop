@@ -34,18 +34,14 @@ import {
 import {
   ASSISTANT_AGENT,
   ASSISTANT_EXTRA_MODELS_KEY,
-  AUTO_PROVIDER,
   applyActions,
   assistantInstanceId,
   instanceModelId,
   parseBeesUiCommand,
   parseTurn,
-  preferredModelChoice,
   resolveActions,
-  resolveModelChoice,
   sameChoice,
-  turnPrompt,
-  type ModelChoice
+  turnPrompt
 } from "./assistant.js";
 import {
   setCliToolPath,
@@ -103,6 +99,12 @@ import {
   thinkingOptionsForModel
 } from "./local-models.js";
 import type { KnowledgeRuntimeInfo, MainHost, SettingsTab, TeamTab } from "./main.js";
+import {
+  AUTO_PROVIDER,
+  preferredModelChoice,
+  resolveModelChoice,
+  type ModelChoice
+} from "./model-routing.js";
 import { renderMarkdown } from "./markdown.js";
 import { PENDING_FILE_PREFIX } from "./workspaces.js";
 import {
@@ -1471,6 +1473,23 @@ export function createMainActions(host: MainHost) {
         await host.runs.openRun(button.dataset.id!);
         return;
       }
+      if (action === "view-browser") {
+        const { baseUrl, token } = await host.ensureFlueRuntime();
+        const response = await tauriFetch(`${baseUrl}/browser/show`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            instanceId: button.dataset.id,
+            ...(button.dataset.url ? { url: button.dataset.url } : {})
+          })
+        });
+        if (!response.ok) {
+          host.shell.showNotice(`Could not show browser: ${await response.text()}`, "error");
+          return;
+        }
+        host.shell.showNotice("Browser opened for this run.", "success");
+        return;
+      }
       if (action === "clear-search") {
         host.shell.searchQuery = "";
         host.shell.searchHits = [];
@@ -1531,6 +1550,10 @@ export function createMainActions(host: MainHost) {
         // may no longer be safe to reuse, so it is linked, never mutated or resumed.
         if (execution)
           await host.runs.runItem(execution.workItemId, false, undefined, execution.id);
+        return;
+      }
+      if (action === "start-new-run") {
+        await host.runs.startNewRun(button.dataset.id!);
         return;
       }
       if (action === "preview-inbox-output") {
@@ -1893,16 +1916,8 @@ export function createMainActions(host: MainHost) {
       }
       if (action === "run-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
-        if (schedule) {
-          const state = await host.workflowRuntime.command(schedule.workItemId, {
-            type: "trigger_schedule",
-            scheduleId: schedule.id
-          });
-          const triggered = state.schedules.find(({ id }) => id === schedule.id);
-          if (!triggered)
-            throw new Error("The schedule is unavailable");
-          await host.runs.runScheduledOccurrence({ ...schedule, ...triggered }, false);
-        }
+        if (schedule)
+          await host.runs.runScheduledOccurrence(schedule, false);
         return;
       }
       if (action === "toggle-schedule") {
@@ -2174,6 +2189,7 @@ export function createMainActions(host: MainHost) {
         // The runtime learns about a CLI from an environment variable set at launch, so it has
         // to come back up before the change reaches runs.
         await host.flueProjectPort.restart();
+        await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(enabled ? "AI subscription switched on" : "AI subscription switched off", "success");
         return;
@@ -2186,6 +2202,7 @@ export function createMainActions(host: MainHost) {
         await setCliToolPath(button.dataset.tool ?? "", picked);
         // The path reaches the CLI providers as an environment variable set at launch.
         await host.flueProjectPort.restart();
+        await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(picked ? "Claude Code path saved" : "Claude Code disconnected", "success");
         return;
@@ -2861,6 +2878,15 @@ export function createMainActions(host: MainHost) {
 
   // Live preview for the Files-tab editor: the right pane re-renders as the left one is typed in.
   host.shell.app.addEventListener("input", (event) => {
+    const color = (event.target as Element).closest<HTMLInputElement>('input[data-branding="color"]');
+    if (color) {
+      const label = color.closest("label");
+      label?.querySelector<HTMLElement>("[data-branding-swatch]")?.style.setProperty("background-color", color.value);
+      const hex = label?.querySelector<HTMLElement>("[data-branding-hex]");
+      if (hex)
+        hex.textContent = color.value;
+      return;
+    }
     const area = (event.target as Element).closest<HTMLTextAreaElement>('form[data-board-file-form] textarea[name="contents"]');
     const preview = area?.form?.querySelector("[data-board-file-preview]");
     if (!area || !preview)
@@ -3000,6 +3026,21 @@ export function createMainActions(host: MainHost) {
 
   // Inline org branding controls save on change (no popup).
   document.addEventListener("change", (event) => {
+    const workspaceSelect = (event.target as Element).closest<HTMLSelectElement>("[data-settings-workspace]");
+    if (workspaceSelect) {
+      if (workspaceSelect.value === host.workspaceController.workspace.organizationId)
+        return;
+      const settingsTab = host.shell.settingsTab;
+      workspaceSelect.disabled = true;
+      void host.workspaceController.switchOrganization(workspaceSelect.value)
+        .catch((error) => host.shell.showNotice(errorText(error), "error"))
+        .finally(() => {
+          host.shell.view = "settings";
+          host.shell.settingsTab = settingsTab;
+          host.shell.render();
+        });
+      return;
+    }
     const themeDefault = (event.target as Element).closest<HTMLSelectElement>("[data-theme-default]");
     if (themeDefault && host.shell.isThemePreset(themeDefault.value)) {
       const mode = themeDefault.dataset.themeDefault;
@@ -3080,6 +3121,10 @@ export function createMainActions(host: MainHost) {
       try {
         if (input.dataset.branding === "color") {
           await host.session.setBrandingValue(org.id, { color: input.value });
+          // No re-render: the native color panel stays open over the page, and swapping #app out
+          // detaches the input it is bound to, so every pick after the first one was lost.
+          host.views.renderNavigation();
+          return;
         }
         else if (input.dataset.branding === "logo") {
           const file = input.files?.[0];

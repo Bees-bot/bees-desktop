@@ -54,6 +54,40 @@ export function lastAssistantText(snapshot: BeesConversationSnapshotV1 | null): 
   return "";
 }
 
+export interface BrowserPageReference {
+  url: string | null;
+}
+
+function safePageUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" || value === "about:blank"
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A button is offered only after this execution has actually acquired a browser tab. */
+export function browserPageReference(
+  snapshot: BeesConversationSnapshotV1 | null
+): BrowserPageReference | null {
+  let used = false;
+  let url: string | null = null;
+  for (const message of snapshot?.messages ?? []) {
+    for (const part of message.parts) {
+      if (part.kind !== "tool" || !part.name.startsWith("browser_")) continue;
+      used = true;
+      const output = object(part.output);
+      const nestedOutput = object(output.output);
+      url = safePageUrl(nestedOutput.url) ?? safePageUrl(output.url) ?? safePageUrl(object(part.input).url) ?? url;
+    }
+  }
+  return used ? { url } : null;
+}
+
 /**
  * Normalise a settled receipt. Rust writes the raw Flue conversation
  * (`{ v: 1, messages, settlements }`); the UI reduces it without needing the sidecar.
