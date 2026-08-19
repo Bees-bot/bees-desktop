@@ -2147,15 +2147,11 @@ export function createMainActions(host: MainHost) {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
         });
-        const device = await started.json() as {
-          verificationUri?: string;
-          userCode?: string;
-          error?: string;
-        };
-        if (!started.ok || !device.verificationUri || !device.userCode)
-          throw new Error(device.error ?? "Codex sign-in failed");
-        await openUrl(device.verificationUri);
-        host.shell.showNotice(`Enter Codex code ${device.userCode} in your browser`, "info");
+        const login = await started.json() as { authUrl?: string; error?: string };
+        if (!started.ok || !login.authUrl)
+          throw new Error(login.error ?? "Codex sign-in failed");
+        await openUrl(login.authUrl);
+        host.shell.showNotice("Finish signing in to ChatGPT in your browser", "info");
         const completed = await tauriFetch(`${baseUrl}/oauth/openai-codex/await`, {
           method: "POST",
           headers: { authorization: `Bearer ${token}` }
