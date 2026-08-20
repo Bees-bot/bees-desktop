@@ -213,9 +213,9 @@ OUTPUT CONTRACT: Writing a task plan is an alternative to producing deliverables
       : "",
     menu.length
       ? `Statuses:\n${menu.map(({ id, name, outputFolder }) =>
-          `- ${name}: ${id}${outputFolder ? ` — approved files publish under ${outputFolder}/` : ""}`
+          `- ${name}: ${id}${outputFolder ? ` — files publish under ${outputFolder}/` : ""}`
         ).join("\n")}\nWhen you are done, write the chosen status ID to outputs/${STATUS_OUTPUT} — the ID on its own, nothing else.${menu.some(({ outputFolder }) => outputFolder)
-          ? " Write files directly under outputs; Bees adds the chosen status's destination folder after approval."
+          ? " Write files directly under outputs; Bees adds the chosen status's destination folder when publishing them."
           : ""}`
       : ""
   ]

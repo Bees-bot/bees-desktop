@@ -97,7 +97,7 @@ and roughly how many tasks. Never mention output file names or paths.`;
 
 export const GOAL_WORKER_PROMPT = `Complete this task using the available tools and input files.
 
-Write proposed deliverables under outputs/ so a human can approve consequential changes.
+Write deliverables under outputs/. Writing a file does not request human approval.
 If a human decision is required, write a short approval-request.md that states the decision,
 options, and your recommendation. You may instead write ${TASK_PLAN_OUTPUT} using the exact task
 schema from the run context when completion requires independently executable child tasks. A task

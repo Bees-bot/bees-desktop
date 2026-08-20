@@ -587,19 +587,73 @@ export function createRunController(host: MainHost) {
           );
         }
         else {
-          await host.repository.markExecutionProjectionLocal(execution.id);
-          // A task plan is the worker's own decomposition, not a deliverable a human authored —
-          // spawn every proposed task automatically instead of waiting for manual selection.
           const settledExecution = execution;
-          const pendingOutputs = settledExecution.status === "completed"
-            ? await host.repository.listExecutionOutputs(settledExecution.id, "pending")
+          const executionOutputs = settledExecution.status === "completed"
+            ? await host.repository.listExecutionOutputs(settledExecution.id)
             : [];
+          const pendingOutputs = executionOutputs.filter(({ status }) => status === "pending");
           // A plan alongside pending file outputs waits for the human: its tasks may depend on
           // files that are still undecided, and approveTaskPlan rejects that ordering.
           const planOutput = pendingOutputs.length === 1
             ? pendingOutputs.find(({ logicalOutput }) => taskPlanController.matchesOutput(logicalOutput, settledExecution))
             : undefined;
-          if (planOutput) {
+          const proposal = isProposal(settledExecution);
+          const taskPlan = executionOutputs.some(({ logicalOutput }) =>
+            taskPlanController.matchesOutput(logicalOutput, settledExecution));
+          const rejected = executionOutputs.some(({ status }) => status === "rejected");
+          const publishableOutputs = proposal || taskPlan || rejected
+            ? []
+            : pendingOutputs.filter(({ logicalOutput }) => logicalOutput !== "approval-request.md");
+          let published = publishableOutputs.length === 0;
+          if (publishableOutputs.length) {
+            const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
+            if (settledExecution.workspaceRef && mapping?.localPath) {
+              const publishAllowed = await Promise.all(publishableOutputs.map((output) =>
+                controlDecision(controlInput("output.publish", {
+                  type: "execution_output",
+                  id: output.id,
+                  attributes: { destination: "team-folder" }
+                }, { agentId: settledExecution.agentId }))
+              ));
+              if (publishAllowed.every(({ decision }) => decision === "allow")) {
+                for (const output of publishableOutputs) {
+                  await host.workspaces.publishApproved(
+                    settledExecution.workspaceRef,
+                    output.logicalOutput,
+                    mapping.localPath,
+                    output.logicalDestination
+                  );
+                  await host.repository.decideExecutionOutput(
+                    output.id,
+                    "approved",
+                    output.logicalDestination
+                  );
+                }
+                published = true;
+              }
+            }
+          }
+          const autoPublished = executionOutputs.length > 0 &&
+            !proposal && !taskPlan && !rejected &&
+            !executionOutputs.some(({ logicalOutput }) => logicalOutput === "approval-request.md") &&
+            published;
+          if (autoPublished) {
+            const targetStageId = await checkpointTargetId(execution.workItemId, statusId);
+            await syncCheckpoint(execution.workItemId, execution.id, targetStageId);
+            await host.repository.checkpointWorkItem(
+              execution.workItemId,
+              executionOutputs.map(({ logicalDestination }) => logicalDestination),
+              targetStageId,
+              execution.id,
+              projectedItem?.stageId
+            );
+          }
+          else {
+            await host.repository.markExecutionProjectionLocal(execution.id);
+          }
+          // A task plan is the worker's own decomposition, not a deliverable a human authored —
+          // spawn every proposed task automatically instead of waiting for manual selection.
+          if (!autoPublished && planOutput) {
             const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
             // A plan Bees declines to approve on its own is answerable — a person can edit the
             // tasks and approve the same output by hand. Park it on the item it belongs to,
@@ -643,7 +697,11 @@ export function createRunController(host: MainHost) {
           host.shell.notifyLocal("Bees run completed", `${title} finished with no file changes.`);
         }
         else if (settledStatus === "completed") {
-          host.shell.notifyLocal("Bees needs your review", `${outputs.length} file change(s) from ${title}.`);
+          const pending = await host.repository.listExecutionOutputs(execution.id, "pending");
+          host.shell.notifyLocal(
+            pending.length ? "Bees needs your review" : "Bees run completed",
+            pending.length ? `${pending.length} file change(s) from ${title}.` : `${title} finished.`
+          );
         }
         else {
           host.shell.notifyLocal("Bees run failed", execution.error ?? "The agent stopped before finishing");

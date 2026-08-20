@@ -143,11 +143,22 @@ async function downloadVerified(url, expectedSha256) {
   return archive;
 }
 
+function hasValidMacSignature(path) {
+  try {
+    execFileSync("codesign", ["--verify", path], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function signMacBinary(path) {
   if (!target.endsWith("-apple-darwin")) return;
   execFileSync("xattr", ["-cr", path]);
   const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
   const adhoc = !identity || identity === "-";
+  // Some macOS versions fail internally when force-replacing an already-valid ad-hoc signature.
+  if (adhoc && hasValidMacSignature(path)) return;
   execFileSync("codesign", [
     "--force",
     adhoc ? "--timestamp=none" : "--timestamp",
@@ -310,7 +321,8 @@ function signMacRuntime(runtimeRoot) {
   );
   for (const entry of readdirSync(runtimeRoot)) {
     if (entry.startsWith(".") || entry === "LICENSE") continue;
-    execFileSync("codesign", [...signArgs, join(runtimeRoot, entry)]);
+    const path = join(runtimeRoot, entry);
+    if (!adhoc || !hasValidMacSignature(path)) execFileSync("codesign", [...signArgs, path]);
   }
 }
 
