@@ -3025,16 +3025,30 @@ export function createMainViews(host: MainHost) {
     host.shell.assistantSend.disabled = host.assistant.assistantBusy;
     host.shell.assistantSend.textContent = host.assistant.assistantBusy ? "Working…" : "Send";
     host.shell.assistantModelSlot.innerHTML = assistantModelHtml();
-    host.shell.assistantLog.innerHTML = host.assistant.assistantLogEntries.length
+    const logHtml = host.assistant.assistantLogEntries.length
       ? host.assistant.assistantLogEntries.map((entry, index) => {
         const mine = entry.role === "you";
         return `<div class="${mine ? "text-right" : ""}">
               <div class="inline-block max-w-full rounded-box px-3 py-2 text-left text-sm ${mine ? "bg-primary/10" : "bg-base-200"}"><span class="whitespace-pre-wrap">${host.shell.escapeHtml(entry.text)}</span></div>
               ${entry.actions?.length ? assistantActionsHtml(entry.actions, index, entry.applied === true) : ""}
             </div>`;
-      })
-        .join("")
+      }).join("")
       : `<p class="px-1 text-sm text-muted">Ask for a process, an agent, or a bulk change. Nothing is written until you approve it.</p>`;
+
+    const busyIndicator = host.assistant.assistantBusy
+      ? `<div class="mt-2 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
+           <div class="inline-flex items-center gap-2.5 rounded-box bg-base-200 px-4 py-2.5 text-sm font-medium text-muted">
+             <div class="flex gap-1.5">
+               <div class="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style="animation-delay: -0.3s"></div>
+               <div class="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style="animation-delay: -0.15s"></div>
+               <div class="h-1.5 w-1.5 rounded-full bg-primary animate-bounce"></div>
+             </div>
+             Working…
+           </div>
+         </div>`
+      : "";
+
+    host.shell.assistantLog.innerHTML = `<div class="flex flex-col gap-3">${logHtml}${busyIndicator}</div>`;
     host.shell.assistantLog.scrollTop = host.shell.assistantLog.scrollHeight;
   }
 
