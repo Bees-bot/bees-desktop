@@ -18,33 +18,25 @@ Bees is three repositories. This one is the desktop app:
 - `bees-server`, the API and PostgreSQL
 - `bees-website`, the marketing site
 
-There is no command that starts all of it. For desktop work against the local API you
-need two terminals:
+Stage 1 desktop development is local and needs one terminal:
 
 ```sh
-# Terminal 1, in bees-server
 npm install
-npm run dev            # Postgres, migrations, API on :3000
-
-# Terminal 2, here
-npm install
-BEES_API_URL=dev npm run tauri:dev
+npm run tauri:dev
 ```
 
-`BEES_API_URL=dev` matters. Without it the app talks to production. Full detail is in
-`bees-server/docs/build-deploy.md`.
+The legacy `BEES_API_URL=dev` prefix is ignored by the local Stage 1 desktop and can be removed.
 
 Checks before you open a PR:
 
 ```sh
 npm run check                                    # typecheck, tests, build
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-You'll need Node 22.19+, npm 10+, Rust 1.84+, Docker for the local Postgres, and
-**CMake** (`brew install cmake` on Mac). Without CMake the build fails partway through
-with "Building the macOS local-model runtime requires CMake". It compiles llama-server
-from source for the bundled local model, and the first build takes a while.
+You'll need Node 22.19+, npm 10+, Rust 1.84+, and the native toolchain for your platform.
+The desktop bundles neither PostgreSQL, Python, CMake-built components, nor a model server.
 
 **One heads up.** This is Tauri, so it needs a native toolchain. Codespaces and dev
 containers are fine for the API and the website, but **not** for the desktop app. You

@@ -1,73 +1,39 @@
 # Bees Desktop
 
-Bees is a privacy-first desktop application for coordinating AI-assisted work.
-Files, credentials, agent execution, and physical paths stay on the user's
-machine. Shared workspaces synchronize coordination metadata with the
-Bees server.
+Bees is a local-first desktop application for coordinating AI-assisted work. Stage 1 runs as a product plugin inside a pinned DeepSeek Harness (DSH) host and Web Client. Files, credentials, agent execution, and physical paths stay on the user's machine.
 
 ## Development
 
-Requirements: Node.js 22.5+ (`.nvmrc` pins the version CI uses), npm 10+, Rust
-1.84+, CMake on macOS, and Python 3.11+ for local knowledge.
+Requirements: Node.js 22.19+, npm 10+, Rust 1.84+, and a native desktop toolchain.
 
 ```sh
 npm ci
 npm run check
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri:dev
 ```
 
-Run the desktop against the local server in the sibling `bees.bot` folder:
+`BEES_API_URL=dev npm run tauri:dev` remains harmless, but the Stage 1 local desktop does not call the Bees server. Tauri starts Vite and a loopback-only DSH sidecar; do not start `npm run dev` separately.
 
-```sh
-BEES_API_URL=dev npm run tauri:dev
-```
+Build an installer with `npm run tauri:build`.
 
-Without `BEES_API_URL=dev`, the app uses `https://app.bees.bot`.
+DSH releases are upgraded as one pinned set through the
+[DSH upgrade checklist](docs/dsh-upgrade-checklist.md).
 
-Build an installer:
+## Architecture
 
-```sh
-npm run tauri:build
-```
+- Tauri owns native lifecycle and launches DSH.
+- DSH owns models/providers, credentials, sessions, agents, tools, skills, MCP, approvals, and UI composition.
+- `dsh-runtime/plugin` owns the Bees board, schedules, run/recovery links, file boundaries, local document search, audit receipts, and Bees UI.
+- Product data starts fresh in the app-owned `bees-stage1.db`. Old Bees workspaces and runs are not migrated.
 
-Local knowledge also needs its Python dependencies:
-
-```sh
-python3 -m pip install -e services/knowledge-worker
-```
+The DSH button reveals the upstream client. The global Open Bees button returns to the product surface. DSH Models settings can configure hosted providers or a local OpenAI-compatible endpoint; Bees does not bundle a model server.
 
 ## Data boundary
 
-The Bees server has no file-upload route. Workspace sync rejects file bytes,
-document contents, secrets, absolute paths, and path traversal. Use local
-models and local tools for fully offline or air-gapped operation.
-
-## The Code workflow
-
-Add **Code** from the bundled workflows to build new software or make
-a substantial fix, feature, refactor, or migration in existing software. Choose
-one local project folder first: an empty folder becomes a new Git project, while
-a folder with code must already be a clean Git repository on the intended base
-branch. Both follow explicit requirements, two-model architecture,
-implementation planning, coding/testing loops, per-phase human review, and a
-final review.
-
-Project source is kept in a local Git worktree under `~/Bees/projects`, never
-inside the team's synced folder. Bees commits every coding turn on an isolated
-`bees/project/*` branch. Phase approval, final verification, and the local merge
-are explicit UI actions; Bees never pushes the branch.
-Cloning, fetching, pulling, selecting the base branch, pushing, and pull requests
-remain the user's responsibility.
-
-## Process modules
-
-Bundled processes live under `src/processes/<process>/`. Each module owns its
-definition, prompts, state rules, tests, and any custom Studio controller. The
-small compile-time registry in `src/processes/registry.ts` exposes definitions
-to the shared installer and identifies data-driven versus Studio processes.
-Native process-specific code follows the same layout under
-`src-tauri/src/processes/`.
+Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after a DSH approval. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
 
 ## License
 
-Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the
-[MIT License](LICENSE-MIT), at your option.
+Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT), at your option.

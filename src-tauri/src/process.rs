@@ -1,5 +1,4 @@
-//! Shared plumbing for the child processes Bees supervises: the DSH runtime, its capability
-//! host, the knowledge worker, and one llama-server per running local model.
+//! Lifecycle plumbing for the single DSH Node sidecar supervised by Bees.
 
 use std::net::TcpListener;
 use std::path::Path;

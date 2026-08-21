@@ -1,42 +1,24 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Bees",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "bot.bees.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build && npm run prepare:dsh && npm run prepare:bridge",
+    "beforeBuildCommand": "npm run build && npm run prepare:dsh",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Bees",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 820,
-        "minHeight": 560
-      }
-    ],
+    "windows": [{
+      "title": "Bees",
+      "width": 1180,
+      "height": 760,
+      "minWidth": 820,
+      "minHeight": 560
+    }],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://127.0.0.1:* http://localhost:3000 https://app.bees.bot; frame-src http://127.0.0.1:*; worker-src 'self' blob:; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'"
-    }
-  },
-  "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["bees"]
-      }
-    },
-    "updater": {
-      "endpoints": [
-        "https://github.com/Bees-bot/bees-desktop/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMyNDBBMzQwNkNEN0UzQzAKUldUQTQ5ZHNRS05Bd2pjZXVuWkttV2xwSEh0QmZIQURER29udjFmZjdYSG9BRUR0ZkRpRm5PSTEK",
-      "windows": {
-        "installMode": "passive"
-      }
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
@@ -48,17 +30,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true,
-    "macOS": {
-      "entitlements": "entitlements.plist"
-    },
     "externalBin": ["binaries/bees-node"],
-    "resources": {
-      "../dsh-runtime": "dsh-runtime",
-      "../dist": "bees-ui",
-      "../llama-runtime": "llama-runtime",
-      "../services/knowledge-worker/bees_knowledge_worker": "knowledge-worker/bees_knowledge_worker",
-      "../services/api-bridge/bridge.mjs": "api-bridge/bridge.mjs"
-    }
+    "resources": { "../dsh-runtime": "dsh-runtime" }
   }
 }

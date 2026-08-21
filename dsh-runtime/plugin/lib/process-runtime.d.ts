@@ -1,6 +1,9 @@
 export declare class ProcessRuntime {
   constructor(database: unknown);
-  state(organizationId: string, workItemId: string): Record<string, unknown>;
-  command(organizationId: string, workItemId: string, command: Record<string, unknown>): Record<string, unknown>;
-  catchUpAll(): void;
+  schedules(workspaceId: string, targetKind: "process" | "work_item", targetId: string): any[];
+  allSchedules(workspaceIds: string[]): any[];
+  state(workspaceId: string, workItemId: string): any;
+  scheduleCommand(workspaceId: string, targetKind: "process" | "work_item", targetId: string, command: Record<string, unknown>): any;
+  command(workspaceId: string, workItemId: string, command: Record<string, unknown>): any;
+  catchUpAll(now?: number): any[];
 }

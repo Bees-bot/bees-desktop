@@ -1,20 +1,6 @@
-import { randomUUID } from "node:crypto";
+const nowIso = (now = Date.now()) => new Date(now).toISOString();
 
-const CLAIM_LEASE_MS = 90_000;
-
-function nowIso(now = Date.now()) {
-  return new Date(now).toISOString();
-}
-
-function phase(state) {
-  if (state.archivedAt) return "archived";
-  if (state.waits.some(({ kind }) => kind === "error")) return "failed";
-  if (state.waits.length) return "waiting";
-  if (state.claim) return "running";
-  return "ready";
-}
-
-function safeTimeZone(value) {
+function timeZone(value) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });
     return value;
@@ -23,284 +9,234 @@ function safeTimeZone(value) {
   }
 }
 
-function zonedParts(date, timeZone) {
+function zonedParts(date, zone) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric"
+    timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric"
   }).formatToParts(date);
   const part = (name) => Number(parts.find(({ type }) => type === name)?.value ?? 0);
   return [part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second")];
 }
 
-function fromZonedParts(naive, timeZone) {
-  let guess = naive;
-  for (let pass = 0; pass < 2; pass += 1) {
-    const [year, month, day, hour, minute, second] = zonedParts(new Date(guess), timeZone);
-    guess += naive - Date.UTC(year, month, day, hour, minute, second);
-  }
-  return new Date(guess);
-}
-
-function addCalendarDay(date, timeZone) {
-  const [year, month, day, hour, minute, second] = zonedParts(date, timeZone);
-  return fromZonedParts(Date.UTC(year, month, day + 1, hour, minute, second), timeZone);
-}
-
 function nextOccurrence(schedule, previous) {
-  const timeZone = safeTimeZone(schedule.timezone);
-  let next = new Date(previous);
-  if (schedule.recurrence === "hourly") next = new Date(next.getTime() + 3_600_000);
-  else next = addCalendarDay(next, timeZone);
+  if (schedule.recurrence === "hourly") return previous + 3_600_000;
+  const zone = timeZone(schedule.timezone);
+  const [year, month, day, hour, minute, second] = zonedParts(new Date(previous), zone);
+  const naive = Date.UTC(year, month, day + 1, hour, minute, second);
+  let next = naive;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const actual = zonedParts(new Date(next), zone);
+    next += naive - Date.UTC(...actual);
+  }
   if (schedule.recurrence === "weekdays") {
     while (["Sat", "Sun"].includes(new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      weekday: "short"
-    }).format(next))) next = addCalendarDay(next, timeZone);
+      timeZone: zone, weekday: "short"
+    }).format(new Date(next)))) next = nextOccurrence({ ...schedule, recurrence: "daily" }, next);
   }
-  return next.getTime();
-}
-
-function currentClaim(state, machineId, token, now = Date.now()) {
-  if (!state.claim || state.claim.machineId !== machineId || state.claim.token !== token)
-    throw new Error("The work item is no longer claimed by this machine");
-  if (Date.parse(state.claim.expiresAt) <= now) throw new Error("The work-item claim expired");
-  return state.claim;
-}
-
-function ensureStage(state, stageId) {
-  if (!state.validStageIds.includes(stageId))
-    throw new Error(`Stage ${stageId} does not belong to process ${state.processId}`);
-}
-
-function makeWait(command, now = Date.now()) {
-  const wakeAt = command.wakeAt ? new Date(command.wakeAt).toISOString() : null;
-  if (command.kind === "schedule" && !wakeAt) throw new Error("A scheduled wait requires wakeAt");
-  if (command.kind === "external_event" && !command.correlationKey)
-    throw new Error("An external-event wait requires a correlation key");
-  if (command.kind === "dependency" && !command.dependencyWorkItemId)
-    throw new Error("A dependency wait requires a work-item ID");
-  if (command.kind === "execution" && !command.executionId)
-    throw new Error("An execution wait requires an execution ID");
-  return {
-    id: randomUUID(),
-    kind: command.kind,
-    reason: String(command.reason ?? ""),
-    target: command.target ?? null,
-    correlationKey: command.correlationKey ?? null,
-    dependencyWorkItemId: command.dependencyWorkItemId ?? null,
-    executionId: command.executionId ?? null,
-    wakeAt,
-    createdAt: nowIso(now)
-  };
+  return next;
 }
 
 export class ProcessRuntime {
   constructor(database) {
     this.database = database;
     database.exec(`
-      CREATE TABLE IF NOT EXISTS dsh_work_item_states (
-        organization_id TEXT NOT NULL,
-        work_item_id TEXT NOT NULL,
-        state_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (organization_id, work_item_id)
-      ) STRICT;
-      CREATE TABLE IF NOT EXISTS bees_process_checkpoints (
+      CREATE TABLE IF NOT EXISTS bees_schedules (
         id TEXT PRIMARY KEY,
-        execution_id TEXT,
-        work_item_id TEXT,
-        transition TEXT NOT NULL,
-        state_json TEXT NOT NULL,
-        idempotency_key TEXT UNIQUE,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        target_kind TEXT NOT NULL CHECK (target_kind IN ('process', 'work_item')),
+        target_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        recurrence TEXT NOT NULL CHECK (recurrence IN ('hourly', 'daily', 'weekdays')),
+        timezone TEXT NOT NULL,
+        next_run_at TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        pending_occurrence_id TEXT,
+        last_admitted_occurrence_id TEXT,
+        last_run_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (id, target_kind, target_id)
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS bees_schedules_due ON bees_schedules(enabled, next_run_at);
+      CREATE INDEX IF NOT EXISTS bees_schedules_target
+        ON bees_schedules(workspace_id, target_kind, target_id);
+      CREATE TABLE IF NOT EXISTS bees_domain_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        result_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       ) STRICT;
-      CREATE INDEX IF NOT EXISTS bees_process_checkpoints_work_item
-        ON bees_process_checkpoints(work_item_id, created_at);
-    `);
-    // Early DSH builds stored archive state only in JSON; copy it to the rows every view reads.
-    database.exec(`
-      WITH RECURSIVE archived(id, archived_at) AS (
-        SELECT work_item_id, json_extract(state_json, '$.archivedAt')
-        FROM dsh_work_item_states
-        WHERE json_extract(state_json, '$.archivedAt') IS NOT NULL
-        UNION
-        SELECT w.id, archived.archived_at
-        FROM work_items w JOIN archived ON w.parent_id = archived.id
-        WHERE w.deleted_at IS NULL
-      )
-      UPDATE work_items
-      SET archived_at = (SELECT max(archived_at) FROM archived WHERE archived.id = work_items.id)
-      WHERE archived_at IS NULL AND id IN (SELECT id FROM archived);
     `);
   }
 
-  input(organizationId, workItemId) {
-    const work = this.database.prepare(`
-      SELECT w.process_id AS processId, w.stage_id AS stageId,
-             w.archived_at AS archivedAt, p.team_id AS teamId
-      FROM work_items w
-      JOIN processes p ON p.id = w.process_id
-      JOIN teams t ON t.id = p.team_id
-      WHERE w.id = ? AND w.deleted_at IS NULL AND t.organization_id = ?
-    `).get(workItemId, organizationId);
-    if (!work) throw new Error("Work item not found");
-    const stages = this.database.prepare(`
-      SELECT id, is_terminal AS isTerminal FROM stages
-      WHERE process_id = ? AND (archived_at IS NULL OR id = ?)
-      ORDER BY position
-    `).all(work.processId, work.stageId);
-    const validStageIds = stages.map(({ id }) => String(id));
-    if (!validStageIds.includes(String(work.stageId)))
-      throw new Error("The work item does not point at a valid process stage");
-    return {
-      organizationId,
-      teamId: String(work.teamId),
-      workItemId,
-      processId: String(work.processId),
-      stageId: String(work.stageId),
-      archivedAt: work.archivedAt ? String(work.archivedAt) : null,
-      validStageIds,
-      terminalStageIds: stages.filter(({ isTerminal }) => Number(isTerminal) === 1).map(({ id }) => String(id))
-    };
+  item(workspaceId, workItemId) {
+    const item = this.database.prepare(`
+      SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.archived_at AS archivedAt
+      FROM work_items w JOIN processes p ON p.id = w.process_id
+      WHERE w.id = ? AND w.deleted_at IS NULL AND p.workspace_id = ?
+    `).get(workItemId, workspaceId);
+    if (!item) throw new Error("Work item not found");
+    return item;
   }
 
-  load(input) {
-    const stored = this.database.prepare(`
-      SELECT state_json AS stateJson FROM dsh_work_item_states
-      WHERE organization_id = ? AND work_item_id = ?
-    `).get(input.organizationId, input.workItemId);
-    const state = stored ? JSON.parse(stored.stateJson) : {
-      protocolVersion: 1,
-      ...input,
-      phase: "ready",
-      claim: null,
-      waits: [],
-      schedules: [],
-      receivedEvents: [],
-      watcherWorkflowIds: [],
-      revision: 0,
-      archivedAt: input.archivedAt,
-      lastExecutionId: null,
-      lastError: null
-    };
-    state.stageId = input.stageId;
-    state.processId = input.processId;
-    state.validStageIds = [...new Set(input.validStageIds)];
-    state.terminalStageIds = [...new Set(input.terminalStageIds)];
-    state.archivedAt = input.archivedAt;
-    if (state.archivedAt) {
-      state.claim = null;
-      state.waits = [];
-      for (const schedule of state.schedules) {
-        schedule.enabled = false;
-        schedule.pending = false;
-      }
-    }
-    return state;
+  target(workspaceId, targetKind, targetId) {
+    if (targetKind === "work_item") return this.item(workspaceId, targetId);
+    if (targetKind !== "process") throw new Error("The schedule target is invalid");
+    const process = this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, archived_at AS archivedAt
+      FROM processes WHERE id = ? AND workspace_id = ?
+    `).get(targetId, workspaceId);
+    if (!process) throw new Error("Process not found");
+    return process;
   }
 
-  sweep(state, now = Date.now()) {
-    let changed = false;
-    if (state.claim && Date.parse(state.claim.expiresAt) <= now) {
-      state.claim = null;
-      changed = true;
-    }
-    const waits = state.waits.filter(({ wakeAt }) => !wakeAt || Date.parse(wakeAt) > now);
-    if (waits.length !== state.waits.length) {
-      state.waits = waits;
-      changed = true;
-    }
-    for (const schedule of state.schedules) {
-      if (state.archivedAt || !schedule.enabled || Date.parse(schedule.nextRunAt) > now) continue;
-      let next = Date.parse(schedule.nextRunAt);
-      let occurrence = next;
-      do {
-        occurrence = next;
-        next = nextOccurrence(schedule, next);
-      } while (next <= now);
-      if (!schedule.pending && !(schedule.concurrencyRule === "skip_if_running" && state.claim)) {
-        schedule.pending = true;
-        schedule.pendingOccurrenceId = `${schedule.id}:${nowIso(occurrence)}`;
-        schedule.lastRunAt = nowIso(occurrence);
-      }
-      schedule.nextRunAt = nowIso(next);
-      schedule.updatedAt = nowIso(now);
-      changed = true;
-    }
-    return changed;
+  schedules(workspaceId, targetKind, targetId) {
+    this.target(workspaceId, targetKind, targetId);
+    return this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, target_kind AS targetKind,
+             target_id AS targetId, name, recurrence, timezone,
+             next_run_at AS nextRunAt, enabled,
+             pending_occurrence_id AS pendingOccurrenceId,
+             last_admitted_occurrence_id AS lastAdmittedOccurrenceId, last_run_at AS lastRunAt
+      FROM bees_schedules
+      WHERE workspace_id = ? AND target_kind = ? AND target_id = ? ORDER BY created_at
+    `).all(workspaceId, targetKind, targetId).map((schedule) => ({
+      ...schedule,
+      enabled: Boolean(schedule.enabled),
+      pending: Boolean(schedule.pendingOccurrenceId),
+      concurrencyRule: "skip_if_running",
+      catchUpBehavior: "latest"
+    }));
   }
 
-  save(state, transition, idempotencyKey = null) {
-    state.revision += 1;
-    state.phase = phase(state);
-    const at = nowIso();
-    const json = JSON.stringify(state);
-    this.database.prepare(`
-      INSERT INTO dsh_work_item_states (organization_id, work_item_id, state_json, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT (organization_id, work_item_id) DO UPDATE
-      SET state_json = excluded.state_json, updated_at = excluded.updated_at
-    `).run(state.organizationId, state.workItemId, json, at);
-    this.database.prepare(`
-      INSERT OR IGNORE INTO bees_process_checkpoints
-        (id, execution_id, work_item_id, transition, state_json, idempotency_key, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(randomUUID(), state.lastExecutionId, state.workItemId, transition, json, idempotencyKey, at);
-    return state;
+  allSchedules(workspaceIds) {
+    if (!workspaceIds.length) return [];
+    return this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, target_kind AS targetKind,
+             target_id AS targetId, name, recurrence, timezone,
+             next_run_at AS nextRunAt, enabled,
+             pending_occurrence_id AS pendingOccurrenceId,
+             last_admitted_occurrence_id AS lastAdmittedOccurrenceId, last_run_at AS lastRunAt
+      FROM bees_schedules WHERE workspace_id IN (SELECT value FROM json_each(?))
+      ORDER BY created_at
+    `).all(JSON.stringify(workspaceIds)).map((schedule) => ({
+      ...schedule,
+      enabled: Boolean(schedule.enabled),
+      pending: Boolean(schedule.pendingOccurrenceId),
+      concurrencyRule: "skip_if_running",
+      catchUpBehavior: "latest",
+      ...(schedule.targetKind === "work_item"
+        ? { workItemId: schedule.targetId }
+        : { processId: schedule.targetId })
+    }));
   }
 
-  state(organizationId, workItemId) {
-    const input = this.input(organizationId, workItemId);
-    const state = this.load(input);
-    if (this.sweep(state)) return this.save(state, "startup-catch-up");
-    return { ...state, phase: phase(state) };
+  state(workspaceId, workItemId) {
+    const item = this.item(workspaceId, workItemId);
+    const schedules = this.schedules(workspaceId, "work_item", workItemId);
+    return { ...item, phase: item.archivedAt ? "archived" : "ready", schedules };
   }
 
-  assertNoDependencyCycle(organizationId, workItemId, dependencyId) {
-    const pending = [dependencyId];
-    const visited = new Set();
-    while (pending.length) {
-      const id = pending.pop();
-      if (id === workItemId) throw new Error("This dependency would create a cycle");
-      if (visited.has(id)) continue;
-      if (visited.size >= 1_000) throw new Error("The dependency graph is too large");
-      visited.add(id);
-      const dependency = this.state(organizationId, id);
-      pending.push(...dependency.waits.flatMap(({ dependencyWorkItemId }) =>
-        dependencyWorkItemId ? [dependencyWorkItemId] : []));
-    }
+  active(targetKind, targetId) {
+    if (targetKind === "work_item") return Boolean(this.database.prepare(`
+      SELECT 1 FROM execution_links WHERE work_item_id = ?
+        AND status IN ('queued', 'running', 'waiting_for_approval', 'interrupted') LIMIT 1
+    `).get(targetId));
+    return Boolean(this.database.prepare(`
+      SELECT 1 FROM execution_links e JOIN work_items w ON w.id = e.work_item_id
+      WHERE w.process_id = ?
+        AND e.status IN ('queued', 'running', 'waiting_for_approval', 'interrupted') LIMIT 1
+    `).get(targetId));
   }
 
-  command(organizationId, workItemId, command) {
-    if (!command || typeof command.type !== "string") throw new Error("A process command is required");
+  scheduleCommand(workspaceId, targetKind, targetId, command) {
+    if (!command?.type) throw new Error("A schedule command is required");
     if (command.idempotencyKey) {
-      const checkpoint = this.database.prepare(`
-        SELECT work_item_id AS workItemId, state_json AS stateJson
-        FROM bees_process_checkpoints WHERE idempotency_key = ?
+      const prior = this.database.prepare(`
+        SELECT target_kind AS targetKind, target_id AS targetId, result_json AS resultJson
+        FROM bees_domain_receipts WHERE idempotency_key = ?
       `).get(command.idempotencyKey);
-      if (checkpoint) {
-        if (String(checkpoint.workItemId) !== workItemId)
-          throw new Error("The idempotency key belongs to another work item");
-        return JSON.parse(checkpoint.stateJson);
+      if (prior) {
+        if (prior.targetKind !== targetKind || prior.targetId !== targetId)
+          throw new Error("The idempotency key belongs to another target");
+        return JSON.parse(prior.resultJson);
       }
     }
-    if (command.type === "wait" && command.dependencyWorkItemId)
-      this.assertNoDependencyCycle(organizationId, workItemId, command.dependencyWorkItemId);
+
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      const input = this.input(organizationId, workItemId);
-      const state = this.load(input);
-      this.sweep(state);
-      if (state.archivedAt && !["archive", "restore", "toggle_schedule", "delete_schedule"].includes(command.type))
-        throw new Error("The work item is archived");
-      this.applyCommand(state, command);
-      const result = this.save(state, command.type, command.idempotencyKey ?? null);
+      const target = this.target(workspaceId, targetKind, targetId);
+      if (target.archivedAt && !["toggle_schedule", "delete_schedule"].includes(command.type))
+        throw new Error(`The ${targetKind === "process" ? "process" : "work item"} is archived`);
+      const at = nowIso();
+      if (command.type === "upsert_schedule") {
+        const schedule = command.schedule;
+        const nextRunAt = new Date(schedule.nextRunAt);
+        if (Number.isNaN(nextRunAt.getTime())) throw new Error("The schedule start time is invalid");
+        const result = this.database.prepare(`
+          INSERT INTO bees_schedules
+            (id, workspace_id, target_kind, target_id, name, recurrence, timezone,
+             next_run_at, enabled, pending_occurrence_id, last_admitted_occurrence_id,
+             last_run_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET name = excluded.name, recurrence = excluded.recurrence,
+            timezone = excluded.timezone, next_run_at = excluded.next_run_at,
+            enabled = excluded.enabled, updated_at = excluded.updated_at
+          WHERE bees_schedules.workspace_id = excluded.workspace_id
+            AND bees_schedules.target_kind = excluded.target_kind
+            AND bees_schedules.target_id = excluded.target_id
+        `).run(schedule.id, workspaceId, targetKind, targetId, schedule.name, schedule.recurrence,
+          timeZone(schedule.timezone), nextRunAt.toISOString(), schedule.enabled ? 1 : 0, at, at);
+        if (!result.changes) throw new Error("The schedule belongs to another target");
+      } else if (command.type === "toggle_schedule") {
+        const result = this.database.prepare(`
+          UPDATE bees_schedules SET enabled = ?,
+            pending_occurrence_id = CASE WHEN ? THEN pending_occurrence_id ELSE NULL END,
+            updated_at = ? WHERE id = ? AND workspace_id = ? AND target_kind = ? AND target_id = ?
+        `).run(command.enabled ? 1 : 0, command.enabled ? 1 : 0, at, command.scheduleId,
+          workspaceId, targetKind, targetId);
+        if (!result.changes) throw new Error("The schedule is unavailable");
+      } else if (command.type === "trigger_schedule") {
+        if (!this.active(targetKind, targetId)) {
+          const result = this.database.prepare(`
+            UPDATE bees_schedules SET pending_occurrence_id = coalesce(pending_occurrence_id, ?), updated_at = ?
+            WHERE id = ? AND workspace_id = ? AND target_kind = ? AND target_id = ?
+          `).run(`${command.scheduleId}:manual:${at}`, at, command.scheduleId,
+            workspaceId, targetKind, targetId);
+          if (!result.changes) throw new Error("The schedule is unavailable");
+        } else if (!this.database.prepare(`
+          SELECT 1 FROM bees_schedules
+          WHERE id = ? AND workspace_id = ? AND target_kind = ? AND target_id = ?
+        `).get(command.scheduleId, workspaceId, targetKind, targetId)) {
+          throw new Error("The schedule is unavailable");
+        }
+      } else if (command.type === "ack_schedule") {
+        const result = this.database.prepare(`
+          UPDATE bees_schedules SET last_admitted_occurrence_id = ?, pending_occurrence_id = NULL,
+            last_run_at = ?, updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND target_kind = ? AND target_id = ?
+            AND pending_occurrence_id = ?
+        `).run(command.occurrenceId, at, at, command.scheduleId,
+          workspaceId, targetKind, targetId, command.occurrenceId);
+        if (!result.changes) throw new Error("The pending schedule occurrence changed");
+      } else if (command.type === "delete_schedule") {
+        this.database.prepare(`
+          DELETE FROM bees_schedules
+          WHERE id = ? AND workspace_id = ? AND target_kind = ? AND target_id = ?
+        `).run(command.scheduleId, workspaceId, targetKind, targetId);
+      } else {
+        throw new Error(`Unsupported schedule command: ${command.type}`);
+      }
+      const result = {
+        ...target,
+        targetKind,
+        targetId,
+        schedules: this.schedules(workspaceId, targetKind, targetId)
+      };
+      if (command.idempotencyKey) this.database.prepare(`
+        INSERT INTO bees_domain_receipts VALUES (?, ?, ?, ?, ?)
+      `).run(command.idempotencyKey, targetKind, targetId, JSON.stringify(result), at);
       this.database.exec("COMMIT");
       return result;
     } catch (error) {
@@ -309,196 +245,109 @@ export class ProcessRuntime {
     }
   }
 
-  applyCommand(state, command) {
-    const now = Date.now();
-    const move = (targetStageId) => {
-      ensureStage(state, targetStageId);
-      const result = this.database.prepare(`
-        UPDATE work_items SET stage_id = ?, updated_at = ?
-        WHERE id = ? AND process_id = ?
-      `).run(targetStageId, nowIso(now), state.workItemId, state.processId);
-      if (Number(result.changes) !== 1) throw new Error("The requested stage does not belong to this work item's process");
-      state.stageId = targetStageId;
-      if (state.terminalStageIds.includes(targetStageId)) {
-        state.claim = null;
-        state.waits = [];
+  command(workspaceId, workItemId, command) {
+    if (!command?.type) throw new Error("A process command is required");
+    if (["upsert_schedule", "toggle_schedule", "trigger_schedule", "ack_schedule", "delete_schedule"].includes(command.type))
+      return this.scheduleCommand(workspaceId, "work_item", workItemId, command);
+    if (command.idempotencyKey) {
+      const prior = this.database.prepare(`
+        SELECT target_kind AS targetKind, target_id AS targetId, result_json AS resultJson
+        FROM bees_domain_receipts WHERE idempotency_key = ?
+      `).get(command.idempotencyKey);
+      if (prior) {
+        if (prior.targetKind !== "work_item" || prior.targetId !== workItemId)
+          throw new Error("The idempotency key belongs to another work item");
+        return JSON.parse(prior.resultJson);
       }
-    };
-    switch (command.type) {
-      case "move":
-        if (state.claim && command.claimToken !== state.claim.token)
-          throw new Error("Cancel the active run before moving this work item");
-        state.claim = null;
-        move(command.targetStageId);
-        break;
-      case "claim": {
-        if (state.terminalStageIds.includes(state.stageId)) throw new Error("A terminal work item cannot run");
-        if (state.waits.length) throw new Error("The work item is waiting");
-        if (state.claim) {
-          if (state.claim.machineId === command.machineId && command.claimToken === state.claim.token) {
-            if (!state.claim.executionId && command.executionId) {
-              state.claim.executionId = command.executionId;
-              state.claim.agentId = command.agentId ?? state.claim.agentId;
-              break;
-            }
-            if (state.claim.executionId === (command.executionId ?? null)) return;
-          }
-          throw new Error("Another machine is already working on this item");
-        }
-        state.claim = {
-          token: randomUUID(),
-          machineId: command.machineId,
-          agentId: command.agentId ?? null,
-          executionId: command.executionId ?? null,
-          claimedAt: nowIso(now),
-          expiresAt: nowIso(now + CLAIM_LEASE_MS)
-        };
-        break;
-      }
-      case "heartbeat":
-        currentClaim(state, command.machineId, command.claimToken, now).expiresAt = nowIso(now + CLAIM_LEASE_MS);
-        break;
-      case "release":
-        currentClaim(state, command.machineId, command.claimToken, now);
-        state.claim = null;
-        break;
-      case "complete":
-        if (!state.claim && state.lastExecutionId === command.executionId) return;
-        currentClaim(state, command.machineId, command.claimToken, now);
-        state.claim = null;
-        state.lastExecutionId = command.executionId;
-        if (command.error) {
-          state.lastError = command.error;
-          state.waits = [...state.waits.filter(({ kind }) => kind !== "error"), makeWait({
-            type: "wait", kind: "error", reason: command.error
-          }, now)];
-        } else {
-          state.lastError = null;
-          if (command.targetStageId) move(command.targetStageId);
-        }
-        break;
-      case "wait": {
-        if (state.claim) {
-          if (command.claimToken !== state.claim.token) throw new Error("Only the claiming machine can pause this run");
-          if (command.releaseClaim ?? command.kind !== "execution") state.claim = null;
-        }
-        const wait = makeWait(command, now);
-        if (wait.kind === "external_event" && wait.correlationKey &&
-            state.receivedEvents.some(({ correlationKey }) => correlationKey === wait.correlationKey)) {
-          state.receivedEvents = state.receivedEvents.filter(({ correlationKey }) => correlationKey !== wait.correlationKey);
-          break;
-        }
-        if (!wait.correlationKey || !state.waits.some(({ correlationKey }) => correlationKey === wait.correlationKey))
-          state.waits.push(wait);
-        break;
-      }
-      case "resolve_wait":
-        if (!command.waitId && !command.correlationKey) throw new Error("A wait ID or correlation key is required");
-        state.waits = state.waits.filter((wait) =>
-          (command.waitId ? wait.id !== command.waitId : true) &&
-          (command.correlationKey ? wait.correlationKey !== command.correlationKey : true));
-        if (!state.waits.some(({ kind }) => kind === "error")) state.lastError = null;
-        break;
-      case "external_event": {
-        const matched = state.waits.some(({ correlationKey }) => correlationKey === command.correlationKey);
-        state.waits = state.waits.filter(({ correlationKey }) => correlationKey !== command.correlationKey);
-        if (!matched) state.receivedEvents = [
-          ...state.receivedEvents.filter(({ correlationKey }) => correlationKey !== command.correlationKey),
-          { correlationKey: command.correlationKey, resolution: command.resolution ?? null, receivedAt: nowIso(now) }
-        ].slice(-100);
-        break;
-      }
-      case "upsert_schedule": {
-        const existing = state.schedules.find(({ id }) => id === command.schedule.id);
-        const timestamp = nowIso(now);
-        const schedule = {
-          id: command.schedule.id,
-          name: command.schedule.name,
-          recurrence: command.schedule.recurrence,
-          mode: command.schedule.mode,
-          role: command.schedule.role ?? null,
-          timezone: safeTimeZone(command.schedule.timezone),
-          concurrencyRule: "skip_if_running",
-          catchUpBehavior: "latest",
-          target: {
-            workItemId: state.workItemId,
-            mode: command.schedule.mode,
-            role: command.schedule.role ?? null
-          },
-          enabled: Boolean(command.schedule.enabled),
-          pending: existing?.pending ?? false,
-          pendingOccurrenceId: existing?.pendingOccurrenceId ?? null,
-          lastAdmittedOccurrenceId: existing?.lastAdmittedOccurrenceId ?? null,
-          nextRunAt: new Date(command.schedule.nextRunAt).toISOString(),
-          lastRunAt: existing?.lastRunAt ?? null,
-          createdAt: existing?.createdAt ?? timestamp,
-          updatedAt: timestamp
-        };
-        state.schedules = [...state.schedules.filter(({ id }) => id !== schedule.id), schedule];
-        break;
-      }
-      case "toggle_schedule": {
-        const schedule = state.schedules.find(({ id }) => id === command.scheduleId);
-        if (!schedule) throw new Error("The schedule is unavailable");
-        schedule.enabled = Boolean(command.enabled);
-        if (!schedule.enabled) schedule.pending = false;
-        schedule.updatedAt = nowIso(now);
-        break;
-      }
-      case "trigger_schedule":
-      case "ack_schedule": {
-        const schedule = state.schedules.find(({ id }) => id === command.scheduleId);
-        if (!schedule) throw new Error("The schedule is unavailable");
-        if (command.type === "trigger_schedule") {
-          schedule.pending = true;
-          schedule.pendingOccurrenceId ??= `${schedule.id}:manual:${nowIso(now)}`;
-        } else {
-          schedule.lastAdmittedOccurrenceId = schedule.pendingOccurrenceId;
-          schedule.pending = false;
-          schedule.pendingOccurrenceId = null;
-        }
-        schedule.updatedAt = nowIso(now);
-        break;
-      }
-      case "delete_schedule":
-        state.schedules = state.schedules.filter(({ id }) => id !== command.scheduleId);
-        break;
-      case "archive":
-      case "restore": {
-        state.archivedAt = command.type === "archive" ? state.archivedAt ?? nowIso(now) : null;
-        if (command.type === "archive") {
-          this.database.prepare(`
+    }
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const item = this.item(workspaceId, workItemId);
+      if (item.archivedAt && !["archive", "restore", "toggle_schedule", "delete_schedule"].includes(command.type))
+        throw new Error("The work item is archived");
+      const at = nowIso();
+      if (command.type === "move") {
+        const result = this.database.prepare(`
+          UPDATE work_items SET stage_id = ?, updated_at = ? WHERE id = ? AND process_id = ?
+            AND EXISTS (SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL)
+        `).run(command.targetStageId, at, workItemId, item.processId, command.targetStageId, item.processId);
+        if (!result.changes) throw new Error("The stage does not belong to this process");
+      } else if (command.type === "archive") {
+        this.database.prepare(`
+          WITH RECURSIVE tree(id) AS (
+            SELECT ? UNION SELECT w.id FROM work_items w JOIN tree ON w.parent_id = tree.id
+            WHERE w.deleted_at IS NULL
+          )
+          UPDATE work_items SET archived_at = ?, updated_at = ? WHERE id IN (SELECT id FROM tree)
+        `).run(workItemId, item.archivedAt ?? at, at);
+        this.database.prepare(`
+          UPDATE bees_schedules SET enabled = 0, pending_occurrence_id = NULL, updated_at = ?
+          WHERE target_kind = 'work_item' AND target_id IN (
             WITH RECURSIVE tree(id) AS (
-              SELECT ?
-              UNION
-              SELECT w.id FROM work_items w JOIN tree t ON w.parent_id = t.id
-              WHERE w.deleted_at IS NULL
-            )
-            UPDATE work_items SET archived_at = ?, updated_at = ?
-            WHERE id IN (SELECT id FROM tree)
-          `).run(state.workItemId, state.archivedAt, nowIso(now));
-        } else {
-          this.database.prepare(`
-            UPDATE work_items SET archived_at = NULL, updated_at = ? WHERE id = ?
-          `).run(nowIso(now), state.workItemId);
-        }
-        if (state.archivedAt) {
-          state.claim = null;
-          state.waits = [];
-          for (const schedule of state.schedules) {
-            schedule.enabled = false;
-            schedule.pending = false;
-          }
-        }
-        break;
-      }
-      default:
+              SELECT ? UNION SELECT w.id FROM work_items w JOIN tree ON w.parent_id = tree.id
+            ) SELECT id FROM tree
+          )
+        `).run(at, workItemId);
+      } else if (command.type === "restore") {
+        this.database.prepare("UPDATE work_items SET archived_at = NULL, updated_at = ? WHERE id = ?").run(at, workItemId);
+      } else {
         throw new Error(`Unsupported process command: ${command.type}`);
+      }
+      const result = this.state(workspaceId, workItemId);
+      if (command.idempotencyKey) this.database.prepare(`
+        INSERT INTO bees_domain_receipts VALUES (?, 'work_item', ?, ?, ?)
+      `).run(command.idempotencyKey, workItemId, JSON.stringify(result), at);
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
     }
   }
 
-  catchUpAll() {
-    const rows = this.database.prepare("SELECT organization_id, work_item_id FROM dsh_work_item_states").all();
-    for (const row of rows) this.state(String(row.organization_id), String(row.work_item_id));
+  catchUpAll(now = Date.now()) {
+    const admissions = [];
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const schedules = this.database.prepare(`
+        SELECT s.id, s.workspace_id AS workspaceId, s.target_kind AS targetKind,
+               s.target_id AS targetId, s.recurrence, s.timezone,
+               s.next_run_at AS nextRunAt, s.pending_occurrence_id AS pendingOccurrenceId,
+               CASE WHEN s.target_kind = 'work_item' THEN s.target_id END AS workItemId,
+               CASE WHEN s.target_kind = 'process' THEN s.target_id END AS processId
+        FROM bees_schedules s
+        LEFT JOIN work_items w ON s.target_kind = 'work_item' AND w.id = s.target_id
+        LEFT JOIN processes p ON s.target_kind = 'process' AND p.id = s.target_id
+        WHERE s.enabled = 1 AND (
+          (s.target_kind = 'work_item' AND w.archived_at IS NULL AND w.deleted_at IS NULL)
+          OR (s.target_kind = 'process' AND p.archived_at IS NULL)
+        )
+      `).all();
+      for (const schedule of schedules) {
+        if (schedule.pendingOccurrenceId) {
+          admissions.push({ ...schedule, occurrenceId: schedule.pendingOccurrenceId });
+          continue;
+        }
+        let next = Date.parse(schedule.nextRunAt);
+        if (next > now) continue;
+        let latest = next;
+        do {
+          latest = next;
+          next = nextOccurrence(schedule, next);
+        } while (next <= now);
+        const active = this.active(schedule.targetKind, schedule.targetId);
+        const occurrenceId = `${schedule.id}:${nowIso(latest)}`;
+        this.database.prepare(`
+          UPDATE bees_schedules SET next_run_at = ?, pending_occurrence_id = ?, updated_at = ? WHERE id = ?
+        `).run(nowIso(next), active ? null : occurrenceId, nowIso(now), schedule.id);
+        if (!active) admissions.push({ ...schedule, occurrenceId });
+      }
+      this.database.exec("COMMIT");
+      return admissions;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 }

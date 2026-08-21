@@ -23,21 +23,23 @@
     mode: workspace-write
     workspaceRoot: !!js process.env.BEES_DEFAULT_WORKSPACE
 
-- id: agent-default-model
-  config:
-    provider: bees-local
-    model: active
-
+# Keep the upstream Models settings page, but give clean installs a keyless
+# local OpenAI-compatible route. That makes onboarding optional while leaving
+# provider/model configuration in DSH where it belongs.
 - id: llm-pi-ai
   config:
-    providers: !!js JSON.parse(process.env.BEES_DSH_PROVIDERS || '{}')
-
-# Bees owns provider onboarding. The DSH models plugin contributes both the
-# experimental-version warning and the official-DeepSeek API-key dialog.
-- id: ui-settings-models
-  disabled: true
+    providers:
+      local-openai:
+        displayName: Local OpenAI-compatible
+        api: openai-completions
+        baseURL: http://127.0.0.1:1234/v1
+        models:
+          - id: default
+            name: Local model
+            contextWindow: 32768
+            maxTokens: 4096
 
 - insert:
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings]
