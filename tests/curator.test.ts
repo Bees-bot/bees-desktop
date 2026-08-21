@@ -140,13 +140,17 @@ describe("curator proposals", () => {
 describe("the curator prompt and the bundled agent", () => {
   it("offers the model every action the parser accepts, and no others", () => {
     const agent = readFileSync(
-      fileURLToPath(new URL("../flue-runtime/project/.flue/agents/bees-curator.ts", import.meta.url)),
+      fileURLToPath(new URL("../dsh-runtime/plugin/lib/agent-runtime.js", import.meta.url)),
       "utf8"
     );
+    const prompt = agent.slice(
+      agent.indexOf("const CURATOR_PERSONA"),
+      agent.indexOf("const RUN_DATA_KEYS")
+    );
     for (const type of CURATOR_ACTION_TYPES) {
-      expect(agent).toContain(`"type":"${type}"`);
+      expect(prompt).toContain(`"type":"${type}"`);
     }
-    const offered = [...agent.matchAll(/"type":"([a-z_]+)"/g)].map(([, type]) => type);
+    const offered = [...prompt.matchAll(/"type":"([a-z_]+)"/g)].map(([, type]) => type);
     expect([...new Set(offered)].sort()).toEqual([...CURATOR_ACTION_TYPES].sort());
   });
 

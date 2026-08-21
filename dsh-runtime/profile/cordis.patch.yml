@@ -1,0 +1,43 @@
+# Bees-owned profile overlay. DSH's shipped base and Web bundles remain upstream-owned.
+
+- id: session-persistence-jsonl
+  disabled: true
+
+- insert:
+    - id: session-persistence-sqlite
+      name: '@deepseek-ai/dsh-session-persistence-sqlite'
+      config:
+        path: !!js process.env.BEES_DSH_SESSIONS_PATH
+        journalMode: wal
+        busyTimeoutMs: 5000
+        preparedSessionCacheSize: 32
+        writeBatchMaxDelayMs: 25
+
+- id: session-query-sqlite
+  config:
+    path: !!js process.env.BEES_DSH_QUERY_PATH
+    openAt: startup
+
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.env.BEES_DEFAULT_WORKSPACE
+
+- id: agent-default-model
+  config:
+    provider: bees-local
+    model: active
+
+- id: llm-pi-ai
+  config:
+    providers: !!js JSON.parse(process.env.BEES_DSH_PROVIDERS || '{}')
+
+# Bees owns provider onboarding. The DSH models plugin contributes both the
+# experimental-version warning and the official-DeepSeek API-key dialog.
+- id: ui-settings-models
+  disabled: true
+
+- insert:
+    - id: bees
+      name: '@bees/dsh-plugin'
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval]

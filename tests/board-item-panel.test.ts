@@ -57,7 +57,7 @@ describe("task panel run controls", () => {
       id: "run",
       agentId: "agent",
       workItemId: item.id,
-      runtime: "flue",
+      runtime: "dsh",
       status: "failed",
       conversationId: "run",
       instanceUid: null,

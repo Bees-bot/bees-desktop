@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TOUR, parseTour, parseTourTarget, placeTip } from "../src/tour.js";
 
 const agentSource = readFileSync(
-  fileURLToPath(new URL("../flue-runtime/project/.flue/agents/bees-assistant.ts", import.meta.url)),
+  fileURLToPath(new URL("../dsh-runtime/plugin/lib/agent-runtime.js", import.meta.url)),
   "utf8"
 );
 

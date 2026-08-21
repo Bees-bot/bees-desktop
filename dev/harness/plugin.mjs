@@ -96,7 +96,7 @@ async function mcpTools(connection, secrets) {
 
 /** The registry we actually ship, off disk, so the editor lists the real skills. */
 function bundledRegistry() {
-  const root = fileURLToPath(new URL("../../flue-runtime/default-registry", import.meta.url));
+  const root = fileURLToPath(new URL("../../dsh-runtime/default-registry", import.meta.url));
   const skills = readdirSync(join(root, "skills"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => ({
@@ -159,7 +159,7 @@ export function harnessPlugin() {
     // ?fail=cmd,cmd reproduces a deleted model file or moved team folder without staging either.
     if (failing.includes(cmd)) throw new Error(`Injected failure for ${cmd}`);
     if (cmd in http) return http[cmd](args);
-    if (cmd === "ensure_flue_runtime") return { baseUrl: `${origin}/__harness/flue`, token: "harness-token" };
+    if (cmd === "ensure_dsh_runtime") return { baseUrl: `${origin}/__harness/dsh`, token: "harness-token" };
     if (cmd === "ensure_knowledge_worker")
       return { url: KNOWLEDGE_URL, token: KNOWLEDGE_TOKEN };
     if (cmd === "store_connection_secret") { secrets.set(args.secretRef, args.secret); return null; }
@@ -214,8 +214,8 @@ export function harnessPlugin() {
         const address = server.httpServer.address();
         origin = `http://127.0.0.1:${typeof address === "object" ? address.port : address}`;
       });
-      // Only flue route the desktop calls outside a run.
-      server.middlewares.use("/__harness/flue/connections/discover", (req, res) => {
+      // Only DSH route the desktop calls outside a run.
+      server.middlewares.use("/__harness/dsh/connections/discover", (req, res) => {
         let body = "";
         req.on("data", (chunk) => (body += chunk));
         req.on("end", async () => {

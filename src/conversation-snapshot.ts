@@ -2,8 +2,8 @@ import { object } from "./model-json.js";
 import type { RuntimeEvent } from "./runtime.js";
 
 /**
- * The one conversation shape the UI renders. Flue SDK message parts reduce into it as a
- * receipt and offline search projection. It is never model context or fed back into Flue.
+ * The one conversation shape the UI renders. DSH SDK message parts reduce into it as a
+ * receipt and offline search projection. It is never model context or fed back into DSH.
  */
 export interface BeesConversationSnapshotV1 {
   version: 1;
@@ -89,7 +89,7 @@ export function browserPageReference(
 }
 
 /**
- * Normalise a settled receipt. Rust writes the raw Flue conversation
+ * Normalise a settled receipt. Rust writes the raw DSH conversation
  * (`{ v: 1, messages, settlements }`); the UI reduces it without needing the sidecar.
  */
 export function storedConversation(value: unknown): BeesConversationSnapshotV1 | null {
@@ -258,7 +258,7 @@ function applyChunk(messages: SnapshotMessage[], value: unknown): SnapshotMessag
       part.state = "output-error";
     });
   } else if (chunk.type === "data-part" && messageId) {
-    // Flue 2 `useDataWriter` output: typed progress the run page renders as cards.
+    // DSH 2 `useDataWriter` output: typed progress the run page renders as cards.
     assistantMessage(messages, messageId, chunk.timestamp).parts.push({
       kind: "data",
       name: text(chunk.name) || "data",
@@ -282,7 +282,7 @@ function applyChunk(messages: SnapshotMessage[], value: unknown): SnapshotMessag
 }
 
 /**
- * Reduces Flue 2 `ConversationStreamChunk` events and `history()` snapshots into a receipt.
+ * Reduces DSH 2 `ConversationStreamChunk` events and `history()` snapshots into a receipt.
  */
 export function conversationToSnapshotV1(
   events: RuntimeEvent[],

@@ -1,8 +1,6 @@
 import type { ScheduleRecurrence } from "./domain.js";
 
-// Duplicated in flue-runtime/project/workflow/work-item-workflow.ts: that package can't
-// import from src (separate tsconfig, separate node_modules, Temporal's workflow bundler
-// only resolves within its own package).
+// Kept in step with the DSH plugin's process-runtime recurrence calculation.
 function safeTz(tz: string): string {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });

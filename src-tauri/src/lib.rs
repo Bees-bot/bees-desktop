@@ -2,7 +2,6 @@ mod local_models;
 mod process;
 mod processes;
 mod runs;
-mod workflow_runtime;
 
 use base64::{
     engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
@@ -18,7 +17,6 @@ use processes::software_project::{
     software_project_select_folder, software_project_snapshot, software_project_workspace,
 };
 use runs::{resume_run, run_is_active, start_run, stop_run, RunService};
-use workflow_runtime::{bundled_binary, ensure_local_workflow_runtime, WorkflowRuntimeManager};
 use rusqlite::{
     params_from_iter, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension,
 };
@@ -794,24 +792,24 @@ fn wait_for_oauth_callback(listener: TcpListener) -> Result<String, String> {
     }
 }
 
-struct ManagedFlue {
+struct ManagedDsh {
     child: Sidecar,
     capability_child: Sidecar,
-    project_root: PathBuf,
+    runtime_root: PathBuf,
     port: u16,
     token: String,
     capability_port: u16,
     capability_token: String,
     /// The local models that were up, with the window each was started with. Ordered so a
     /// model starting, stopping, or coming back with a different window compares unequal and
-    /// forces a restart — the runtime reads both once, at boot.
+    /// forces a restart — provider routes are composed once at boot.
     local_routes: BTreeMap<String, local_models::LocalModelRoute>,
     /// Provider credentials the running child was started with. Ordered so a changed
     /// connection compares unequal and forces a restart — the process reads its keys once.
     provider_env: BTreeMap<String, String>,
 }
 
-struct FlueManager(Mutex<Option<ManagedFlue>>);
+struct DshManager(Mutex<Option<ManagedDsh>>);
 
 struct ManagedKnowledgeWorker {
     child: Sidecar,
@@ -832,11 +830,10 @@ struct DbStatement {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FlueRuntimeInfo {
+struct DshRuntimeInfo {
     base_url: String,
-    /// Per-launch bearer for the agent mount. Binding to loopback is not a boundary: any
-    /// local process can otherwise read a conversation, send work, or abort a run. Handed to
-    /// the webview client only, never persisted and never logged.
+    /// Per-launch bearer for the whole DSH host. Binding to loopback is not an authorization
+    /// boundary, so the token is handed to the webview only and is never persisted or logged.
     token: String,
 }
 
@@ -856,6 +853,16 @@ fn loopback_token() -> Result<String, String> {
         write!(token, "{byte:02x}").map_err(|error| error.to_string())?;
     }
     Ok(token)
+}
+
+fn bundled_binary(name: &str) -> Result<PathBuf, String> {
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .parent()
+        .map(|directory| directory.join(format!("{name}{extension}")))
+        .filter(|path| path.is_file())
+        .ok_or_else(|| format!("The bundled {name} runtime is missing. Reinstall Bees."))
 }
 
 fn bundled_knowledge_worker(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1370,7 +1377,7 @@ fn inherit_runtime_environment(command: &mut Command) {
     }
 }
 
-fn bundled_flue_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+fn bundled_dsh_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let node_name = if cfg!(windows) {
         "bees-node.exe"
     } else {
@@ -1382,14 +1389,22 @@ fn bundled_flue_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), Stri
         .map(|directory| directory.join(node_name))
         .filter(|path| path.is_file())
         .ok_or_else(|| "The bundled Node.js runtime is missing. Reinstall Bees.".to_string())?;
-    let project = bundled_flue_project(app)?;
-    if !project.join("start.mjs").is_file()
-        || !project.join("capability-server.mjs").is_file()
-        || !project.join("dist").join("app.mjs").is_file()
+    let runtime = bundled_dsh_runtime(app)?;
+    if !runtime
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+        .join("lib")
+        .join("bin.js")
+        .is_file()
+        || !runtime.join("capability-server.mjs").is_file()
+        || !runtime.join("profile").join("package.json").is_file()
+        || !runtime.join("profile").join("cordis.patch.yml").is_file()
+        || !runtime.join("plugin").join("lib").join("index.js").is_file()
     {
-        return Err("The bundled Flue application is missing. Reinstall Bees.".into());
+        return Err("The bundled DeepSeek Harness application is missing. Reinstall Bees.".into());
     }
-    Ok((node, project))
+    Ok((node, runtime))
 }
 
 #[derive(Deserialize)]
@@ -1443,15 +1458,10 @@ fn provider_environment(
     let credentials = app.state::<CredentialStore>();
     for stored in stored_ai_connections(app, organization_id)? {
         if stored.provider == "openai-codex" {
-            if !environment.contains_key("BEES_OPENAI_CODEX_SECRET_REF")
-                && credentials.read(&stored.secret_ref).is_ok()
-            {
-                environment.insert("BEES_OPENAI_CODEX_SECRET_REF".into(), stored.secret_ref);
-                environment.insert("BEES_OPENAI_CODEX_CONNECTION_ID".into(), stored.id);
-                environment.insert(
-                    "BEES_OPENAI_CODEX_ORGANIZATION_ID".into(),
-                    organization_id.to_string(),
-                );
+            if !environment.contains_key("BEES_OPENAI_CODEX_TOKEN") {
+                if let Ok(secret) = credentials.token(&stored.secret_ref) {
+                    environment.insert("BEES_OPENAI_CODEX_TOKEN".into(), secret);
+                }
             }
             continue;
         }
@@ -1488,55 +1498,126 @@ fn provider_environment(
     Ok(environment)
 }
 
+fn dsh_provider_profiles(
+    provider_env: &BTreeMap<String, String>,
+    local_routes: &BTreeMap<String, local_models::LocalModelRoute>,
+) -> JsonValue {
+    let mut profiles = Map::new();
+    for (provider, variable) in [
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("openai", "OPENAI_API_KEY"),
+        ("openrouter", "OPENROUTER_API_KEY"),
+        ("opencode-go", "OPENCODE_API_KEY"),
+        ("openai-codex", "BEES_OPENAI_CODEX_TOKEN"),
+        ("google", "GEMINI_API_KEY"),
+        ("mistral", "MISTRAL_API_KEY"),
+        ("groq", "GROQ_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+        ("xai", "XAI_API_KEY"),
+        ("cerebras", "CEREBRAS_API_KEY"),
+        ("together", "TOGETHER_API_KEY"),
+        ("fireworks", "FIREWORKS_API_KEY"),
+    ] {
+        if provider_env.contains_key(variable) {
+            profiles.insert(provider.into(), serde_json::json!({ "apiKeyEnv": variable }));
+        }
+    }
+    if let Some(route) = local_routes.get("active") {
+        let models = local_routes
+            .iter()
+            .filter(|(id, _)| id.as_str() != "active")
+            .map(|(id, model_route)| {
+                serde_json::json!({
+                    "id": id,
+                    "name": id,
+                    "contextWindow": model_route.context_size,
+                    "maxTokens": std::cmp::min(model_route.context_size / 4, 32_768),
+                    "input": ["text"]
+                })
+            })
+            .chain(std::iter::once(serde_json::json!({
+                "id": "active",
+                "name": "Active local model",
+                "contextWindow": route.context_size,
+                "maxTokens": std::cmp::min(route.context_size / 4, 32_768),
+                "input": ["text"]
+            })))
+            .collect::<Vec<_>>();
+        profiles.insert(
+            "bees-local".into(),
+            serde_json::json!({
+                "displayName": "Bees local",
+                "api": "openai-completions",
+                "baseURL": route.url,
+                "models": models
+            }),
+        );
+    }
+    if provider_env.contains_key("BEES_OPENAI_COMPATIBLE_API_KEY") {
+        if let Some(base_url) = provider_env.get("BEES_OPENAI_COMPATIBLE_BASE_URL") {
+            profiles.insert(
+                "openai-compatible".into(),
+                serde_json::json!({
+                    "displayName": "OpenAI-compatible",
+                    "apiKeyEnv": "BEES_OPENAI_COMPATIBLE_API_KEY",
+                    "api": "openai-completions",
+                    "baseURL": base_url,
+                    "models": [{ "id": "default", "name": "Default" }]
+                }),
+            );
+        }
+    }
+    JsonValue::Object(profiles)
+}
+
 // spawn_blocking: booting the local Node processes and probing readiness must not freeze the UI.
 #[tauri::command]
-async fn ensure_flue_runtime(
+async fn ensure_dsh_runtime(
     app: tauri::AppHandle,
     organization_id: String,
     team_id: String,
-) -> Result<FlueRuntimeInfo, String> {
+) -> Result<DshRuntimeInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        ensure_flue_runtime_blocking(&app, &organization_id, &team_id)
+        ensure_dsh_runtime_blocking(&app, &organization_id, &team_id)
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
-fn ensure_flue_runtime_blocking(
+fn ensure_dsh_runtime_blocking(
     app: &tauri::AppHandle,
     organization_id: &str,
     _team_id: &str,
-) -> Result<FlueRuntimeInfo, String> {
-    let (node, project_root) = bundled_flue_paths(app)?;
+) -> Result<DshRuntimeInfo, String> {
+    let (node, runtime_root) = bundled_dsh_paths(app)?;
     let provider_env = provider_environment(app, organization_id)?;
     let local_routes = local_model_routes(app)?;
-    let manager = app.state::<FlueManager>();
+    let manager = app.state::<DshManager>();
     let mut managed = manager.0.lock().map_err(|error| error.to_string())?;
 
     if let Some(runtime) = managed.as_mut() {
-        let compatible = runtime.project_root == project_root
+        let compatible = runtime.runtime_root == runtime_root
             && runtime.local_routes == local_routes
             && runtime.provider_env == provider_env;
         if compatible && runtime.child.alive()? {
             if !runtime.capability_child.alive()? {
                 runtime.capability_child = spawn_capability_host(
                     &node,
-                    &project_root,
-                    &flue_state_dir(app)?,
+                    &runtime_root,
+                    &dsh_state_dir(app)?,
                     runtime.capability_port,
                     &runtime.capability_token,
                     &capability_log_path(app)?,
                 )?;
             }
-            // Not just "the process is alive": Flue can be draining while shutting down.
             let base_url = format!("http://127.0.0.1:{}", runtime.port);
             wait_until_ready(
                 &mut runtime.child,
-                &base_url,
+                &format!("{base_url}/healthz"),
                 &runtime_log_path(app)?,
-                "Flue",
+                "DeepSeek Harness",
             )?;
-            return Ok(FlueRuntimeInfo {
+            return Ok(DshRuntimeInfo {
                 base_url,
                 token: runtime.token.clone(),
             });
@@ -1555,77 +1636,94 @@ fn ensure_flue_runtime_blocking(
     };
     let capability_token = loopback_token()?;
     let capability_url = format!("http://127.0.0.1:{capability_port}");
-    let state_dir = flue_state_dir(app)?;
+    let state_dir = dsh_state_dir(app)?;
     let capability_child = spawn_capability_host(
         &node,
-        &project_root,
+        &runtime_root,
         &state_dir,
         capability_port,
         &capability_token,
         &capability_log_path(app)?,
     )?;
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let dsh_home = app_data.join("dsh");
+    let profile = dsh_home.join("profiles").join("bees");
+    copy_tree(&runtime_root.join("profile"), &profile, true)?;
+    link_runtime_package(
+        &runtime_root
+            .join("node_modules")
+            .join("@deepseek-ai")
+            .join("dsh-session-persistence-sqlite"),
+        &profile
+            .join("node_modules")
+            .join("@deepseek-ai")
+            .join("dsh-session-persistence-sqlite"),
+    )?;
+    link_runtime_package(
+        &runtime_root
+            .join("node_modules")
+            .join("@bees")
+            .join("dsh-plugin"),
+        &profile
+            .join("node_modules")
+            .join("@bees")
+            .join("dsh-plugin"),
+    )?;
+    let default_workspace = app_data.join("workspaces");
+    fs::create_dir_all(&default_workspace).map_err(|error| error.to_string())?;
+    let resource_ui = app
+        .path()
+        .resource_dir()
+        .map_err(|error| error.to_string())?
+        .join("bees-ui");
+    let source_ui = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("dist");
+    let ui_root = if resource_ui.is_dir() { resource_ui } else { source_ui };
+    let dsh_bin = runtime_root
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+        .join("lib")
+        .join("bin.js");
+    let providers = serde_json::to_string(&dsh_provider_profiles(&provider_env, &local_routes))
+        .map_err(|error| error.to_string())?;
     let broker = app.state::<CredentialBroker>();
     let mut command = Command::new(&node);
     command.env_clear();
     inherit_runtime_environment(&mut command);
     command
-        .current_dir(&project_root)
-        .arg("--experimental-strip-types")
-        .arg(project_root.join("start.mjs"))
-        .env("PORT", port.to_string())
-        .env("BEES_FLUE_ROOT", &project_root)
-        // Guards the whole agent mount. Regenerated every launch, so a leaked token dies
-        // with the process it was issued for.
-        .env("BEES_FLUE_TOKEN", &token)
+        .current_dir(&default_workspace)
+        .arg(dsh_bin)
+        .arg("--profile")
+        .arg("bees")
+        .arg("--host")
+        .arg("127.0.0.1")
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--no-open")
+        .env("DSH_HOME", &dsh_home)
+        .env("DSH_TELEMETRY_DISABLED", "1")
+        .env("BEES_DSH_TOKEN", &token)
+        .env(
+            "BEES_APP_URL",
+            if cfg!(windows) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            },
+        )
+        .env("BEES_DSH_PROVIDERS", providers)
+        .env("BEES_DSH_SESSIONS_PATH", dsh_home.join("sessions.sqlite"))
+        .env("BEES_DSH_QUERY_PATH", dsh_home.join("session-query.sqlite"))
+        .env("BEES_DATABASE_PATH", app_data.join("bees.db"))
+        .env("BEES_UI_ROOT", ui_root)
+        .env("BEES_DEFAULT_WORKSPACE", &default_workspace)
         .env("BEES_CREDENTIAL_BROKER_URL", &broker.url)
         .env("BEES_CREDENTIAL_BROKER_TOKEN", &broker.token)
         .env("BEES_PARENT_PIPE", "1")
-        // Run pointers and browser profiles are mutable runtime state, not build inputs.
         .env("BEES_STATE_DIR", &state_dir)
-        // Trusted local modules live in a separate process with no provider or broker secrets.
         .env("BEES_CAPABILITY_HOST_URL", &capability_url)
         .env("BEES_CAPABILITY_TOKEN", &capability_token)
-        // The CLI-backed providers are served by this same process, so app.ts needs the
-        // address it was started on to point their registrations at itself.
-        .env("BEES_SELF_URL", &base_url)
-        // Cloud provider keys reach a run only here: pi-ai resolves a catalog provider's
-        // credential from this process's environment.
-        .envs(&provider_env)
-        .env(
-            "BEES_LOCAL_AI_URLS",
-            serde_json::to_string(
-                &local_routes
-                    .iter()
-                    .map(|(id, route)| (id, &route.url))
-                    .collect::<BTreeMap<_, _>>(),
-            )
-            .map_err(|error| error.to_string())?,
-        )
-        // The window each llama-server was actually started with, so the runtime declares the
-        // same one to pi-ai per model instead of a constant that drifts from what was
-        // allocated. Sizes differ per model: a 3B and a 235B do not cost the same per token.
-        .env(
-            "BEES_LOCAL_CTX",
-            serde_json::to_string(
-                &local_routes
-                    .iter()
-                    .map(|(id, route)| (id, route.context_size))
-                    .collect::<BTreeMap<_, _>>(),
-            )
-            .map_err(|error| error.to_string())?,
-        );
-    // External native agents are opt-in. Only paths explicitly chosen in Settings reach
-    // the runtime; no login shell, default install location, or PATH scan runs at startup.
-    let overrides = usable_cli_overrides(app);
-    let disabled = disabled_cli_tools(app);
-    for tool in &CLI_TOOLS {
-        if disabled.contains(tool.id) {
-            continue;
-        }
-        if let Some(found) = cli_tool_path(&overrides, tool) {
-            command.env(tool.variable, found.path);
-        }
-    }
+        .envs(&provider_env);
     let log = open_runtime_log(app)?;
     let log_errors = log.try_clone().map_err(|error| error.to_string())?;
     // Both children are Sidecars from here on, so any `?` below reaps whatever already started.
@@ -1635,13 +1733,18 @@ fn ensure_flue_runtime_blocking(
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log_errors))
             .spawn()
-            .map_err(|error| format!("The bundled Flue runtime could not start: {error}"))?,
+            .map_err(|error| format!("The bundled DeepSeek Harness runtime could not start: {error}"))?,
     );
-    wait_until_ready(&mut child, &base_url, &runtime_log_path(app)?, "Flue")?;
-    *managed = Some(ManagedFlue {
+    wait_until_ready(
+        &mut child,
+        &format!("{base_url}/healthz"),
+        &runtime_log_path(app)?,
+        "DeepSeek Harness",
+    )?;
+    *managed = Some(ManagedDsh {
         child,
         capability_child,
-        project_root,
+        runtime_root,
         port,
         token: token.clone(),
         capability_port,
@@ -1649,11 +1752,11 @@ fn ensure_flue_runtime_blocking(
         local_routes,
         provider_env,
     });
-    Ok(FlueRuntimeInfo { base_url, token })
+    Ok(DshRuntimeInfo { base_url, token })
 }
 
 /// Block until the runtime will actually accept work. Readiness is not an open socket: the
-/// flue server binds its port well before it finishes loading agents, and it answers 503
+/// DSH server binds its port well before it finishes loading agents, and it answers 503
 /// runtime_unavailable both while loading and while draining for a reload. Poll an HTTP GET
 /// until the gate stops returning 503.
 fn wait_until_ready(
@@ -1758,16 +1861,9 @@ fn resolve_python() -> Option<String> {
 struct CliTool {
     /// Key the app uses for this tool.
     id: &'static str,
-    /// Environment variable the Flue runtime reads this CLI's path from.
-    variable: &'static str,
 }
 
-const CLI_TOOLS: [CliTool; 1] = [
-    CliTool {
-        id: "claude",
-        variable: "BEES_CLAUDE_CLI",
-    },
-];
+const CLI_TOOLS: [CliTool; 1] = [CliTool { id: "claude" }];
 
 /// An explicitly configured CLI the app will run.
 #[derive(Serialize)]
@@ -1894,9 +1990,9 @@ fn set_cli_tool_path(app: tauri::AppHandle, tool: String, path: String) -> Resul
 }
 
 #[tauri::command]
-async fn restart_flue_runtime(app: tauri::AppHandle) -> Result<(), String> {
+async fn restart_dsh_runtime(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let manager = app.state::<FlueManager>();
+        let manager = app.state::<DshManager>();
         let mut managed = manager.0.lock().map_err(|error| error.to_string())?;
         drop(managed.take());
         Ok(())
@@ -2119,29 +2215,27 @@ fn copy_tree(source: &Path, destination: &Path, overwrite: bool) -> Result<(), S
     Ok(())
 }
 
-fn bundled_flue_project(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn bundled_dsh_runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let packaged = app
         .path()
         .resource_dir()
         .map_err(|error| error.to_string())?
-        .join("flue-runtime")
-        .join("project");
+        .join("dsh-runtime");
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("flue-runtime")
-        .join("project");
-    let project = if packaged.is_dir() { packaged } else { source };
-    if !project.is_dir() {
-        return Err("The bundled Flue project is missing. Reinstall Bees.".into());
+        .join("dsh-runtime");
+    let runtime = if packaged.is_dir() { packaged } else { source };
+    if !runtime.is_dir() {
+        return Err("The bundled DeepSeek Harness runtime is missing. Reinstall Bees.".into());
     }
-    Ok(project)
+    Ok(runtime)
 }
 
 // Trusted local modules execute from immutable run snapshots and resolve only the bundled
 // dependency set through this one capability-host link.
 fn link_runtime_modules(capability_root: &Path, modules: &Path) -> Result<(), String> {
     if !modules.is_dir() {
-        return Err("The bundled Flue node_modules are missing. Reinstall Bees.".into());
+        return Err("The bundled DSH node_modules are missing. Reinstall Bees.".into());
     }
     let link = capability_root.join("node_modules");
     let target = fs::canonicalize(modules).map_err(|error| error.to_string())?;
@@ -2179,39 +2273,68 @@ fn link_runtime_modules(capability_root: &Path, modules: &Path) -> Result<(), St
         } else if fs::canonicalize(&link).ok().as_ref() == Some(&target) {
             Ok(())
         } else {
-            Err("Could not link the Flue runtime modules.".into())
+            Err("Could not link the DSH runtime modules.".into())
         }
     }
 }
 
+fn link_runtime_package(source: &Path, link: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Err(format!("The bundled DSH package {} is missing.", source.display()));
+    }
+    let target = fs::canonicalize(source).map_err(|error| error.to_string())?;
+    if fs::canonicalize(link).ok().as_ref() == Some(&target) {
+        return Ok(());
+    }
+    if let Some(parent) = link.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    if link.symlink_metadata().is_ok() {
+        let _ = fs::remove_file(link).or_else(|_| fs::remove_dir_all(link));
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).map_err(|error| error.to_string())
+    }
+    #[cfg(windows)]
+    {
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .status()
+            .map_err(|error| error.to_string())?;
+        status
+            .success()
+            .then_some(())
+            .ok_or_else(|| "Could not link a DSH profile package.".to_string())
+    }
+}
+
 /// Mutable runtime state (run pointers, browser profiles), deliberately outside the immutable
-/// Flue build project.
-fn flue_state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// DSH installation.
+fn dsh_state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?
-        .join("flue-state");
+        .join("dsh-state");
     fs::create_dir_all(dir.join("instances")).map_err(|error| error.to_string())?;
     Ok(dir)
 }
 
 fn runtime_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(flue_state_dir(app)?.join("runtime.log"))
+    Ok(dsh_state_dir(app)?.join("runtime.log"))
 }
 
 fn capability_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(flue_state_dir(app)?.join("capability-host.log"))
+    Ok(dsh_state_dir(app)?.join("capability-host.log"))
 }
 
 /// The runtime's stdout and stderr, on disk.
 ///
-/// Load-bearing for diagnosis, not a nicety: Flue scrubs the detail out of any failure that is
-/// not a `FlueError`, so a submission that dies inside project code settles as "The agent
-/// submission failed because of an internal error" and the only copy of the real stack is what
-/// the process printed. Inheriting the parent's streams sent that to whatever terminal launched
-/// Bees — nothing at all in a packaged build — which made that whole class of failure
-/// unreportable and made "check the team runtime logs" name a file that did not exist.
+/// Load-bearing for diagnosis: a packaged build has no terminal, so the sidecar's only durable
+/// startup and agent error detail lives here.
 ///
 /// ponytail: one previous launch is kept and older ones are dropped. Size-based rotation when
 /// two launches stop being enough to catch a failure.
@@ -2289,9 +2412,8 @@ fn snapshot_skill(
 }
 
 #[tauri::command]
-/// One id per run: the Bees execution is also the Flue conversation, the sandbox, and this
-/// pointer's key. The sandbox factory resolves it from the agent route's `:id`.
-fn bind_flue_workspace(
+/// One id per run: the Bees execution is also the DSH session, sandbox, and pointer key.
+fn bind_dsh_workspace(
     app: tauri::AppHandle,
     database: State<'_, Database>,
     execution_id: String,
@@ -2311,7 +2433,7 @@ fn bind_flue_workspace(
     } else {
         canonical_workspace(&app, &workspace)?
     };
-    let pointer_path = flue_state_dir(&app)?
+    let pointer_path = dsh_state_dir(&app)?
         .join("instances")
         .join(format!("{execution_id}.json"));
     let previous_capabilities = fs::read(&pointer_path)
@@ -2321,18 +2443,14 @@ fn bind_flue_workspace(
         .unwrap_or_else(|| JsonValue::Array(Vec::new()));
     let mut skill_snapshots = Vec::new();
     let capability_pointers = if let Some(capabilities) = capabilities {
-        let state = flue_state_dir(&app)?;
+        let state = dsh_state_dir(&app)?;
         let capability_root = state.join("capabilities");
         let target = capability_root.join(&execution_id);
         if target.exists() {
             fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
         }
         fs::create_dir_all(&target).map_err(|error| error.to_string())?;
-        let project = bundled_flue_project(&app)?;
-        let modules = project
-            .parent()
-            .ok_or_else(|| "The Flue runtime path is invalid.".to_string())?
-            .join("node_modules");
+        let modules = bundled_dsh_runtime(&app)?.join("node_modules");
         link_runtime_modules(&capability_root, &modules)?;
         let granted = granted_capability_refs.unwrap_or_default();
         let mut pointers = Vec::new();
@@ -2398,7 +2516,7 @@ fn bind_flue_workspace(
     Ok(skill_snapshots)
 }
 
-fn purge_flue_execution_state_at(state: &Path, execution_id: &str) -> Result<(), String> {
+fn purge_dsh_execution_state_at(state: &Path, execution_id: &str) -> Result<(), String> {
     let execution_id = safe_identifier(execution_id, "execution ID")?;
     let capabilities = state.join("capabilities").join(&execution_id);
     if capabilities.exists() {
@@ -2412,8 +2530,8 @@ fn purge_flue_execution_state_at(state: &Path, execution_id: &str) -> Result<(),
 }
 
 #[tauri::command]
-fn purge_flue_execution_state(app: tauri::AppHandle, execution_id: String) -> Result<(), String> {
-    purge_flue_execution_state_at(&flue_state_dir(&app)?, &execution_id)
+fn purge_dsh_execution_state(app: tauri::AppHandle, execution_id: String) -> Result<(), String> {
+    purge_dsh_execution_state_at(&dsh_state_dir(&app)?, &execution_id)
 }
 
 fn registry_root(app: &tauri::AppHandle, registry_id: &str) -> Result<PathBuf, String> {
@@ -2430,11 +2548,11 @@ fn bundled_default_registry(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|error| error.to_string())?
-        .join("flue-runtime")
+        .join("dsh-runtime")
         .join("default-registry");
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("flue-runtime")
+        .join("dsh-runtime")
         .join("default-registry");
     let registry = if packaged.is_dir() { packaged } else { source };
     if !registry.is_dir() {
@@ -3767,7 +3885,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            if let Ok((node, _)) = bundled_flue_paths(app.handle()) {
+            if let Ok((node, _)) = bundled_dsh_paths(app.handle()) {
                 reap_orphaned_node_sidecars(&node);
             }
             let app_data = app.path().app_data_dir()?;
@@ -3777,7 +3895,7 @@ pub fn run() {
             let credentials = CredentialStore::open(&app_data.join("credentials.db"))?;
             app.manage(credentials.clone());
             app.manage(start_credential_broker(database_path, credentials)?);
-            app.manage(FlueManager(Mutex::new(None)));
+            app.manage(DshManager(Mutex::new(None)));
             app.manage(KnowledgeWorkerManager(Mutex::new(None)));
             app.manage(ApiBridgeManager(Mutex::new(BTreeMap::new())));
             // Clear any llama-server orphaned by a prior crash/restart before the manager takes over.
@@ -3786,7 +3904,6 @@ pub fn run() {
             app.manage(OAuth(Mutex::new(None)));
             app.manage(ConnectionOAuth(Mutex::new(None)));
             app.manage(RunService::new());
-            app.manage(WorkflowRuntimeManager::default());
             // Register the bees:// scheme at runtime so dev builds catch the OAuth
             // callback (packaged macOS builds also declare it in tauri.conf.json).
             #[cfg(desktop)]
@@ -3820,8 +3937,8 @@ pub fn run() {
             preview_output,
             publish_output,
             cleanup_workspace,
-            bind_flue_workspace,
-            purge_flue_execution_state,
+            bind_dsh_workspace,
+            purge_dsh_execution_state,
             install_agent_plugin,
             install_bundled_agent_plugin,
             plugin_catalog,
@@ -3834,13 +3951,12 @@ pub fn run() {
             stop_local_model,
             cancel_local_model_download,
             delete_local_model,
-            ensure_flue_runtime,
-            ensure_local_workflow_runtime,
+            ensure_dsh_runtime,
             ensure_knowledge_worker,
             ensure_api_bridge,
             local_model_base_url,
             probe_api_endpoint,
-            restart_flue_runtime,
+            restart_dsh_runtime,
             configured_cli_tools,
             set_cli_tool_path,
             set_cli_tool_enabled,
@@ -4121,16 +4237,17 @@ mod tests {
     }
 
     #[test]
-    fn production_flue_server_is_loopback_only() {
-        let entry = include_str!("../../flue-runtime/project/start.mjs");
-        assert!(entry.contains("hostname: \"127.0.0.1\""));
-        assert!(entry.contains("process.env.PORT"));
+    fn production_dsh_server_is_authenticated() {
+        let plugin = include_str!("../../dsh-runtime/plugin/lib/index.js");
+        assert!(plugin.contains("BEES_DSH_TOKEN"));
+        assert!(plugin.contains("http://127.0.0.1"));
+        assert!(plugin.contains("timingSafeEqual"));
     }
 
     #[test]
     fn trusted_capabilities_have_a_separate_authenticated_process() {
-        let host = include_str!("../../flue-runtime/project/capability-server.mjs");
-        let agent = include_str!("../../flue-runtime/project/.flue/agents/bees-run.ts");
+        let host = include_str!("../../dsh-runtime/capability-server.mjs");
+        let agent = include_str!("../../dsh-runtime/plugin/lib/agent-runtime.js");
         assert!(host.contains("BEES_CAPABILITY_TOKEN"));
         assert!(!host.contains("BEES_CREDENTIAL_BROKER_TOKEN"));
         assert!(agent.contains("BEES_CAPABILITY_HOST_URL"));
@@ -4138,9 +4255,9 @@ mod tests {
     }
 
     #[test]
-    fn deleting_a_run_removes_only_its_immutable_flue_state() {
+    fn deleting_a_run_removes_only_its_immutable_dsh_state() {
         let state = std::env::temp_dir().join(format!(
-            "bees-flue-state-{}",
+            "bees-dsh-state-{}",
             loopback_token().expect("random name")
         ));
         let instances = state.join("instances");
@@ -4151,7 +4268,7 @@ mod tests {
         fs::write(instances.join("run-1.json"), b"{}").expect("pointer");
         fs::write(instances.join("run-2.json"), b"{}").expect("peer pointer");
 
-        purge_flue_execution_state_at(&state, "run-1").expect("purge");
+        purge_dsh_execution_state_at(&state, "run-1").expect("purge");
 
         assert!(!capabilities.join("run-1").exists());
         assert!(!instances.join("run-1.json").exists());

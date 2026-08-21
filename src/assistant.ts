@@ -39,7 +39,7 @@ import {
 } from "./model-routing.js";
 
 /**
- * Name of the bundled agent in `.flue/agents/bees-assistant.ts`. Not "assistant": an older
+ * Name of the bundled agent in `DSH/agents/bees-assistant.ts`. Not "assistant": an older
  * release shipped a bundled agent under that name, and a copy of it is still sitting in the
  * project root of every install made before this one.
  */
@@ -51,7 +51,7 @@ export const ASSISTANT_EXTRA_MODELS_KEY = "assistant_extra_models";
 /**
  * Hex payload between "--" separators: the agent name and a team UUID both contain single
  * dashes, and base64url's alphabet contains one as well — but none of the three ever contains
- * a double dash. Decoded by `modelForInstance` in .flue/models.ts.
+ * a double dash. Decoded by `modelForInstance` in DSH/models.ts.
  */
 export function instanceModelId(
   agentName: string,
@@ -59,7 +59,7 @@ export function instanceModelId(
   choice: ModelChoice,
   catalog: ModelOption[] = []
 ): string {
-  // Auto is a policy, not a provider. Resolve it at the last shared boundary before Flue.
+  // Auto is a policy, not a provider. Resolve it at the last shared boundary before DSH.
   const selected = resolveModelChoice(choice, preferredModelChoice(catalog), catalog);
   const hex = [...new TextEncoder().encode(modelRef(selected))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -72,7 +72,7 @@ export function assistantInstanceId(teamId: string, choice: ModelChoice, catalog
 }
 
 // ---- What the model is allowed to propose ----
-// Keep in sync with the INSTRUCTIONS block in .flue/agents/assistant.ts — tests/assistant.test.ts
+// Keep in sync with the INSTRUCTIONS block in DSH/agents/assistant.ts — tests/assistant.test.ts
 // fails if the two lists drift apart.
 
 export type AssistantAction =

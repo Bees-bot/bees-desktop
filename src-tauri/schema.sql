@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS work_items (
   sync_version INTEGER NOT NULL DEFAULT 0,
   checkpoint_stage_id TEXT,
   checkpoint_at TEXT,
+  archived_at TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

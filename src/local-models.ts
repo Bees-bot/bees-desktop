@@ -23,7 +23,7 @@ export const DEFAULT_CODEX_MODEL_ID = "gpt-5.6-sol";
 export const LOCAL_PROVIDER = "bees-local";
 
 /**
- * Providers a run can name. The value is the pi-ai provider id Flue resolves against,
+ * Providers a run can name. The value is the pi-ai provider id DSH resolves against,
  * which is also the id stored for direct provider connections.
  * A provider that isn't listed still works — the agent dropdown keeps whatever its file
  * already had, and custom models can be added through the assistant model picker.
@@ -133,7 +133,7 @@ export function thinkingOptionsForModel(config: { provider?: string; model?: str
   ];
 }
 
-/** The `provider/model` pair Flue hands to pi-ai. Falls back to the local model. */
+/** The `provider/model` pair DSH hands to pi-ai. Falls back to the local model. */
 export function modelRef(config: { provider?: string; model?: string }): string {
   const provider = (config.provider ?? "").trim();
   const model = (config.model ?? "").trim();

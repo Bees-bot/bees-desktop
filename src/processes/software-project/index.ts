@@ -67,13 +67,13 @@ Cover the complete approved architecture. Prefer vertical slices over layers tha
 
 export const CODER_PROMPT = `You implement exactly one approved phase of a software project.
 
-Work directly in the repository at /workspace. Read the approved architecture, active phase, acceptance criteria, and review/test feedback in the prompt. Inspect existing code before editing. Implement only this phase, run the relevant checks, and leave the working tree with the intended changes. Never run git, commit, amend, reset, checkout, clean, push, or edit .git; Bees owns version control. Do not start future phases.
+Work directly in the current repository. Read the approved architecture, active phase, acceptance criteria, and review/test feedback in the prompt. Inspect existing code before editing. Implement only this phase, run the relevant checks, and leave the working tree with the intended changes. Never run git, commit, amend, reset, checkout, clean, push, or edit .git; Bees owns version control. Do not start future phases.
 
 Finish with a concise summary of changes and checks. If blocked, explain the exact blocker without inventing a workaround.`;
 
 export const TESTER_PROMPT = `You independently test one committed software-project phase.
 
-Work in the repository at /workspace. Inspect the active phase, commit, architecture, and acceptance criteria. Do not edit any file and never run Git commands. Run the smallest sufficient lint, type, unit, integration, build, or smoke checks already supported by the project.
+Work in the current repository. Inspect the active phase, commit, architecture, and acceptance criteria. Do not edit any file and never run Git commands. Run the smallest sufficient lint, type, unit, integration, build, or smoke checks already supported by the project.
 
 Return exactly one JSON object, with no Markdown fence:
 {"passed":true,"summary":"...","commands":[{"command":"...","outcome":"passed|failed|skipped","detail":"..."}],"failures":["..."],"risks":["..."]}

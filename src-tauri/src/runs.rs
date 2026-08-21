@@ -1,6 +1,6 @@
 //! Ownership of the Bees half of a run.
 //!
-//! Flue 2 recovers the agent's work across crashes, but it cannot finish Bees' application
+//! DSH 2 recovers the agent's work across crashes, but it cannot finish Bees' application
 //! transaction: create the receipt, collect the workspace outputs, validate them, and settle
 //! into exactly one terminal status. That used to live in a webview promise, so reloading the
 //! page abandoned it. It lives here instead, for the life of the Tauri process.
@@ -9,7 +9,7 @@
 //!
 //! ponytail: settlement is discovered by polling `?view=history` for the submission's entry in
 //! `settlements[]`, not by holding the durable stream open. Settlement is durable, so polling
-//! is correct — just up to one interval late. The webview keeps `@flue/sdk` for live token
+//! is correct — just up to one interval late. The webview keeps `DSH client` for live token
 //! rendering, which is where latency actually shows. Swap in a streaming read here only if a
 //! settled run visibly lags.
 
@@ -152,7 +152,7 @@ fn admit(request: &RunRequest) -> Result<Admission, String> {
                 .instance_uid
                 .clone()
                 .filter(|uid| !uid.is_empty())
-                .ok_or_else(|| "A follow-up requires the conversation's Flue uid".to_string())?,
+                .ok_or_else(|| "A follow-up requires the conversation's DSH uid".to_string())?,
         )
     } else {
         // Create-only prevents an initial message from accidentally continuing stale state.
@@ -162,6 +162,7 @@ fn admit(request: &RunRequest) -> Result<Admission, String> {
         "kind": "user",
         "body": request.prompt,
         "uid": uid,
+        "workspace": request.workspace,
         // One key names one message delivery. A crash resend converges; a follow-up gets a
         // fresh key and therefore a fresh settlement in this same conversation.
         "idempotencyKey": request.delivery_id,
@@ -183,7 +184,7 @@ fn admit(request: &RunRequest) -> Result<Admission, String> {
         .map_err(|error| format!("The runtime returned an unreadable response: {error}"))?;
     if !status.is_success() {
         return Err(format!(
-            "Flue returned {status}: {}",
+            "DSH returned {status}: {}",
             body.get("error")
                 .and_then(|error| error.get("message"))
                 .and_then(JsonValue::as_str)
@@ -211,7 +212,7 @@ fn history(request: &RunRequest) -> Result<JsonValue, String> {
         .send()
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("Flue history returned {}", response.status()));
+        return Err(format!("DSH history returned {}", response.status()));
     }
     response.json().map_err(|error| error.to_string())
 }
@@ -727,7 +728,7 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
     if request.delivery_id.is_empty() || request.delivery_id.len() > 256 {
         return Err("The delivery ID is invalid".into());
     }
-    let manager = app.state::<crate::FlueManager>();
+    let manager = app.state::<crate::DshManager>();
     let managed = manager.0.lock().map_err(|error| error.to_string())?;
     let runtime = managed
         .as_ref()
@@ -836,7 +837,7 @@ fn validate_request(app: &tauri::AppHandle, request: &RunRequest) -> Result<(), 
             .as_deref()
             .filter(|uid| !uid.is_empty());
         if offered_uid.is_none() || offered_uid != stored_uid.as_deref() {
-            return Err("The conversation's Flue uid does not match this execution".into());
+            return Err("The conversation's DSH uid does not match this execution".into());
         }
     }
     Ok(())
@@ -854,7 +855,7 @@ pub fn start_run(app: tauri::AppHandle, request: RunRequest) -> Result<(), Strin
 /// Adopt a run that was already admitted before this process started.
 ///
 /// A known submission is adopted. If admission crashed before its receipt reached SQLite, the
-/// persisted prompt and delivery key are resent and Flue deduplicates them to the same receipt.
+/// persisted prompt and delivery key are resent and DSH deduplicates them to the same receipt.
 #[tauri::command]
 pub fn resume_run(
     app: tauri::AppHandle,
@@ -888,8 +889,8 @@ pub fn resume_run(
     Ok(())
 }
 
-/// Tell Flue to abort, then keep reading its authoritative settlement. Completion may win the
-/// race, so Bees never stamps `cancelled` over a result Flue already completed.
+/// Tell DSH to abort, then keep reading its authoritative settlement. Completion may win the
+/// race, so Bees never stamps `cancelled` over a result DSH already completed.
 #[tauri::command]
 pub fn stop_run(
     app: tauri::AppHandle,
@@ -904,18 +905,18 @@ pub fn stop_run(
         .map_err(|error| error.to_string())?;
     let not_found = aborted.status().as_u16() == 404;
     if !aborted.status().is_success() && !not_found {
-        return Err(format!("Flue abort returned {}", aborted.status()));
+        return Err(format!("DSH abort returned {}", aborted.status()));
     }
     let service = app.state::<RunService>();
     if service.is_active(&request.execution_id) {
-        // The owner keeps polling until Flue reports whether abort or completion won the race.
+        // The owner keeps polling until DSH reports whether abort or completion won the race.
         return Ok(());
     }
     if not_found {
         let (status, error) = if submission_id.is_empty() {
             ("cancelled", "Stopped by user")
         } else {
-            ("interrupted", "Flue no longer has this conversation")
+            ("interrupted", "DSH no longer has this conversation")
         };
         return record(
             &app.state::<Database>(),

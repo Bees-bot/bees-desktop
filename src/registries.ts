@@ -1,5 +1,5 @@
 import type { AgentConfig, Capability, CapabilityKind, Registry } from "./domain.js";
-import type { FlueProjectPort } from "./flue-project.js";
+import type { DshProjectPort } from "./dsh-project.js";
 import { parseAgentPlugin } from "./plugins.js";
 
 export function registryCapabilities(registries: Registry[]): Capability[] {
@@ -31,7 +31,7 @@ export function selectedAgentCapabilities(registries: Registry[], config: AgentC
 }
 
 export class RegistryFiles {
-  constructor(private readonly port: FlueProjectPort) {}
+  constructor(private readonly port: DshProjectPort) {}
 
   async copy(registryId: string, sourcePath: string): Promise<Registry["plugin"]> {
     return parseAgentPlugin(await this.port.copyRegistry(registryId, sourcePath));

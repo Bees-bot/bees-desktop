@@ -49,6 +49,64 @@ describe("task board", () => {
 
     expect(html).toContain('data-action="start-process"');
   });
+
+  it("does not show archived runs on the unscoped process board", async () => {
+    let html = "";
+    const process = {
+      id: "goals",
+      name: "Goals",
+      stages: [{ id: "plan", name: "Plan" }],
+      definition: { automation: "automatic" }
+    };
+    const active = {
+      id: "active",
+      processId: process.id,
+      stageId: "plan",
+      title: "Current goal",
+      parentId: null,
+      waits: [],
+      logicalFiles: [],
+      archivedAt: null,
+      isTerminal: false,
+      updatedAt: "2026-08-20T00:00:00.000Z"
+    };
+    const archived = {
+      ...active,
+      id: "archived",
+      title: "Archived goal",
+      archivedAt: "2026-08-19T00:00:00.000Z"
+    };
+    const host = {
+      session: { currentTeam: () => ({ name: "Team" }) },
+      shell: {
+        view: "board",
+        boardRootItemId: "",
+        boardItemId: "",
+        setHeader: () => undefined,
+        swap: (value: string) => { html = value; },
+        escapeHtml: (value: string) => value
+      },
+      workspaceController: {
+        activeBoard: { id: "board", name: "Goals", stageIds: ["plan"], filters: [] },
+        activeProcess: process,
+        processes: [process],
+        items: [active, archived],
+        teamItems: [active, archived],
+        agents: [],
+        openWork: (items: typeof active[]) => items.filter(({ archivedAt }) => !archivedAt)
+      },
+      runs: {
+        runningProcesses: new Set([process.id]),
+        executions: [],
+        supervise: () => new Map()
+      }
+    } as unknown as MainHost;
+
+    await createMainViews(host).renderBoard();
+
+    expect(html).toContain("Current goal");
+    expect(html).not.toContain("Archived goal");
+  });
 });
 
 describe("settings", () => {

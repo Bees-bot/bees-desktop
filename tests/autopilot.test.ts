@@ -50,8 +50,18 @@ describe("needsAutonomousRun", () => {
   });
 
   it("will not restart a status the process checkpointed into", () => {
-    const checkpointed = { ...item, checkpointAt: item.updatedAt };
+    const checkpointed = { ...item, checkpointStageId: item.stageId, checkpointAt: item.updatedAt };
     expect(needsAutonomousRun(checkpointed, [], new Set(autonomousRunKeys(item)))).toBe(false);
+  });
+
+  it("runs again when a process returns to an earlier status", () => {
+    const returned = {
+      ...item,
+      checkpointStageId: "stage-2",
+      checkpointAt: "2026-07-29T10:10:00.000Z",
+      updatedAt: "2026-07-29T10:10:00.000Z"
+    };
+    expect(needsAutonomousRun(returned, [], new Set(autonomousRunKeys(item)))).toBe(true);
   });
 
   it("runs again when a rejected output makes the item due", () => {

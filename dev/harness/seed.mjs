@@ -89,7 +89,7 @@ export function seedStatements() {
 
   // One run per status the UI can show, so no status badge goes unrendered.
   const run = (id, workItemId, status, ago, endedAt) =>
-    [id, status === "queued" ? "bid-triage" : "proposal-writer", workItemId, "flue", status,
+    [id, status === "queued" ? "bid-triage" : "proposal-writer", workItemId, "dsh", status,
       `conv-${id}`, status === "queued" ? null : at(ago), endedAt, at(ago + 1)];
   insert("executions",
     "id, agent_id, work_item_id, runtime, status, conversation_id, started_at, ended_at, created_at", [

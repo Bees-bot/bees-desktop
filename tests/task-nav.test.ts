@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createMainViews } from "../src/app-views.js";
 import type { MainHost } from "../src/main.js";
 
-function navFor(roots: Array<{ id: string; title: string; isTerminal: boolean; open: number }>): string {
+function navFor(roots: Array<{ id: string; title: string; isTerminal: boolean; open: number; archivedAt?: string }>): string {
   const host = {
     shell: {
       view: "overview",
@@ -18,7 +18,9 @@ function navFor(roots: Array<{ id: string; title: string; isTerminal: boolean; o
         [{
           board: { id: "board" },
           process: { id: "process", name: "Process" },
-          roots: roots.map(({ id, title, isTerminal, open }) => ({ item: { id, title, isTerminal }, open }))
+          roots: roots.map(({ id, title, isTerminal, open, archivedAt }) => ({
+            item: { id, title, isTerminal, archivedAt: archivedAt ?? null }, open
+          }))
         }]
       ]])
     }
@@ -46,5 +48,15 @@ describe("left menu task rows", () => {
     const nav = navFor([{ id: "finished", title: "Finished task", isTerminal: true, open: 0 }]);
     expect(nav).toContain("No active tasks");
     expect(nav).not.toContain("Finished task");
+  });
+
+  it("does not show archived runs", () => {
+    const nav = navFor([{
+      id: "archived", title: "Archived task", isTerminal: false, open: 0,
+      archivedAt: "2026-08-20T12:00:00.000Z"
+    }]);
+
+    expect(nav).toContain("No active tasks");
+    expect(nav).not.toContain("Archived task");
   });
 });

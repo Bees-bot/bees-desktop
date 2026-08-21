@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent, Execution, WorkItem } from "../src/domain.js";
-import type { FlueProjectService } from "../src/flue-project.js";
+import type { DshProjectService } from "../src/dsh-project.js";
 import type { LocalRepository } from "../src/repository.js";
 import {
   RunCoordinator,
@@ -33,7 +33,7 @@ function coordinator(
   repository: Partial<LocalRepository>,
   workspaces: Partial<TemporaryWorkspaceService>,
   runHost: RunHost,
-  flueProject: Partial<FlueProjectService> = { bindWorkspace: vi.fn().mockResolvedValue([]) }
+  dshProject: Partial<DshProjectService> = { bindWorkspace: vi.fn().mockResolvedValue([]) }
 ) {
   return new RunCoordinator(
     {
@@ -42,7 +42,7 @@ function coordinator(
       ...repository
     } as LocalRepository,
     workspaces as TemporaryWorkspaceService,
-    flueProject as FlueProjectService,
+    dshProject as DshProjectService,
     async () => ({ baseUrl: "http://runtime", token: "tok" }),
     runHost
   );
@@ -56,10 +56,10 @@ describe("RunCoordinator", () => {
       updateExecution: vi.fn()
     };
     const workspaces = { prepare: vi.fn().mockResolvedValue("/cache/workspaces/run-new") };
-    const flueProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
+    const dshProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
     const runHost = host({ outputs: ["draft.md"], statusId: "review-id" });
 
-    const outcome = await coordinator(repository, workspaces, runHost, flueProject).start({
+    const outcome = await coordinator(repository, workspaces, runHost, dshProject).start({
       item: { id: "item-1", title: "Draft", description: "", logicalFiles: [] } as unknown as WorkItem,
       agent: {
         id: "agent-1",
@@ -78,7 +78,7 @@ describe("RunCoordinator", () => {
     });
 
     // One id: the execution addresses the conversation, the pointer, and the sandbox.
-    expect(flueProject.bindWorkspace).toHaveBeenCalledWith(
+    expect(dshProject.bindWorkspace).toHaveBeenCalledWith(
       "run-new",
       "/cache/workspaces/run-new",
       "/team",
@@ -156,10 +156,10 @@ describe("RunCoordinator", () => {
       prepare: vi.fn(),
       projectWorkspace: vi.fn().mockResolvedValue("/projects/app")
     };
-    const flueProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
+    const dshProject = { bindWorkspace: vi.fn().mockResolvedValue([]) };
     const runHost = host();
 
-    await coordinator(repository, workspaces, runHost, flueProject).start({
+    await coordinator(repository, workspaces, runHost, dshProject).start({
       item: { id: "project-1", title: "App", description: "", logicalFiles: [] } as unknown as WorkItem,
       agent: { id: "coder", config: { prompt: "Code." } } as unknown as Agent,
       teamRoot: "/team",
@@ -169,7 +169,7 @@ describe("RunCoordinator", () => {
     });
 
     expect(workspaces.prepare).not.toHaveBeenCalled();
-    expect(flueProject.bindWorkspace).toHaveBeenCalledWith(
+    expect(dshProject.bindWorkspace).toHaveBeenCalledWith(
       "run-project",
       "/projects/app",
       "/team",
@@ -226,7 +226,7 @@ describe("RunCoordinator", () => {
     );
     expect(runHost.startRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining("/workspace/.bees/inputs: roteris.txt")
+        prompt: expect.stringContaining(".bees/inputs: roteris.txt")
       })
     );
   });

@@ -112,7 +112,7 @@ import {
 } from "./registries.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
 import { runReceipt } from "./run-receipt.js";
-import { FlueRuntime } from "./runtime.js";
+import { DshRuntime } from "./runtime.js";
 import { nextScheduleStart } from "./scheduler.js";
 import {
   DEFAULT_TOUR,
@@ -322,7 +322,7 @@ export function createMainActions(host: MainHost) {
     return host.agentFiles.list(mapping.localPath).catch(() => []);
   }
 
-  /** Agent edits are data only; the stable Flue runtime reads the frozen config at admission. */
+  /** Agent edits are data only; the stable DSH runtime reads the frozen config at admission. */
   async function writeAgent(agent: Agent, draft = false): Promise<void> {
     await host.agentFiles.save(await host.workspaceController.requireTeamRoot(), agent, draft);
   }
@@ -515,7 +515,7 @@ export function createMainActions(host: MainHost) {
           return;
         }
         if (await host.localModels.run(modelId))
-          await host.flueProjectPort.restart();
+          await host.dshProjectPort.restart();
       })
       .catch(async (error) => {
         if (!mine())
@@ -548,7 +548,7 @@ export function createMainActions(host: MainHost) {
         // otherwise the refresh below immediately reports "downloading" again.
         await download;
         if (wasRunning)
-          await host.flueProjectPort.restart();
+          await host.dshProjectPort.restart();
         if (host.assistant.localModelProgress.get(modelId)?.state !== "cancelled")
           host.assistant.localModelProgress.delete(modelId);
         await refreshLocalModelRows();
@@ -588,7 +588,7 @@ export function createMainActions(host: MainHost) {
     const reachable = await withBridgeUrl(connection);
     let tools: McpConnection["tools"];
     try {
-      tools = await discoverMcpTools(reachable, await host.ensureFlueRuntime());
+      tools = await discoverMcpTools(reachable, await host.ensureDshRuntime());
     }
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -596,7 +596,7 @@ export function createMainActions(host: MainHost) {
       throw new Error(reason);
     }
     const discovered = withMcpHealth(reachable, tools);
-    // flue drops the server's readOnlyHint, so carry our own marks across a re-check
+    // DSH drops the server's readOnlyHint, so carry our own marks across a re-check
     const wasReadOnly = new Set(connection.tools.filter(({ readOnly }) => readOnly).map(({ name }) => name));
     const data = await edit(`Tools from ${connection.name}`, [
       {
@@ -655,7 +655,7 @@ export function createMainActions(host: MainHost) {
     ]);
     if (!data)
       return;
-    const { baseUrl, token } = await host.ensureFlueRuntime().catch(() => ({ baseUrl: "", token: "" }));
+    const { baseUrl, token } = await host.ensureDshRuntime().catch(() => ({ baseUrl: "", token: "" }));
     void baseUrl; void token;
     const modelUrl = await invoke<string>("local_model_base_url").catch(() => "");
     if (!modelUrl)
@@ -1455,7 +1455,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "view-browser") {
-        const { baseUrl, token } = await host.ensureFlueRuntime();
+        const { baseUrl, token } = await host.ensureDshRuntime();
         const response = await tauriFetch(`${baseUrl}/browser/show`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -1682,14 +1682,26 @@ export function createMainActions(host: MainHost) {
             data.getAll("selectedTasks").map(Number));
           return;
         }
-        // ponytail: approve publishes to the output's own destination; no rename prompt.
-        const destination = output.logicalDestination;
-        await host.runs.enforceControl(host.runs.controlInput("output.publish", { type: "execution_output", id: output.id, attributes: { destination: "team-folder" } }, { agentId: execution.agentId }), true);
-        await host.workspaces.publishApproved(execution.workspaceRef, output.logicalOutput, mapping.localPath, destination);
-        await host.repository.decideExecutionOutput(output.id, "approved", destination);
+        // approval-request.md gates every deliverable from this run; the request itself is metadata.
+        const batch = output.logicalOutput === "approval-request.md"
+          ? await host.repository.listExecutionOutputs(execution.id, "pending")
+          : [output];
+        const deliverables = batch.filter(({ logicalOutput }) => logicalOutput !== "approval-request.md");
+        for (const candidate of deliverables) {
+          const destination = candidate.logicalDestination;
+          await host.runs.enforceControl(host.runs.controlInput("output.publish", { type: "execution_output", id: candidate.id, attributes: { destination: "team-folder" } }, { agentId: execution.agentId }), true);
+          await host.workspaces.publishApproved(execution.workspaceRef, candidate.logicalOutput, mapping.localPath, destination);
+          await host.repository.decideExecutionOutput(candidate.id, "approved", destination);
+        }
+        if (output.logicalOutput === "approval-request.md")
+          await host.repository.decideExecutionOutput(output.id, "approved");
         await host.runs.finishOutputReview(execution);
         await host.workspaceController.refresh();
-        host.shell.showNotice("File approved and copied to the team folder", "success");
+        host.shell.showNotice(deliverables.length === 0
+          ? "Approval recorded"
+          : deliverables.length > 1
+            ? "Files approved and copied to the team folder"
+            : "File approved and copied to the team folder", "success");
         return;
       }
       if (action === "reject-output") {
@@ -1768,6 +1780,11 @@ export function createMainActions(host: MainHost) {
             throw new Error("Add the standing rule to save for future tasks");
         }
         await host.repository.decideExecutionOutput(output.id, "rejected", undefined, reason);
+        if (output.logicalOutput === "approval-request.md") {
+          for (const sibling of await host.repository.listExecutionOutputs(execution.id, "pending")) {
+            await host.repository.decideExecutionOutput(sibling.id, "rejected");
+          }
+        }
         const undo = standingRule && item
           ? await host.runs.rememberRejection(item, standingRule)
           : undefined;
@@ -1876,16 +1893,16 @@ export function createMainActions(host: MainHost) {
             nextRunAt
           }
         } as const;
-        await host.workflowRuntime.command(workItemId, command);
+        await host.processRuntime.command(workItemId, command);
         if (schedule && schedule.workItemId !== workItemId) {
           try {
-            await host.workflowRuntime.command(schedule.workItemId, {
+            await host.processRuntime.command(schedule.workItemId, {
               type: "delete_schedule",
               scheduleId: schedule.id
             });
           }
           catch (error) {
-            await host.workflowRuntime.command(workItemId, {
+            await host.processRuntime.command(workItemId, {
               type: "delete_schedule",
               scheduleId: schedule.id
             }).catch(() => undefined);
@@ -1904,7 +1921,7 @@ export function createMainActions(host: MainHost) {
       if (action === "toggle-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule) {
-          await host.workflowRuntime.command(schedule.workItemId, {
+          await host.processRuntime.command(schedule.workItemId, {
             type: "toggle_schedule",
             scheduleId: schedule.id,
             enabled: !schedule.enabled
@@ -1916,7 +1933,7 @@ export function createMainActions(host: MainHost) {
       if (action === "delete-schedule") {
         const schedule = host.runs.schedules.find(({ id }) => id === button.dataset.id);
         if (schedule) {
-          await host.workflowRuntime.command(schedule.workItemId, {
+          await host.processRuntime.command(schedule.workItemId, {
             type: "delete_schedule",
             scheduleId: schedule.id
           });
@@ -2123,7 +2140,7 @@ export function createMainActions(host: MainHost) {
         return;
       }
       if (action === "codex-login") {
-        const { baseUrl, token } = await host.ensureFlueRuntime();
+        const { baseUrl, token } = await host.ensureDshRuntime();
         host.shell.showNotice("Starting Codex sign-in…", "info");
         const started = await tauriFetch(`${baseUrl}/oauth/openai-codex/start`, {
           method: "POST",
@@ -2166,7 +2183,7 @@ export function createMainActions(host: MainHost) {
         await setCliToolEnabled(button.dataset.tool ?? "", enabled);
         // The runtime learns about a CLI from an environment variable set at launch, so it has
         // to come back up before the change reaches runs.
-        await host.flueProjectPort.restart();
+        await host.dshProjectPort.restart();
         await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(enabled ? "AI subscription switched on" : "AI subscription switched off", "success");
@@ -2179,7 +2196,7 @@ export function createMainActions(host: MainHost) {
           return;
         await setCliToolPath(button.dataset.tool ?? "", picked);
         // The path reaches the CLI providers as an environment variable set at launch.
-        await host.flueProjectPort.restart();
+        await host.dshProjectPort.restart();
         await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
         host.shell.showNotice(picked ? "Claude Code path saved" : "Claude Code disconnected", "success");
@@ -2210,7 +2227,7 @@ export function createMainActions(host: MainHost) {
           return;
         const wasRunning = await host.localModels.remove(model.id);
         if (wasRunning)
-          await host.flueProjectPort.restart();
+          await host.dshProjectPort.restart();
         host.assistant.localModelProgress.delete(model.id);
         await host.assistant.refreshAssistantCatalog();
         await host.workspaceController.refresh();
@@ -2443,7 +2460,7 @@ export function createMainActions(host: MainHost) {
             await host.runCoordinator.stop(execution.id);
           for (const workItemId of new Set(activeExecutions.map(({ workItemId }) => workItemId)))
             await host.runs.releaseClaim(workItemId).catch(() => undefined);
-          await host.workflowRuntime.command(item.id, { type: "archive" });
+          await host.processRuntime.command(item.id, { type: "archive" });
           if (host.shell.boardItemId === item.id)
             host.shell.boardItemId = "";
           if (host.shell.boardRootItemId === item.id)
@@ -2493,12 +2510,12 @@ export function createMainActions(host: MainHost) {
             logicalFiles: parseFileReferencesInput(String(data.get("files") ?? ""), locations)
           });
           if (archived !== Boolean(item.archivedAt)) {
-            await host.workflowRuntime.command(item.id, {
+            await host.processRuntime.command(item.id, {
               type: archived ? "archive" : "restore"
             });
           }
           if (stageId !== item.stageId)
-            await host.workflowRuntime.command(item.id, { type: "move", targetStageId: stageId });
+            await host.processRuntime.command(item.id, { type: "move", targetStageId: stageId });
           await host.workspaceController.refresh();
         }
       }
@@ -2786,7 +2803,7 @@ export function createMainActions(host: MainHost) {
           host.shell.showNotice("Set a team folder first — it keys this team's browser profile.", "error");
           return;
         }
-        const { baseUrl, token } = await host.ensureFlueRuntime();
+        const { baseUrl, token } = await host.ensureDshRuntime();
         const response = await tauriFetch(`${baseUrl}/browser/open`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -3151,8 +3168,8 @@ export function createMainActions(host: MainHost) {
     host.views.renderAssistant();
     try {
       const model = await assistantModelForRun();
-      const { baseUrl, token } = await host.ensureFlueRuntime();
-      const result = await new FlueRuntime(baseUrl, undefined, token).execute({
+      const { baseUrl, token } = await host.ensureDshRuntime();
+      const result = await new DshRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
         conversationId: assistantInstanceId(host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog),
         agentName: ASSISTANT_AGENT,
@@ -3193,8 +3210,8 @@ export function createMainActions(host: MainHost) {
     host.shell.render();
     try {
       const model = await assistantModelForRun();
-      const { baseUrl, token } = await host.ensureFlueRuntime();
-      const result = await new FlueRuntime(baseUrl, undefined, token).execute({
+      const { baseUrl, token } = await host.ensureDshRuntime();
+      const result = await new DshRuntime(baseUrl, undefined, token).execute({
         executionId: crypto.randomUUID(),
         conversationId: instanceModelId(CURATOR_AGENT, host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog),
         agentName: CURATOR_AGENT,
@@ -3243,8 +3260,8 @@ export function createMainActions(host: MainHost) {
     steps: string[];
   }> {
     const model = await assistantModelForRun();
-    const { baseUrl, token } = await host.ensureFlueRuntime();
-    const runtime = new FlueRuntime(baseUrl, undefined, token);
+    const { baseUrl, token } = await host.ensureDshRuntime();
+    const runtime = new DshRuntime(baseUrl, undefined, token);
     const instanceId = assistantInstanceId(host.workspaceController.workspace.teamId, model, host.assistant.assistantCatalog);
     const steps: string[] = [];
     let lastResult = "The user approved this operation.";
@@ -3298,8 +3315,8 @@ export function createMainActions(host: MainHost) {
    */
   async function locateTourStep(step: TourStep, index: number, total: number): Promise<string> {
     const model = await assistantModelForRun();
-    const { baseUrl, token } = await host.ensureFlueRuntime();
-    const result = await new FlueRuntime(baseUrl, undefined, token).execute({
+    const { baseUrl, token } = await host.ensureDshRuntime();
+    const result = await new DshRuntime(baseUrl, undefined, token).execute({
       executionId: crypto.randomUUID(),
       // A fresh conversation per step. Snapshots are large and the previous step's is worthless
       // once the screen has moved on, so replaying them would only burn the context window. The
@@ -3355,7 +3372,7 @@ export function createMainActions(host: MainHost) {
           createWorkItem: (processId, input) => host.repository.createWorkItem(processId, input)
         },
         moveWorkItem: async (itemId, stageId) => {
-          await host.workflowRuntime.command(itemId, { type: "move", targetStageId: stageId });
+          await host.processRuntime.command(itemId, { type: "move", targetStageId: stageId });
         },
         teamId: host.workspaceController.workspace.teamId,
         operateBees: async (goal) => {

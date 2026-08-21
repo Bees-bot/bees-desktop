@@ -46,10 +46,10 @@ jobs:
       - run: npm run check
 
       # Tauri's build script resolves externalBin, so cargo check fails with
-      # "resource path binaries/bees-node-... doesn't exist" until prepare:flue
+      # "resource path binaries/bees-node-... doesn't exist" until prepare:dsh
       # has staged the Node sidecar. On Linux this pulls a prebuilt llama-server
       # rather than compiling one, so it costs a download and not a build.
-      - run: npm run prepare:flue
+      - run: npm run prepare:dsh
 
       # Same reason: the API bridge is bundled at build time rather than kept in
       # the repository, so the resource it points at has to exist before cargo

@@ -13,8 +13,8 @@ import type {
   TaskPlanRunContext,
   WorkItem
 } from "./domain.js";
-import type { FlueProjectService } from "./flue-project.js";
-import { runtimeAgentName } from "./flue-project.js";
+import type { DshProjectService } from "./dsh-project.js";
+import { runtimeAgentName } from "./dsh-project.js";
 import { FOLLOW_UP_LIMIT, errorText } from "./domain.js";
 import type { LocalRepository } from "./repository.js";
 import type { TemporaryWorkspaceService } from "./workspaces.js";
@@ -164,7 +164,7 @@ export function runPrompt({
   // than in the plain workspace layout. Either way the agent is told the folder, because a
   // bare file name reads as "somewhere in this repository" and sends it looking for a file
   // the repository never had.
-  const inputRoot = projectWorkItemId ? `/workspace/${PROJECT_INPUT_PREFIX}` : "/workspace/inputs";
+  const inputRoot = projectWorkItemId ? PROJECT_INPUT_PREFIX : "inputs";
   return [
     agent.config.prompt,
     `Work item: ${item.title}\n${item.description}`,
@@ -238,7 +238,7 @@ export class RunCoordinator {
   constructor(
     private readonly repository: LocalRepository,
     private readonly workspaces: TemporaryWorkspaceService,
-    private readonly flueProject: FlueProjectService,
+    private readonly dshProject: DshProjectService,
     private readonly launchRuntime: RuntimeLauncher,
     private readonly host: RunHost = tauriRunHost
   ) {}
@@ -250,7 +250,7 @@ export class RunCoordinator {
       : null;
     if (request.executionId && !previous) throw new Error("Execution not found");
     if (previous && !previous.instanceUid) {
-      throw new Error("This conversation has no Flue instance identity; restart it instead");
+      throw new Error("This conversation has no DSH instance identity; restart it instead");
     }
     const executionId =
       previous?.id ??
@@ -258,7 +258,7 @@ export class RunCoordinator {
         agentId: request.agent.id,
         config: request.agent.config,
         workItemId: request.item.id,
-        runtime: "flue",
+        runtime: "dsh",
         ...(request.restartedFromExecutionId
           ? { restartedFromExecutionId: request.restartedFromExecutionId }
           : {})
@@ -294,7 +294,7 @@ export class RunCoordinator {
         )
         .map(({ ref }) => ref);
       const skillSnapshots = request.projectWorkItemId
-        ? await this.flueProject.bindWorkspace(
+        ? await this.dshProject.bindWorkspace(
             executionId,
             workspacePath,
             request.teamRoot,
@@ -302,7 +302,7 @@ export class RunCoordinator {
             previous ? undefined : grantedCapabilityRefs,
             request.projectWorkItemId
           )
-        : await this.flueProject.bindWorkspace(
+        : await this.dshProject.bindWorkspace(
             executionId,
             workspacePath,
             request.teamRoot,
@@ -384,7 +384,7 @@ export class RunCoordinator {
 
   /**
    * Re-adopt every run that was in flight when Bees last closed. A known submission is read;
-   * a crash before receipt persistence resends the same delivery key and Flue deduplicates it.
+   * a crash before receipt persistence resends the same delivery key and DSH deduplicates it.
    */
   async resume(executions: Execution[]): Promise<void> {
     if (!executions.length) return;

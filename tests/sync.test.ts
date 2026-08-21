@@ -196,7 +196,7 @@ describe("metadata synchronization", () => {
       agentId: "private-agent",
       config: { prompt: "private prompt", instructions: "private instructions" },
       workItemId,
-      runtime: "flue",
+      runtime: "dsh",
       workspaceRef: "/private/run/workspace"
     });
     await repository.saveRegistry({

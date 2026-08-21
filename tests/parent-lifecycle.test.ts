@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 describe("sidecar parent lifecycle", () => {
   it("stops after its parent is hard-killed", async () => {
-    const lifecycle = pathToFileURL(resolve("flue-runtime/project/parent-lifecycle.mjs")).href;
+    const lifecycle = pathToFileURL(resolve("dsh-runtime/parent-lifecycle.mjs")).href;
     const sidecarScript = `import { bindParentLifecycle } from ${JSON.stringify(lifecycle)};
       bindParentLifecycle((code) => process.exit(code));
       setInterval(() => {}, 1000);`;

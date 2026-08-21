@@ -6,6 +6,7 @@
     "main"
   ],
   "permissions": [
+    "allow-bees-ui",
     "core:default",
     "core:window:allow-close",
     "dialog:allow-open",

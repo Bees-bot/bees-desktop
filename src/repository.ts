@@ -5,7 +5,7 @@ import {
   type BeesConversationSnapshotV1
 } from "./conversation-snapshot.js";
 import type { SkillUsage } from "./curator.js";
-import { runtimeAgentName } from "./flue-project.js";
+import { runtimeAgentName } from "./dsh-project.js";
 import {
   assertMetadataOnly,
   createId,
@@ -326,7 +326,7 @@ function executionColumns(prefix = ""): string {
 }
 
 /**
- * A queued conversation purge. The row exists precisely while the Flue side of a deleted run
+ * A queued conversation purge. The row exists precisely while the DSH side of a deleted run
  * has not been removed, so its presence is the answer to "is this actually deleted yet?".
  */
 function purgeStatements(
@@ -505,7 +505,7 @@ export class LocalRepository {
     return id;
   }
 
-  /** Persist one message before Flue sees it, so a crash can resend the same keyed delivery. */
+  /** Persist one message before DSH sees it, so a crash can resend the same keyed delivery. */
   async beginExecutionDelivery(
     id: string,
     input: {
@@ -1021,7 +1021,7 @@ export class LocalRepository {
                 s.is_terminal AS stageTerminal,
                 w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
                 w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
-                w.deleted_at AS deletedAt,
+                w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
                 w.created_at AS createdAt, w.updated_at AS updatedAt
          FROM work_items w JOIN stages s ON s.id = w.stage_id
          WHERE w.process_id = ? AND w.deleted_at IS NULL
@@ -1038,7 +1038,7 @@ export class LocalRepository {
               w.goal_json AS goalJson, s.is_terminal AS stageTerminal,
               w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
               w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
-              w.deleted_at AS deletedAt,
+              w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
               w.created_at AS createdAt, w.updated_at AS updatedAt
        FROM work_items w
        JOIN processes p ON p.id = w.process_id
@@ -1057,7 +1057,7 @@ export class LocalRepository {
               s.is_terminal AS stageTerminal,
               w.logical_files_json AS logicalFilesJson, w.sync_version AS syncVersion,
               w.checkpoint_stage_id AS checkpointStageId, w.checkpoint_at AS checkpointAt,
-              w.deleted_at AS deletedAt,
+              w.archived_at AS archivedAt, w.deleted_at AS deletedAt,
               w.created_at AS createdAt, w.updated_at AS updatedAt
        FROM work_items w JOIN stages s ON s.id = w.stage_id
        WHERE w.id = ? AND w.deleted_at IS NULL`,
@@ -1377,7 +1377,7 @@ export class LocalRepository {
   }
 
   /**
-   * Deleting a run is one operation with two halves: the Bees receipt goes now, and the Flue
+   * Deleting a run is one operation with two halves: the Bees receipt goes now, and the DSH
    * conversation is queued for purge because the runtime has no delete route yet. The
    * tombstone is written in the same transaction as the delete, so a crash cannot lose the
    * obligation and leave orphaned conversation data behind.
@@ -1392,7 +1392,7 @@ export class LocalRepository {
     ]);
   }
 
-  /** Runs whose Flue conversation is still out there. A non-empty list means "not deleted yet". */
+  /** Runs whose DSH conversation is still out there. A non-empty list means "not deleted yet". */
   async listPendingConversationPurges(limit = 50): Promise<ConversationPurge[]> {
     const rows = await this.database.query<Row>(
       `SELECT conversation_id AS conversationId, agent_name AS agentName,

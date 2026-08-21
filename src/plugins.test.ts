@@ -7,7 +7,7 @@ const manifest = { $schema: AGENT_PLUGIN_SCHEMA, name: "acme-tools", version: "1
 describe("Agent Plugins 1.0.0", () => {
   it("loads the bundled Ponytail skill without warnings", () => {
     const contents = readFileSync(
-      new URL("../flue-runtime/default-registry/skills/ponytail/SKILL.md", import.meta.url),
+      new URL("../dsh-runtime/default-registry/skills/ponytail/SKILL.md", import.meta.url),
       "utf8"
     );
     const plugin = parseAgentPlugin({

@@ -1,0 +1,13 @@
+{
+  "name": "@bees/dsh-profile",
+  "private": true,
+  "version": "0.1.0",
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}

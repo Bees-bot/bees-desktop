@@ -2,7 +2,7 @@
 // bearer token (no cookies), so the same account works on web and desktop.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import type { WorkItemCommand, WorkItemRuntimeState } from "./workflow-runtime.js";
+import type { WorkItemCommand, WorkItemRuntimeState } from "./process-runtime.js";
 
 type ServerWorkItemRuntimeState = Omit<WorkItemRuntimeState, "organizationId"> & {
   workspaceId: string;

@@ -611,7 +611,7 @@ export function createSessionController(host: MainHost) {
   }
 
   async function probeKnowledgeConnection(connection: McpConnection): Promise<void> {
-    const { baseUrl, token } = await host.ensureFlueRuntime();
+    const { baseUrl, token } = await host.ensureDshRuntime();
     const response = await tauriFetch(`${baseUrl}/connections/discover`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },

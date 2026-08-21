@@ -139,11 +139,11 @@ colleague's, and the work item's relative reference resolves on both.
 Google Drive, Dropbox, Git, or a network share, and point the team folder at it.
 
 **Linked locations.** Extra folders mapped on this machine, mounted for a run
-under \`/workspace/inputs/<location name>\`.
+under \`inputs/<location name>\` in the run workspace.
 
 **The run workspace.** An agent never sees your disk. Each run gets a fresh
-sandbox with \`/workspace/inputs\` (staged copies of the item's files) and
-\`/workspace/outputs\` (everything it writes, including \`.status\`). File access is
+workspace with \`inputs/\` (staged copies of the item's files) and
+\`outputs/\` (everything it writes, including \`.status\`). File access is
 confined there. Commands can use local development tools through the bundled OS
 sandbox, with network access limited to common package registries. Nothing reaches
 the team folder until you approve it.

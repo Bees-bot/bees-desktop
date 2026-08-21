@@ -327,7 +327,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Review." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.updateExecution(executionId, "running");
     await repository.updateExecution(executionId, "completed");
@@ -355,7 +355,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Sort it." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, ["resume.pdf"]);
 
@@ -370,7 +370,7 @@ describe("local repository", () => {
     ]);
   });
 
-  it("creates approved subtasks without moving their Temporal-owned parent", async () => {
+  it("creates approved subtasks without moving their process-runtime-owned parent", async () => {
     const repository = new LocalRepository(new NodeDatabase());
     const local = await repository.bootstrap();
     const goals = (await repository.listProcesses(local.teamId))[0]!;
@@ -384,7 +384,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: parentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
     const [output] = await repository.listExecutionOutputs(executionId);
@@ -444,7 +444,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: duplicateParentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(duplicateExecutionId, [TASK_PLAN_OUTPUT]);
     const [duplicateOutput] = await repository.listExecutionOutputs(duplicateExecutionId);
@@ -463,7 +463,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan again." },
       workItemId: duplicateParentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(retryExecutionId, [TASK_PLAN_OUTPUT]);
     const [retryOutput] = await repository.listExecutionOutputs(retryExecutionId);
@@ -492,7 +492,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: parentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
     const [output] = await repository.listExecutionOutputs(executionId);
@@ -519,7 +519,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: parentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
     const [output] = await repository.listExecutionOutputs(executionId);
@@ -555,7 +555,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: parentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, ["audit-orm-discovery", TASK_PLAN_OUTPUT]);
     const outputs = await repository.listExecutionOutputs(executionId);
@@ -598,7 +598,7 @@ describe("local repository", () => {
       agentId: "planner",
       config: { prompt: "Plan." },
       workItemId: parentId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(executionId, [TASK_PLAN_OUTPUT]);
     const [planOutput] = await repository.listExecutionOutputs(executionId);
@@ -635,7 +635,7 @@ describe("local repository", () => {
       agentId: "goal-worker",
       config: { prompt: "Work." },
       workItemId: discoverId!,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.recordExecutionOutputs(childExecutionId, ["discovery-notes.md"]);
     const [discoverOutput] = await repository.listExecutionOutputs(childExecutionId);
@@ -685,7 +685,7 @@ describe("local repository", () => {
     await repository.checkpointWorkItem(silent, []);
     expect((await repository.getWorkItem(silent))?.stageId).toBe(first!.id);
 
-    // Terminal semantics belong to Temporal, not checkpoint persistence.
+    // Terminal semantics belong to the process runtime, not checkpoint persistence.
     const finished = await repository.createWorkItem(process.id, {
       stageId: first!.id,
       title: "Finished"
@@ -709,7 +709,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Work." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     const context = {
       deliveryId: "delivery-1",
@@ -751,7 +751,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Work." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     expect(await repository.interruptRunningExecutions()).toHaveLength(1);
     expect(await repository.interruptRunningExecutions()).toEqual([]);
@@ -787,7 +787,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Do it." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     const snapshot: BeesConversationSnapshotV1 = {
       version: 1,
@@ -836,7 +836,7 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "Do it." },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     await repository.saveConversationSnapshot(executionId, {
       version: 1,
@@ -910,13 +910,13 @@ describe("local repository", () => {
       agentId: "agent",
       config: { prompt: "v1" },
       workItemId: itemId,
-      runtime: "flue"
+      runtime: "dsh"
     });
     const restartId = await repository.createExecution({
       agentId: "agent",
       config: { prompt: "v2" },
       workItemId: itemId,
-      runtime: "flue",
+      runtime: "dsh",
       restartedFromExecutionId: firstId
     });
 

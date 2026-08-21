@@ -6,7 +6,7 @@ import {
 import {
   apiBaseUrl
 } from "./api.js";
-import type { RuntimeClaim, WorkItemCommand } from "./workflow-runtime.js";
+import type { RuntimeClaim, WorkItemCommand } from "./process-runtime.js";
 import { withBridgeUrl } from "./api-bridge.js";
 import {
   discoverMcpTools,
@@ -40,6 +40,7 @@ import {
   autonomousRunKeys,
   errorText,
   isProposal,
+  itemTree,
   needsAutonomousRun,
   parseLogicalFileReference,
   workItemForRetry,
@@ -48,7 +49,7 @@ import {
 } from "./domain.js";
 import {
   runtimeAgentName
-} from "./flue-project.js";
+} from "./dsh-project.js";
 import {
   when
 } from "./launch-views.js";
@@ -81,7 +82,7 @@ import {
   selectedAgentCapabilities
 } from "./registries.js";
 import { BROWSER_TOOL_REF, BROWSER_WRITE_GRANT } from "./run-config.js";
-import { FlueRuntime, type RuntimeEvent } from "./runtime.js";
+import { DshRuntime, type RuntimeEvent } from "./runtime.js";
 import type { WorkState } from "./supervision.js";
 import { workState } from "./supervision.js";
 import { HttpSyncTransport, MetadataSyncService } from "./sync.js";
@@ -145,7 +146,7 @@ export function createRunController(host: MainHost) {
     const ready = completedTaskPlanParentsReadyForReview(host.workspaceController.teamItems, host.workspaceController.processes);
     for (const { parent, review, logicalFiles } of ready) {
       await host.repository.checkpointWorkItem(parent.id, logicalFiles, review.id);
-      await host.workflowRuntime.command(parent.id, { type: "move", targetStageId: review.id });
+      await host.processRuntime.command(parent.id, { type: "move", targetStageId: review.id });
     }
     return ready.length;
   }
@@ -186,7 +187,12 @@ export function createRunController(host: MainHost) {
   function supervise(): Map<string, WorkState> {
     const now = new Date().toISOString();
     const states = new Map<string, WorkState>();
+    const archivedItemIds = new Set(host.workspaceController.teamItems
+      .filter(({ archivedAt }) => archivedAt)
+      .flatMap(({ id }) => itemTree(host.workspaceController.teamItems, id).map((item) => item.id)));
     for (const item of host.workspaceController.teamItems) {
+      if (archivedItemIds.has(item.id))
+        continue;
       const process = host.workspaceController.processes.find(({ id }) => id === item.processId);
       if (!process)
         continue;
@@ -292,7 +298,7 @@ export function createRunController(host: MainHost) {
       try {
         const runtimeChanged = (await Promise.all(
           host.workspaceController.teamItems.map(async (item) =>
-            host.workflowRuntime.state(item.id)
+            host.processRuntime.state(item.id)
               .then(({ revision }) => revision !== item.runtime?.revision)
               .catch(() => false)
           )
@@ -338,7 +344,7 @@ export function createRunController(host: MainHost) {
     input: Omit<Extract<WorkItemCommand, { type: "wait" }>, "type" | "claimToken">
   ): Promise<void> {
     const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
-    const state = await host.workflowRuntime.command(itemId, {
+    const state = await host.processRuntime.command(itemId, {
       type: "wait",
       ...input,
       ...(claim?.token ? { claimToken: claim.token } : {})
@@ -350,13 +356,13 @@ export function createRunController(host: MainHost) {
   }
 
   async function resolveRuntimeWait(itemId: string, correlationKey: string): Promise<void> {
-    await host.workflowRuntime.command(itemId, { type: "resolve_wait", correlationKey });
+    await host.processRuntime.command(itemId, { type: "resolve_wait", correlationKey });
   }
 
   async function attachExecution(itemId: string, agentId: string, executionId: string): Promise<void> {
     const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
     if (!claim?.token) throw new Error("The work claim is unavailable");
-    const state = await host.workflowRuntime.command(itemId, {
+    const state = await host.processRuntime.command(itemId, {
       type: "claim",
       machineId: runnerId,
       claimToken: claim.token,
@@ -382,7 +388,7 @@ export function createRunController(host: MainHost) {
       try {
         const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
         if (!claim) throw new Error("The work claim is unavailable");
-        const renewed = await host.workflowRuntime.command(itemId, {
+        const renewed = await host.processRuntime.command(itemId, {
           type: "heartbeat",
           machineId: runnerId,
           claimToken: claim.token
@@ -420,7 +426,7 @@ export function createRunController(host: MainHost) {
       claimSetting(item.id),
       null
     );
-    const state = await host.workflowRuntime.command(item.id, {
+    const state = await host.processRuntime.command(item.id, {
       type: "claim",
       machineId: runnerId,
       ...(existingClaim?.token ? { claimToken: existingClaim.token } : {}),
@@ -440,7 +446,7 @@ export function createRunController(host: MainHost) {
       return;
     stopClaimHeartbeat(itemId);
     try {
-      await host.workflowRuntime.command(itemId, {
+      await host.processRuntime.command(itemId, {
         type: "release",
         machineId: runnerId,
         claimToken: claim.token
@@ -456,17 +462,22 @@ export function createRunController(host: MainHost) {
     targetStageId?: string
   ): Promise<void> {
     const claim = await host.repository.getSetting<RuntimeClaim | null>(claimSetting(itemId), null);
-    if (!claim) return;
     const item = await host.repository.getWorkItem(itemId);
     if (!item) throw new Error("The completed work item is unavailable");
-    stopClaimHeartbeat(itemId);
     const target = targetStageId ?? item.stageId;
+    // An approval can arrive after an app restart, when no local claim receipt remains. The
+    // decision still checkpoints the item; otherwise autopilot repeats the status it just left.
+    if (!claim) {
+      await host.processRuntime.command(itemId, { type: "move", targetStageId: target });
+      return;
+    }
+    stopClaimHeartbeat(itemId);
     // A run whose outputs await approval keeps its claim, but the lease is renewed from memory:
     // quit the app while those outputs sit in the approvals tab and it expires. The decision still
     // has to land hours later, so a claim the runtime already dropped moves the item anyway —
     // otherwise `complete` is rejected and the item sits at this status for good.
-    const live = await host.workflowRuntime.state(itemId).catch(() => null);
-    await host.workflowRuntime.command(itemId, live?.claim?.token === claim.token
+    const live = await host.processRuntime.state(itemId).catch(() => null);
+    await host.processRuntime.command(itemId, live?.claim?.token === claim.token
       ? {
           type: "complete",
           machineId: runnerId,
@@ -601,9 +612,11 @@ export function createRunController(host: MainHost) {
           const taskPlan = executionOutputs.some(({ logicalOutput }) =>
             taskPlanController.matchesOutput(logicalOutput, settledExecution));
           const rejected = executionOutputs.some(({ status }) => status === "rejected");
-          const publishableOutputs = proposal || taskPlan || rejected
+          const approvalRequested = executionOutputs.some(({ logicalOutput }) =>
+            logicalOutput === "approval-request.md");
+          const publishableOutputs = proposal || taskPlan || rejected || approvalRequested
             ? []
-            : pendingOutputs.filter(({ logicalOutput }) => logicalOutput !== "approval-request.md");
+            : pendingOutputs;
           let published = publishableOutputs.length === 0;
           if (publishableOutputs.length) {
             const mapping = await host.repository.getResolvedTeamFolder(host.workspaceController.workspace.teamId);
@@ -797,12 +810,12 @@ export function createRunController(host: MainHost) {
   async function runScheduledOccurrence(schedule: Schedule, auto: boolean): Promise<void> {
     const itemId = await scheduledWorkItemId(
       schedule,
-      auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`
+      auto ? schedule.pendingOccurrenceId ?? schedule.updatedAt : `manual:${crypto.randomUUID()}`
     );
     if (!(await host.repository.listExecutionsForWorkItem(itemId)).length)
       await runItem(itemId, auto, undefined, undefined, true);
     if (auto) {
-      await host.workflowRuntime.command(schedule.workItemId, {
+      await host.processRuntime.command(schedule.workItemId, {
         type: "ack_schedule",
         scheduleId: schedule.id
       });
@@ -855,7 +868,7 @@ export function createRunController(host: MainHost) {
   /**
    * A connection's tools as the server has them now, written back so the rest of the app agrees.
    *
-   * The stored list is only a record of the last check. Flue refuses a whole submission when the
+   * The stored list is only a record of the last check. DSH refuses a whole submission when the
    * allowlist names a tool the server has since dropped, and the reason is scrubbed to "an
    * internal error" before anyone sees it. Asking first turns a changed server into what the
    * connection already promises: an optional one steps aside, a required one says which and why.
@@ -871,7 +884,7 @@ export function createRunController(host: MainHost) {
     const save = (connection: McpConnection): Promise<void> =>
       saveMcpConnection(host.repository, { ...connection, url: stored.url });
     try {
-      const tools = await discoverMcpTools(reachable, await host.ensureFlueRuntime());
+      const tools = await discoverMcpTools(reachable, await host.ensureDshRuntime());
       const checked = withMcpHealth(reachable, tools);
       await save(checked);
       // Pruning every name off a connection that had some is a server that moved on, not a choice.
@@ -1123,7 +1136,7 @@ export function createRunController(host: MainHost) {
   Find what they have in common — a standing rule the agent keeps missing — and ignore anything
   that only applied to one task.
   
-  If a current skill is in /workspace/inputs, edit it: keep what still holds, change only what the
+  If a current skill is in inputs/, edit it: keep what still holds, change only what the
   rejections contradict. Write the result as a single SKILL.md at the path you are told, with
   frontmatter (name, description) and a short body of imperative rules. Under 300 words. If the
   rejections share nothing worth a standing rule, write no file at all.`;
@@ -1320,7 +1333,7 @@ export function createRunController(host: MainHost) {
 
   /**
    * Runs process agent turns and waits for their receipts. Turns handed over together run
-   * concurrently: they share the item's read-only project worktree but nothing else, since Flue
+   * concurrently: they share the item's read-only project worktree but nothing else, since DSH
    * binds capabilities and conversation state per execution. Only pass turns that cannot observe
    * each other's writes — the architecture debate's two sides, not a coder and its tester.
    *
@@ -1430,7 +1443,7 @@ export function createRunController(host: MainHost) {
     if (restartedFromExecutionId) {
       const errors = activeWorkItemWaits(item).filter(({ kind }) => kind === "error");
       for (const { id: waitId } of errors) {
-        await host.workflowRuntime.command(item.id, { type: "resolve_wait", waitId });
+        await host.processRuntime.command(item.id, { type: "resolve_wait", waitId });
       }
       item = workItemForRetry(item);
     }
@@ -1669,8 +1682,8 @@ export function createRunController(host: MainHost) {
     const pending = await host.repository.listPendingConversationPurges();
     if (!pending.length)
       return { purged: 0, pending: 0, lastError: null };
-    const { baseUrl, token } = await host.ensureFlueRuntime();
-    return drainConversationPurges(host.repository, new FlueRuntime(baseUrl, undefined, token));
+    const { baseUrl, token } = await host.ensureDshRuntime();
+    return drainConversationPurges(host.repository, new DshRuntime(baseUrl, undefined, token));
   }
 
   async function deleteRun(executionId: string): Promise<void> {
@@ -1679,7 +1692,7 @@ export function createRunController(host: MainHost) {
       return;
     if (["queued", "running"].includes(execution.status)) {
       await host.runCoordinator.stop(executionId);
-      host.shell.showNotice("The run is stopping. Delete it after Flue reports the final result.", "info");
+      host.shell.showNotice("The run is stopping. Delete it after DSH reports the final result.", "info");
       await host.workspaceController.refresh();
       return;
     }
@@ -1687,7 +1700,7 @@ export function createRunController(host: MainHost) {
       await host.workspaces.cleanup(execution.workspaceRef).catch(() => undefined);
     }
     await host.repository.deleteExecution(executionId, runtimeAgentName(execution.agentId));
-    const localPurgeFailed = await host.flueProjectPort.purgeExecution(executionId)
+    const localPurgeFailed = await host.dshProjectPort.purgeExecution(executionId)
       .then(() => false)
       .catch(() => true);
     // Never report the run deleted while its conversation is still in the runtime.
@@ -1722,8 +1735,8 @@ export function createRunController(host: MainHost) {
       return;
     const controller = new AbortController();
     liveObservation = { executionId: execution.id, controller };
-    const { baseUrl, token } = await host.ensureFlueRuntime();
-    new FlueRuntime(baseUrl, undefined, token).observe(runtimeAgentName(execution.agentId), execution.conversationId, (event) => {
+    const { baseUrl, token } = await host.ensureDshRuntime();
+    new DshRuntime(baseUrl, undefined, token).observe(runtimeAgentName(execution.agentId), execution.conversationId, (event) => {
       liveEvents.set(execution.id, [event]);
       if (host.shell.view === "run" && host.shell.activeExecutionId === execution.id)
         void host.views.renderRunDetail();
@@ -1747,8 +1760,8 @@ export function createRunController(host: MainHost) {
     if (!liveEvents.has(execution.id)) {
       // The history fetch could already fail, the runtime start could not — so a dead runtime stopped
       // the card opening at all. The transcript is one tab; the rest reads from the database.
-      const history = await host.ensureFlueRuntime()
-        .then(({ baseUrl, token }) => new FlueRuntime(baseUrl, undefined, token)
+      const history = await host.ensureDshRuntime()
+        .then(({ baseUrl, token }) => new DshRuntime(baseUrl, undefined, token)
           .history(runtimeAgentName(execution.agentId), execution.conversationId))
         .catch(() => null);
       liveEvents.set(execution.id, history ? [history] : []);
@@ -1795,7 +1808,9 @@ export function createRunController(host: MainHost) {
         await syncCheckpoint(execution.workItemId, execution.id, targetStageId);
         await host.repository.checkpointWorkItem(
           execution.workItemId,
-          outputs.filter(({ status }) => status === "approved").map(({ logicalDestination }) => logicalDestination),
+          outputs.filter(({ status, logicalOutput }) =>
+            status === "approved" && logicalOutput !== "approval-request.md"
+          ).map(({ logicalDestination }) => logicalDestination),
           targetStageId,
           undefined,
           item?.stageId

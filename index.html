@@ -11,7 +11,7 @@
       })();
     </script>
     <title>Bees</title>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/entry.ts"></script>
   </head>
   <body class="app-canvas bg-base-200 text-base-content">
     <div class="drawer lg:drawer-open">
@@ -35,6 +35,8 @@
             <p id="view-context" class="truncate text-[11px] font-medium text-muted">On this device</p>
             <h1 id="view-title" class="truncate text-title font-semibold tracking-[-.01em]">Work board</h1>
           </div>
+          <button class="btn btn-ghost btn-sm mr-1" id="dsh-conversations" type="button" hidden
+                  aria-label="DSH conversations and settings" title="DSH conversations and settings">DSH</button>
           <button class="btn btn-square btn-ghost btn-sm mr-1" id="assistant-toggle" aria-label="Assistant" title="Assistant">
             <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3Z"></path><path d="M18 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"></path></svg>
           </button>

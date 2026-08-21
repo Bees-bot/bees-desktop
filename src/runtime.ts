@@ -1,6 +1,4 @@
-import { object } from "./model-json.js";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { createFlueClient, type FlueClient } from "@flue/sdk";
 
 export type RuntimeExecutionStatus =
   | "queued"
@@ -19,7 +17,7 @@ export interface RuntimeEvent {
 
 export interface RuntimeExecutionInput {
   executionId: string;
-  /** The Flue conversation to address. Equals `executionId` for runs. */
+  /** The DSH session to address. Equals `executionId` for work runs. */
   conversationId: string;
   agentName: string;
   prompt: string;
@@ -32,7 +30,7 @@ export interface RuntimeExecutionResult {
   output: unknown;
   logs: string;
   submissionId: string | null;
-  /** Flue incarnation guard, so a follow-up cannot land on a restarted runtime's conversation. */
+  /** DSH incarnation guard, so a follow-up cannot land in a replacement session. */
   instanceUid: string | null;
   usage: Record<string, unknown> | null;
   model: Record<string, unknown> | null;
@@ -45,93 +43,141 @@ export interface AgentRuntime {
 }
 
 interface ActiveExecution {
-  client: FlueClient;
+  agentName: string;
+  conversationId: string;
   controller: AbortController;
   status: RuntimeExecutionStatus;
 }
 
+interface Admission {
+  submissionId: string;
+  uid: string;
+}
 
-/**
- * A thin adapter over `@flue/sdk`. Flue 2 removed `?wait=result`, `?view=history`, and the
- * long-poll offset protocol this file used to implement by hand: admission is a 202 receipt
- * and the SDK owns reconnect, ordering, and settlement.
- *
- * Rust owns admission and settlement; this SDK adapter is only the disposable live-view client.
- */
-export class FlueRuntime implements AgentRuntime {
+interface Settlement {
+  submissionId: string;
+  outcome: "completed" | "failed" | "cancelled" | "interrupted";
+  error?: { message?: string } | string | null;
+}
+
+interface Conversation {
+  offset?: string | null;
+  messages?: Array<{ role?: string; parts?: Array<{ type?: string; text?: string }> }>;
+  settlements?: Settlement[];
+}
+
+const pause = (milliseconds: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+
+/** Disposable client for Bees' authenticated compatibility routes inside DSH. */
+export class DshRuntime implements AgentRuntime {
   private readonly executions = new Map<string, ActiveExecution>();
 
-  // Runs and stream reads both outlive the webview's fixed 60s request timeout, which aborts
-  // a still-working run as "Load failed". The Rust-side fetch has no such cap.
   constructor(
     private readonly baseUrl = "http://127.0.0.1:3583",
     private readonly request: typeof fetch = tauriFetch as typeof fetch,
-    /** Per-launch bearer for the agent mount, from `ensure_flue_runtime`. Never persisted. */
+    /** Per-launch bearer from `ensure_dsh_runtime`. Never persisted. */
     private readonly token = ""
   ) {}
 
-  private client(agentName: string, conversationId: string): FlueClient {
-    return createFlueClient({
-      url: `${this.baseUrl}/agents/${encodeURIComponent(agentName)}/${encodeURIComponent(conversationId)}`,
-      fetch: this.request,
-      ...(this.token ? { token: this.token } : {})
-    });
+  private url(agentName: string, conversationId: string): string {
+    return `${this.baseUrl}/agents/${encodeURIComponent(agentName)}/${encodeURIComponent(conversationId)}`;
+  }
+
+  private options(init: RequestInit = {}): RequestInit {
+    const headers = new Headers(init.headers);
+    if (init.body !== undefined) headers.set("content-type", "application/json");
+    if (this.token) headers.set("authorization", `Bearer ${this.token}`);
+    return {
+      ...init,
+      headers
+    };
+  }
+
+  private async json<T>(url: string, init?: RequestInit): Promise<T> {
+    let response: Response;
+    try {
+      response = await this.request(url, this.options(init));
+    } catch {
+      throw new Error(`Can't reach the local DSH runtime at ${this.baseUrl}`);
+    }
+    const value = await response.json().catch(() => ({})) as { error?: string | { message?: string } };
+    if (!response.ok) {
+      const detail = typeof value.error === "string" ? value.error : value.error?.message;
+      throw new Error(detail ?? `DSH returned ${response.status}`);
+    }
+    return value as T;
+  }
+
+  private async snapshot(agentName: string, conversationId: string): Promise<Conversation> {
+    return this.json<Conversation>(`${this.url(agentName, conversationId)}?view=history`);
   }
 
   async execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult> {
-    if (this.executions.has(input.executionId)) {
-      throw new Error("Execution identifier is already active");
-    }
-    const client = this.client(input.agentName, input.conversationId);
+    if (this.executions.has(input.executionId)) throw new Error("Execution identifier is already active");
     const active: ActiveExecution = {
-      client,
+      agentName: input.agentName,
+      conversationId: input.conversationId,
       controller: new AbortController(),
       status: "running"
     };
     this.executions.set(input.executionId, active);
+    let admission: Admission | null = null;
     try {
-      // A dead runtime rejects with an opaque TypeError ("Load failed" in the Tauri webview),
-      // which names neither the runtime nor the run. Same treatment as apiFetch.
-      const admission = await client
-        .send({
-          message: { kind: "user", body: input.prompt },
-          signal: active.controller.signal,
-          // Admission is at-least-once across a retry: key it so a resend converges on the
-          // same submission instead of starting a second turn.
+      admission = await this.json<Admission>(this.url(input.agentName, input.conversationId), {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "user",
+          body: input.prompt,
+          uid: null,
           idempotencyKey: input.executionId
-        })
-        .catch((error: unknown) => {
-          if (active.controller.signal.aborted) throw error;
-          throw new Error(`Can't reach the local runtime at ${this.baseUrl}`);
-        });
-
-      await client.wait(admission, {
-        signal: active.controller.signal,
-        ...(input.onEvent
-          ? {
-              onEvent: (chunk) =>
-                input.onEvent?.({
-                  type: "updates",
-                  timestamp: new Date().toISOString(),
-                  offset: null,
-                  data: [chunk]
-                })
-            }
-          : {})
+        }),
+        signal: active.controller.signal
       });
-      const reply = await client.read(admission);
-      active.status = "completed";
-      const metadata = object(reply.metadata);
-      return {
-        executionId: input.executionId,
-        status: "completed",
-        output: { text: reply.text, data: reply.data, metadata: reply.metadata },
-        logs: reply.text,
-        submissionId: admission.submissionId,
-        instanceUid: admission.uid,
-        usage: Object.keys(object(metadata.usage)).length ? object(metadata.usage) : null,
-        model: Object.keys(object(metadata.model)).length ? object(metadata.model) : null
-      };
+      for (;;) {
+        const conversation = await this.snapshot(input.agentName, input.conversationId);
+        await input.onEvent?.({
+          type: "history",
+          timestamp: new Date().toISOString(),
+          offset: null,
+          data: conversation
+        });
+        const settlement = conversation.settlements?.find(
+          ({ submissionId }) => submissionId === admission?.submissionId
+        );
+        if (settlement) {
+          const status: RuntimeExecutionStatus = settlement.outcome;
+          active.status = status;
+          const logs = conversation.messages
+            ?.flatMap(({ role, parts }) => role === "assistant"
+              ? (parts ?? []).flatMap((part) => part.type === "text" && part.text ? [part.text] : [])
+              : [])
+            .at(-1) ?? "";
+          if (status === "failed" || status === "interrupted") {
+            const detail = typeof settlement.error === "string"
+              ? settlement.error
+              : settlement.error?.message;
+            throw new Error(detail ?? `DSH execution ${status}`);
+          }
+          return {
+            executionId: input.executionId,
+            status,
+            output: { text: logs },
+            logs,
+            submissionId: admission.submissionId,
+            instanceUid: admission.uid,
+            usage: null,
+            model: null
+          };
+        }
+        await pause(350, active.controller.signal);
+      }
     } catch (error) {
       if (active.status === "cancelled" || active.controller.signal.aborted) {
         return {
@@ -139,8 +185,8 @@ export class FlueRuntime implements AgentRuntime {
           status: "cancelled",
           output: null,
           logs: "Execution cancelled",
-          submissionId: null,
-          instanceUid: null,
+          submissionId: admission?.submissionId ?? null,
+          instanceUid: admission?.uid ?? null,
           usage: null,
           model: null
         };
@@ -152,14 +198,10 @@ export class FlueRuntime implements AgentRuntime {
     }
   }
 
-  /**
-   * A durable stop: `abort()` settles the accepted submission in the runtime. Aborting only
-   * the local read signal would leave the agent working and must never be presented as a stop.
-   */
   async cancel(executionId: string): Promise<void> {
     const active = this.executions.get(executionId);
     if (!active || !["queued", "running"].includes(active.status)) return;
-    await active.client.abort();
+    await this.json(`${this.url(active.agentName, active.conversationId)}/abort`, { method: "POST" });
     active.status = "cancelled";
     active.controller.abort();
   }
@@ -168,70 +210,46 @@ export class FlueRuntime implements AgentRuntime {
     return this.executions.get(executionId)?.status ?? "failed";
   }
 
-  /**
-   * Follow a conversation for live rendering. Purely presentational: the run settles in Rust
-   * whether or not anyone is watching, so dropping this connection loses nothing.
-   */
   observe(
     agentName: string,
     conversationId: string,
     onEvent: (event: RuntimeEvent) => void,
     signal: AbortSignal
   ): void {
-    const observation = this.client(agentName, conversationId).observe({ signal });
-    const publish = () => {
-      const { conversation, offset } = observation.getSnapshot();
-      if (!conversation) return;
-      onEvent({
-        type: "history",
-        timestamp: new Date().toISOString(),
-        offset: offset ?? null,
-        data: conversation
-      });
+    let busy = false;
+    const publish = async () => {
+      if (busy || signal.aborted) return;
+      busy = true;
+      try {
+        const data = await this.snapshot(agentName, conversationId);
+        onEvent({ type: "history", timestamp: new Date().toISOString(), offset: data.offset ?? null, data });
+      } catch {
+        // A missing or restarting session is retried by the next presentation poll.
+      } finally {
+        busy = false;
+      }
     };
-    const unsubscribe = observation.subscribe(publish);
-    signal.addEventListener("abort", () => {
-      unsubscribe();
-      observation.close();
-    }, { once: true });
-    publish();
+    const timer = setInterval(() => void publish(), 500);
+    signal.addEventListener("abort", () => clearInterval(timer), { once: true });
+    void publish();
   }
 
-  /**
-   * Remove a conversation, its submissions and its attachments from the runtime.
-   *
-   * Flue 2 ships no delete route, so this currently fails and the caller keeps its tombstone.
-   * It is written as an ordinary authenticated request against the conversation URL so that
-   * the day the runtime supports it, purge starts working with no other change here — Bees
-   * does not reach into Flue's database and does not patch the server to fake it.
-   */
   async purgeConversation(agentName: string, conversationId: string): Promise<void> {
-    const url = `${this.baseUrl}/agents/${encodeURIComponent(agentName)}/${encodeURIComponent(conversationId)}`;
-    const response = await this.request(url, {
-      method: "DELETE",
-      ...(this.token ? { headers: { authorization: `Bearer ${this.token}` } } : {})
-    });
-    // 404 means the runtime has already forgotten it, which is the state we wanted.
+    const response = await this.request(this.url(agentName, conversationId), this.options({ method: "DELETE" }));
     if (response.ok || response.status === 404) return;
-    throw new Error(
-      response.status === 405 || response.status === 501
-        ? "This Flue runtime has no conversation delete route yet"
-        : `Flue delete returned ${response.status}`
-    );
+    throw new Error(`DSH delete returned ${response.status}`);
   }
 
-  /** The whole conversation, for reopening a live run or reconciling one after a restart. */
   async history(agentName: string, conversationId: string): Promise<RuntimeEvent | null> {
     try {
-      const snapshot = await this.client(agentName, conversationId).history();
+      const data = await this.snapshot(agentName, conversationId);
       return {
         type: "history",
         timestamp: new Date().toISOString(),
-        offset: snapshot.offset,
-        data: snapshot
+        offset: data.offset ?? null,
+        data
       };
     } catch {
-      // A conversation that never received a prompt has no stream yet.
       return null;
     }
   }

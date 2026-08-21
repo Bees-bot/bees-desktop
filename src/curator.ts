@@ -11,7 +11,7 @@ import type { Capability } from "./domain.js";
 import { errorText } from "./domain.js";
 import { jsonObjects, text, textList } from "./model-json.js";
 
-/** Name of the bundled agent in `.flue/agents/bees-curator.ts`. */
+/** Name of the bundled agent in `DSH/agents/bees-curator.ts`. */
 export const CURATOR_AGENT = "bees-curator";
 
 export interface SkillUsage {
@@ -75,7 +75,7 @@ export function reviewSkills(input: {
 }
 
 // ---- What the curator is allowed to propose ----
-// Keep in sync with the INSTRUCTIONS block in .flue/agents/bees-curator.ts — tests/curator.test.ts
+// Keep in sync with the INSTRUCTIONS block in DSH/agents/bees-curator.ts — tests/curator.test.ts
 // fails if the two lists drift apart.
 
 export type CuratorAction =

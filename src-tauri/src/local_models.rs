@@ -55,7 +55,7 @@ pub struct ModelShape {
 /// The 3B Bees seeds costs 88 KiB per token and was trained for 262144 of them, which is
 /// 23.6 GB of cache if taken literally: `--ctx-size 0` is not a safe default.
 ///
-/// Kept in step with `BEES_LOCAL_CTX`, which hands the same numbers to the Flue runtime so the
+/// Kept in step with `BEES_LOCAL_CTX`, which hands the same numbers to the DSH runtime so the
 /// windows it declares to pi-ai match the ones actually allocated here. Declaring more than
 /// was allocated turns ordinary compaction into hard overflow errors.
 fn context_size_for_model(
@@ -911,7 +911,7 @@ fn start_local_model_blocking(
         .args(["--alias", "active", "--ctx-size"])
         .arg(context.to_string());
     // Gemma's embedded Jinja template is strict and raises "Conversation roles must alternate" on a
-    // system role or non-alternating turns, which the OpenAI-style messages flue sends trip; its
+    // system role or non-alternating turns, which the OpenAI-style messages DSH sends trip; its
     // built-in llama.cpp template merges system into the first user turn. Models that carry a usable
     // template of their own leave this unset and llama-server uses theirs.
     if let Some(template) = &spec.chat_template {

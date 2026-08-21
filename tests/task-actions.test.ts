@@ -6,8 +6,7 @@ describe("task actions", () => {
     const views = readFileSync(new URL("../src/app-views.ts", import.meta.url), "utf8");
     const actions = readFileSync(new URL("../src/app-actions.ts", import.meta.url), "utf8");
     const workspace = readFileSync(new URL("../src/workspace-controller.ts", import.meta.url), "utf8");
-    const runtime = readFileSync(new URL("../flue-runtime/project/workflow/start.mjs", import.meta.url), "utf8");
-    const workflow = readFileSync(new URL("../flue-runtime/project/workflow/work-item-workflow.ts", import.meta.url), "utf8");
+    const runtime = readFileSync(new URL("../dsh-runtime/plugin/lib/process-runtime.js", import.meta.url), "utf8");
 
     expect(views).toContain('actionIconButton("edit-item"');
     expect(views).toContain('actionIconButton("archive-item"');
@@ -27,10 +26,10 @@ describe("task actions", () => {
     expect(actions).toContain('activeExecutions.length ? "Stop and archive" : "Archive"');
     expect(actions).toContain("await host.runCoordinator.stop(execution.id)");
     expect(actions).toContain("The task will appear in Completed Runs with an Archived outcome.");
-    expect(runtime).toContain("handle.signal(archiveStateSignal");
-    expect(runtime).toContain("await handle.terminate(\"Recovering a task with invalid workflow history\")");
-    expect(workflow).toContain("await condition(allHandlersFinished);\n    const now = Date.now();");
-    expect(workflow).toContain("commands = CONTINUE_AFTER_COMMANDS");
+    expect(runtime).toContain('case "archive":');
+    expect(runtime).toContain("INSERT OR IGNORE INTO bees_process_checkpoints");
+    expect(runtime).toContain("catchUpAll()");
+    expect(runtime).toContain("schedule.pending = true");
   });
 
   it("adds dashboard tasks to the run currently being displayed", () => {
@@ -101,8 +100,8 @@ describe("task actions", () => {
     expect(actions).not.toContain('label: "Occurrence worker role"');
     expect(actions).toContain("runScheduledOccurrence(schedule, false)");
     expect(actions).not.toContain('type: "trigger_schedule"');
-    expect(runs).toContain('auto ? schedule.updatedAt : `manual:${crypto.randomUUID()}`');
-    expect(runs).toContain("if (auto) {\n      await host.workflowRuntime.command(schedule.workItemId");
+    expect(runs).toContain('auto ? schedule.pendingOccurrenceId ?? schedule.updatedAt : `manual:${crypto.randomUUID()}`');
+    expect(runs).toContain("if (auto) {\n      await host.processRuntime.command(schedule.workItemId");
     expect(runs).toContain("await runItem(itemId, auto, undefined, undefined, true)");
     expect(runs).toContain("!startingItemIds.has(item.id) &&");
     expect(runs).toContain("await host.workspaceController.refresh();\n          // The refreshed execution now prevents duplicate starts.");

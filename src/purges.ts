@@ -18,7 +18,7 @@ export interface PurgeReport {
 }
 
 /**
- * Drains queued conversation purges. Flue 2 has no delete route yet, so today every attempt
+ * Drains queued conversation purges. DSH 2 has no delete route yet, so today every attempt
  * fails and every tombstone survives — which is the point: a run is reported deleted only
  * once its conversation is really gone. Retry on startup and after each settled run; when
  * the runtime grows the route, the backlog clears itself with no migration.

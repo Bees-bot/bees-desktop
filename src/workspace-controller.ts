@@ -21,7 +21,7 @@ import type {
   Team,
   WorkItem
 } from "./domain.js";
-import type { WorkItemRuntimeState } from "./workflow-runtime.js";
+import type { WorkItemRuntimeState } from "./process-runtime.js";
 import {
   isKnowledgeConnection
 } from "./knowledge.js";
@@ -52,18 +52,18 @@ export function createWorkspaceController(host: MainHost) {
     setSetting: (key, value) => host.repository.setSetting(key, value),
     runAgentTurns: (item, turns) => host.runs.runProcessAgentTurns(item, turns, true),
     moveWorkItem: async (itemId, stageId) => {
-      await host.workflowRuntime.command(itemId, { type: "move", targetStageId: stageId });
+      await host.processRuntime.command(itemId, { type: "move", targetStageId: stageId });
     },
     createWorkItemWait: async (itemId, input) => {
-      const before = new Set((await host.workflowRuntime.state(itemId)).waits.map(({ id }) => id));
-      const state = await host.workflowRuntime.command(itemId, { type: "wait", ...input });
+      const before = new Set((await host.processRuntime.state(itemId)).waits.map(({ id }) => id));
+      const state = await host.processRuntime.command(itemId, { type: "wait", ...input });
       return state.waits.find(({ id }) => !before.has(id))?.id ?? "";
     },
     resolveWorkItemWaits: async (itemId, kind) => {
-      const state = await host.workflowRuntime.state(itemId);
+      const state = await host.processRuntime.state(itemId);
       const waits = state.waits.filter((wait) => !kind || wait.kind === kind);
       await Promise.all(waits.map(({ id }) =>
-        host.workflowRuntime.command(itemId, { type: "resolve_wait", waitId: id })
+        host.processRuntime.command(itemId, { type: "resolve_wait", waitId: id })
       ));
       return waits.length;
     },
@@ -148,7 +148,7 @@ export function createWorkspaceController(host: MainHost) {
   async function hydrateRuntime(workItems: WorkItem[], processList: Process[] = processes): Promise<WorkItem[]> {
     return Promise.all(workItems.map(async (item) => {
       try {
-        const runtime = await host.workflowRuntime.state(item.id);
+        const runtime = await host.processRuntime.state(item.id);
         runtimeCache.set(item.id, runtime);
         return projectRuntime(item, runtime, processList);
       } catch {
@@ -307,7 +307,7 @@ export function createWorkspaceController(host: MainHost) {
     if (!workspace.teamId)
       return;
     const key = `default_registry_version_${workspace.teamId}`;
-    if ((await host.repository.getSetting(key, 0)) >= 4)
+    if ((await host.repository.getSetting(key, 0)) >= 5)
       return;
     const existing = registries.find(({ sourcePath }) => sourcePath === "bundled://bees-default");
     const id = existing?.id ?? crypto.randomUUID();
@@ -319,7 +319,7 @@ export function createWorkspaceController(host: MainHost) {
       sourcePath: "bundled://bees-default",
       plugin
     });
-    await host.repository.setSetting(key, 4);
+    await host.repository.setSetting(key, 5);
     await refresh();
   }
 

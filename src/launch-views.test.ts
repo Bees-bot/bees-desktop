@@ -34,7 +34,7 @@ describe("workItemView", () => {
     agentId: "agent-1",
     config: {} as Execution["config"],
     workItemId: item.id,
-    runtime: "flue",
+    runtime: "dsh",
     status: status as Execution["status"],
     conversationId: id,
     instanceUid: null,

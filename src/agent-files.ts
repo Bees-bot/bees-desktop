@@ -53,7 +53,7 @@ export function skillSlug(name: string): string {
   return slug;
 }
 
-/** A SKILL.md the runtime will accept: frontmatter Flue reads, then the procedure itself. */
+/** A SKILL.md the runtime will accept: frontmatter DSH reads, then the procedure itself. */
 export function skillFile(name: string, description: string, body: string): string {
   return `---\n${stringify({
     name: skillSlug(name),

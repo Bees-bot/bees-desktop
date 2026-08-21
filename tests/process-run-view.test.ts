@@ -59,7 +59,7 @@ function execution(id: string, status: Execution["status"]): Execution {
     agentId: "agent",
     config: { prompt: "Work" },
     workItemId: item.id,
-    runtime: "flue",
+    runtime: "dsh",
     status,
     conversationId: id,
     instanceUid: null,

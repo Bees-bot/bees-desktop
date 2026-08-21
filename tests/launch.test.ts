@@ -1,8 +1,7 @@
 import { conversationToSnapshotV1 } from "../src/conversation-snapshot.js";
 import { describe, expect, it } from "vitest";
-import * as v from "valibot";
 import type { Agent, Execution, ExecutionOutput, Process, Registry, Schedule, WorkItem } from "../src/domain.js";
-import { runtimeAgentName } from "../src/flue-project.js";
+import { runtimeAgentName } from "../src/dsh-project.js";
 import { registryCapabilities } from "../src/registries.js";
 import { buildBeesRunInitialData } from "../src/run-config.js";
 import { runReceipt } from "../src/run-receipt.js";
@@ -10,10 +9,10 @@ import { inboxView, overviewView, runsView, runView, schedulesView } from "../sr
 import { escalationGroups } from "../src/supervision.js";
 import { renderMarkdown } from "../src/markdown.js";
 import type { RuntimeEvent } from "../src/runtime.js";
-import { beesRunInitialDataSchema } from "../flue-runtime/project/.flue/agents/bees-run.js";
+import { validateRunData } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 
 describe("lean launch modules", () => {
-  it("freezes an editable Bee into one stable Flue agent instance", () => {
+  it("freezes an editable Bee into one stable DSH agent instance", () => {
     const agent = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       name: "Reviewer",
@@ -43,8 +42,10 @@ describe("lean launch modules", () => {
       browserWrite: false
     });
     expect(JSON.stringify(data)).not.toContain("runtimeAgentName");
-    expect(v.safeParse(beesRunInitialDataSchema, data).success).toBe(true);
-    expect(v.safeParse(beesRunInitialDataSchema, { ...data, credential: "must-not-pass" }).success).toBe(false);
+    expect(data.instructions).toContain("inputs/");
+    expect(data.instructions).not.toContain("/workspace");
+    expect(() => validateRunData(data)).not.toThrow();
+    expect(() => validateRunData({ ...data, credential: "must-not-pass" })).toThrow();
   });
 
   it("discovers only validated skills from an Agent Plugin", () => {
@@ -81,7 +82,7 @@ describe("lean launch modules", () => {
       agentId: "agent",
       config: { prompt: "SECRET PROMPT" },
       workItemId: "item",
-      runtime: "flue",
+      runtime: "dsh",
       status: "completed",
       conversationId: "run",
       instanceUid: null,
@@ -148,7 +149,7 @@ describe("lean launch modules", () => {
       agentId: "agent",
       config: { prompt: "Help" },
       workItemId: "item",
-      runtime: "flue",
+      runtime: "dsh",
       status: "failed",
       conversationId: "run",
       instanceUid: null,
@@ -359,7 +360,7 @@ describe("lean launch modules", () => {
       agentId: "agent",
       config: { prompt: "Help" },
       workItemId: "item",
-      runtime: "flue",
+      runtime: "dsh",
       status: "completed",
       conversationId: "run",
       instanceUid: null,
@@ -441,7 +442,7 @@ describe("lean launch modules", () => {
       agentId: "agent",
       config: { prompt: "Help" },
       workItemId: "item",
-      runtime: "flue",
+      runtime: "dsh",
       status: "completed",
       conversationId: "run",
       instanceUid: null,
@@ -497,7 +498,7 @@ describe("lean launch modules", () => {
       agentId: "agent",
       config: { prompt: "Help" },
       workItemId: "item",
-      runtime: "flue",
+      runtime: "dsh",
       status: "completed",
       conversationId: "run",
       instanceUid: null,

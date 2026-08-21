@@ -33,14 +33,40 @@ describe("process running", () => {
   });
 });
 
+describe("supervision", () => {
+  it("keeps every task under an archived run out of the inbox", () => {
+    const root = {
+      id: "root", processId: "process", stageId: "work", parentId: null,
+      archivedAt: "2026-08-20T12:00:00.000Z", isTerminal: false
+    } as unknown as WorkItem;
+    const child = {
+      id: "child", processId: "process", stageId: "work", parentId: root.id,
+      archivedAt: null, isTerminal: false, waits: [], updatedAt: "2026-08-20T10:00:00.000Z"
+    } as unknown as WorkItem;
+    const process = {
+      id: "process",
+      stages: [{ id: "work", name: "Work", position: 0, isTerminal: false }],
+      definition: {
+        automation: "automatic", renderer: "default", capabilities: [],
+        stateIds: {}, roleBindings: []
+      }
+    } as unknown as Process;
+    const host = {
+      workspaceController: { teamItems: [root, child], processes: [process], agents: [] }
+    } as unknown as MainHost;
+
+    expect(createRunController(host).supervise().has(child.id)).toBe(false);
+  });
+});
+
 describe("settled file outputs", () => {
   it.each([
     { name: "an ordinary file", logicalOutputs: ["result.txt"], published: ["result.txt"], checkpoints: true },
     { name: "an approval request", logicalOutputs: ["approval-request.md"], published: [], checkpoints: false },
     {
-      name: "only ordinary files beside an approval request",
+      name: "files gated by an approval request",
       logicalOutputs: ["approval-request.md", "result.txt"],
-      published: ["result.txt"],
+      published: [],
       checkpoints: false
     }
   ])("publishes $name", async ({ logicalOutputs, published, checkpoints }) => {
@@ -100,7 +126,7 @@ describe("settled file outputs", () => {
       repository,
       session: { currentUser: vi.fn(() => null), serverOrgs: new Map() },
       shell: { showNotice: vi.fn(), notifyLocal: vi.fn() },
-      workflowRuntime: { command: vi.fn(async () => ({})) },
+      processRuntime: { command: vi.fn(async () => ({})) },
       workspaces: { publishApproved },
       workspaceController: {
         workspace: { organizationId: "org-1", teamId: "team-1" },
@@ -127,6 +153,10 @@ describe("settled file outputs", () => {
         execution.id,
         item.stageId
       );
+      expect(host.processRuntime.command).toHaveBeenCalledWith(item.id, {
+        type: "move",
+        targetStageId: "done"
+      });
     }
     else {
       expect(checkpointWorkItem).not.toHaveBeenCalled();

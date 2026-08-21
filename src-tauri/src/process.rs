@@ -1,4 +1,4 @@
-//! Shared plumbing for the child processes Bees supervises: the Flue runtime, its capability
+//! Shared plumbing for the child processes Bees supervises: the DSH runtime, its capability
 //! host, the knowledge worker, and one llama-server per running local model.
 
 use std::net::TcpListener;

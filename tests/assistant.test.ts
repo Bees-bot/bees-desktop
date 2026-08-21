@@ -22,7 +22,7 @@ import {
 import { NodeDatabase } from "./node-database.js";
 
 const agentSource = readFileSync(
-  fileURLToPath(new URL("../flue-runtime/project/.flue/agents/bees-assistant.ts", import.meta.url)),
+  fileURLToPath(new URL("../dsh-runtime/plugin/lib/agent-runtime.js", import.meta.url)),
   "utf8"
 );
 const appActionsSource = readFileSync(
@@ -31,7 +31,7 @@ const appActionsSource = readFileSync(
 );
 
 describe("assistant contract", () => {
-  it("resolves Overview Auto selection before submitting to Flue", () => {
+  it("resolves Overview Auto selection before submitting to DSH", () => {
     expect(appActionsSource).toContain(
       "await pickAssistantModel(preferredModelChoice(host.assistant.assistantCatalog))"
     );
@@ -444,7 +444,7 @@ describe("model catalog", () => {
     ).toMatchObject({ active: false, reason: 'Local model "local-1" is not running on this machine' });
   });
 
-  it("rejects a retired provider before Flue submission", () => {
+  it("rejects a retired provider before DSH submission", () => {
     expect(
       effectiveAgentEligibility(
         {

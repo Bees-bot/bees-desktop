@@ -129,7 +129,7 @@ export function createAppBootstrap(host: MainHost) {
         undefined
       );
       // A recovered run's immutable MCP seed points at the stable loopback URL and secret ref.
-      // Bring that worker back before Flue re-adopts the run after an app restart.
+      // Bring that worker back before DSH re-adopts the run after an app restart.
       const cachedKnowledge = await step(
         "Loading knowledge settings",
         () => loadCachedKnowledgePolicy(host.repository, host.workspaceController.workspace.organizationId),
@@ -143,7 +143,7 @@ export function createAppBootstrap(host: MainHost) {
         });
       }
       // A persisted delivery key makes either path safe: adopt its known submission, or resend
-      // the exact pre-admission message and let Flue converge on the same receipt.
+      // the exact pre-admission message and let DSH converge on the same receipt.
       const resumed = await step("Finding runs to resume", () => host.repository.listNonTerminalExecutions(), []);
       void host.runs.resumeInterruptedRuns(resumed).catch((error) => host.shell.showNotice(errorText(error), "error"));
       void host.runs.retryConversationPurges().catch((error) =>

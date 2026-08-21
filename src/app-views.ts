@@ -830,7 +830,7 @@ export function createMainViews(host: MainHost) {
     const waiting = host.runs.supervise();
     const scoped = root
       ? itemTree(host.workspaceController.items, root.id)
-      : host.workspaceController.items;
+      : host.workspaceController.items.filter(({ archivedAt }) => !archivedAt);
 
     const visible = scoped.filter((item) => !isFiltered(item, filters));
     const filtered = scoped.filter((item) => isFiltered(item, filters))
@@ -2628,7 +2628,7 @@ export function createMainViews(host: MainHost) {
         type: "select",
         value: config?.thinkingLevel ?? "",
         options: thinkingOptionsForModel(auto ? { provider: "", model: "" } : selected),
-        hint: "Automatic uses the model or Flue default.",
+        hint: "Automatic uses the model or DSH default.",
         step: "instructions"
       },
       {

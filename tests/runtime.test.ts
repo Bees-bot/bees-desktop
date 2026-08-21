@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { FlueRuntime } from "../src/runtime.js";
+import { DshRuntime } from "../src/runtime.js";
 
 // Only the deterministic request/response paths are unit-tested here. `execute()` settles
-// through the SDK's durable-stream connection, and faking that wire protocol in a unit test
-// buys nothing over testing the SDK itself — the live-sidecar probe in
+// through DSH's durable session history; these tests cover only the compatibility client.
 
 type Call = [string, RequestInit | undefined];
 
@@ -13,7 +12,7 @@ function calls(request: ReturnType<typeof vi.fn>): Call[] {
 
 function header(request: ReturnType<typeof vi.fn>, index = 0): string | undefined {
   const init = calls(request)[index]?.[1];
-  return (init?.headers as Record<string, string> | undefined)?.authorization;
+  return new Headers(init?.headers).get("authorization") ?? undefined;
 }
 
 function snapshot(): Response {
@@ -23,10 +22,10 @@ function snapshot(): Response {
   );
 }
 
-describe("FlueRuntime", () => {
+describe("DshRuntime", () => {
   it("addresses one conversation URL and presents the launch bearer", async () => {
     const request = vi.fn(async () => snapshot());
-    const runtime = new FlueRuntime(
+    const runtime = new DshRuntime(
       "http://127.0.0.1:9",
       request as unknown as typeof fetch,
       "secret-token"
@@ -42,7 +41,7 @@ describe("FlueRuntime", () => {
 
   it("sends no authorization header when the host issued no token", async () => {
     const request = vi.fn(async () => snapshot());
-    await new FlueRuntime("http://127.0.0.1:9", request as unknown as typeof fetch).history(
+    await new DshRuntime("http://127.0.0.1:9", request as unknown as typeof fetch).history(
       "writer",
       "item-1"
     );
@@ -54,7 +53,7 @@ describe("FlueRuntime", () => {
     const request = vi.fn(
       async () => new Response(JSON.stringify({ error: "stream_not_found" }), { status: 404 })
     );
-    const runtime = new FlueRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
+    const runtime = new DshRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
 
     await expect(runtime.history("writer", "never-run")).resolves.toBeNull();
   });
@@ -67,7 +66,7 @@ describe("FlueRuntime", () => {
         init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
       });
     });
-    const runtime = new FlueRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
+    const runtime = new DshRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
 
     const pending = runtime.execute({
       executionId: "run-2",
@@ -83,12 +82,12 @@ describe("FlueRuntime", () => {
     expect(calls(request).some(([url]) => String(url).includes("/abort"))).toBe(true);
   });
 
-  it("submits the Flue 2 message envelope, keyed for idempotent re-admission", async () => {
+  it("submits the DSH message envelope, keyed for idempotent re-admission", async () => {
     const request = vi.fn(async (_url: string, init?: RequestInit) => {
       if (init?.method === "POST") throw new Error("stop after admission");
       return snapshot();
     });
-    const runtime = new FlueRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
+    const runtime = new DshRuntime("http://127.0.0.1:9", request as unknown as typeof fetch);
 
     await expect(
       runtime.execute({
@@ -97,11 +96,10 @@ describe("FlueRuntime", () => {
         agentName: "writer",
         prompt: "Draft"
       })
-    ).rejects.toThrow("Can't reach the local runtime");
+    ).rejects.toThrow("Can't reach the local DSH runtime");
 
     const post = calls(request).find(([, init]) => init?.method === "POST");
-    // The SDK flattens the delivered message onto the request body — the shape the Flue 2
-    // route validates, and the reason the old `{ message: prompt }` body now 400s.
+    // The compatibility route validates this flat, idempotently keyed envelope.
     expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
       kind: "user",
       body: "Draft",

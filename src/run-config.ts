@@ -40,10 +40,10 @@ function instructions(
     agent.config.prompt,
     agent.config.instructions,
     projectWorkspace
-      ? "Work directly in the Git project at /workspace. Do not run Git commands or edit .git; Bees owns commits and review history."
+      ? "Work directly in the current Git project. Do not run Git commands or edit .git; Bees owns commits and review history."
       : manualProjection
         ? "Return the requested result in your response. Do not write output files; the Project Studio owns approval and process state."
-      : "Read task inputs from /workspace/inputs. Write every output under /workspace/outputs. Writing a file does not request human approval. If the task explicitly requires human approval, also write /workspace/outputs/approval-request.md with the decision, options, and your recommendation.",
+      : "Read task inputs from inputs/. Write every output under outputs/. Writing a file does not request human approval. If the task explicitly requires human approval, also write outputs/approval-request.md with the decision, options, and your recommendation.",
     browser
       ? "You can use the browser tools. If a site needs a login, call browser_wait_for_login so the user signs in themselves; never ask for or type a password."
       : "",
@@ -112,7 +112,7 @@ export function buildBeesRunInitialData(input: {
       ...(connection.secretRef ? { secretRef: connection.secretRef } : {}),
       ...(connection.headers ? { headers: connection.headers } : {}),
       // Named off the tools the server actually has: an allowlist entry with nothing behind it
-      // fails the whole submission inside Flue.
+      // fails the whole submission inside DSH.
       ...(connection.allTools ? {} : {
         tools: connection.tools
           .filter(({ name }) => connection.allowedTools.includes(name))

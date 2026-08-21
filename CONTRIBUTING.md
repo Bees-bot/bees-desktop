@@ -62,7 +62,7 @@ Tauri starts its own Vite server on port 1420. Don't run `npm run dev` here alon
 
 ## What we're likely to say no to
 
-- New agent runtime features. That's [Flue](https://github.com/withastro/flue), not us.
+- Forking or patching the agent runtime instead of extending [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) through its plugin contracts.
 - Anything that uploads document contents anywhere
 - Big refactors without an issue first
 - New dependencies where a few lines would do

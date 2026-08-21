@@ -15,13 +15,13 @@ async function repositoryWithRun() {
     agentId: "agent-1",
     config: { prompt: "Do it." },
     workItemId,
-    runtime: "flue"
+    runtime: "dsh"
   });
   return { repository, local, executionId };
 }
 
 describe("execution deletion", () => {
-  it("queues the Flue conversation for purge in the same transaction as the delete", async () => {
+  it("queues the DSH conversation for purge in the same transaction as the delete", async () => {
     const { repository, executionId } = await repositoryWithRun();
     await repository.recordExecutionOutputs(executionId, ["draft.md"]);
 
@@ -71,13 +71,13 @@ describe("drainConversationPurges", () => {
     const purger = {
       purgeConversation: vi
         .fn()
-        .mockRejectedValue(new Error("This Flue runtime has no conversation delete route yet"))
+        .mockRejectedValue(new Error("This DSH runtime has no conversation delete route yet"))
     };
     const first = await drainConversationPurges(repository, purger);
 
     expect(first).toMatchObject({ purged: 0, pending: 1 });
     expect(await repository.listPendingConversationPurges()).toMatchObject([
-      { attempts: 1, lastError: "This Flue runtime has no conversation delete route yet" }
+      { attempts: 1, lastError: "This DSH runtime has no conversation delete route yet" }
     ]);
 
     // Retried, not abandoned — and it clears itself the day the route exists.

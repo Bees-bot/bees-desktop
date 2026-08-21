@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import { harnessPlugin } from "./dev/harness/plugin.mjs";
 
 export default defineConfig({
+  base: "./",
   // harnessPlugin() is null unless BEES_HARNESS=1, so `tauri dev` and every build are untouched.
   plugins: [tailwindcss(), harnessPlugin()],
   clearScreen: false,

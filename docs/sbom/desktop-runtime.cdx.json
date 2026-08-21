@@ -1,0 +1,357 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:568b5a73-bb3f-4a96-b682-34715714f781",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-20T20:01:51.742Z",
+    "lifecycles": [
+      {
+        "phase": "pre-build"
+      }
+    ],
+    "tools": [
+      {
+        "vendor": "npm",
+        "name": "cli",
+        "version": "10.9.8"
+      }
+    ],
+    "component": {
+      "bom-ref": "@bees/desktop@0.1.1",
+      "type": "library",
+      "name": "bees-desktop",
+      "version": "0.1.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40bees/desktop@0.1.1",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": ""
+        },
+        {
+          "name": "cdx:npm:package:private",
+          "value": "true"
+        }
+      ],
+      "externalReferences": [],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "@tauri-apps/api@2.11.1",
+      "type": "library",
+      "name": "@tauri-apps/api",
+      "version": "2.11.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/api@2.11.1",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/api"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/api/-/api-2.11.1.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "33614fb98343da6fb087985f5bd66949dc4c3dd109a2f3c15b0a07266c14a72b1360d1da3a4545378d7d9bf2b42c88236ffeca536bc182c51ea495ae8100af00"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0 OR MIT"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-deep-link@2.4.9",
+      "type": "library",
+      "name": "@tauri-apps/plugin-deep-link",
+      "version": "2.4.9",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-deep-link@2.4.9",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-deep-link"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-deep-link/-/plugin-deep-link-2.4.9.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "bb448a3941e7275c2a7aa5ec0c5ab6fa40120818fdc716c6d20f576563f2f523a6538c17b69e9bff0898a66ea81faff97c14d0b0baa72e122fa8b051a601c994"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-dialog@2.7.2",
+      "type": "library",
+      "name": "@tauri-apps/plugin-dialog",
+      "version": "2.7.2",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-dialog@2.7.2",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-dialog"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-dialog/-/plugin-dialog-2.7.2.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "a57d081a6d48dc8eb073ecde29872ad464aaa202baa2408d5f97ce75a354e5a6f5023192ea5d44e7014d8c46fb99e83b6454a9d0952cfb48d01903723af2ebb2"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-http@2.5.9",
+      "type": "library",
+      "name": "@tauri-apps/plugin-http",
+      "version": "2.5.9",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-http@2.5.9",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-http"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-http/-/plugin-http-2.5.9.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "942898d3ebece07bc8512bd9ac1b3c4c2dd388207430e3d19a25234eae29ad6ed295c244da374b793e8a06c26b4fd4e5a65b9f97b5b5a58e921403b78025b10c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-notification@2.3.3",
+      "type": "library",
+      "name": "@tauri-apps/plugin-notification",
+      "version": "2.3.3",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-notification@2.3.3",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-notification"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-notification/-/plugin-notification-2.3.3.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "670f991f5f1125be351b836b7c7808ba87c98b29aeb2a37eabc7c6508215eefc821fee6c4a7e5ca2a46ffcc581f6a113b14b3deef994d38e6aececac78257742"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-opener@2.5.4",
+      "type": "library",
+      "name": "@tauri-apps/plugin-opener",
+      "version": "2.5.4",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-opener@2.5.4",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-opener"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-opener/-/plugin-opener-2.5.4.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "d479cf91bf809a03b6f4705ace6e2e3cb281fabef3cdc4c15b57747f2629d6e3fe8f0b69a2234318a30ccf3e7c485a78f67388af1744dda509b53e7b95f3bd09"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-process@2.3.1",
+      "type": "library",
+      "name": "@tauri-apps/plugin-process",
+      "version": "2.3.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-process@2.3.1",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-process"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-process/-/plugin-process-2.3.1.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "9c26b87c655a0cbfc1f5a8b4dd5c8f3a37c01d11d2073e6fe85fce6ec07bdebfdd0373071e166d95d68330873457fa67530f5e873af68841be5e4484c82d0924"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    },
+    {
+      "bom-ref": "@tauri-apps/plugin-updater@2.10.1",
+      "type": "library",
+      "name": "@tauri-apps/plugin-updater",
+      "version": "2.10.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40tauri-apps/plugin-updater@2.10.1",
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@tauri-apps/plugin-updater"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/@tauri-apps/plugin-updater/-/plugin-updater-2.10.1.tgz"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "34560c83eb563993c977313f3e9163daa7eac005b0352de45eb6f5b66d609c127d998cd9e160d1af0cbcb9dcd6a009df1821cbb9e3cd2d8d565423479e1dde44"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "@bees/desktop@0.1.1",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1",
+        "@tauri-apps/plugin-deep-link@2.4.9",
+        "@tauri-apps/plugin-dialog@2.7.2",
+        "@tauri-apps/plugin-http@2.5.9",
+        "@tauri-apps/plugin-notification@2.3.3",
+        "@tauri-apps/plugin-opener@2.5.4",
+        "@tauri-apps/plugin-process@2.3.1",
+        "@tauri-apps/plugin-updater@2.10.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/api@2.11.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "@tauri-apps/plugin-deep-link@2.4.9",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-dialog@2.7.2",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-http@2.5.9",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-notification@2.3.3",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-opener@2.5.4",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-process@2.3.1",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    },
+    {
+      "ref": "@tauri-apps/plugin-updater@2.10.1",
+      "dependsOn": [
+        "@tauri-apps/api@2.11.1"
+      ]
+    }
+  ]
+}

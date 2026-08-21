@@ -48,9 +48,9 @@ import type {
 } from "./domain.js";
 import type { ModelChoice } from "./model-routing.js";
 import {
-  FlueProjectService,
-  TauriFlueProjectPort
-} from "./flue-project.js";
+  DshProjectService,
+  TauriDshProjectPort
+} from "./dsh-project.js";
 import {
   type KnowledgePolicy
 } from "./knowledge.js";
@@ -75,7 +75,6 @@ import { createRunController } from "./run-controller.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { type RuntimeEvent } from "./runtime.js";
 import { createSessionController } from "./session-controller.js";
-import "./styles.css";
 import type { WorkState } from "./supervision.js";
 import { type BoardItemTab, type View } from "./views.js";
 import { createWorkspaceController } from "./workspace-controller.js";
@@ -84,7 +83,7 @@ import {
   TemporaryWorkspaceService,
   type OutputPreview
 } from "./workspaces.js";
-import { WorkflowRuntimeClient } from "./workflow-runtime.js";
+import { ProcessRuntimeClient } from "./process-runtime.js";
 
 export type SettingsTab =
   | "theme" | "local-ai" | "ai-cli" | "ai-apis" | "mcp-servers" | "signins" | "workspaces" | "root-folder"
@@ -105,24 +104,24 @@ export type ThemePreset = (typeof THEMES)[number];
 const repository = new LocalRepository(new TauriDatabase());
 const localModels = new LocalModelService(repository, new TauriLocalModelPort());
 const workspaces = new TemporaryWorkspaceService(new TauriWorkspacePort());
-const flueProjectPort = new TauriFlueProjectPort();
-const flueProject = new FlueProjectService(flueProjectPort);
-const registryFiles = new RegistryFiles(flueProjectPort);
+const dshProjectPort = new TauriDshProjectPort();
+const dshProject = new DshProjectService(dshProjectPort);
+const registryFiles = new RegistryFiles(dshProjectPort);
 const agentFiles = new AgentFileStore(new TauriAgentFilePort());
 const api = new ApiClient();
-const workflowRuntime = new WorkflowRuntimeClient(api, () => ({
+const processRuntime = new ProcessRuntimeClient(api, () => ({
   organizationId: workspaceController.workspace.organizationId,
   connected: session.orgIsConnected(),
   token: session.orgToken()
 }));
-const runCoordinator = new RunCoordinator(repository, workspaces, flueProject, ensureFlueRuntime);
+const runCoordinator = new RunCoordinator(repository, workspaces, dshProject, ensureDshRuntime);
 
 /**
- * Boot the immutable Flue app. Rust resolves model credentials from local app storage; the
+ * Boot the immutable DSH app. Rust resolves model credentials from local app storage; the
  * webview supplies only business scope and never reads a stored secret.
  */
-async function ensureFlueRuntime(): Promise<{ baseUrl: string; token: string; }> {
-  const runtime = await invoke<{ baseUrl: string; token: string; }>("ensure_flue_runtime", {
+async function ensureDshRuntime(): Promise<{ baseUrl: string; token: string; }> {
+  const runtime = await invoke<{ baseUrl: string; token: string; }>("ensure_dsh_runtime", {
     organizationId: session.aiConnectionScope(),
     teamId: workspaceController.workspace.teamId
   });
@@ -166,15 +165,15 @@ const mainHost: MainHost = {
   get THEMES() { return THEMES; },
   get agentFiles() { return agentFiles; },
   get api() { return api; },
-  get ensureFlueRuntime() { return ensureFlueRuntime; },
-  get flueProjectPort() { return flueProjectPort; },
+  get ensureDshRuntime() { return ensureDshRuntime; },
+  get dshProjectPort() { return dshProjectPort; },
   get localModels() { return localModels; },
   get registryFiles() { return registryFiles; },
   get repository() { return repository; },
   get runCoordinator() { return runCoordinator; },
   get scheduleItems() { return scheduleItems; },
   get workspaces() { return workspaces; },
-  get workflowRuntime() { return workflowRuntime; }
+  get processRuntime() { return processRuntime; }
 };
 export interface AppShell {
   DARK_THEMES: Set<string>;
@@ -404,15 +403,15 @@ export interface MainHost {
   THEMES: typeof THEMES;
   agentFiles: AgentFileStore;
   api: ApiClient;
-  ensureFlueRuntime: () => Promise<{ baseUrl: string; token: string; }>;
-  flueProjectPort: TauriFlueProjectPort;
+  ensureDshRuntime: () => Promise<{ baseUrl: string; token: string; }>;
+  dshProjectPort: TauriDshProjectPort;
   localModels: LocalModelService;
   registryFiles: RegistryFiles;
   repository: LocalRepository;
   runCoordinator: RunCoordinator;
   scheduleItems: () => WorkItem[];
   workspaces: TemporaryWorkspaceService;
-  workflowRuntime: WorkflowRuntimeClient;
+  processRuntime: ProcessRuntimeClient;
 }
 const shell: AppShell = createAppShell(mainHost);
 const session: SessionController = createSessionController(mainHost);

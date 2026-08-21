@@ -77,7 +77,7 @@ export function newMcpConnection(input: {
 /**
  * The tools the server exposes right now.
  *
- * `connection.tools` is only a record of the last check. Flue refuses a whole submission when the
+ * `connection.tools` is only a record of the last check. DSH refuses a whole submission when the
  * allowlist names a tool the server has since dropped, and scrubs the reason on the way out, so
  * anything about to run asks the server again rather than trusting that record.
  */

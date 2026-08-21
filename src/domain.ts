@@ -1,5 +1,5 @@
 import type { BeesConversationSnapshotV1 } from "./conversation-snapshot.js";
-import type { WorkItemRuntimeState } from "./workflow-runtime.js";
+import type { WorkItemRuntimeState } from "./process-runtime.js";
 
 export type GoalTaskEffect = "read" | "prepare" | "external_write";
 export type WorkItemWaitKind =
@@ -197,7 +197,7 @@ export interface WorkItem {
   /** Derived from the current stage; never stored separately on the item. */
   isTerminal: boolean;
   waits: WorkItemWait[];
-  /** Durable execution state projected from Temporal; never stored in the app database. */
+  /** Durable execution state projected from DSH's process runtime. */
   runtime?: WorkItemRuntimeState | null;
   logicalFiles: string[];
   syncVersion: number;
@@ -331,7 +331,7 @@ export interface Agent {
 export interface AgentConfig {
   prompt: string;
   instructions?: string;
-  /** Provider half of the `provider/model` pair Flue resolves through pi-ai. */
+  /** Provider half of the `provider/model` pair DSH resolves through pi-ai. */
   provider?: string;
   model?: string;
   skillRefs?: string[];
@@ -355,11 +355,11 @@ export interface Execution {
   runtime: string;
   status: ExecutionStatus;
   /**
-   * The Flue conversation, the workspace pointer, the sandbox, and the CLI correlation are
+   * The DSH conversation, the workspace pointer, the sandbox, and the CLI correlation are
    * all this same id. One run, one address.
    */
   conversationId: string;
-  /** Flue incarnation guard: a follow-up must not land on a restarted runtime's conversation. */
+  /** DSH incarnation guard: a follow-up must not land on a restarted runtime's conversation. */
   instanceUid: string | null;
   /** Rendered when the run is settled, so a closed run needs no sidecar. */
   conversationSnapshot: BeesConversationSnapshotV1 | null;
@@ -379,9 +379,9 @@ export interface Execution {
 }
 
 export interface ExecutionResult extends Record<string, unknown> {
-  /** One Flue idempotency key per user message, never per conversation. */
+  /** One DSH idempotency key per user message, never per conversation. */
   deliveryId?: string;
-  /** Retained only until Flue admits the delivery, so a crash can safely resend it. */
+  /** Retained only until DSH admits the delivery, so a crash can safely resend it. */
   prompt?: string;
   taskPlan?: TaskPlanRunContext;
   projectMode?: boolean;
@@ -402,7 +402,7 @@ export interface TaskPlanRunContext {
   outputBlockedStates: string[];
 }
 
-/** A deleted run whose Flue conversation has not been removed yet. */
+/** A deleted run whose DSH conversation has not been removed yet. */
 export interface ConversationPurge {
   conversationId: string;
   agentName: string;
@@ -434,8 +434,13 @@ export interface Schedule {
   /** Agent role used by a spawned Goals occurrence. Null for ordinary reruns. */
   role: string | null;
   timezone: string;
+  concurrencyRule: "skip_if_running";
+  catchUpBehavior: "latest";
+  target: { workItemId: string; mode: "run" | "spawn_goal"; role: string | null };
   enabled: boolean;
   pending?: boolean;
+  pendingOccurrenceId: string | null;
+  lastAdmittedOccurrenceId: string | null;
   nextRunAt: string;
   lastRunAt: string | null;
   createdAt: string;
@@ -577,7 +582,7 @@ export interface BeesRunDelegate {
   skills: BeesRunSkill[];
 }
 
-/** Credential-free, immutable definition of one Flue conversation. */
+/** Credential-free, immutable definition of one DSH conversation. */
 export interface BeesRunInitialData {
   version: 1;
   executionId: string;
@@ -720,8 +725,9 @@ export function autonomousRunKeys(item: WorkItem): string[] {
  * changed, so a finished run waiting on output review is left alone.
  *
  * A checkpoint is the process moving itself, and an agent that answers with its current status ID
- * would checkpoint in place forever — so a checkpoint buys exactly one run per status. Any other
- * change (an edit, a rejected output) is a person asking for the work again, and always counts.
+ * would checkpoint in place forever — so an in-place checkpoint buys exactly one run. Returning
+ * from another status is a new visit and must run again. Any other change (an edit, a rejected
+ * output) is a person asking for the work again, and always counts.
  */
 export function needsAutonomousRun(
   item: WorkItem,
@@ -730,7 +736,9 @@ export function needsAutonomousRun(
 ): boolean {
   if (workItemCondition(item, executions) !== "ready") return false;
   const [stageKey, versionKey] = autonomousRunKeys(item);
-  if (startedKeys.has(item.checkpointAt === item.updatedAt ? stageKey! : versionKey!)) return false;
+  const checkpointedInPlace = item.checkpointAt === item.updatedAt &&
+    item.checkpointStageId === item.stageId;
+  if (startedKeys.has(checkpointedInPlace ? stageKey! : versionKey!)) return false;
   return !executions.some(
     ({ workItemId, createdAt }) => workItemId === item.id && createdAt >= item.updatedAt
   );

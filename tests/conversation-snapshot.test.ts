@@ -119,7 +119,7 @@ describe("conversationToSnapshotV1", () => {
     ]);
   });
 
-  it("renders Flue resource signals such as optional MCP degradation", () => {
+  it("renders DSH resource signals such as optional MCP degradation", () => {
     const snapshot = conversationToSnapshotV1([
       history({
         messages: [
