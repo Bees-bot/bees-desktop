@@ -33,12 +33,16 @@ function equalSecret(left, right) {
   return offered.length === expected.length && offered.length > 0 && timingSafeEqual(offered, expected);
 }
 
+function cookieName(req) {
+  return `bees_dsh_${req.socket.localPort}`;
+}
+
 function tokenFrom(req) {
   const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, "");
   if (bearer) return bearer;
   const cookie = String(req.headers.cookie ?? "").split(";")
     .map((part) => part.trim().split("="))
-    .find(([name]) => name === "bees_dsh")?.[1];
+    .find(([name]) => name === cookieName(req))?.[1];
   return cookie ? decodeURIComponent(cookie) : "";
 }
 
@@ -137,7 +141,7 @@ export async function apply(ctx) {
     if (!equalSecret(offered, token)) return reply(res, 401, { error: "unauthorized" });
     res.writeHead(302, {
       location: `http://127.0.0.1:${req.socket.localPort}/`,
-      "set-cookie": `bees_dsh=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
+      "set-cookie": `${cookieName(req)}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
       "cache-control": "no-store"
     });
     res.end();

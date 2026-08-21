@@ -53,8 +53,11 @@ describe("DSH-owned desktop and recovery", () => {
     expect(permission).toContain('"open_external_url"');
     expect(capability).toContain('"http://127.0.0.1:*"');
     expect(permission).not.toContain("db_query");
-    expect(entry).toContain('invoke<DshRuntime>("ensure_dsh_runtime")');
-    expect(entry).toContain("/bees-auth?token=");
+    expect(entry).toContain('invoke("ensure_dsh_runtime")');
+    expect(entry).not.toContain("/bees-auth?token=");
+    expect(tauri).toContain('"{}/bees-auth?token={}"');
+    expect(tauri).toContain(".navigate(url)");
+    expect(tauri).toContain('body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#');
     expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
     expect(profile).toContain("local-openai:");
     expect(profile).not.toContain("freellmapi:");

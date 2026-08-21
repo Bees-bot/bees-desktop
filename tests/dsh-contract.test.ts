@@ -189,7 +189,10 @@ describe("Bees DSH public contract", () => {
       const auth = await request(server, routes, "/bees-auth?token=contract-token");
       expect(auth.status).toBe(302);
       const cookie = auth.headers["set-cookie"]?.split(";")[0];
-      expect(cookie).toContain("bees_dsh=contract-token");
+      expect(cookie).toBe("bees_dsh_45123=contract-token");
+      expect((await request(server, routes, "/bees-api/snapshot", {
+        headers: { cookie: "bees_dsh_45124=contract-token" }
+      })).status).toBe(401);
       const headers = { cookie: String(cookie), "content-type": "application/json" };
       const initial = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
       expect(initial.workspaces[0].dshWorkspaceId).toBe("dsh-workspace-1");

@@ -28,8 +28,6 @@ struct ManagedDsh {
 
 struct DshManager(Mutex<Option<ManagedDsh>>);
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct DshRuntimeInfo {
     base_url: String,
     token: String,
@@ -221,7 +219,12 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path) -> Result<(), String> 
         if client
             .get(url)
             .send()
-            .is_ok_and(|response| response.status().is_success())
+            .ok()
+            .filter(|response| response.status().is_success())
+            .and_then(|response| response.text().ok())
+            .is_some_and(|body| {
+                body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#
+            })
         {
             return Ok(());
         }
@@ -343,10 +346,22 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
 }
 
 #[tauri::command]
-async fn ensure_dsh_runtime(app: tauri::AppHandle) -> Result<DshRuntimeInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&app))
+async fn ensure_dsh_runtime(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<(), String> {
+    let runtime = tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&app))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())??;
+    let url: tauri::Url = format!(
+        "{}/bees-auth?token={}",
+        runtime.base_url, runtime.token
+    )
+    .parse()
+    .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
+    window
+        .navigate(url)
+        .map_err(|error| format!("Could not open the local Bees interface: {error}"))
 }
 
 #[tauri::command]
