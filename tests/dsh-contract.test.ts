@@ -204,6 +204,8 @@ describe("Bees DSH public contract", () => {
       });
       const completed = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
       const firstRun = completed.runs.find((run: any) => run.workItemId === created.id);
+      const history = (await request(server, routes, `/bees-api/run-history?executionId=${firstRun.id}`, { headers })).json() as any;
+      expect(history.history.messages).toContainEqual(expect.objectContaining({ role: "assistant" }));
       expect(harness.mountedPresets).toEqual(["standard"]);
       expect(harness.policies).toEqual(["ask"]);
       const references = (await request(
@@ -249,12 +251,16 @@ describe("Bees DSH public contract", () => {
       expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
       expect(client).toContain('...pinnedRows(pinned.route).map');
       expect(client).toContain('h(PinButton, { id: route, label: routeLabel, pins, setPins })');
-      expect(client).not.toMatch(/className: "bees-top"[\s\S]{0,1500}onClick: openDsh/);
-      expect(client).toContain('"bees: open product on startup"');
+      expect(client).toContain('h(ContextSwitcher, {');
+      expect(client).toContain('className: "bees-input bees-context-search"');
+      expect(client).toContain('document.addEventListener("pointerdown", dismiss, true)');
+      expect(client).toContain('action: "create_organization"');
+      expect(client).not.toContain("organizationOrder");
+      expect(client).not.toContain("EntityRail");
+      expect(client).toContain('api.llm.providers({})');
+      expect(client).not.toContain("openDsh");
       expect(client).toContain('ctx.settingsScope.bind({ namespace: "bees-ui" })');
-      expect(client).toContain('id: "bees-navigation"');
-      expect(client).toContain('ctx.inputTriggers.registerSource(referenceSource("@"))');
-      expect(client).toContain('ctx.inputTriggers.registerSource(referenceSource("$"))');
+      expect(client).not.toContain('id: "bees-navigation"');
       const runtimePackage = JSON.parse(readFileSync(new URL(
         "../dsh-runtime/package.json", import.meta.url
       ), "utf8"));

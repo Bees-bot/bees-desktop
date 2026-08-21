@@ -41,10 +41,12 @@ describe("DSH-owned desktop and recovery", () => {
     expect(permission).not.toContain("db_query");
     expect(entry).toContain('invoke<DshRuntime>("ensure_dsh_runtime")');
     expect(entry).toContain("/bees-auth?token=");
-    expect(profile).not.toMatch(/id: ui-settings-models\n  disabled: true/);
+    expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
     expect(profile).toContain("local-openai:");
     expect(client).toContain('id: "bees-product"');
-    expect(client).toContain('id: "bees-navigation"');
+    expect(client).not.toContain('id: "bees-navigation"');
+    expect(client).not.toContain("openDsh");
+    expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');
     expect(client).toContain('action: "edit_process"');
     expect(client).not.toContain('openButton.textContent = "Open Bees"');

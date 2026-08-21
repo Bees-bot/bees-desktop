@@ -434,7 +434,13 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_items_stage ON work_items(stage_id, updated_at);
     CREATE INDEX IF NOT EXISTS bees_locations_team ON team_locations(team_id, name);
   `);
-  if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) return;
+  if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
+    database.exec(`
+      UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
+      UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
+    `);
+    return;
+  }
   transaction(database, () => {
     const at = iso();
     const userId = randomUUID();
@@ -444,11 +450,11 @@ export function initializeProductDatabase(database) {
     const workspaceId = randomUUID();
     database.prepare("INSERT INTO users VALUES (?, 'You', ?, ?)").run(userId, at, at);
     database.prepare("INSERT INTO devices VALUES (?, 'This device', ?, ?)").run(deviceId, at, at);
-    database.prepare(`INSERT INTO organizations VALUES (?, 'Personal', 1, ?, 'active', ?, ?)`)
+    database.prepare(`INSERT INTO organizations VALUES (?, 'Personal Org', 1, ?, 'active', ?, ?)`)
       .run(organizationId, userId, at, at);
     database.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)")
       .run(userId, organizationId, at);
-    database.prepare(`INSERT INTO teams VALUES (?, ?, 'Personal', 1, ?, 'active', ?, ?)`)
+    database.prepare(`INSERT INTO teams VALUES (?, ?, 'Team1', 1, ?, 'active', ?, ?)`)
       .run(teamId, organizationId, userId, at, at);
     database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")
       .run(userId, teamId, at);
@@ -639,6 +645,16 @@ export class BeesProduct {
     `).all().map((row) => ({ ...row, metadata: JSON.parse(row.metadata) }));
   }
 
+  async runHistory(executionId) {
+    const id = required(executionId, "Run");
+    const row = this.database.prepare(`
+      SELECT workspace_id AS workspaceId FROM execution_links WHERE execution_id = ?
+    `).get(id);
+    if (!row) throw new Error("Run not found");
+    workspaceContext(this.database, row.workspaceId);
+    return this.agents.history(id);
+  }
+
   storeProposal({ workspaceId, sessionId, title, summary, changes }) {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
@@ -693,22 +709,22 @@ export class BeesProduct {
 
   async execute(action, input) {
     const at = iso();
+    if (action === "create_organization") return transaction(this.database, () => {
+      const { userId } = currentIdentity(this.database);
+      const id = randomUUID();
+      this.database.prepare(`INSERT INTO organizations VALUES (?, ?, 0, ?, 'active', ?, ?)`)
+        .run(id, required(input.name, "Organization name"), userId, at, at);
+      this.database.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)")
+        .run(userId, id, at);
+      return { id };
+    });
     if (action === "create_team") return transaction(this.database, () => {
       const { userId } = currentIdentity(this.database);
       const organizationId = required(input.organizationId, "Organization");
       if (!this.database.prepare(`
         SELECT 1 FROM organization_memberships WHERE user_id = ? AND organization_id = ? AND status = 'active'
       `).get(userId, organizationId)) throw new Error("You are not a member of this organization");
-      const id = action === "create_run" && input.scheduleOccurrenceId
-        ? stableUuid(`process-run:${input.scheduleOccurrenceId}`)
-        : randomUUID();
-      const existing = this.database.prepare(`
-        SELECT process_id AS processId FROM work_items WHERE id = ? AND deleted_at IS NULL
-      `).get(id);
-      if (existing) {
-        if (existing.processId !== processId) throw new Error("The scheduled run belongs to another process");
-        return { id };
-      }
+      const id = randomUUID();
       this.database.prepare(`INSERT INTO teams VALUES (?, ?, ?, 0, ?, 'active', ?, ?)`)
         .run(id, organizationId, required(input.name, "Team name"), userId, at, at);
       this.database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")

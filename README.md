@@ -24,15 +24,15 @@ DSH releases are upgraded as one pinned set through the
 ## Architecture
 
 - Tauri owns native lifecycle and launches DSH.
-- DSH owns models/providers, credentials, sessions, agents, tools, skills, MCP, approvals, and UI composition.
+- DSH supplies models/providers, credentials, sessions, agents, tools, skills, MCP, and approvals as an internal runtime; Bees owns the visible UI and product settings.
 - `dsh-runtime/plugin` owns the Bees board, schedules, run/recovery links, file boundaries, local document search, audit receipts, and Bees UI.
 - Product data starts fresh in the app-owned `bees-stage1.db`. Old Bees workspaces and runs are not migrated.
 
-The DSH button reveals the upstream client. The global Open Bees button returns to the product surface. DSH Models settings can configure hosted providers or a local OpenAI-compatible endpoint; Bees does not bundle a model server.
+Bees is the only visible product surface. Its settings pages expose the configured providers and models, including a local OpenAI-compatible endpoint; Bees does not bundle a model server.
 
 ## Data boundary
 
-Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after a DSH approval. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
+Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after approval in the Bees UI. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
 
 ## License
 

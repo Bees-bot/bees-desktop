@@ -35,8 +35,8 @@ window.__ModuleLoader__.load({
 
     const css = `
       .bees-app{position:absolute;inset:0;z-index:90;display:grid;grid-template-columns:240px 1fr;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:14px/1.4 system-ui,-apple-system,sans-serif;pointer-events:auto}
-      .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:auto}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 12px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}
-      .bees-scope{margin:0 12px 12px;width:calc(100% - 24px)}.bees-nav{display:grid;gap:2px;padding:0 8px 12px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link:hover,.bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;filter:grayscale(1);opacity:.55}.bees-nav-pin:hover,.bees-nav-pin.active{background:var(--dsw-alias-interactive-bg-hover);filter:none;opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}
+      .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:auto}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 10px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}.bees-context-switcher{position:relative;margin:0 12px 11px}.bees-context-switcher summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer;list-style:none}.bees-context-switcher summary::-webkit-details-marker{display:none}.bees-context-summary{min-width:0;flex:1}.bees-context-primary,.bees-context-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-context-primary{font-weight:750}.bees-context-secondary{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-context-arrow{color:var(--dsw-alias-label-secondary)}.bees-context-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:100%;max-height:430px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-context-search{margin-bottom:7px}.bees-context-section{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l1)}.bees-context-section:first-of-type{border-top:0}.bees-context-label{padding:2px 7px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}.bees-context-option{display:flex;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-context-option:hover,.bees-context-option.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-context-check{width:14px}.bees-context-add{color:var(--dsw-alias-label-secondary)}
+      .bees-nav{display:grid;gap:2px;padding:0 8px 12px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link:hover,.bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;filter:grayscale(1);opacity:.55}.bees-nav-pin:hover,.bees-nav-pin.active{background:var(--dsw-alias-interactive-bg-hover);filter:none;opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}
       .bees-main{min-width:0;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}
       .bees-btn,.bees-select,.bees-input,.bees-textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-button-elevated-fill);font:inherit}.bees-btn{padding:7px 11px;cursor:pointer}.bees-btn:hover{background:var(--dsw-alias-button-floating-hover)}.bees-btn.primary{background:#f2b84b;color:#21190b;border-color:#f2b84b;font-weight:700}.bees-btn.danger{color:#d15353}.bees-btn:disabled{opacity:.5;cursor:not-allowed}.bees-select,.bees-input,.bees-textarea{padding:8px 9px}.bees-input,.bees-textarea{width:100%}.bees-textarea{min-height:88px;resize:vertical}
       .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:15px;background:var(--dsw-specific-sidebar-fill)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;padding:28px;text-align:center;color:var(--dsw-alias-label-secondary)}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed,.bees-interrupted{color:#cf5b5b}
@@ -44,11 +44,9 @@ window.__ModuleLoader__.load({
       .bees-board{display:grid;grid-auto-columns:minmax(250px,1fr);grid-auto-flow:column;gap:12px;overflow-x:auto}.bees-column{min-height:260px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}.bees-column-head{display:flex;padding:12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-weight:750}.bees-count{margin-left:auto;color:var(--dsw-alias-label-secondary)}.bees-cards{display:grid;gap:8px;padding:9px}.bees-card{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;background:var(--dsw-alias-bg-base)}.bees-card h3{margin:0 0 4px}.bees-card p{white-space:pre-wrap;color:var(--dsw-alias-label-secondary);font-size:12px}.bees-card-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.bees-card-actions .bees-btn{padding:4px 7px;font-size:11px}
       .bees-create{position:relative}.bees-create[open] summary{background:var(--dsw-alias-interactive-bg-hover)}.bees-create summary{list-style:none}.bees-menu{position:absolute;right:0;top:42px;z-index:5;min-width:190px;display:grid;gap:3px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-menu .bees-nav-link{padding:8px}.bees-ask{position:fixed;right:22px;bottom:20px;z-index:95;border-radius:999px;box-shadow:0 8px 24px #0004}.bees-search{display:flex;gap:8px;margin-bottom:16px}
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
-      .bees-open{display:flex;width:100%;justify-content:center}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
-      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin,.bees-scope{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}}
+      .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
+      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}}
     `;
-
-    let activeReferenceWorkspaceId = "";
 
     async function request(path, options) {
       const response = await fetch(path, {
@@ -125,7 +123,10 @@ window.__ModuleLoader__.load({
       const [kind, id] = String(scope).split(":");
       const workspace = kind === "workspace" ? data.workspaces.find((row) => row.id === id) : null;
       const teamId = workspace?.teamId ?? (kind === "team" ? id : "");
-      return { workspaceId: workspace?.id ?? "", teamId, workspace };
+      const team = data.teams.find((row) => row.id === teamId);
+      const organizationId = team?.organizationId ?? (kind === "organization" ? id : "");
+      const organization = data.organizations.find((row) => row.id === organizationId);
+      return { workspaceId: workspace?.id ?? "", teamId, organizationId, workspace, team, organization };
     }
 
     function Empty({ children }) { return h("div", { className: "bees-empty" }, children); }
@@ -173,7 +174,7 @@ window.__ModuleLoader__.load({
         if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
       };
       const start = async () => {
-        const model = await ask("Model route (provider/model), or blank for the DSH default", "");
+        const model = await ask("Model route (provider/model), or blank for the default", "");
         if (model === null) return;
         await act({ action: "run_item", itemId: item.id, model: model || null });
       };
@@ -361,11 +362,11 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AgentsPage({ data, route, workspaceIds, workspaceId, act, openDsh }) {
+    function AgentsPage({ data, route, workspaceIds, workspaceId, act }) {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
-      if (route === "skills") return h(Empty, null, h("span", null, "Skills are owned by DSH. ", h(Button, { onClick: openDsh }, "Open DSH Skills")));
+      if (route === "skills") return h(Empty, null, "No additional skills are configured for this workspace.");
       const add = async () => {
-        const presetName = await ask(`DSH preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, data.presets.find(({ id }) => id === "standard")?.name ?? "standard");
+        const presetName = await ask(`Agent preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, data.presets.find(({ id }) => id === "standard")?.name ?? "standard");
         const preset = data.presets.find((row) => row.name === presetName || row.id === presetName); if (!preset) return;
         const name = await ask("Agent name", preset.name); if (!name) return;
         await act({ action: "add_agent_assignment", workspaceId, presetId: preset.id, name });
@@ -375,7 +376,7 @@ window.__ModuleLoader__.load({
         return rows.length ? rows.map((item) => h("div", { className: "bees-row", key: item.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, assignments.find(({ id }) => id === item.agentAssignmentId)?.name)))) : h(Empty, null, "No work is assigned to an agent yet");
       }
       return h("div", null, h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: add }, "New agent assignment")),
-        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.presetId} · ${agent.description || "DSH preset assignment"}`)))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
+        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.presetId} · ${agent.description || "Agent preset assignment"}`)))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
       );
     }
 
@@ -418,15 +419,36 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function ActivityPage({ data, route, workspaceIds, ctx, openDsh }) {
+    function ActivityPage({ data, route, workspaceIds }) {
       const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
       const [events, setEvents] = useState([]);
+      const [selected, setSelected] = useState("");
+      const [history, setHistory] = useState(null);
       useEffect(() => { if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events)); }, [route]);
-      if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current DSH/Bees profile.");
+      useEffect(() => {
+        let active = true;
+        if (!selected) { setHistory(null); return () => { active = false; }; }
+        request(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`)
+          .then((value) => active && setHistory(value.history))
+          .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+        return () => { active = false; };
+      }, [selected]);
+      if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
       if (route === "audit") return h("div", null, ...(events.length ? events.map((event) => h("div", { className: "bees-row", key: event.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, event.type), h("div", { className: "bees-muted" }, new Date(event.createdAt).toLocaleString())))) : [h(Empty, { key: "empty" }, "No audit events yet")]));
-      return h("div", null, ...(runs.length ? runs.map((run) => h("button", { className: "bees-row bees-nav-link", key: run.id, onClick: () => { ctx.sessions.open(run.sessionId); openDsh(); } },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, new Date(run.updatedAt).toLocaleString())),
-        h("span", { className: `bees-status bees-${run.status}` }, run.status))) : [h(Empty, { key: "empty" }, "No runs yet")]))
+      const run = runs.find(({ id }) => id === selected);
+      if (run) return h("div", null,
+        h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelected("") }, "← Runs"), h("strong", null, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+        run.outputs.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
+        history?.error ? h(Empty, null, history.error) : history ? h("div", { className: "bees-transcript" },
+          ...(history.messages?.length ? history.messages.map((message) => h("div", { className: "bees-message", key: message.id },
+            h("strong", null, message.role),
+            message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))
+          )) : [h(Empty, { key: "empty" }, "No transcript messages yet")])
+        ) : h(Empty, null, "Loading transcript…")
+      );
+      return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setSelected(row.id) },
+        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, new Date(row.updatedAt).toLocaleString())),
+        h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No runs yet")]))
       ;
     }
 
@@ -444,37 +466,109 @@ window.__ModuleLoader__.load({
       return h("div", null, h("form", { className: "bees-search", onSubmit: async (event) => { event.preventDefault(); setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results); } },
         h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")),
         ...results.map((result) => h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, result.title), h("div", { className: "bees-muted" }, result.excerpt)))),
-        h("p", { className: "bees-muted" }, "DSH owns conversation search; use its workspace sidebar to search transcripts."));
+        h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
     }
 
-    function SettingsPage({ data, route, workspaceId, teamId, openDsh }) {
-      const workspace = data.workspaces.find(({ id }) => id === workspaceId);
-      const team = data.teams.find(({ id }) => id === teamId);
-      const organization = data.organizations.find(({ id }) => id === team?.organizationId);
-      if (route === "models" || route === "connections") return h(Empty, null, h("span", null, `${route === "models" ? "Models and providers" : "MCP connections and credentials"} are owned by DSH. `, h(Button, { onClick: openDsh }, "Open DSH settings")));
-      if (route === "workspace-settings") return workspace ? h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, workspace.name), h("p", { className: "bees-muted" }, `${workspace.authority === "local" ? "Private on this device" : "Connected"} · ${workspace.hosting}`), h("p", { className: "bees-muted" }, `DSH workspace ${workspace.dshWorkspaceId || "initializing"}`))) : h(Empty, null, "Choose a workspace to view workspace settings");
-      if (route === "team-settings") return team ? h("section", { className: "bees-box" }, h("h3", null, team.name), h("p", { className: "bees-muted" }, `${team.role} · ${data.workspaces.filter((row) => row.teamId === team.id).length} workspaces · ${data.locations.filter((row) => row.teamId === team.id && !row.archivedAt).length} locations`)) : h(Empty, null, "Choose a team");
-      if (route === "organization-settings") return organization ? h("section", { className: "bees-box" }, h("h3", null, organization.name), h("p", { className: "bees-muted" }, `${organization.role} · ${organization.personal ? "personal organization" : "organization"}`)) : h(Empty, null, "Choose an organization");
-      return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Direct domain commands enforce membership and role checks. DSH approval protects publication and protected tools.")));
-    }
-
-    function ScopeSelector({ data, value, onChange }) {
-      const simple = data.organizations.length === 1 && data.teams.length === 1;
-      return h("select", { className: "bees-select bees-scope", value, onChange: (event) => onChange(event.target.value), "aria-label": "Organization, team, and workspace" },
-        ...data.teams.flatMap((team) => {
-          const organization = data.organizations.find(({ id }) => id === team.organizationId);
-          const options = [h("option", { key: `team:${team.id}`, value: `team:${team.id}` }, simple ? "All workspaces" : `${team.name} — All workspaces`),
-            ...data.workspaces.filter(({ teamId }) => teamId === team.id).map((workspace) => h("option", { key: `workspace:${workspace.id}`, value: `workspace:${workspace.id}` }, simple ? workspace.name : `${team.name} — ${workspace.name}`))];
-          return simple ? options : [h("optgroup", { key: team.id, label: `${organization?.name ?? "Organization"} / ${team.name}` }, ...options)];
-        })
+    function ModelsSettings({ ctx, modelSettings }) {
+      const config = usePreference(modelSettings);
+      const [catalog, setCatalog] = useState({ providers: [], groups: [], error: "" });
+      useEffect(() => {
+        let active = true;
+        const api = ctx.get("connection").api;
+        Promise.all([api.llm.providers({}), api.llm.models({})]).then(([providers, models]) => {
+          if (!active) return;
+          if (!providers.result.ok) throw new Error(providers.result.error.message);
+          if (!models.result.ok) throw new Error(models.result.error.message);
+          setCatalog({ providers: providers.result.value.providers, groups: models.result.value.groups, error: "" });
+        }).catch((error) => active && setCatalog({ providers: [], groups: [], error: error instanceof Error ? error.message : String(error) }));
+        return () => { active = false; };
+      }, [ctx]);
+      const local = config.providers?.["local-openai"] ?? {};
+      const editLocal = async () => {
+        const baseURL = await ask("Local OpenAI-compatible base URL", local.baseURL ?? "http://127.0.0.1:1234/v1");
+        if (!baseURL) return;
+        const currentModel = local.models?.[0] ?? {};
+        const modelId = await ask("Model ID", currentModel.id ?? "default"); if (!modelId) return;
+        const modelName = await ask("Model name", currentModel.name ?? modelId); if (!modelName) return;
+        await modelSettings.set("providers", { ...config.providers, "local-openai": {
+          ...local, displayName: local.displayName ?? "Local OpenAI-compatible", api: local.api ?? "openai-completions",
+          baseURL, models: [{ ...currentModel, id: modelId, name: modelName }]
+        } });
+      };
+      if (catalog.error) return h(Empty, null, catalog.error);
+      return h("div", { className: "bees-grid" },
+        h("section", { className: "bees-box" }, h("h3", null, "Local endpoint"),
+          h("p", { className: "bees-muted" }, `${local.baseURL ?? "http://127.0.0.1:1234/v1"} · ${local.models?.[0]?.id ?? "default"}`),
+          h(Button, { onClick: editLocal }, "Edit")),
+        ...catalog.providers.map((provider) => h("section", { className: "bees-box", key: provider.provider },
+          h("h3", null, provider.displayName), h("p", { className: "bees-muted" }, provider.active ? "Available" : "Unavailable"))),
+        ...catalog.groups.map((group) => h("section", { className: "bees-box", key: group.id },
+          h("h3", null, group.name), h("p", { className: "bees-muted" }, group.models.map(({ name }) => name).join(", ") || "No models")))
       );
     }
 
-    function BeesApp({ ctx, useSessions, preferences }) {
-      const currentSessionId = useSessions((state) => state.current);
-      const observedSession = useRef({ ready: false, id: undefined });
+    function SettingsPage({ ctx, data, route, workspaceId, teamId, organizationId, modelSettings }) {
+      const workspace = data.workspaces.find(({ id }) => id === workspaceId);
+      const team = data.teams.find(({ id }) => id === teamId);
+      const organization = data.organizations.find(({ id }) => id === organizationId);
+      if (route === "models") return h(ModelsSettings, { ctx, modelSettings });
+      if (route === "connections") return h(Empty, null, "No external tool connections are configured in this Bees profile.");
+      if (route === "workspace-settings") return workspace ? h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, workspace.name), h("p", { className: "bees-muted" }, `${workspace.authority === "local" ? "Private on this device" : "Connected"} · ${workspace.hosting}`), h("p", { className: "bees-muted" }, workspace.dshWorkspaceId ? "Runtime ready" : "Runtime initializing"))) : h(Empty, null, "Choose a workspace to view workspace settings");
+      if (route === "team-settings") return team ? h("section", { className: "bees-box" }, h("h3", null, team.name), h("p", { className: "bees-muted" }, `${team.role} · ${data.workspaces.filter((row) => row.teamId === team.id).length} workspaces · ${data.locations.filter((row) => row.teamId === team.id && !row.archivedAt).length} locations`)) : h(Empty, null, "Choose a team");
+      if (route === "organization-settings") return organization ? h("section", { className: "bees-box" }, h("h3", null, organization.name), h("p", { className: "bees-muted" }, `${organization.role} · ${organization.personal ? "personal organization" : "organization"}`)) : h(Empty, null, "Choose an organization");
+      return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
+    }
+
+    function ContextSwitcher({ data, organizationId, teamId, workspaceId, onChange, onCreateOrganization, onCreateTeam, onCreateWorkspace }) {
+      const [query, setQuery] = useState("");
+      const root = useRef(null);
+      useEffect(() => {
+        const dismiss = (event) => { if (!root.current?.contains(event.target)) root.current?.removeAttribute("open"); };
+        document.addEventListener("pointerdown", dismiss, true);
+        return () => document.removeEventListener("pointerdown", dismiss, true);
+      }, []);
+      const organization = data.organizations.find(({ id }) => id === organizationId);
+      const team = data.teams.find(({ id }) => id === teamId);
+      const workspace = data.workspaces.find(({ id }) => id === workspaceId);
+      const needle = query.trim().toLocaleLowerCase();
+      const matches = ({ name }) => !needle || name.toLocaleLowerCase().includes(needle);
+      const close = (event) => event.currentTarget.closest("details")?.removeAttribute("open");
+      const option = (row, active, select, closeAfter = false) => h("button", {
+        className: `bees-context-option ${active ? "active" : ""}`, key: row.id,
+        onClick: (event) => { select(); if (closeAfter) close(event); }
+      }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, active ? "✓" : ""), row.name);
+      const add = (label, action, disabled = false) => h("button", {
+        className: "bees-context-option bees-context-add", onClick: action, disabled
+      }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, "+"), label);
+      const organizations = data.organizations.filter(matches);
+      const teams = data.teams.filter((row) => row.organizationId === organizationId && matches(row));
+      const workspaces = data.workspaces.filter((row) => row.teamId === teamId && matches(row));
+      return h("details", { className: "bees-context-switcher", ref: root },
+        h("summary", null,
+          h("div", { className: "bees-context-summary" },
+            h("div", { className: "bees-context-primary" }, organization?.name ?? "Choose organization"),
+            h("div", { className: "bees-context-secondary" }, team ? `${team.name} · ${workspace?.name ?? "All workspaces"}` : "Choose team")),
+          h("span", { className: "bees-context-arrow", "aria-hidden": "true" }, "▾")),
+        h("div", { className: "bees-context-panel" },
+          h("input", { className: "bees-input bees-context-search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search contexts", "aria-label": "Search organizations, teams, and workspaces" }),
+          h("div", { className: "bees-context-section" },
+            h("div", { className: "bees-context-label" }, "Organizations"),
+            ...organizations.map((row) => option(row, row.id === organizationId, () => onChange(`organization:${row.id}`))),
+            add("New organization", onCreateOrganization)),
+          h("div", { className: "bees-context-section" },
+            h("div", { className: "bees-context-label" }, organization ? `Teams in ${organization.name}` : "Teams"),
+            ...teams.map((row) => option(row, row.id === teamId, () => onChange(`team:${row.id}`))),
+            add("New team", onCreateTeam, !organizationId)),
+          h("div", { className: "bees-context-section" },
+            h("div", { className: "bees-context-label" }, team ? `Workspaces in ${team.name}` : "Workspaces"),
+            team && (!needle || "all workspaces".includes(needle)) ? option({ id: `all:${team.id}`, name: "All workspaces" }, !workspaceId, () => onChange(`team:${team.id}`), true) : null,
+            ...workspaces.map((row) => option(row, row.id === workspaceId, () => onChange(`workspace:${row.id}`), true)),
+            add("New workspace", onCreateWorkspace, !teamId)))
+      );
+    }
+
+    function BeesApp({ ctx, preferences, modelSettings }) {
       const preference = usePreference(preferences);
-      const [open, setOpen] = useState(true);
       const [data, setData] = useState(null);
       const [error, setError] = useState("");
       const [route, setRoute] = useState("home");
@@ -487,57 +581,46 @@ window.__ModuleLoader__.load({
       useEffect(() => { void load(); const timer = setInterval(() => void load(), 5000); return () => clearInterval(timer); }, []);
       useEffect(() => {
         if (!data) return;
-        const valid = new Set([...data.teams.map(({ id }) => `team:${id}`), ...data.workspaces.map(({ id }) => `workspace:${id}`)]);
-        const preferred = valid.has(preference.lastScope) ? preference.lastScope : `workspace:${data.workspaces[0]?.id ?? ""}`;
+        const valid = new Set([...data.organizations.map(({ id }) => `organization:${id}`), ...data.teams.map(({ id }) => `team:${id}`), ...data.workspaces.map(({ id }) => `workspace:${id}`)]);
+        const preferred = valid.has(preference.lastScope) ? preference.lastScope
+          : data.workspaces[0] ? `workspace:${data.workspaces[0].id}` : `organization:${data.organizations[0]?.id ?? ""}`;
         setScopeState((current) => valid.has(current) ? current : preferred);
       }, [data, preference.lastScope]);
       const setScope = (next) => {
         setScopeState(next); setProcessId("");
         void preferences.set("lastScope", next);
       };
-      const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "" };
-      activeReferenceWorkspaceId = parts.workspaceId;
+      const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
       const workspaceIds = data ? (parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id)) : [];
-      useEffect(() => {
-        if (!data || (observedSession.current.ready && observedSession.current.id === currentSessionId)) return;
-        observedSession.current = { ready: true, id: currentSessionId };
-        if (!currentSessionId) return;
-        const run = data.runs.find((row) => row.sessionId === currentSessionId || row.previousSessionId === currentSessionId);
-        if (!run) return setOpen(false);
-        if (run.workItemId) {
-          setScope(`workspace:${run.workspaceId}`); setRoute("runs"); setOpen(true);
-        } else setOpen(false);
-      }, [currentSessionId, data]);
-      useEffect(() => {
-        const navigate = (event) => { setRoute(event.detail || "home"); setOpen(true); ctx.layout.closeDetails(); };
-        window.addEventListener("bees:navigate", navigate);
-        return () => window.removeEventListener("bees:navigate", navigate);
-      }, [ctx]);
       const act = async (command) => {
         try { const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) }); await load(); return result; }
         catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
       };
-      const openDsh = () => { setOpen(false); ctx.layout.closeDetails(); };
       const askBees = async (outcome) => {
         if (!parts.workspaceId) return null;
         const result = await act({ action: "ask_bees", workspaceId: parts.workspaceId, outcome });
-        if (result?.sessionId) { ctx.sessions.open(result.sessionId); openDsh(); }
+        if (result?.sessionId) setRoute("runs");
         return result;
       };
       const navigate = (id) => {
         const section = NAVIGATION.find((row) => row.id === id);
         setRoute(section ? section.defaultChild : id); setProcessId("");
       };
+      const createOrganization = async () => {
+        const name = await ask("Organization name", ""); if (!name) return;
+        const result = await act({ action: "create_organization", name });
+        if (result?.id) setScope(`organization:${result.id}`);
+      };
       const createTeam = async () => {
-        const organizationName = await ask(`Organization:\n${data.organizations.map(({ name }) => name).join("\n")}`, data.organizations[0]?.name ?? "");
-        const organization = data.organizations.find(({ name }) => name === organizationName); if (!organization) return;
+        const organization = data.organizations.find(({ id }) => id === parts.organizationId); if (!organization) return;
         const name = await ask("Team name", ""); if (!name) return;
         const result = await act({ action: "create_team", organizationId: organization.id, name });
         if (result?.id) setScope(`team:${result.id}`);
       };
       const createWorkspace = async () => {
         let team = data.teams.find(({ id }) => id === parts.teamId);
-        if (!team) { const name = await ask(`Team:\n${data.teams.map(({ name }) => name).join("\n")}`); team = data.teams.find((row) => row.name === name); }
+        const teams = data.teams.filter(({ organizationId }) => organizationId === parts.organizationId);
+        if (!team) { const name = await ask(`Team:\n${teams.map(({ name }) => name).join("\n")}`); team = teams.find((row) => row.name === name); }
         if (!team) return;
         const name = await ask("Workspace name", ""); if (!name) return;
         const result = await act({ action: "create_workspace", teamId: team.id, name });
@@ -560,11 +643,10 @@ window.__ModuleLoader__.load({
       };
       const createAgent = async () => {
         if (!parts.workspaceId) return;
-        const presetName = await ask(`DSH preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, "standard");
+        const presetName = await ask(`Agent preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, "standard");
         const preset = data.presets.find((row) => row.name === presetName || row.id === presetName); if (!preset) return;
         const name = await ask("Agent name", preset.name); if (name) await act({ action: "add_agent_assignment", workspaceId: parts.workspaceId, presetId: preset.id, name });
       };
-      if (!open) return null;
       if (!data) return h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…");
       const section = sectionFor(route);
       const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
@@ -593,7 +675,7 @@ window.__ModuleLoader__.load({
           .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
         if (targetRoute === "runs") return data.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
           id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees",
-          open: () => { ctx.sessions.open(row.sessionId); openDsh(); }
+          open: openRoute
         }));
         if (targetRoute === "artifacts") return data.runs.filter((row) => row.workspaceId === parts.workspaceId && row.outputs.length)
           .map((row) => ({ id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
@@ -603,8 +685,7 @@ window.__ModuleLoader__.load({
           return team ? [{ id: team.id, label: team.name, open: openRoute }] : [];
         }
         if (targetRoute === "organization-settings") {
-          const team = data.teams.find(({ id }) => id === parts.teamId);
-          const organization = data.organizations.find(({ id }) => id === team?.organizationId);
+          const organization = data.organizations.find(({ id }) => id === parts.organizationId);
           return organization ? [{ id: organization.id, label: organization.name, open: openRoute }] : [];
         }
         return [];
@@ -612,15 +693,16 @@ window.__ModuleLoader__.load({
       const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees })
         : section.id === "work" ? h(WorkPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act, openProcess })
           : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, act })
-            : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act, openDsh })
+            : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act })
               : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
-                : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, ctx, openDsh })
+                : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds })
                   : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
-                    : h(SettingsPage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, openDsh });
+                    : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings });
       return h("div", { className: "bees-app" },
         h("aside", { className: "bees-sidebar" },
           h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees")),
-          h(ScopeSelector, { data, value: scope, onChange: setScope }),
+          h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, workspaceId: parts.workspaceId,
+            onChange: setScope, onCreateOrganization: createOrganization, onCreateTeam: createTeam, onCreateWorkspace: createWorkspace }),
           h("nav", { className: "bees-nav", "aria-label": "Bees navigation" },
             ...pins.map((id) => {
               const pinned = navigationItem(id);
@@ -640,21 +722,21 @@ window.__ModuleLoader__.load({
                   h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
                   h(PinButton, { id: child, label, pins, setPins }))) : [])
             ]))
-          ),
-          h("div", { className: "bees-sidebar-foot" }, h(Button, { className: "bees-open", onClick: openDsh }, "DSH"))
+          )
         ),
         h("section", { className: "bees-main" },
           h("header", { className: "bees-top" }, h("div", { className: "bees-title" }, routeLabel),
-            route !== "home" ? h("div", { className: "bees-context" }, parts.workspaceId ? parts.workspace?.name : "All workspaces in this team") : null,
+            route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
             route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null,
             h("div", { className: "bees-grow" }),
             h("details", { className: "bees-create" }, h("summary", { className: "bees-btn", title: "Create", role: "button", "aria-label": "Create" }, "+"), h("div", { className: "bees-menu" },
-              h("button", { className: "bees-nav-link", onClick: createWorkspace }, "New workspace"),
+              h("button", { className: "bees-nav-link", onClick: createOrganization }, "New organization"),
+              h("button", { className: "bees-nav-link", disabled: !parts.teamId && !data.teams.some(({ organizationId }) => organizationId === parts.organizationId), onClick: createWorkspace }, "New workspace"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createGoal }, "New goal"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createProcess }, "New process"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createRun }, "New one-off run"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createAgent }, "New agent"),
-              h("button", { className: "bees-nav-link", onClick: createTeam }, "New team")
+              h("button", { className: "bees-nav-link", disabled: !parts.organizationId, onClick: createTeam }, "New team")
             ))),
           error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
           h("main", { className: "bees-content" }, h("div", { className: "bees-panel" }, page)),
@@ -663,16 +745,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function SidebarProductNav({ wide }) {
-      return h("button", { type: "button", className: "bees-btn bees-open", title: "Open Bees", onClick: () => window.dispatchEvent(new CustomEvent("bees:navigate", { detail: "home" })) }, wide ? "Open Bees" : "B");
-    }
-
-    function referenceToken(item) {
-      const prefix = item.namespace === "$" ? "$" : "@";
-      return `${prefix}[${String(item.label).replace(/[\]\\]/g, "")}](bees:${item.kind}:${item.id})`;
-    }
-
-    exports.inject = ["slots", "inputTriggers", "workspaces", "layout", "sessions", "settingsScope"];
+    exports.inject = ["slots", "workspaces", "settingsScope", "connection"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
@@ -680,42 +753,11 @@ window.__ModuleLoader__.load({
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
       const preferences = ctx.settingsScope.bind({ namespace: "bees-ui" });
+      const modelSettings = ctx.settingsScope.bind({ namespace: "llm-pi-ai" });
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({
         name: "shell.overlay", id: "bees-product", order: -100, label: "Bees",
-        inject: () => ({ ctx, preferences })
+        inject: () => ({ ctx, preferences, modelSettings })
       }, BeesApp));
-      ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-        name: "sidebar.footer.action", id: "bees-navigation", order: -100, label: "Bees"
-      }, SidebarProductNav));
-      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({
-        name: "sidebar.brand.name", id: "bees-brand", priority: -100
-      }, () => h("span", null, "Bees")));
-      ctx.effect(() => {
-        const timer = setTimeout(() =>
-          window.dispatchEvent(new CustomEvent("bees:navigate", { detail: "home" })), 750);
-        return () => clearTimeout(timer);
-      }, "bees: open product on startup");
-      const cache = new Map();
-      const referenceSource = (trigger) => ({
-        trigger, name: trigger === "$" ? "bees-files" : "bees", order: -20, showGroupTitle: true,
-        async candidates(_session, { query, signal }) {
-          if (!activeReferenceWorkspaceId) return [];
-          const value = await request(`/bees-api/references?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(activeReferenceWorkspaceId)}`, { signal });
-          const rows = (trigger === "$" ? value.dollar ?? [] : value.at ?? [])
-            .map((item) => ({ ...item, namespace: trigger }));
-          for (const item of rows) cache.set(`${item.kind}:${item.id}`, item);
-          return rows.map((item) => ({ name: `${item.namespace}[${item.label}]`, description: item.kind, section: trigger === "$" ? "Files & Folders" : "Bees", value: JSON.stringify(item) }));
-        },
-        onPick({ candidate }) {
-          const item = JSON.parse(candidate.value);
-          const token = referenceToken(item);
-          return { insert: { source: "bees", ref: token, label: `${item.namespace}[${item.label}]`, clipboardText: token } };
-        },
-        lexicon: () => [...cache.values()].filter((item) => item.namespace === trigger).map((item) => `${item.namespace}[${item.label}]`),
-        codec: { clipboardText: (ref) => ref, serialize: (ref) => Promise.resolve(ref) }
-      });
-      ctx.effect(() => ctx.inputTriggers.registerSource(referenceSource("@")), "bees: typed @ references");
-      ctx.effect(() => ctx.inputTriggers.registerSource(referenceSource("$")), "bees: typed $ references");
     };
     return module.exports;
   }

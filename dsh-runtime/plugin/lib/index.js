@@ -148,6 +148,12 @@ export async function apply(ctx) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (_req, res) =>
     reply(res, 200, { events: product.audit() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/run-history", handler: async (req, res) => {
+    try {
+      const executionId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("executionId") ?? "";
+      reply(res, 200, { history: await product.runHistory(executionId) });
+    } catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try { reply(res, 200, await product.command(await body(req))); }

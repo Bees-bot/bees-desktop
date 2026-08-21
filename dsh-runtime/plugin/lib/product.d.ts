@@ -6,6 +6,7 @@ export class BeesProduct {
   references(query: string, workspaceId: string): Promise<any>;
   search(query: string, workspaceId: string): any[];
   audit(): any[];
+  runHistory(executionId: string): Promise<any>;
   storeProposal(input: Record<string, any>): any;
   command(input: Record<string, any>): Promise<any>;
 }

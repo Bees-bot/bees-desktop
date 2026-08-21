@@ -17,7 +17,7 @@ describe("Bees DSH product plugin", () => {
       SELECT o.name AS organization, t.name AS team, w.name AS workspace
       FROM organizations o JOIN teams t ON t.organization_id = o.id
       JOIN workspaces w ON w.team_id = t.id
-    `).get()).toEqual({ organization: "Personal", team: "Personal", workspace: "My workspace" });
+    `).get()).toEqual({ organization: "Personal Org", team: "Team1", workspace: "My workspace" });
     expect(database.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
         ('organization_memberships','team_memberships','team_locations','device_location_mappings')
@@ -27,6 +27,11 @@ describe("Bees DSH product plugin", () => {
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
     expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+
+    database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
+    initializeProductDatabase(database);
+    expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
+    expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
   });
 
   it("shares team locations across workspaces and owns private work, proposals, and schedules", async () => {
@@ -43,6 +48,10 @@ describe("Bees DSH product plugin", () => {
     const initial = await product.snapshot();
     const workspace = initial.workspaces[0];
     const team = initial.teams[0];
+    const organization = await product.command({ action: "create_organization", name: "Acme" });
+    const organizationTeam = await product.command({ action: "create_team", organizationId: organization.id, name: "Marketing" });
+    expect((await product.snapshot()).organizations).toContainEqual(expect.objectContaining({ id: organization.id, name: "Acme", role: "owner" }));
+    expect((await product.snapshot()).teams).toContainEqual(expect.objectContaining({ id: organizationTeam.id, organizationId: organization.id, name: "Marketing" }));
     const goals = initial.processes.find(({ workspaceId, kind }: any) => workspaceId === workspace.id && kind === "goals");
     const plan = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Plan");
     const doing = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Doing");

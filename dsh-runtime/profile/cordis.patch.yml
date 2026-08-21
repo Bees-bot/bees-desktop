@@ -23,9 +23,11 @@
     mode: workspace-write
     workspaceRoot: !!js process.env.BEES_DEFAULT_WORKSPACE
 
-# Keep the upstream Models settings page, but give clean installs a keyless
-# local OpenAI-compatible route. That makes onboarding optional while leaving
-# provider/model configuration in DSH where it belongs.
+- id: ui-settings-models
+  disabled: true
+
+# Bees renders provider/model settings. Clean installs still receive a keyless
+# local OpenAI-compatible route from the internal runtime profile.
 - id: llm-pi-ai
   config:
     providers:
