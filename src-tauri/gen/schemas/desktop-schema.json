@@ -177,10 +177,10 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Allows the bootstrap page to start the local DSH runtime.",
+          "description": "Allows the Bees interface to manage its bundled local runtimes.",
           "type": "string",
           "const": "allow-bees-ui",
-          "markdownDescription": "Allows the bootstrap page to start the local DSH runtime."
+          "markdownDescription": "Allows the Bees interface to manage its bundled local runtimes."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

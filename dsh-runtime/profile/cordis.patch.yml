@@ -26,8 +26,13 @@
 - id: ui-settings-models
   disabled: true
 
-# Bees renders provider/model settings. Clean installs still receive a keyless
-# local OpenAI-compatible route from the internal runtime profile.
+- id: agent-default-model
+  config:
+    provider: local-openai
+    model: active
+
+# Provider transport remains in DSH's llm-pi-ai plugin. The Bees feature
+# plugins own their setup UI and lifecycle without registering duplicate routes.
 - id: llm-pi-ai
   config:
     providers:
@@ -36,12 +41,19 @@
         api: openai-completions
         baseURL: http://127.0.0.1:1234/v1
         models:
-          - id: default
-            name: Local model
-            contextWindow: 32768
+          - id: active
+            name: Nanbeige 4.2 3B (Q6_K)
+            contextWindow: 8192
             maxTokens: 4096
-
 - insert:
+    - id: bees-local-ai
+      name: '@bees/dsh-local-ai'
+    - id: bees-subscriptions
+      name: '@bees/dsh-subscriptions'
+    - id: bees-free-ai
+      name: '@bees/dsh-free-ai'
+    - id: bees-custom-ai
+      name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
       inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings]

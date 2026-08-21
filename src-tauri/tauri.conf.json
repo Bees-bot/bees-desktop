@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [{
       "title": "Bees",
       "width": 1180,
@@ -31,6 +32,9 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/bees-node"],
-    "resources": { "../dsh-runtime": "dsh-runtime" }
+    "resources": {
+      "../dsh-runtime": "dsh-runtime",
+      "../llama-runtime": "llama-runtime"
+    }
   }
 }

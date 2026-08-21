@@ -1,6 +1,11 @@
+mod local_models;
 mod process;
 
 use getrandom::fill;
+use local_models::{
+    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status,
+    reap_orphan_llama_servers, start_local_model, stop_local_model, LocalModelManager,
+};
 use process::{available_loopback_port, reap_orphaned_node_sidecars, Sidecar};
 use serde::Serialize;
 use std::{
@@ -28,6 +33,13 @@ struct DshManager(Mutex<Option<ManagedDsh>>);
 struct DshRuntimeInfo {
     base_url: String,
     token: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalModelConnection {
+    base_url: String,
+    context_window: u32,
 }
 
 fn token() -> Result<String, String> {
@@ -70,7 +82,28 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     if !entry.is_file()
         || !runtime.join("profile").join("package.json").is_file()
         || !runtime.join("profile").join("cordis.patch.yml").is_file()
-        || !runtime.join("plugin").join("lib").join("index.js").is_file()
+        || !runtime
+            .join("plugin")
+            .join("lib")
+            .join("index.js")
+            .is_file()
+        || !runtime.join("freellmapi").join("server.mjs").is_file()
+        || [
+            "dsh-local-ai",
+            "dsh-free-ai",
+            "dsh-custom-ai",
+            "dsh-subscriptions",
+        ]
+        .iter()
+        .any(|package| {
+            !runtime
+                .join("node_modules")
+                .join("@bees")
+                .join(package)
+                .join("lib")
+                .join("index.js")
+                .is_file()
+        })
     {
         return Err("The bundled DeepSeek Harness application is missing. Reinstall Bees.".into());
     }
@@ -88,7 +121,10 @@ fn copy_profile(runtime: &Path, profile: &Path) -> Result<(), String> {
 
 fn link_package(source: &Path, destination: &Path) -> Result<(), String> {
     if !source.is_dir() {
-        return Err(format!("The bundled DSH package {} is missing.", source.display()));
+        return Err(format!(
+            "The bundled DSH package {} is missing.",
+            source.display()
+        ));
     }
     let source = fs::canonicalize(source).map_err(|error| error.to_string())?;
     if fs::canonicalize(destination).ok().as_ref() == Some(&source) {
@@ -127,6 +163,10 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     for (scope, package) in [
         ("@deepseek-ai", "dsh-session-persistence-sqlite"),
         ("@bees", "dsh-plugin"),
+        ("@bees", "dsh-local-ai"),
+        ("@bees", "dsh-free-ai"),
+        ("@bees", "dsh-custom-ai"),
+        ("@bees", "dsh-subscriptions"),
     ] {
         link_package(
             &runtime.join("node_modules").join(scope).join(package),
@@ -215,6 +255,7 @@ fn inherit_environment(command: &mut Command) {
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "GEMINI_API_KEY",
+        "BEES_API_URL",
     ] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
@@ -242,7 +283,10 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         *managed = None;
     }
 
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let home = app_data.join("dsh");
     let workspace = app_data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
@@ -276,6 +320,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("BEES_DATABASE_PATH", app_data.join("bees-stage1.db"))
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
+        .env("BEES_RUNTIME_ROOT", &runtime)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
@@ -304,6 +349,65 @@ async fn ensure_dsh_runtime(app: tauri::AppHandle) -> Result<DshRuntimeInfo, Str
         .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+fn local_model_base_url(app: tauri::AppHandle) -> Result<String, String> {
+    local_models::local_model_routes(&app)?
+        .get("active")
+        .map(|route| route.url.clone())
+        .ok_or_else(|| "No local model is running.".to_string())
+}
+
+#[tauri::command]
+fn local_model_connection(app: tauri::AppHandle) -> Result<LocalModelConnection, String> {
+    local_models::local_model_routes(&app)?
+        .get("active")
+        .map(|route| LocalModelConnection {
+            base_url: route.url.clone(),
+            context_window: route.context_size,
+        })
+        .ok_or_else(|| "No local model is running.".to_string())
+}
+
+fn validated_external_url(url: &str) -> Result<&str, String> {
+    let url = url.trim();
+    let host = url
+        .strip_prefix("https://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .filter(|host| !host.is_empty() && !host.chars().any(char::is_whitespace));
+    if host.is_none() || url.chars().any(char::is_control) {
+        return Err("Bees can only open secure website links.".to_string());
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let url = validated_external_url(&url)?;
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    {
+        #[cfg(target_os = "macos")]
+        let mut command = Command::new("open");
+        #[cfg(target_os = "linux")]
+        let mut command = Command::new("xdg-open");
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("rundll32");
+            command.arg("url.dll,FileProtocolHandler");
+            command
+        };
+        command
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Could not open the website: {error}"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    Err("Opening website links is not supported on this device.".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
@@ -320,13 +424,42 @@ pub fn run() {
     }
     builder
         .setup(|app| {
+            reap_orphan_llama_servers();
             if let Ok((node, _)) = runtime_paths(app.handle()) {
                 reap_orphaned_node_sidecars(&node);
             }
+            app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ensure_dsh_runtime])
+        .invoke_handler(tauri::generate_handler![
+            ensure_dsh_runtime,
+            local_model_status,
+            ensure_local_model,
+            start_local_model,
+            stop_local_model,
+            cancel_local_model_download,
+            delete_local_model,
+            local_model_base_url,
+            local_model_connection,
+            open_external_url
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Bees");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validated_external_url;
+
+    #[test]
+    fn external_links_must_be_secure_websites() {
+        assert_eq!(
+            validated_external_url(" https://console.x.ai/team/default/api-keys "),
+            Ok("https://console.x.ai/team/default/api-keys")
+        );
+        assert!(validated_external_url("http://example.com").is_err());
+        assert!(validated_external_url("https://").is_err());
+        assert!(validated_external_url("https://example.com\nmalicious").is_err());
+    }
 }

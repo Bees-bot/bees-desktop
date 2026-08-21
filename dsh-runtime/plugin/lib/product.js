@@ -354,6 +354,14 @@ export function initializeProductDatabase(database) {
       status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
       PRIMARY KEY (user_id, team_id)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_account (
+      slot INTEGER PRIMARY KEY CHECK (slot = 1), user_id TEXT NOT NULL,
+      email TEXT NOT NULL, name TEXT NOT NULL, token TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_connected_organizations (
+      organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+      account_user_id TEXT NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
       dsh_workspace_id TEXT UNIQUE, name TEXT NOT NULL,
@@ -497,15 +505,22 @@ export class BeesProduct {
   async snapshot() {
     const { userId, deviceId } = currentIdentity(this.database);
     const organizations = this.database.prepare(`
-      SELECT o.id, o.name, o.personal, om.role
+      SELECT o.id, o.name, o.personal, om.role,
+             connected.organization_id IS NOT NULL AS connected
       FROM organizations o JOIN organization_memberships om ON om.organization_id = o.id
+      LEFT JOIN bees_connected_organizations connected ON connected.organization_id = o.id
       WHERE om.user_id = ? AND om.status = 'active' AND o.status = 'active' ORDER BY o.created_at
-    `).all(userId).map((row) => ({ ...row, personal: Boolean(row.personal) }));
+    `).all(userId).map((row) => ({
+      ...row, personal: Boolean(row.personal), connected: Boolean(row.connected)
+    }));
     const teams = this.database.prepare(`
       SELECT DISTINCT t.id, t.organization_id AS organizationId, t.name, t.personal,
-             coalesce(tm.role, CASE WHEN om.role IN ('owner','admin') THEN 'admin' END) AS role
+             CASE WHEN connected.organization_id IS NOT NULL THEN tm.role
+               ELSE coalesce(tm.role, CASE WHEN om.role IN ('owner','admin') THEN 'admin' END)
+             END AS role
       FROM teams t JOIN organization_memberships om ON om.organization_id = t.organization_id
       LEFT JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = ? AND tm.status = 'active'
+      LEFT JOIN bees_connected_organizations connected ON connected.organization_id = t.organization_id
       WHERE om.user_id = ? AND om.status = 'active' AND t.status = 'active'
         AND (tm.user_id IS NOT NULL OR om.role IN ('owner','admin'))
       ORDER BY t.created_at

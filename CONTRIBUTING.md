@@ -36,7 +36,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 You'll need Node 22.19+, npm 10+, Rust 1.84+, and the native toolchain for your platform.
-The desktop bundles neither PostgreSQL, Python, CMake-built components, nor a model server.
+The desktop bundles neither PostgreSQL nor Python. It does bundle `llama-server`; the first
+macOS build compiles it and therefore also needs CMake (`brew install cmake`).
 
 **One heads up.** This is Tauri, so it needs a native toolchain. Codespaces and dev
 containers are fine for the API and the website, but **not** for the desktop app. You

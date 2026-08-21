@@ -7,6 +7,8 @@ flue-runtime/project/dist/
 flue-runtime/project/.flue-vite/
 llama-runtime/*
 !llama-runtime/.gitkeep
+dsh-runtime/freellmapi/*
+!dsh-runtime/freellmapi/.gitkeep
 runtime/
 .env
 .env.*

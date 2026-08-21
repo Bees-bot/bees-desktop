@@ -1,0 +1,194 @@
+window.__ModuleLoader__.load({
+  id: "@bees/dsh-custom-ai",
+  factory: (require) => {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const React = require("react");
+    const h = React.createElement;
+    const { useEffect, useMemo, useState } = React;
+
+    const PROVIDERS = [
+      { id: "openrouter", name: "OpenRouter", signup: "https://openrouter.ai/keys", note: "Uses API credits and paid models" },
+      { id: "google", name: "Google AI Studio", signup: "https://aistudio.google.com/apikey", note: "Gemini API" },
+      { id: "groq", name: "Groq", signup: "https://console.groq.com/keys", note: "Fast hosted models" },
+      { id: "cerebras", name: "Cerebras", signup: "https://cloud.cerebras.ai", note: "Fast hosted models" },
+      { id: "mistral", name: "Mistral", signup: "https://console.mistral.ai/api-keys/", note: "Mistral platform" },
+      { id: "nvidia", name: "NVIDIA NIM", signup: "https://build.nvidia.com/settings/api-keys", note: "Hosted model catalog" },
+      { id: "deepseek", name: "DeepSeek", signup: "https://platform.deepseek.com/api_keys", note: "DeepSeek API" },
+      { id: "huggingface", name: "Hugging Face", signup: "https://huggingface.co/settings/tokens", note: "Inference providers" },
+      { id: "together", name: "Together AI", signup: "https://api.together.ai/settings/api-keys", note: "Open model hosting" },
+      { id: "fireworks", name: "Fireworks AI", signup: "https://app.fireworks.ai/settings/users/api-keys", note: "Open model hosting" },
+      { id: "xai", name: "xAI", signup: "https://console.x.ai/team/default/api-keys", note: "Grok API" }
+    ];
+    const BY_ID = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]));
+    // Preserve credentials saved by the earlier combined AI APIs screen.
+    const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
+    const css = `
+      .bees-general-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-general-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}.bees-general-table table{width:100%;min-width:820px;border-collapse:collapse}.bees-general-table th,.bees-general-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-general-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase}.bees-general-table tbody tr:last-child td{border-bottom:0}.bees-general-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-general-add{display:grid;grid-template-columns:minmax(160px,1fr) minmax(220px,2fr);gap:10px;align-items:end}.bees-general-add label{display:grid;gap:5px}.bees-general-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;grid-column:1/-1}.bees-general-card{display:grid;gap:3px;min-height:70px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;cursor:pointer}.bees-general-card:hover,.bees-general-card.active{border-color:#f2b84b;background:#f2b84b18}.bees-general-card span{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-general-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-general-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative}.bees-general-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.bees-general-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-general-toggle input:checked:after{left:16px;background:#151515}@media(max-width:760px){.bees-general-add{grid-template-columns:1fr}}
+    `;
+
+    function usePreference(scope) {
+      const [snapshot, setSnapshot] = useState(() => scope.getSnapshot());
+      useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope]);
+      return snapshot.value ?? {};
+    }
+
+    const unwrap = (response) => {
+      if (!response.result.ok) throw new Error(response.result.error.message);
+      return response.result.value;
+    };
+
+    async function testProvider(provider) {
+      const response = await fetch("/bees-api/general-ai/test", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider })
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || "Connection test failed");
+      return value;
+    }
+
+    function CustomAiSettings({ ctx, modelSettings, preferences, ask, confirmAction, openExternal, Button }) {
+      const config = usePreference(modelSettings);
+      const ui = usePreference(preferences);
+      const credentials = ctx.get("connection").api.credentials;
+      const custom = config.providers?.["custom-openai"] ?? {};
+      const [credentialState, setCredentialState] = useState({});
+      const [tests, setTests] = useState({});
+      const [adding, setAdding] = useState(false);
+      const [selected, setSelected] = useState("");
+      const [key, setKey] = useState("");
+      const [busy, setBusy] = useState("");
+      const [error, setError] = useState("");
+      const ids = useMemo(() => [...new Set([
+        ...(Array.isArray(ui.generalAiProviders) ? ui.generalAiProviders : []),
+        ...(Array.isArray(ui.freeAiProviders) ? ui.freeAiProviders : []),
+        ...PROVIDERS.filter(({ id }) => config.providers?.[id]).map(({ id }) => id)
+      ])].filter((id) => BY_ID[id]), [ui.generalAiProviders, ui.freeAiProviders, config.providers]);
+      const available = PROVIDERS.filter(({ id }) => !ids.includes(id));
+      const chosen = available.some(({ id }) => id === selected) ? selected : "";
+
+      const refreshCredentials = async () => {
+        const refs = Object.fromEntries(PROVIDERS.map(({ id }) => [id, refFor(id)]));
+        const value = unwrap(await credentials.describe({ refs: Object.values(refs) }));
+        setCredentialState(Object.fromEntries(PROVIDERS.map(({ id }) => [id, value.credentials[refs[id]]?.configured === true])));
+      };
+      useEffect(() => { void refreshCredentials().catch((reason) => setError(reason.message)); }, [ctx]);
+
+      const perform = async (name, work) => {
+        setBusy(name); setError("");
+        try { await work(); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(""); }
+      };
+      const saveKey = async (id, value) => {
+        unwrap(await credentials.set({ ref: refFor(id), value }));
+        await refreshCredentials();
+      };
+      const setEnabled = async (id, enabled) => {
+        const providers = { ...(config.providers ?? {}) };
+        if (enabled) providers[id] = { ...(providers[id] ?? {}), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
+        else delete providers[id];
+        await modelSettings.set("providers", providers);
+      };
+      const saveProviderIds = async (next) => {
+        await preferences.set("generalAiProviders", next);
+        if (Array.isArray(ui.freeAiProviders)) await preferences.set("freeAiProviders", []);
+      };
+      const add = () => perform(`add:${chosen}`, async () => {
+        if (!chosen) throw new Error("Choose a provider");
+        if (!key.trim()) throw new Error("Enter the API key");
+        await saveKey(chosen, key.trim());
+        const result = await testProvider(chosen);
+        setTests((current) => ({ ...current, [chosen]: result.message }));
+        await saveProviderIds([...new Set([...ids, chosen])]);
+        await setEnabled(chosen, true);
+        setKey(""); setSelected(""); setAdding(false);
+      });
+      const replaceKey = (id) => perform(`key:${id}`, async () => {
+        const value = await ask(`${BY_ID[id].name} API key`, "", "password");
+        if (!value) return;
+        await saveKey(id, value);
+        const result = await testProvider(id);
+        setTests((current) => ({ ...current, [id]: result.message }));
+      });
+      const test = (id) => perform(`test:${id}`, async () => {
+        const result = await testProvider(id);
+        setTests((current) => ({ ...current, [id]: result.message }));
+      });
+      const remove = (id) => perform(`remove:${id}`, async () => {
+        if (!await confirmAction(`Remove ${BY_ID[id].name} and its saved API key?`)) return;
+        await setEnabled(id, false);
+        unwrap(await credentials.unset({ ref: refFor(id) }));
+        await saveProviderIds(ids.filter((value) => value !== id));
+        await refreshCredentials();
+      });
+      const configureCustom = () => perform("custom", async () => {
+        const baseURL = await ask("Custom OpenAI-compatible API base URL", custom.baseURL ?? "https://api.example.com/v1");
+        if (!baseURL) return;
+        const currentModel = custom.models?.[0] ?? {};
+        const modelId = await ask("Model ID", currentModel.id ?? "default"); if (!modelId) return;
+        const modelName = await ask("Model name", currentModel.name ?? modelId); if (!modelName) return;
+        const value = await ask("API key (leave blank to keep the stored key)", "", "password");
+        if (value) unwrap(await credentials.set({ ref: "BEES_CUSTOM_OPENAI_API_KEY", value }));
+        await modelSettings.set("providers", { ...(config.providers ?? {}), "custom-openai": {
+          ...custom, displayName: "Custom OpenAI-compatible API", api: custom.api ?? "openai-completions", baseURL,
+          apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY",
+          models: [{ contextWindow: 131072, maxTokens: 8192, ...currentModel, id: modelId, name: modelName }]
+        } });
+      });
+
+      return h("section", { "data-bees-plugin": "@bees/dsh-custom-ai" },
+        h("div", { className: "bees-general-head" }, h("div", null,
+          h("h2", { className: "bees-section-title" }, "General AI APIs"),
+          h("p", { className: "bees-muted" }, "Direct provider connections use your normal API account and may consume credits. These are separate from Free LLM.")),
+          h(Button, { className: "primary", disabled: Boolean(busy) || (!adding && !available.length),
+            onClick: () => { setAdding((value) => !value); setSelected(""); setKey(""); } }, adding ? "Cancel" : available.length ? "Add provider" : "All added")),
+        adding ? h("section", { className: "bees-box bees-general-add" },
+          h("div", { className: "bees-general-grid", role: "list", "aria-label": "General AI API providers" },
+            ...available.map((provider) => h("button", { type: "button", key: provider.id, className: `bees-general-card ${chosen === provider.id ? "active" : ""}`,
+              "aria-pressed": chosen === provider.id, onClick: () => { setSelected(provider.id); setKey(""); } },
+              h("strong", null, provider.name), h("span", null, provider.note)))),
+          chosen ? h(React.Fragment, null,
+            h("label", null, `${BY_ID[chosen].name} API key`, h("input", { className: "bees-input", type: "password", value: key,
+              autoComplete: "off", placeholder: "Paste the key here", onChange: (event) => setKey(event.target.value) })),
+            h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${chosen}`, () => openExternal(BY_ID[chosen].signup)) }, "Create key / sign up"),
+            h(Button, { className: "primary", disabled: Boolean(busy) || !key.trim(), onClick: add }, busy === `add:${chosen}` ? "Testing…" : "Add and test")) :
+            h("p", { className: "bees-muted" }, "Choose a provider to configure it.")) : null,
+        ids.length ? h("div", { className: "bees-general-table" }, h("table", null,
+          h("thead", null, h("tr", null, h("th", null, "Provider"), h("th", null, "Sign up"), h("th", null, "Details"), h("th", null, "Test"), h("th", null, "Enabled"), h("th", null, "Remove"))),
+          h("tbody", null, ...ids.map((id) => {
+            const provider = BY_ID[id];
+            const enabled = Boolean(config.providers?.[id]);
+            return h("tr", { key: id, "data-provider-id": id },
+              h("td", null, h("strong", null, provider.name), h("div", { className: "bees-muted" }, provider.note)),
+              h("td", null, h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${id}`, () => openExternal(provider.signup)) }, "Provider website")),
+              h("td", null, h("div", { className: "bees-general-actions" },
+                h("span", { className: `bees-status ${credentialState[id] ? "bees-running" : ""}` }, credentialState[id] ? "API key saved" : "API key needed"),
+                h(Button, { disabled: Boolean(busy), onClick: () => replaceKey(id) }, credentialState[id] ? "Replace" : "Add key"))),
+              h("td", null, h("div", { className: "bees-general-actions" },
+                h(Button, { disabled: Boolean(busy) || !credentialState[id], onClick: () => test(id) }, busy === `test:${id}` ? "Testing…" : "Test"),
+                tests[id] ? h("span", { className: "bees-status bees-running" }, tests[id]) : null)),
+              h("td", null, h("label", { className: "bees-general-toggle" },
+                h("input", { type: "checkbox", role: "switch", checked: enabled, disabled: Boolean(busy) || !credentialState[id],
+                  "aria-label": `Enable ${provider.name}`, onChange: (event) => perform(`toggle:${id}`, () => setEnabled(id, event.target.checked)) }),
+                h("span", null, enabled ? "On" : "Off"))),
+              h("td", null, h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => remove(id) }, "Remove")));
+          })))) : h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "No general API provider has been added yet.")),
+        h("section", { className: "bees-box" }, h("h3", null, "Custom OpenAI-compatible API"),
+          h("p", { className: "bees-muted" }, custom.baseURL ? `${custom.baseURL} · ${custom.models?.[0]?.id ?? "default"}` : "Connect another hosted /v1 endpoint with an API key."),
+          h(Button, { disabled: Boolean(busy), onClick: configureCustom }, custom.baseURL ? "Edit" : "Connect")),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    }
+
+    exports.CustomAiSettings = CustomAiSettings;
+    exports.inject = [];
+    exports.apply = (ctx) => {
+      const style = document.createElement("style");
+      style.dataset.plugin = "@bees/dsh-custom-ai";
+      style.textContent = css;
+      document.head.append(style);
+      ctx.effect(() => () => style.remove(), "bees general AI: styles");
+    };
+    return module.exports;
+  }
+});

@@ -30,6 +30,9 @@ describe("DSH-owned desktop and recovery", () => {
     const permission = readFileSync(new URL(
       "../src-tauri/permissions/bees-ui.toml", import.meta.url
     ), "utf8");
+    const capability = readFileSync(new URL(
+      "../src-tauri/capabilities/default.json", import.meta.url
+    ), "utf8");
     const entry = readFileSync(new URL("../src/entry.ts", import.meta.url), "utf8");
     const profile = readFileSync(new URL(
       "../dsh-runtime/profile/cordis.patch.yml", import.meta.url
@@ -37,17 +40,46 @@ describe("DSH-owned desktop and recovery", () => {
     const client = readFileSync(new URL(
       "../dsh-runtime/plugin/lib/client.js", import.meta.url
     ), "utf8");
-    expect(permission).toContain('commands.allow = ["ensure_dsh_runtime"]');
+    const localAiClient = readFileSync(new URL(
+      "../dsh-runtime/plugins/local-ai/lib/client.js", import.meta.url
+    ), "utf8");
+    const freeAiHost = readFileSync(new URL(
+      "../dsh-runtime/plugins/free-ai/lib/index.js", import.meta.url
+    ), "utf8");
+    const tauri = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+    expect(permission).toContain('"ensure_dsh_runtime"');
+    expect(permission).toContain('"start_local_model"');
+    expect(permission).toContain('"local_model_connection"');
+    expect(permission).toContain('"open_external_url"');
+    expect(capability).toContain('"http://127.0.0.1:*"');
     expect(permission).not.toContain("db_query");
     expect(entry).toContain('invoke<DshRuntime>("ensure_dsh_runtime")');
     expect(entry).toContain("/bees-auth?token=");
     expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
     expect(profile).toContain("local-openai:");
+    expect(profile).not.toContain("freellmapi:");
+    expect(profile).toContain("name: '@bees/dsh-local-ai'");
+    expect(profile).toContain("name: '@bees/dsh-free-ai'");
+    expect(profile).toContain("name: '@bees/dsh-custom-ai'");
+    expect(profile).toContain("name: '@bees/dsh-subscriptions'");
+    expect(freeAiHost).toContain('const API_KEY_REF = "BEES_FREELLMAPI_API_KEY"');
+    expect(freeAiHost).toContain('dbPath: join(dataRoot, "freeapi.db")');
+    expect(tauri).toContain('.join("freellmapi").join("server.mjs").is_file()');
+    expect(tauri).toContain('.env("BEES_RUNTIME_ROOT", &runtime)');
+    expect(profile).toContain("provider: local-openai");
+    expect(profile).toContain("model: active");
     expect(client).toContain('id: "bees-product"');
+    expect(client).toContain('.bees-main{min-width:0;min-height:0;overflow:hidden');
     expect(client).not.toContain('id: "bees-navigation"');
     expect(client).not.toContain("openDsh");
     expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');
+    expect(client).not.toContain('const LOCAL_MODELS = [');
+    expect(localAiClient).toContain('const LOCAL_MODELS = [');
+    expect(localAiClient).toContain('"data-model-toggle": "download"');
+    expect(localAiClient).toContain('"data-model-toggle": "run"');
+    expect(localAiClient).toContain('invokeLocal("delete_local_model"');
+    expect(tauri).toContain('("@bees", "dsh-subscriptions")');
     expect(client).toContain('action: "edit_process"');
     expect(client).not.toContain('openButton.textContent = "Open Bees"');
     expect(client).not.toContain("data.beesOpen");

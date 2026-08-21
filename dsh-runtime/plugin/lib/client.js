@@ -6,6 +6,10 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
     const { useEffect, useRef, useState } = React;
+    const { LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai");
+    const { FreeAiController, FreeAiSettings } = require("@bees/dsh-free-ai");
+    const { CustomAiSettings } = require("@bees/dsh-custom-ai");
+    const { SubscriptionSettings } = require("@bees/dsh-subscriptions");
 
     const NAVIGATION = [
       { id: "home", label: "Home", icon: "⌂", defaultChild: "home", children: [] },
@@ -27,24 +31,33 @@ window.__ModuleLoader__.load({
       { id: "knowledge", label: "Knowledge", icon: "⌕", defaultChild: "search", children: [
         ["search", "Search"], ["sources", "Sources"], ["artifacts", "Artifacts"]
       ] },
-      { id: "settings", label: "Settings", icon: "⚙", defaultChild: "workspace-settings", children: [
-        ["workspace-settings", "Workspace"], ["team-settings", "Team"], ["organization-settings", "Organization"],
-        ["models", "Models & providers"], ["connections", "Connections"], ["permissions", "Permissions"]
+      { id: "settings", label: "Settings", icon: "⚙", defaultChild: "personal-ai", children: [
+        ["personal-ai", "AI connections"], ["appearance", "Appearance"],
+        ["organizations", "Organizations & invitations"], ["organization-settings", "Organization"],
+        ["team-settings", "Team"], ["workspace-settings", "Workspace"],
+        ["connections", "Connections"], ["permissions", "Permissions"]
       ] }
+    ];
+
+    const THEMES = [
+      ["light", "Light"],
+      ["dark", "Dark"],
+      ["system", "System"]
     ];
 
     const css = `
       .bees-app{position:absolute;inset:0;z-index:90;display:grid;grid-template-columns:240px 1fr;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:14px/1.4 system-ui,-apple-system,sans-serif;pointer-events:auto}
       .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:auto}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 10px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}.bees-context-switcher{position:relative;margin:0 12px 11px}.bees-context-switcher summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer;list-style:none}.bees-context-switcher summary::-webkit-details-marker{display:none}.bees-context-summary{min-width:0;flex:1}.bees-context-primary,.bees-context-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-context-primary{font-weight:750}.bees-context-secondary{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-context-arrow{color:var(--dsw-alias-label-secondary)}.bees-context-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:100%;max-height:430px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-context-search{margin-bottom:7px}.bees-context-section{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l1)}.bees-context-section:first-of-type{border-top:0}.bees-context-label{padding:2px 7px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}.bees-context-option{display:flex;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-context-option:hover,.bees-context-option.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-context-check{width:14px}.bees-context-add{color:var(--dsw-alias-label-secondary)}
       .bees-nav{display:grid;gap:2px;padding:0 8px 12px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link:hover,.bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;filter:grayscale(1);opacity:.55}.bees-nav-pin:hover,.bees-nav-pin.active{background:var(--dsw-alias-interactive-bg-hover);filter:none;opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}
-      .bees-main{min-width:0;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}
+      .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-button-elevated-fill);cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-hover)}.bees-theme-toggle svg{width:16px;height:16px}.bees-theme-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}
       .bees-btn,.bees-select,.bees-input,.bees-textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-button-elevated-fill);font:inherit}.bees-btn{padding:7px 11px;cursor:pointer}.bees-btn:hover{background:var(--dsw-alias-button-floating-hover)}.bees-btn.primary{background:#f2b84b;color:#21190b;border-color:#f2b84b;font-weight:700}.bees-btn.danger{color:#d15353}.bees-btn:disabled{opacity:.5;cursor:not-allowed}.bees-select,.bees-input,.bees-textarea{padding:8px 9px}.bees-input,.bees-textarea{width:100%}.bees-textarea{min-height:88px;resize:vertical}
       .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:15px;background:var(--dsw-specific-sidebar-fill)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;padding:28px;text-align:center;color:var(--dsw-alias-label-secondary)}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed,.bees-interrupted{color:#cf5b5b}
       .bees-hero{padding:34px;border:1px solid var(--dsw-alias-border-l1);border-radius:18px;background:linear-gradient(135deg,#f2b84b18,transparent 55%)}.bees-hero h1{font-size:32px;line-height:1.15;margin:0 0 10px}.bees-hero form{display:flex;gap:8px;margin-top:20px}.bees-hero .bees-input{font-size:16px}.bees-proposals{margin-top:18px}.bees-change{margin:7px 0;padding:9px;border-radius:8px;background:var(--dsw-alias-bg-base)}
       .bees-board{display:grid;grid-auto-columns:minmax(250px,1fr);grid-auto-flow:column;gap:12px;overflow-x:auto}.bees-column{min-height:260px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}.bees-column-head{display:flex;padding:12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-weight:750}.bees-count{margin-left:auto;color:var(--dsw-alias-label-secondary)}.bees-cards{display:grid;gap:8px;padding:9px}.bees-card{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;background:var(--dsw-alias-bg-base)}.bees-card h3{margin:0 0 4px}.bees-card p{white-space:pre-wrap;color:var(--dsw-alias-label-secondary);font-size:12px}.bees-card-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.bees-card-actions .bees-btn{padding:4px 7px;font-size:11px}
-      .bees-create{position:relative}.bees-create[open] summary{background:var(--dsw-alias-interactive-bg-hover)}.bees-create summary{list-style:none}.bees-menu{position:absolute;right:0;top:42px;z-index:5;min-width:190px;display:grid;gap:3px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-menu .bees-nav-link{padding:8px}.bees-ask{position:fixed;right:22px;bottom:20px;z-index:95;border-radius:999px;box-shadow:0 8px 24px #0004}.bees-search{display:flex;gap:8px;margin-bottom:16px}
+      .bees-create{position:relative}.bees-create[open] summary{background:var(--dsw-alias-interactive-bg-hover)}.bees-create summary{list-style:none}.bees-menu{position:absolute;right:0;top:42px;z-index:5;min-width:190px;display:grid;gap:3px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-menu .bees-nav-link{padding:8px}.bees-search{display:flex;gap:8px;margin-bottom:16px}
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
       .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
+      .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}
       @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}}
     `;
 
@@ -58,7 +71,17 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    function dialogValue(label, initial, confirmOnly = false) {
+    async function openExternal(url) {
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (invoke) return invoke("open_external_url", { url });
+      if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
+    }
+
+    const collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
+      method: "POST", body: JSON.stringify({ action, ...values })
+    } : undefined);
+
+    function dialogValue(label, initial, confirmOnly = false, inputType = "text") {
       return new Promise((resolve) => {
         const dialog = document.createElement("dialog");
         dialog.className = "bees-prompt";
@@ -70,6 +93,7 @@ window.__ModuleLoader__.load({
         const input = confirmOnly ? null : document.createElement("input");
         if (input) {
           input.className = "bees-input";
+          input.type = inputType;
           input.value = initial;
           input.setAttribute("aria-label", label.split("\n")[0]);
           form.append(input);
@@ -97,10 +121,41 @@ window.__ModuleLoader__.load({
       });
     }
 
-    const ask = (label, initial = "") => dialogValue(label, initial);
+    const ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
     const confirmAction = (label) => dialogValue(label, "", true);
     const Button = ({ children, className = "", ...props }) =>
       h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);
+
+    function ThemeIcon({ theme }) {
+      const props = {
+        viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8,
+        strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+      };
+      if (theme === "light") return h("svg", props,
+        h("circle", { cx: 12, cy: 12, r: 3.5 }),
+        h("path", { d: "M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41" })
+      );
+      if (theme === "dark") return h("svg", props,
+        h("path", { d: "M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8Z" })
+      );
+      return h("svg", props,
+        h("rect", { x: 3, y: 4, width: 18, height: 13, rx: 2 }),
+        h("path", { d: "M8 21h8M12 17v4" })
+      );
+    }
+
+    function ThemeToggle({ ctx }) {
+      const [preference, setPreference] = useState(() => ctx.theme.getTheme().preference);
+      useEffect(() => ctx.on("theme/change", ({ preference: next }) => setPreference(next)), [ctx]);
+      const currentIndex = Math.max(0, THEMES.findIndex(([theme]) => theme === preference));
+      const [currentTheme, currentLabel] = THEMES[currentIndex];
+      const [nextTheme, nextLabel] = THEMES[(currentIndex + 1) % THEMES.length];
+      const label = `${currentLabel} theme; switch to ${nextLabel}`;
+      return h("button", {
+        type: "button", className: "bees-theme-toggle", title: label, "aria-label": label,
+        onClick: () => ctx.theme.setTheme(nextTheme)
+      }, h(ThemeIcon, { theme: currentTheme }));
+    }
 
     function usePreference(scope) {
       const [snapshot, setSnapshot] = useState(() => scope.getSnapshot());
@@ -469,53 +524,171 @@ window.__ModuleLoader__.load({
         h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
     }
 
-    function ModelsSettings({ ctx, modelSettings }) {
-      const config = usePreference(modelSettings);
-      const [catalog, setCatalog] = useState({ providers: [], groups: [], error: "" });
-      useEffect(() => {
-        let active = true;
-        const api = ctx.get("connection").api;
-        Promise.all([api.llm.providers({}), api.llm.models({})]).then(([providers, models]) => {
-          if (!active) return;
-          if (!providers.result.ok) throw new Error(providers.result.error.message);
-          if (!models.result.ok) throw new Error(models.result.error.message);
-          setCatalog({ providers: providers.result.value.providers, groups: models.result.value.groups, error: "" });
-        }).catch((error) => active && setCatalog({ providers: [], groups: [], error: error instanceof Error ? error.message : String(error) }));
-        return () => { active = false; };
-      }, [ctx]);
-      const local = config.providers?.["local-openai"] ?? {};
-      const editLocal = async () => {
-        const baseURL = await ask("Local OpenAI-compatible base URL", local.baseURL ?? "http://127.0.0.1:1234/v1");
-        if (!baseURL) return;
-        const currentModel = local.models?.[0] ?? {};
-        const modelId = await ask("Model ID", currentModel.id ?? "default"); if (!modelId) return;
-        const modelName = await ask("Model name", currentModel.name ?? modelId); if (!modelName) return;
-        await modelSettings.set("providers", { ...config.providers, "local-openai": {
-          ...local, displayName: local.displayName ?? "Local OpenAI-compatible", api: local.api ?? "openai-completions",
-          baseURL, models: [{ ...currentModel, id: modelId, name: modelName }]
-        } });
-      };
-      if (catalog.error) return h(Empty, null, catalog.error);
-      return h("div", { className: "bees-grid" },
-        h("section", { className: "bees-box" }, h("h3", null, "Local endpoint"),
-          h("p", { className: "bees-muted" }, `${local.baseURL ?? "http://127.0.0.1:1234/v1"} · ${local.models?.[0]?.id ?? "default"}`),
-          h(Button, { onClick: editLocal }, "Edit")),
-        ...catalog.providers.map((provider) => h("section", { className: "bees-box", key: provider.provider },
-          h("h3", null, provider.displayName), h("p", { className: "bees-muted" }, provider.active ? "Available" : "Unavailable"))),
-        ...catalog.groups.map((group) => h("section", { className: "bees-box", key: group.id },
-          h("h3", null, group.name), h("p", { className: "bees-muted" }, group.models.map(({ name }) => name).join(", ") || "No models")))
-      );
+    function AiSettings({ ctx, modelSettings, preferences }) {
+      return h("div", { className: "bees-stack" },
+        h(SubscriptionSettings, { modelSettings, openExternal, Button }),
+        h(FreeAiSettings, { ctx, modelSettings, preferences, ask, confirmAction, openExternal, Button }),
+        h(LocalAiSettings, { modelSettings, preferences, ask, confirmAction, Button }),
+        h(ExternalLocalAiSettings, { modelSettings, ask, Button }),
+        h(CustomAiSettings, { ctx, modelSettings, preferences, ask, confirmAction, openExternal, Button }));
     }
 
-    function SettingsPage({ ctx, data, route, workspaceId, teamId, organizationId, modelSettings }) {
+    function AppearanceSettings({ ctx }) {
+      const theme = ctx.get("theme");
+      const [snapshot, setSnapshot] = useState(() => theme.getTheme());
+      useEffect(() => ctx.on("theme/change", setSnapshot), [ctx]);
+      return h("section", { className: "bees-box" }, h("h3", null, "Appearance"),
+        h("p", { className: "bees-muted" }, "This preference applies across organizations and workspaces on this device."),
+        h("div", { className: "bees-segmented" }, ...["system", "light", "dark"].map((id) =>
+          h(Button, { key: id, className: snapshot.preference === id ? "active" : "", "aria-pressed": snapshot.preference === id,
+            onClick: () => { theme.setTheme(id); setSnapshot(theme.getTheme()); } }, id[0].toUpperCase() + id.slice(1)))));
+    }
+
+    function OrganizationsSettings({ reload }) {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState("");
+      const [mode, setMode] = useState("sign_in");
+      const [busy, setBusy] = useState(false);
+      const refresh = async () => {
+        try { setData(await collaboration()); setError(""); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      useEffect(() => { void refresh(); }, []);
+      const auth = async (event) => {
+        event.preventDefault(); setBusy(true);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
+        try {
+          setData(await collaboration(mode, {
+            name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""),
+            password: String(form.get("password") ?? "")
+          }));
+          setError(""); await reload();
+        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(false); }
+      };
+      if (!data) return h(Empty, null, error || "Loading account…");
+      if (!data.account) return h("div", { className: "bees-stack" },
+        h("section", { className: "bees-box" }, h("h3", null, mode === "sign_in" ? "Sign in" : "Create account"),
+          h("p", { className: "bees-muted" }, "Sign in to see organization invitations and manage connected organizations."),
+          h("div", { className: "bees-segmented" },
+            h(Button, { className: mode === "sign_in" ? "active" : "", onClick: () => setMode("sign_in") }, "Sign in"),
+            h(Button, { className: mode === "sign_up" ? "active" : "", onClick: () => setMode("sign_up") }, "Create account")),
+          h("form", { className: "bees-form", onSubmit: auth },
+            mode === "sign_up" ? h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true })) : null,
+            h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
+            h("label", null, "Password", h("input", { className: "bees-input", name: "password", type: "password", minLength: 8, required: true })),
+            h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Connecting…" : mode === "sign_in" ? "Sign in" : "Create account"))),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+      const run = async (action, values = {}) => {
+        setBusy(true);
+        try { setData(await collaboration(action, values)); setError(""); await reload(); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(false); }
+      };
+      return h("div", { className: "bees-stack" },
+        h("section", { className: "bees-box" }, h("h3", null, data.account.name || data.account.email),
+          h("p", { className: "bees-muted" }, data.account.email),
+          h("div", { className: "bees-form-row" }, h(Button, { disabled: busy, onClick: () => run("sync") }, "Refresh"),
+            h(Button, { className: "danger", disabled: busy, onClick: () => run("sign_out") }, "Sign out"))),
+        h("section", { className: "bees-box" }, h("h3", null, "Organizations"),
+          ...(data.organizations.length ? data.organizations.map((organization) => h("div", { className: "bees-row", key: organization.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, organization.name), h("div", { className: "bees-muted" }, organization.role))))
+            : [h(Empty, { key: "empty" }, "No connected organizations yet")])),
+        h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
+          ...(data.invitations.length ? data.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.organizationName),
+              h("div", { className: "bees-muted" }, `${invitation.role} · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
+            h(Button, { className: "primary", disabled: busy, onClick: () => run("accept_invitation", { invitationId: invitation.id }) }, "Accept")))
+            : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    }
+
+    function OrganizationSettings({ organization }) {
+      const [people, setPeople] = useState(null);
+      const [error, setError] = useState("");
+      const load = async () => {
+        if (!organization?.connected || !["owner", "admin"].includes(organization.role)) return;
+        try { setPeople(await collaboration("organization_people", { organizationId: organization.id })); setError(""); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      useEffect(() => { setPeople(null); setError(""); void load(); }, [organization?.id]);
+      if (!organization) return h(Empty, null, "Choose an organization");
+      if (!organization.connected) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
+        h("p", { className: "bees-muted" }, "This organization is local to this device. Connect an account to invite members."));
+      if (!["owner", "admin"].includes(organization.role)) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
+        h("p", { className: "bees-muted" }, `Your role is ${organization.role}. Only organization administrators can invite members.`));
+      const invite = async (event) => {
+        event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
+        try { setPeople(await collaboration("invite_organization_member", { organizationId: organization.id,
+          email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); formElement.reset(); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      if (!people) return h(Empty, null, error || "Loading organization members…");
+      return h("div", { className: "bees-stack" },
+        h("section", { className: "bees-box" }, h("h3", null, `${organization.name} members`),
+          ...people.memberships.map((member) => h("div", { className: "bees-row", key: member.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.email || member.userId),
+              h("div", { className: "bees-muted" }, member.status)), h("span", { className: "bees-badge" }, member.role)))),
+        h("section", { className: "bees-box" }, h("h3", null, "Invite organization member"),
+          h("form", { className: "bees-form-row", onSubmit: invite },
+            h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
+            h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+            h("button", { className: "bees-btn primary" }, "Send invitation")),
+          ...people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.email),
+              h("div", { className: "bees-muted" }, `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
+            h("span", { className: "bees-badge" }, invitation.role)))),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    }
+
+    function TeamSettings({ team, organization }) {
+      const [people, setPeople] = useState(null);
+      const [error, setError] = useState("");
+      const load = async () => {
+        if (!team || !organization?.connected || team.role !== "admin") return;
+        try { setPeople(await collaboration("team_people", { teamId: team.id })); setError(""); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      useEffect(() => { setPeople(null); setError(""); void load(); }, [team?.id]);
+      if (!team) return h(Empty, null, "Choose a team");
+      if (!organization?.connected) return h("section", { className: "bees-box" }, h("h3", null, team.name),
+        h("p", { className: "bees-muted" }, "This team is local to this device."));
+      if (team.role !== "admin") return h("section", { className: "bees-box" }, h("h3", null, team.name),
+        h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
+      if (!people) return h(Empty, null, error || "Loading team members…");
+      const add = async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        try { setPeople(await collaboration("add_team_member", { teamId: team.id,
+          userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      return h("div", { className: "bees-stack" },
+        h("section", { className: "bees-box" }, h("h3", null, `${team.name} members`),
+          ...people.members.map((member) => h("div", { className: "bees-row", key: member.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.email || member.userId),
+              h("div", { className: "bees-muted" }, "Active organization member")), h("span", { className: "bees-badge" }, member.role)))),
+        h("section", { className: "bees-box" }, h("h3", null, "Add organization member"),
+          h("p", { className: "bees-muted" }, "Team membership starts immediately; there is no invitation to accept."),
+          people.candidates.length ? h("form", { className: "bees-form-row", onSubmit: add },
+            h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId" },
+              ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
+            h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+            h("button", { className: "bees-btn primary" }, "Add member")) : h(Empty, null, "Every active organization member is already on this team")),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    }
+
+    function SettingsPage({ ctx, data, route, workspaceId, teamId, organizationId, modelSettings, preferences, reload }) {
       const workspace = data.workspaces.find(({ id }) => id === workspaceId);
       const team = data.teams.find(({ id }) => id === teamId);
       const organization = data.organizations.find(({ id }) => id === organizationId);
-      if (route === "models") return h(ModelsSettings, { ctx, modelSettings });
+      if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences });
+      if (route === "appearance") return h(AppearanceSettings, { ctx });
+      if (route === "organizations") return h(OrganizationsSettings, { reload });
       if (route === "connections") return h(Empty, null, "No external tool connections are configured in this Bees profile.");
       if (route === "workspace-settings") return workspace ? h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, workspace.name), h("p", { className: "bees-muted" }, `${workspace.authority === "local" ? "Private on this device" : "Connected"} · ${workspace.hosting}`), h("p", { className: "bees-muted" }, workspace.dshWorkspaceId ? "Runtime ready" : "Runtime initializing"))) : h(Empty, null, "Choose a workspace to view workspace settings");
-      if (route === "team-settings") return team ? h("section", { className: "bees-box" }, h("h3", null, team.name), h("p", { className: "bees-muted" }, `${team.role} · ${data.workspaces.filter((row) => row.teamId === team.id).length} workspaces · ${data.locations.filter((row) => row.teamId === team.id && !row.archivedAt).length} locations`)) : h(Empty, null, "Choose a team");
-      if (route === "organization-settings") return organization ? h("section", { className: "bees-box" }, h("h3", null, organization.name), h("p", { className: "bees-muted" }, `${organization.role} · ${organization.personal ? "personal organization" : "organization"}`)) : h(Empty, null, "Choose an organization");
+      if (route === "team-settings") return h(TeamSettings, { team, organization });
+      if (route === "organization-settings") return h(OrganizationSettings, { organization });
       return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
     }
 
@@ -647,7 +820,10 @@ window.__ModuleLoader__.load({
         const preset = data.presets.find((row) => row.name === presetName || row.id === presetName); if (!preset) return;
         const name = await ask("Agent name", preset.name); if (name) await act({ action: "add_agent_assignment", workspaceId: parts.workspaceId, presetId: preset.id, name });
       };
-      if (!data) return h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…");
+      const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
+      const freeAi = h(FreeAiController, { modelSettings, onError: setError });
+      if (!data) return h(React.Fragment, null, localAi, freeAi,
+        h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
       const section = sectionFor(route);
       const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
       const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
@@ -697,8 +873,8 @@ window.__ModuleLoader__.load({
               : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
                 : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds })
                   : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
-                    : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings });
-      return h("div", { className: "bees-app" },
+                    : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+      return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
         h("aside", { className: "bees-sidebar" },
           h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees")),
           h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, workspaceId: parts.workspaceId,
@@ -737,15 +913,15 @@ window.__ModuleLoader__.load({
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createRun }, "New one-off run"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createAgent }, "New agent"),
               h("button", { className: "bees-nav-link", disabled: !parts.organizationId, onClick: createTeam }, "New team")
-            ))),
+            )),
+            h(ThemeToggle, { ctx })),
           error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-          h("main", { className: "bees-content" }, h("div", { className: "bees-panel" }, page)),
-          route !== "home" ? h(Button, { className: "primary bees-ask", disabled: !parts.workspaceId, onClick: async () => { const outcome = await ask("What outcome should Bees own?", ""); if (outcome) await askBees(outcome); } }, "Ask Bees") : null
+          h("main", { className: "bees-content" }, h("div", { className: "bees-panel" }, page))
         )
-      );
+      ));
     }
 
-    exports.inject = ["slots", "workspaces", "settingsScope", "connection"];
+    exports.inject = ["slots", "workspaces", "settingsScope", "connection", "theme"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";

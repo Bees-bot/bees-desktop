@@ -1,4 +1,15 @@
 [[permission]]
 identifier = "allow-bees-ui"
-description = "Allows the bootstrap page to start the local DSH runtime."
-commands.allow = ["ensure_dsh_runtime"]
+description = "Allows the Bees interface to manage its bundled local runtimes."
+commands.allow = [
+  "ensure_dsh_runtime",
+  "local_model_status",
+  "ensure_local_model",
+  "start_local_model",
+  "stop_local_model",
+  "cancel_local_model_download",
+  "delete_local_model",
+  "local_model_base_url",
+  "local_model_connection",
+  "open_external_url"
+]

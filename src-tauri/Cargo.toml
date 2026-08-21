@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 getrandom = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 tauri = { version = "2", features = [] }
 

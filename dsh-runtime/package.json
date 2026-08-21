@@ -4,9 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0 <25.0.0"
   },
   "dependencies": {
+    "@bees/dsh-custom-ai": "file:plugins/custom-ai",
+    "@bees/dsh-free-ai": "file:plugins/free-ai",
+    "@bees/dsh-local-ai": "file:plugins/local-ai",
+    "@bees/dsh-subscriptions": "file:plugins/subscriptions",
     "@bees/dsh-plugin": "file:plugin",
     "@deepseek-ai/cordis-plugin-group": "1.0.1",
     "@deepseek-ai/dsh": "0.1.0-rc.8",
@@ -16,6 +20,7 @@
     "@deepseek-ai/dsh-session-persistence-sqlite": "0.1.0-rc.8",
     "@deepseek-ai/dsh-settings": "0.1.0-rc.8",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "3.18.1"
+    "@deepseek-ai/schemastery": "3.18.1",
+    "better-sqlite3": "12.10.0"
   }
 }

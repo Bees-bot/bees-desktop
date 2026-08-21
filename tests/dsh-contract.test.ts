@@ -44,6 +44,11 @@ function testContext(
   let workspaceSequence = workspaces.size;
   const ctx: any = {
     logger: { warn: () => undefined },
+    credentials: {
+      resolve: async () => undefined,
+      set: async () => undefined,
+      unset: async () => undefined
+    },
     effect(factory: () => unknown) {
       const dispose = factory();
       if (typeof dispose === "function") disposers.push(dispose as () => unknown);
@@ -246,6 +251,27 @@ describe("Bees DSH public contract", () => {
       }));
 
       const client = readFileSync(new URL("../dsh-runtime/plugin/lib/client.js", import.meta.url), "utf8");
+      const localAiClient = readFileSync(new URL(
+        "../dsh-runtime/plugins/local-ai/lib/client.js", import.meta.url
+      ), "utf8");
+      const freeAiClient = readFileSync(new URL(
+        "../dsh-runtime/plugins/free-ai/lib/client.js", import.meta.url
+      ), "utf8");
+      const freeAiHost = readFileSync(new URL(
+        "../dsh-runtime/plugins/free-ai/lib/index.js", import.meta.url
+      ), "utf8");
+      const runtimePreparation = readFileSync(new URL(
+        "../scripts/prepare-dsh-runtime.mjs", import.meta.url
+      ), "utf8");
+      const customAiClient = readFileSync(new URL(
+        "../dsh-runtime/plugins/custom-ai/lib/client.js", import.meta.url
+      ), "utf8");
+      const customAiHost = readFileSync(new URL(
+        "../dsh-runtime/plugins/custom-ai/lib/index.js", import.meta.url
+      ), "utf8");
+      const subscriptionsClient = readFileSync(new URL(
+        "../dsh-runtime/plugins/subscriptions/lib/client.js", import.meta.url
+      ), "utf8");
       expect(client).toContain('const NAVIGATION = [');
       expect(client).toContain('NAVIGATION.flatMap((item) => [');
       expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
@@ -254,10 +280,68 @@ describe("Bees DSH public contract", () => {
       expect(client).toContain('h(ContextSwitcher, {');
       expect(client).toContain('className: "bees-input bees-context-search"');
       expect(client).toContain('document.addEventListener("pointerdown", dismiss, true)');
+      expect(client).toContain('["light", "Light"]');
+      expect(client).toContain('["dark", "Dark"]');
+      expect(client).toContain('["system", "System"]');
+      expect(client).toContain('(currentIndex + 1) % THEMES.length');
+      expect(client).toContain('ctx.theme.setTheme(nextTheme)');
+      expect(client).toContain('require("@bees/dsh-local-ai")');
+      expect(client).toContain('require("@bees/dsh-free-ai")');
+      expect(client).toContain('h(FreeAiController, { modelSettings, onError: setError })');
+      expect(client).toContain('require("@bees/dsh-custom-ai")');
+      expect(client).toContain('require("@bees/dsh-subscriptions")');
+      expect(client).not.toContain('const LOCAL_MODELS = [');
+      expect(localAiClient).toContain('invokeLocal("ensure_local_model"');
+      expect(localAiClient).toContain('invokeLocal("start_local_model"');
+      expect(localAiClient).toContain('DEFAULT_LOCAL_MODEL.id');
+      expect(localAiClient).toContain('contextSize: 8192');
+      expect(localAiClient).toContain('const wanted = config.localModelWantedId;');
+      expect(localAiClient).not.toContain('? DEFAULT_LOCAL_MODEL.id : config.localModelWantedId');
+      expect(localAiClient).toContain('"data-model-toggle": "download"');
+      expect(localAiClient).toContain('"data-model-toggle": "run"');
+      expect(localAiClient).toContain('"Add a model"');
+      expect(localAiClient).toContain('"external-local-ai"');
+      expect(freeAiClient).toContain('data-bees-plugin": "@bees/dsh-free-ai"');
+      expect(freeAiClient).toContain('"Free LLM"');
+      expect(freeAiClient).toContain('{ id: "openrouter", name: "OpenRouter Free"');
+      expect(freeAiClient).toContain('"/bees-api/free-ai/state"');
+      expect(freeAiClient).toContain('"/bees-api/free-ai/command"');
+      expect(freeAiClient).toContain('apiKeyEnv: API_KEY_REF');
+      expect(freeAiClient).toContain('models: [{ id: "auto"');
+      expect(freeAiClient).toContain('exports.FreeAiController = FreeAiController');
+      expect(freeAiClient).toContain('role: "switch"');
+      expect(freeAiClient).toContain('className: `bees-provider-card');
+      expect(freeAiClient).toContain('openExternal(provider.signup)');
+      expect(freeAiClient).toContain('"Add and test"');
+      expect(freeAiClient).toContain("it does not spend OpenRouter API credits");
+      expect(freeAiClient).not.toContain("credentials.describe");
+      expect(freeAiHost).toContain("embedded.startServer({");
+      expect(freeAiHost).toContain('"x-dashboard-token": runtime.sessionToken');
+      expect(freeAiHost).toContain("/api/health/check/${keyId(added.id)}");
+      expect(freeAiHost).toContain('ctx.credentials.set(API_KEY_REF, embedded.getUnifiedApiKey())');
+      expect(runtimePreparation).toContain('const freeLlmVersion = "0.8.4"');
+      expect(runtimePreparation).toContain("05cbaf60792f5183f74a238ca7938de93b0246e98a90ff571d243ea646e14469");
+      expect(runtimePreparation).toContain('external: ["better-sqlite3"]');
+      expect(customAiClient).toContain('data-bees-plugin": "@bees/dsh-custom-ai"');
+      expect(customAiClient).toContain('"General AI APIs"');
+      expect(customAiClient).toContain('{ id: "openrouter", name: "OpenRouter"');
+      expect(customAiClient).toContain('{ id: "xai", name: "xAI"');
+      expect(customAiClient).toContain('"/bees-api/general-ai/test"');
+      expect(customAiClient).toContain('credentials.describe({ refs: Object.values(refs) })');
+      expect(customAiClient).toContain('openExternal(provider.signup)');
+      expect(customAiHost).toContain('path: "/bees-api/general-ai/test"');
+      expect(customAiHost).toContain("Preserve credentials saved by the earlier combined AI APIs screen");
+      expect(subscriptionsClient).toContain('data-bees-plugin": "@bees/dsh-subscriptions"');
+      expect(subscriptionsClient).toContain('"Codex"');
+      expect(subscriptionsClient).toContain('"Claude Code"');
+      expect(subscriptionsClient).toContain('await openExternal(authUrl)');
+      expect(subscriptionsClient).not.toContain('"Continue sign in"');
       expect(client).toContain('action: "create_organization"');
       expect(client).not.toContain("organizationOrder");
       expect(client).not.toContain("EntityRail");
-      expect(client).toContain('api.llm.providers({})');
+      expect(client).not.toContain('api.llm.providers({})');
+      expect(client).not.toContain('"Other runtime providers"');
+      expect(client).not.toContain('"Models"');
       expect(client).not.toContain("openDsh");
       expect(client).toContain('ctx.settingsScope.bind({ namespace: "bees-ui" })');
       expect(client).not.toContain('id: "bees-navigation"');
@@ -267,6 +351,16 @@ describe("Bees DSH public contract", () => {
       const pluginPackage = JSON.parse(readFileSync(new URL(
         "../dsh-runtime/plugin/package.json", import.meta.url
       ), "utf8"));
+      expect(runtimePackage.dependencies).toMatchObject({
+        "@bees/dsh-local-ai": "file:plugins/local-ai",
+        "@bees/dsh-free-ai": "file:plugins/free-ai",
+        "@bees/dsh-custom-ai": "file:plugins/custom-ai",
+        "@bees/dsh-subscriptions": "file:plugins/subscriptions",
+        "better-sqlite3": "12.10.0"
+      });
+      expect(pluginPackage.dsh.client.inject).toEqual(expect.arrayContaining([
+        "@bees/dsh-local-ai", "@bees/dsh-free-ai", "@bees/dsh-custom-ai", "@bees/dsh-subscriptions"
+      ]));
       const release = runtimePackage.dependencies["@deepseek-ai/dsh"];
       expect(release).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
       for (const [name, version] of Object.entries(runtimePackage.dependencies))

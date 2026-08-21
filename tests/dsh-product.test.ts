@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+import { ConnectedAccount } from "../dsh-runtime/plugin/lib/connected-account.js";
 import { ProcessRuntime } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/lib/product.js";
 import { NodeDatabase } from "./node-database.js";
 
 describe("Bees DSH product plugin", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("recreates old metadata with the final local ownership hierarchy", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("CREATE TABLE teams (id TEXT PRIMARY KEY); INSERT INTO teams VALUES ('old-team')");
@@ -154,5 +160,67 @@ describe("Bees DSH product plugin", () => {
 
     rmSync(files, { recursive: true });
     rmSync(runRoot, { recursive: true });
+  });
+
+  it("keeps one connected account and mirrors its organization and team roles", async () => {
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    let storedToken = "";
+    const credentials = {
+      resolve: async () => storedToken ? { value: storedToken, source: "test" } : undefined,
+      set: async (_ref: string, value: string) => { storedToken = value; },
+      unset: async () => { storedToken = ""; }
+    };
+    const seen: { url: string; authorization: string | null; organization: string | null }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      seen.push({
+        url,
+        authorization: headers.get("authorization"),
+        organization: headers.get("x-organization-id")
+      });
+      const body = url.endsWith("/api/auth/sign-in/email")
+        ? { user: { id: "remote-user", email: "you@example.com", name: "You" } }
+        : url.endsWith("/api/organizations")
+          ? { organizations: [{ id: "remote-org", name: "Acme", role: "admin" }] }
+          : url.endsWith("/api/teams")
+            ? { teams: [{ id: "remote-team", name: "Design" }] }
+            : url.endsWith("/api/teams/remote-team/members")
+              ? { members: [{ id: "member-1", teamId: "remote-team", userId: "remote-user", role: "admin" }] }
+              : url.endsWith("/api/me/organization-invitations")
+                ? { invitations: [] }
+                : { candidates: [] };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          ...(url.endsWith("/api/auth/sign-in/email") ? { "set-auth-token": "session-token" } : {})
+        }
+      });
+    }));
+
+    const connected = new ConnectedAccount(database, credentials, "https://api.example");
+    await connected.signIn("you@example.com", "password123");
+    expect(connected.publicAccount()).toEqual({
+      userId: "remote-user", email: "you@example.com", name: "You"
+    });
+    expect(database.prepare(`
+      SELECT o.name, om.role, om.status FROM organizations o
+      JOIN organization_memberships om ON om.organization_id = o.id
+      WHERE o.id = 'remote-org'
+    `).get()).toEqual({ name: "Acme", role: "admin", status: "active" });
+    expect(database.prepare("SELECT name FROM teams WHERE id = 'remote-team'").get())
+      .toEqual({ name: "Design" });
+    expect(seen).toContainEqual(expect.objectContaining({
+      url: "https://api.example/api/teams", authorization: "Bearer session-token",
+      organization: "remote-org"
+    }));
+
+    await connected.signOut();
+    expect(connected.publicAccount()).toBeNull();
+    expect(database.prepare(`
+      SELECT status FROM organization_memberships WHERE organization_id = 'remote-org'
+    `).get()).toEqual({ status: "suspended" });
   });
 });

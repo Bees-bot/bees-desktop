@@ -3,5 +3,8 @@
   "identifier": "main-capability",
   "description": "Start the local DSH runtime.",
   "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
   "permissions": ["allow-bees-ui", "core:default"]
 }

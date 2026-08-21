@@ -3,18 +3,28 @@ import { DatabaseSync } from "node:sqlite";
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 import { AgentRuntime } from "./agent-runtime.js";
+import { ConnectedAccount } from "./connected-account.js";
 import { ProcessRuntime } from "./process-runtime.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 
 export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
-  "workspaceRegistry", "settings"
+  "workspaceRegistry", "settings", "credentials"
 ];
 
 const BeesUiSettings = z.object({
   pins: z.array(z.string()).default([]),
-  lastScope: z.string().default("")
+  lastScope: z.string().default(""),
+  localModelWantedId: z.string().default(""),
+  freeAiProviders: z.array(z.string()).default([]),
+  localModels: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    fileName: z.string(),
+    url: z.string(),
+    bytes: z.number().default(0)
+  })).default([])
 });
 
 function equalSecret(left, right) {
@@ -77,6 +87,7 @@ export async function apply(ctx) {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets
   });
+  const connected = new ConnectedAccount(database, ctx.credentials);
   await product.initialize();
   let admittingSchedules = false;
   const admitSchedules = async () => {
@@ -158,5 +169,12 @@ export async function apply(ctx) {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try { reply(res, 200, await product.command(await body(req))); }
     catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
+  register(ctx, { kind: "exact", path: "/bees-api/collaboration", handler: async (req, res) => {
+    try {
+      if (req.method === "GET") return reply(res, 200, await connected.summary());
+      if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+      reply(res, 200, await connected.command(await body(req)));
+    } catch (error) { reply(res, 409, { error: message(error) }); }
   } });
 }

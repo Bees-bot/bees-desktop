@@ -2,11 +2,11 @@
   "name": "@bees/desktop",
   "private": true,
   "version": "0.2.0",
-  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "engines": { "node": "^22.19.0 || >=24.0.0 <25.0.0" },
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
-    "postinstall": "npm ci --omit=dev --prefix dsh-runtime --ignore-scripts && node scripts/stage-dsh-plugin.mjs",
+    "postinstall": "npm ci --omit=dev --prefix dsh-runtime --ignore-scripts && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
     "prepare:dsh": "node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "dev": "vite",
     "build": "vite build",
@@ -20,6 +20,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",
     "@types/node": "22.19.11",
+    "esbuild": "0.28.0",
     "typescript": "6.0.3",
     "vite": "8.1.4",
     "vitest": "4.1.0"
