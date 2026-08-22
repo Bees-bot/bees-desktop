@@ -1,139 +1,119 @@
 import { describe, expect, it } from "vitest";
-import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
-import { ProcessRuntime } from "../dsh-runtime/plugin/lib/process-runtime.js";
+import {
+  PROCESS_TASK_QUEUE, ProcessRuntime, processWorkflowId
+} from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { NodeDatabase } from "./node-database.js";
 
-function runtime(): { runtime: ProcessRuntime; database: NodeDatabase } {
+function harness() {
   const database = new NodeDatabase();
-  new AgentRuntime({ on: () => () => undefined }, database.connection);
-  const at = "2026-01-01T00:00:00.000Z";
-  database.connection.exec(`
-    INSERT INTO workspaces (id, team_id, name, created_at, updated_at)
-      SELECT 'org', id, 'Workspace', '${at}', '${at}' FROM teams ORDER BY created_at LIMIT 1;
-    INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at)
-      VALUES ('process', 'org', 'Process', '', 'standard', '${at}', '${at}');
-    INSERT INTO stages VALUES ('ready', 'process', 'Ready', 0, '', 0, NULL);
-    INSERT INTO stages VALUES ('done', 'process', 'Done', 1, '', 1, NULL);
-    INSERT INTO work_items
-      (id, process_id, stage_id, title, created_at, updated_at)
-      VALUES ('one', 'process', 'ready', 'One', '${at}', '${at}');
-    INSERT INTO work_items
-      (id, process_id, stage_id, title, created_at, updated_at)
-      VALUES ('two', 'process', 'ready', 'Two', '${at}', '${at}');
-  `);
-  return { runtime: new ProcessRuntime(database.connection), database };
+  const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
+  const starts: any[] = [];
+  const signals: any[] = [];
+  const client = {
+    workflow: {
+      start: async (name: string, options: any) => { starts.push({ name, ...options }); },
+      getHandle: (workflowId: string) => ({
+        signal: async (name: string) => { signals.push({ workflowId, name }); },
+        cancel: async () => { signals.push({ workflowId, name: "cancel" }); }
+      })
+    }
+  };
+  const runtime = new ProcessRuntime(database.connection, { client });
+  return { database, workspaceId, runtime, starts, signals };
 }
 
-describe("Bees process domain plugin", () => {
-  it("moves work exactly once and rejects a stage from another process", () => {
-    const { runtime: process, database } = runtime();
-    const moved = process.command("org", "one", {
-      type: "move", targetStageId: "done", idempotencyKey: "move-once"
-    });
-    expect(moved).toMatchObject({ stageId: "done", phase: "ready" });
-    expect(process.command("org", "one", {
-      type: "move", targetStageId: "ready", idempotencyKey: "move-once"
-    })).toMatchObject({ stageId: "done" });
+function insertManual(state: ReturnType<typeof harness>) {
+  const at = "2026-01-01T00:00:00.000Z";
+  state.database.connection.exec(`
+    INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at)
+      VALUES ('manual', '${state.workspaceId}', 'Manual', '', 'standard', '${at}', '${at}');
+    INSERT INTO stages VALUES ('ready', 'manual', 'Ready', 0, 'manual', '', 0, NULL);
+    INSERT INTO stages VALUES ('done', 'manual', 'Done', 1, 'manual', '', 1, NULL);
+    INSERT INTO work_items
+      (id, process_id, stage_id, title, created_at, updated_at)
+      VALUES ('one', 'manual', 'ready', 'One', '${at}', '${at}');
+  `);
+}
 
-    database.connection.exec(`
-      INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at)
-        VALUES ('other', 'org', 'Other', '', 'standard', '2026-01-01', '2026-01-01');
-      INSERT INTO stages VALUES ('other-stage', 'other', 'Other', 0, '', 0, NULL);
-    `);
-    expect(() => process.command("org", "one", {
-      type: "move", targetStageId: "other-stage"
+function insertGoal(state: ReturnType<typeof harness>, id = "goal") {
+  const goals = state.database.connection.prepare(`
+    SELECT id FROM processes WHERE workspace_id = ? AND kind = 'goals'
+  `).get(state.workspaceId)!;
+  const work = state.database.connection.prepare(`
+    SELECT id FROM stages WHERE process_id = ? AND driver = 'agent'
+  `).get(String(goals.id))!;
+  state.database.connection.prepare(`
+    INSERT INTO work_items (id, process_id, stage_id, kind, title, created_at, updated_at)
+    VALUES (?, ?, ?, 'goal', 'Ship it', '2026-01-01', '2026-01-01')
+  `).run(id, String(goals.id), String(work.id));
+  return { processId: String(goals.id), stageId: String(work.id) };
+}
+
+describe("Temporal process projection", () => {
+  it("keeps manual boards movable and rejects a stage from another process", () => {
+    const state = harness();
+    insertManual(state);
+    expect(state.runtime.move("one", "done")).toMatchObject({ stageId: "done" });
+    const goals = state.database.connection.prepare("SELECT id FROM processes WHERE kind = 'goals'").get()!;
+    const otherStage = state.database.connection.prepare("SELECT id FROM stages WHERE process_id = ? LIMIT 1").get(String(goals.id))!;
+    expect(() => state.runtime.move("one", String(otherStage.id))).toThrow("does not belong");
+  });
+
+  it("starts one derived Temporal workflow for an automatic goal", async () => {
+    const state = harness();
+    const goal = insertGoal(state);
+    await state.runtime.startItem("goal");
+    expect(state.starts).toEqual([expect.objectContaining({
+      name: "processWorkflow",
+      taskQueue: PROCESS_TASK_QUEUE,
+      workflowId: processWorkflowId("goal"),
+      args: [expect.objectContaining({
+        workItemId: "goal",
+        processId: goal.processId,
+        stages: [
+          expect.objectContaining({ driver: "agent" }),
+          expect.objectContaining({ driver: "review" }),
+          expect.objectContaining({ driver: "terminal" })
+        ]
+      })]
+    })]);
+    expect(state.database.connection.prepare("SELECT runtime_phase FROM work_items WHERE id = 'goal'").get())
+      .toEqual({ runtime_phase: "running" });
+  });
+
+  it("signals control to Temporal and never stores a workflow id", async () => {
+    const state = harness();
+    insertGoal(state);
+    await state.runtime.startItem("goal");
+    state.starts.length = 0;
+    await state.runtime.signal("goal", "pause");
+    await state.runtime.signal("goal", "resume");
+    await state.runtime.signal("goal", "cancel");
+    expect(state.signals).toEqual([
+      { workflowId: processWorkflowId("goal"), name: "pause" },
+      { workflowId: processWorkflowId("goal"), name: "resume" },
+      { workflowId: processWorkflowId("goal"), name: "cancel" }
+    ]);
+    expect(state.database.connection.prepare("PRAGMA table_info(work_items)").all())
+      .not.toContainEqual(expect.objectContaining({ name: "workflow_id" }));
+  });
+
+  it("accepts only projection stages from the card's process", () => {
+    const state = harness();
+    const goal = insertGoal(state);
+    const review = state.database.connection.prepare(`
+      SELECT id FROM stages WHERE process_id = ? AND driver = 'review'
+    `).get(goal.processId)!;
+    state.runtime.project({
+      workItemId: "goal", processId: goal.processId, stageId: review.id,
+      phase: "running", attempt: 1, reviewCycle: 1, executionId: "review-1", error: null
+    });
+    expect(state.database.connection.prepare(`
+      SELECT stage_id, runtime_review_cycle, runtime_execution_id FROM work_items WHERE id = 'goal'
+    `).get()).toEqual({ stage_id: review.id, runtime_review_cycle: 1, runtime_execution_id: "review-1" });
+    insertManual(state);
+    expect(() => state.runtime.project({
+      workItemId: "goal", processId: goal.processId, stageId: "done", phase: "completed"
     })).toThrow("does not belong");
-  });
-
-  it("admits only the latest overdue occurrence and persists it until acknowledged", () => {
-    const { runtime: process } = runtime();
-    process.command("org", "two", {
-      type: "upsert_schedule",
-      schedule: {
-        id: "hourly", name: "Hourly", recurrence: "hourly", timezone: "UTC",
-        enabled: true, nextRunAt: "2026-01-01T00:00:00.000Z"
-      }
-    });
-    const now = Date.parse("2026-01-01T03:30:00.000Z");
-    const first = process.catchUpAll(now);
-    expect(first).toHaveLength(1);
-    const occurrence = first[0]!;
-    expect(occurrence).toMatchObject({
-      id: "hourly", workItemId: "two", occurrenceId: "hourly:2026-01-01T03:00:00.000Z"
-    });
-    expect(process.catchUpAll(now)[0]).toMatchObject({ occurrenceId: occurrence.occurrenceId });
-    expect(Date.parse(String(process.state("org", "two").schedules[0].nextRunAt))).toBeGreaterThan(now);
-
-    process.command("org", "two", {
-      type: "ack_schedule", scheduleId: "hourly", occurrenceId: occurrence.occurrenceId,
-      idempotencyKey: `schedule-ack:${occurrence.occurrenceId}`
-    });
-    expect(process.state("org", "two").schedules[0]).toMatchObject({
-      pending: false, lastAdmittedOccurrenceId: occurrence.occurrenceId
-    });
-  });
-
-  it("archives descendants, disables their schedules, and restores explicitly", () => {
-    const { runtime: process, database } = runtime();
-    database.connection.prepare("UPDATE work_items SET parent_id = 'one' WHERE id = 'two'").run();
-    process.command("org", "two", {
-      type: "upsert_schedule",
-      schedule: {
-        id: "daily", name: "Daily", recurrence: "daily", timezone: "UTC",
-        enabled: true, nextRunAt: "2026-02-01T00:00:00.000Z"
-      }
-    });
-    process.command("org", "one", { type: "archive" });
-    expect(database.connection.prepare(
-      "SELECT id FROM work_items WHERE archived_at IS NOT NULL ORDER BY id"
-    ).all()).toEqual([{ id: "one" }, { id: "two" }]);
-    expect(process.state("org", "two")).toMatchObject({
-      phase: "archived", schedules: [expect.objectContaining({ enabled: false })]
-    });
-
-    process.command("org", "one", { type: "restore" });
-    expect(process.state("org", "one").phase).toBe("ready");
-    expect(process.state("org", "two").phase).toBe("archived");
-  });
-
-  it("skips a manual schedule trigger while that work item already has an active run", () => {
-    const { runtime: process, database } = runtime();
-    process.command("org", "two", {
-      type: "upsert_schedule",
-      schedule: {
-        id: "daily", name: "Daily", recurrence: "daily", timezone: "UTC",
-        enabled: true, nextRunAt: "2026-02-01T00:00:00.000Z"
-      }
-    });
-    database.connection.prepare(`
-      INSERT INTO execution_links
-        (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
-         instance_uid, run_directory, config_json, status, created_at, updated_at)
-      VALUES ('active', 'org', 'two', 'bees-run', 'active', 'uid', '/tmp/active', ?,
-        'running', '2026-01-01', '2026-01-01')
-    `).run(JSON.stringify({ workItemId: "two" }));
-
-    const state = process.command("org", "two", { type: "trigger_schedule", scheduleId: "daily" });
-    expect(state.schedules[0]).toMatchObject({ pending: false, pendingOccurrenceId: null });
-  });
-
-  it("persists process schedules as process targets and catches up the latest occurrence", () => {
-    const { runtime: process } = runtime();
-    process.scheduleCommand("org", "process", "process", {
-      type: "upsert_schedule",
-      schedule: {
-        id: "process-daily", name: "Daily process", recurrence: "daily", timezone: "UTC",
-        enabled: true, nextRunAt: "2026-01-01T00:00:00.000Z"
-      }
-    });
-    expect(process.allSchedules(["org"])).toContainEqual(expect.objectContaining({
-      id: "process-daily", targetKind: "process", processId: "process", workspaceId: "org"
-    }));
-    expect(process.catchUpAll(Date.parse("2026-01-03T12:00:00.000Z"))).toContainEqual(
-      expect.objectContaining({
-        id: "process-daily", targetKind: "process", targetId: "process",
-        occurrenceId: "process-daily:2026-01-03T00:00:00.000Z"
-      })
-    );
   });
 });

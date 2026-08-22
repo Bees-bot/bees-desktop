@@ -6,11 +6,12 @@ use local_models::{
     cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status,
     reap_orphan_llama_servers, start_local_model, stop_local_model, LocalModelManager,
 };
-use process::{available_loopback_port, reap_orphaned_node_sidecars, Sidecar};
+use process::{available_loopback_port, reap_orphaned_sidecars, Sidecar};
 use serde::Serialize;
 use std::{
     fmt::Write as _,
     fs,
+    net::TcpStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Mutex,
@@ -21,6 +22,7 @@ use tauri::Manager;
 
 struct ManagedDsh {
     child: Sidecar,
+    temporal: Sidecar,
     runtime_root: PathBuf,
     port: u16,
     token: String,
@@ -50,7 +52,7 @@ fn token() -> Result<String, String> {
     Ok(value)
 }
 
-fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let node_name = if cfg!(windows) {
         "bees-node.exe"
     } else {
@@ -62,6 +64,17 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
         .map(|directory| directory.join(node_name))
         .filter(|path| path.is_file())
         .ok_or_else(|| "The bundled Node.js runtime is missing. Reinstall Bees.".to_string())?;
+    let temporal_name = if cfg!(windows) {
+        "temporal.exe"
+    } else {
+        "temporal"
+    };
+    let temporal = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .parent()
+        .map(|directory| directory.join(temporal_name))
+        .filter(|path| path.is_file())
+        .ok_or_else(|| "The bundled Temporal runtime is missing. Reinstall Bees.".to_string())?;
     let packaged = app
         .path()
         .resource_dir()
@@ -105,7 +118,7 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     {
         return Err("The bundled DeepSeek Harness application is missing. Reinstall Bees.".into());
     }
-    Ok((node, runtime))
+    Ok((node, temporal, runtime))
 }
 
 fn copy_profile(runtime: &Path, profile: &Path) -> Result<(), String> {
@@ -222,9 +235,7 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path) -> Result<(), String> 
             .ok()
             .filter(|response| response.status().is_success())
             .and_then(|response| response.text().ok())
-            .is_some_and(|body| {
-                body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#
-            })
+            .is_some_and(|body| body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#)
         {
             return Ok(());
         }
@@ -232,6 +243,29 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path) -> Result<(), String> 
     }
     Err(format!(
         "DeepSeek Harness did not become ready. See {}.",
+        log.display()
+    ))
+}
+
+fn wait_temporal(child: &mut Sidecar, address: &str, log: &Path) -> Result<(), String> {
+    for _ in 0..300 {
+        if let Some(status) = child
+            .child()
+            .try_wait()
+            .map_err(|error| error.to_string())?
+        {
+            return Err(format!(
+                "Temporal stopped during startup ({status}). See {}.",
+                log.display()
+            ));
+        }
+        if TcpStream::connect(address).is_ok() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    Err(format!(
+        "Temporal did not become ready. See {}.",
         log.display()
     ))
 }
@@ -267,11 +301,11 @@ fn inherit_environment(command: &mut Command) {
 }
 
 fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo, String> {
-    let (node, runtime) = runtime_paths(app)?;
+    let (node, temporal_binary, runtime) = runtime_paths(app)?;
     let manager = app.state::<DshManager>();
     let mut managed = manager.0.lock().map_err(|error| error.to_string())?;
     if let Some(current) = managed.as_mut() {
-        if current.runtime_root == runtime && current.child.alive()? {
+        if current.runtime_root == runtime && current.child.alive()? && current.temporal.alive()? {
             let base_url = format!("http://127.0.0.1:{}", current.port);
             wait_ready(
                 &mut current.child,
@@ -296,6 +330,13 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     prepare_profile(&runtime, &home)?;
 
     let port = available_loopback_port()?;
+    let temporal_port = loop {
+        let candidate = available_loopback_port()?;
+        if candidate != port {
+            break candidate;
+        }
+    };
+    let temporal_address = format!("127.0.0.1:{temporal_port}");
     let secret = token()?;
     let base_url = format!("http://127.0.0.1:{port}");
     let entry = runtime
@@ -306,6 +347,44 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .join("bin.js");
     let (log, log_path) = open_log(app)?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
+    let temporal_log = log.try_clone().map_err(|error| error.to_string())?;
+    let temporal_errors = log.try_clone().map_err(|error| error.to_string())?;
+    let temporal_root = app_data.join("temporal");
+    fs::create_dir_all(&temporal_root).map_err(|error| error.to_string())?;
+    let mut temporal_command = Command::new(&temporal_binary);
+    temporal_command.env_clear();
+    inherit_environment(&mut temporal_command);
+    temporal_command
+        .args([
+            "server",
+            "start-dev",
+            "--headless",
+            "--ip",
+            "127.0.0.1",
+            "--port",
+        ])
+        .arg(temporal_port.to_string())
+        .arg("--db-filename")
+        .arg(temporal_root.join("processes-v3.db"))
+        .args([
+            "--sqlite-pragma",
+            "journal_mode=WAL",
+            "--sqlite-pragma",
+            "synchronous=FULL",
+            "--sqlite-pragma",
+            "busy_timeout=5000",
+            "--disable-config-file",
+            "--disable-config-env",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(temporal_log))
+        .stderr(Stdio::from(temporal_errors));
+    let mut temporal = Sidecar::new(
+        temporal_command
+            .spawn()
+            .map_err(|error| format!("Temporal could not start: {error}"))?,
+    );
+    wait_temporal(&mut temporal, &temporal_address, &log_path)?;
     let mut command = Command::new(&node);
     command.env_clear();
     inherit_environment(&mut command);
@@ -324,6 +403,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
         .env("BEES_RUNTIME_ROOT", &runtime)
+        .env("BEES_TEMPORAL_ADDRESS", &temporal_address)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
@@ -335,6 +415,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     wait_ready(&mut child, &format!("{base_url}/healthz"), &log_path)?;
     *managed = Some(ManagedDsh {
         child,
+        temporal,
         runtime_root: runtime,
         port,
         token: secret.clone(),
@@ -353,12 +434,9 @@ async fn ensure_dsh_runtime(
     let runtime = tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&app))
         .await
         .map_err(|error| error.to_string())??;
-    let url: tauri::Url = format!(
-        "{}/bees-auth?token={}",
-        runtime.base_url, runtime.token
-    )
-    .parse()
-    .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
+    let url: tauri::Url = format!("{}/bees-auth?token={}", runtime.base_url, runtime.token)
+        .parse()
+        .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
     window
         .navigate(url)
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))
@@ -440,8 +518,9 @@ pub fn run() {
     builder
         .setup(|app| {
             reap_orphan_llama_servers();
-            if let Ok((node, _)) = runtime_paths(app.handle()) {
-                reap_orphaned_node_sidecars(&node);
+            if let Ok((node, temporal, _)) = runtime_paths(app.handle()) {
+                reap_orphaned_sidecars(&node);
+                reap_orphaned_sidecars(&temporal);
             }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));

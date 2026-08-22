@@ -17,8 +17,10 @@ export declare class AgentRuntime {
   constructor(context: unknown, database: unknown);
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   onSessionEvent(session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }): void;
+  pendingInteraction(executionId: string): Record<string, unknown> | null;
   pendingApproval(executionId: string): Record<string, unknown> | null;
   admit(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
+  executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
   abort(executionId: string): boolean;
   purge(executionId: string): Promise<void>;
 }

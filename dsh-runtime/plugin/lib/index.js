@@ -10,7 +10,7 @@ import { BeesProduct, initializeProductDatabase } from "./product.js";
 export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
-  "workspaceRegistry", "settings", "credentials"
+  "workspaceRegistry", "settings", "credentials", "agentDefaultModel"
 ];
 
 const BeesUiSettings = z.object({
@@ -74,7 +74,7 @@ function register(ctx, route) {
   ctx.effect(() => ctx.webServer.register(route), `bees route ${route.path}`);
 }
 
-export async function apply(ctx) {
+export async function apply(ctx, _config = {}, internals = {}) {
   const databasePath = process.env.BEES_DATABASE_PATH;
   const token = process.env.BEES_DSH_TOKEN ?? "";
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
@@ -86,37 +86,15 @@ export async function apply(ctx) {
   ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
   const agents = new AgentRuntime(ctx, database);
-  const processes = new ProcessRuntime(database);
+  const processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets
   });
   const connected = new ConnectedAccount(database, ctx.credentials);
   await product.initialize();
-  let admittingSchedules = false;
-  const admitSchedules = async () => {
-    if (admittingSchedules) return;
-    admittingSchedules = true;
-    try {
-      for (const occurrence of processes.catchUpAll()) {
-        await product.command({
-          action: "admit_schedule", workspaceId: occurrence.workspaceId,
-          targetKind: occurrence.targetKind, targetId: occurrence.targetId,
-          scheduleId: occurrence.id, scheduleOccurrenceId: occurrence.occurrenceId
-        });
-      }
-    } catch (error) {
-      ctx.logger.warn(error);
-    } finally {
-      admittingSchedules = false;
-    }
-  };
-  void admitSchedules();
-  const timer = setInterval(() => {
-    void admitSchedules();
-  }, 15_000);
-  timer.unref();
-  ctx.effect(() => () => clearInterval(timer), "bees schedules");
+  await processes.start((stage, signal) => product.runProcessStage(stage, signal));
+  ctx.effect(() => () => processes.close(), "bees Temporal worker");
 
   const server = ctx.webServer.server;
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");

@@ -1,9 +1,18 @@
+export declare const PROCESS_TASK_QUEUE = "bees-processes-v1";
+export declare function processWorkflowId(workItemId: string): string;
+
 export declare class ProcessRuntime {
-  constructor(database: unknown);
-  schedules(workspaceId: string, targetKind: "process" | "work_item", targetId: string): any[];
-  allSchedules(workspaceIds: string[]): any[];
-  state(workspaceId: string, workItemId: string): any;
-  scheduleCommand(workspaceId: string, targetKind: "process" | "work_item", targetId: string, command: Record<string, unknown>): any;
-  command(workspaceId: string, workItemId: string, command: Record<string, unknown>): any;
-  catchUpAll(now?: number): any[];
+  constructor(database: any, options?: { client?: any; logger?: any });
+  item(workItemId: string): any;
+  stages(processId: string): any[];
+  input(workItemId: string): any;
+  isAutomatic(processId: string): boolean;
+  start(runStage: (stage: any, signal?: AbortSignal) => Promise<any>): Promise<void>;
+  close(): Promise<void>;
+  reconcile(): Promise<void>;
+  startItem(workItemId: string): Promise<any>;
+  signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;
+  move(workItemId: string, targetStageId: string): any;
+  archive(workItemId: string, restore?: boolean): Promise<any>;
+  project(state: any): any;
 }

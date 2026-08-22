@@ -271,16 +271,32 @@ function insertProcess(database, workspaceId, name, description, stages, kind = 
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, at, at);
   const insert = database.prepare(`
-    INSERT INTO stages (id, process_id, name, position, completion_rules, is_terminal, archived_at)
-    VALUES (?, ?, ?, ?, '', ?, NULL)
+    INSERT INTO stages (id, process_id, name, position, driver, completion_rules, is_terminal, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
-  stages.forEach((stage, position) =>
-    insert.run(randomUUID(), id, required(stage, "Stage"), position, position === stages.length - 1 ? 1 : 0));
+  stages.forEach((stage, position) => {
+    const definition = typeof stage === "string" ? { name: stage, driver: "manual" } : stage;
+    insert.run(
+      randomUUID(), id, required(definition.name, "Stage"), position,
+      definition.driver ?? "manual", String(definition.instructions ?? ""),
+      definition.driver === "terminal" || position === stages.length - 1 ? 1 : 0
+    );
+  });
   return id;
 }
 
 function insertWorkspaceDefaults(database, workspaceId) {
-  insertProcess(database, workspaceId, "Goals", "Outcomes from idea to done", ["Plan", "Doing", "Done"], "goals");
+  insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
+    {
+      name: "Work", driver: "agent",
+      instructions: "Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review."
+    },
+    {
+      name: "Review", driver: "review",
+      instructions: "Independently inspect the candidate deliverables and evidence. Pass only when the requested outcome is actually complete; otherwise return specific revision feedback."
+    },
+    { name: "Done", driver: "terminal" }
+  ], "goals");
   const at = iso();
   database.prepare(`
     INSERT INTO agent_assignments (id, workspace_id, preset_id, name, description, created_at, updated_at)
@@ -290,13 +306,16 @@ function insertWorkspaceDefaults(database, workspaceId) {
 
 export function initializeProductDatabase(database) {
   const version = Number(database.prepare("PRAGMA user_version").get()?.user_version ?? 0);
-  if (version < 4) database.exec(`
+  if (version < 5) database.exec(`
     DROP TRIGGER IF EXISTS bees_item_search_insert;
     DROP TRIGGER IF EXISTS bees_item_search_update;
     DROP TRIGGER IF EXISTS bees_item_search_delete;
     DROP TABLE IF EXISTS bees_search;
     DROP TABLE IF EXISTS bees_proposals;
+    DROP TABLE IF EXISTS bees_connected_organizations;
+    DROP TABLE IF EXISTS bees_account;
     DROP TABLE IF EXISTS bees_run_checkpoints;
+    DROP TABLE IF EXISTS bees_stage_results;
     DROP TABLE IF EXISTS dsh_deliveries;
     DROP TABLE IF EXISTS dsh_audit_events;
     DROP TABLE IF EXISTS bees_domain_receipts;
@@ -320,7 +339,7 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS devices;
     DROP TABLE IF EXISTS users;
     DROP TABLE IF EXISTS settings;
-    PRAGMA user_version = 4;
+    PRAGMA user_version = 5;
   `);
   database.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -383,7 +402,9 @@ export function initializeProductDatabase(database) {
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stages (
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
-      name TEXT NOT NULL, position INTEGER NOT NULL, completion_rules TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL, position INTEGER NOT NULL,
+      driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'review', 'terminal')),
+      completion_rules TEXT NOT NULL DEFAULT '',
       is_terminal INTEGER NOT NULL DEFAULT 0, archived_at TEXT, UNIQUE(process_id, position)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS work_items (
@@ -392,6 +413,10 @@ export function initializeProductDatabase(database) {
       kind TEXT NOT NULL DEFAULT 'work' CHECK (kind IN ('goal', 'run', 'work')),
       title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', owner TEXT,
       agent_assignment_id TEXT REFERENCES agent_assignments(id), priority TEXT NOT NULL DEFAULT 'normal',
+      runtime_phase TEXT NOT NULL DEFAULT 'ready'
+        CHECK (runtime_phase IN ('ready', 'running', 'waiting', 'paused', 'failed', 'completed', 'cancelled')),
+      runtime_attempt INTEGER NOT NULL DEFAULT 0, runtime_review_cycle INTEGER NOT NULL DEFAULT 0,
+      runtime_execution_id TEXT, runtime_error TEXT,
       archived_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS team_locations (
@@ -502,6 +527,46 @@ export class BeesProduct {
     }
   }
 
+  async runProcessStage(stage, signal) {
+    const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
+    const executionId = required(stage.executionId, "Execution");
+    const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+    const locations = stageInputs(this.database, item.id, runDirectory);
+    if (stage.candidateExecutionId) {
+      const candidate = this.database.prepare(`
+        SELECT run_directory AS runDirectory FROM execution_links
+        WHERE execution_id = ? AND work_item_id = ?
+      `).get(stage.candidateExecutionId, item.id);
+      if (!candidate) throw new Error("The review candidate is unavailable");
+      const name = stage.purpose === "reviewer" ? "candidate" : "previous-candidate";
+      const destination = resolve(runDirectory, "inputs", name);
+      mkdirSync(destination, { recursive: true });
+      stageLocation({ name, kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
+    }
+    const assignment = item.agentAssignmentId ? this.database.prepare(`
+      SELECT preset_id AS presetId, name FROM agent_assignments WHERE id = ? AND workspace_id = ?
+    `).get(item.agentAssignmentId, item.workspaceId) : null;
+    const reviewer = stage.purpose === "reviewer";
+    const feedback = stage.feedback ? `\n\nPrior review feedback:\n${stage.feedback}` : "";
+    const body = reviewer
+      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      : `Own this goal through a review-ready result. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when the outcome is genuinely ready for independent review.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Complete the goal."}${feedback}`;
+    return this.agents.executeStage(executionId, {
+      idempotencyKey: `process:${executionId}:start`,
+      workspace: runDirectory,
+      body,
+      initialData: {
+        version: 1, mode: reviewer ? "review" : "work", stagePurpose: stage.purpose,
+        executionId, workItemId: item.id,
+        agentId: reviewer ? "bees-reviewer" : item.agentAssignmentId || "bees-run",
+        agentName: reviewer ? "Bees reviewer" : assignment?.name || "Bees work agent",
+        purpose: item.title, model: null, instructions: String(stage.instructions ?? ""),
+        workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
+        grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
+      }
+    }, signal);
+  }
+
   async snapshot() {
     const { userId, deviceId } = currentIdentity(this.database);
     const organizations = this.database.prepare(`
@@ -538,14 +603,18 @@ export class BeesProduct {
     `).all(JSON.stringify(workspaceIds)) : [];
     const processIds = processes.map(({ id }) => id);
     const stages = processIds.length ? this.database.prepare(`
-      SELECT id, process_id AS processId, name, position, is_terminal AS isTerminal
+      SELECT id, process_id AS processId, name, position, driver,
+             completion_rules AS instructions, is_terminal AS isTerminal
       FROM stages WHERE process_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
       ORDER BY process_id, position
     `).all(JSON.stringify(processIds)).map((row) => ({ ...row, isTerminal: Boolean(row.isTerminal) })) : [];
     const items = processIds.length ? this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.parent_id AS parentId,
              w.kind, w.title, w.description, w.owner, w.agent_assignment_id AS agentAssignmentId,
-             w.priority, w.archived_at AS archivedAt, w.updated_at AS updatedAt,
+             w.priority, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
+             w.runtime_review_cycle AS runtimeReviewCycle,
+             w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
+             w.archived_at AS archivedAt, w.updated_at AS updatedAt,
              s.is_terminal AS completed
       FROM work_items w JOIN stages s ON s.id = w.stage_id
       WHERE w.process_id IN (SELECT value FROM json_each(?)) AND w.deleted_at IS NULL
@@ -579,7 +648,7 @@ export class BeesProduct {
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
       ...run, outputs: outputFiles(runDirectory)
     })) : [];
-    const schedules = this.processes.allSchedules(workspaceIds);
+    const schedules = [];
     const proposals = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, dsh_session_id AS sessionId, title, summary,
              changes_json AS changes, status, created_at AS createdAt
@@ -762,7 +831,8 @@ export class BeesProduct {
         return { id, dshWorkspaceId: dshWorkspace ? String(dshWorkspace.id) : null };
       });
     }
-    if (["create_item", "create_run", "create_goal"].includes(action)) return transaction(this.database, () => {
+    if (["create_item", "create_run", "create_goal"].includes(action)) {
+      const created = transaction(this.database, () => {
       let processId = input.processId ? required(input.processId, "Process") : null;
       if (action === "create_goal") {
         const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
@@ -794,8 +864,11 @@ export class BeesProduct {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
         input.owner ? String(input.owner) : null, assignmentId, String(input.priority ?? "normal"), at, at);
-      return { id };
-    });
+        return { id };
+      });
+      await this.processes.startItem(created.id);
+      return created;
+    }
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
@@ -812,16 +885,15 @@ export class BeesProduct {
     });
     if (action === "move_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-      return this.processes.command(item.workspaceId, item.id, {
-        type: "move", targetStageId: required(input.stageId, "Stage"),
-        idempotencyKey: input.idempotencyKey ?? randomUUID()
-      });
+      return this.processes.move(item.id, required(input.stageId, "Stage"));
     }
     if (action === "archive_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-      return this.processes.command(item.workspaceId, item.id, {
-        type: input.restore ? "restore" : "archive", idempotencyKey: input.idempotencyKey ?? randomUUID()
-      });
+      return this.processes.archive(item.id, Boolean(input.restore));
+    }
+    if (["pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
+      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
+      return this.processes.signal(item.id, action.replace("_item", ""));
     }
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
@@ -836,6 +908,10 @@ export class BeesProduct {
       const process = this.database.prepare(`SELECT workspace_id AS workspaceId FROM processes WHERE id = ?`).get(processId);
       if (!process) throw new Error("Process not found");
       workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      if (this.processes.isAutomatic(processId) && this.database.prepare(`
+        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
+          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
+      `).get(processId)) throw new Error("Finish or cancel active automatic work before editing this process");
       const names = Array.isArray(input.stages) ? input.stages.map((value) => required(value, "Stage")) : [];
       if (names.length < 2 || names.length > 12) throw new Error("A process needs 2 to 12 stages");
       if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length)
@@ -866,7 +942,7 @@ export class BeesProduct {
           UPDATE stages SET name = ?, position = ?, is_terminal = ? WHERE id = ?
         `).run(name, position, position === names.length - 1 ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages VALUES (?, ?, ?, ?, '', ?, NULL)
+          INSERT INTO stages VALUES (?, ?, ?, ?, 'manual', '', ?, NULL)
         `).run(randomUUID(), processId, name, position, position === names.length - 1 ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
@@ -986,77 +1062,6 @@ export class BeesProduct {
         .run(at, input.proposalId);
       return {};
     }
-    if (action === "upsert_schedule") {
-      const target = input.processId
-        ? { ...processContext(this.database, input.processId, ["admin", "member"]), targetKind: "process" }
-        : { ...itemContext(this.database, input.itemId, ["admin", "member"]), targetKind: "work_item" };
-      return this.processes.scheduleCommand(target.workspaceId, target.targetKind, target.id, {
-        type: "upsert_schedule", idempotencyKey: input.idempotencyKey ?? randomUUID(),
-        schedule: {
-          id: input.scheduleId ?? randomUUID(), name: required(input.name, "Schedule"),
-          recurrence: ["hourly", "daily", "weekdays"].includes(input.recurrence) ? input.recurrence : "daily",
-          mode: "agent", timezone: input.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          nextRunAt: input.nextRunAt || new Date(Date.now() + 3_600_000).toISOString(), enabled: input.enabled !== false
-        }
-      });
-    }
-    if (action === "trigger_schedule") {
-      const target = input.processId
-        ? { ...processContext(this.database, input.processId, ["admin", "member"]), targetKind: "process" }
-        : { ...itemContext(this.database, input.itemId, ["admin", "member"]), targetKind: "work_item" };
-      const scheduleId = required(input.scheduleId, "Schedule");
-      const state = this.processes.scheduleCommand(target.workspaceId, target.targetKind, target.id, {
-        type: action, scheduleId, idempotencyKey: input.idempotencyKey ?? randomUUID()
-      });
-      const occurrenceId = state.schedules.find(({ id }) => id === scheduleId)?.pendingOccurrenceId;
-      if (!occurrenceId) return { skipped: true };
-      return this.execute("admit_schedule", {
-        ...input, workspaceId: target.workspaceId, targetKind: target.targetKind,
-        targetId: target.id, scheduleId, scheduleOccurrenceId: occurrenceId
-      });
-    }
-    if (action === "admit_schedule") {
-      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const targetKind = input.targetKind === "process" ? "process" : "work_item";
-      const target = targetKind === "process"
-        ? processContext(this.database, input.targetId, ["admin", "member"])
-        : itemContext(this.database, input.targetId, ["admin", "member"]);
-      if (target.workspaceId !== workspace.id) throw new Error("The schedule target is outside this workspace");
-      const scheduleId = required(input.scheduleId, "Schedule");
-      const occurrenceId = required(input.scheduleOccurrenceId, "Schedule occurrence");
-      const pending = this.processes.schedules(workspace.id, targetKind, target.id)
-        .find((schedule) => schedule.id === scheduleId)?.pendingOccurrenceId;
-      if (pending !== occurrenceId) throw new Error("The pending schedule occurrence changed");
-      let itemId = target.id;
-      if (targetKind === "process") {
-        const schedule = this.processes.schedules(workspace.id, targetKind, target.id)
-          .find(({ id }) => id === scheduleId);
-        const work = await this.execute("create_run", {
-          processId: target.id,
-          title: `${schedule?.name ?? target.name} — ${new Date().toLocaleDateString()}`,
-          description: `Scheduled run of ${target.name}.`,
-          scheduleOccurrenceId: occurrenceId
-        });
-        itemId = work.id;
-      }
-      const run = await this.execute("run_item", {
-        ...input, itemId, scheduleOccurrenceId: occurrenceId
-      });
-      this.processes.scheduleCommand(workspace.id, targetKind, target.id, {
-        type: "ack_schedule", scheduleId, occurrenceId, idempotencyKey: `schedule-ack:${occurrenceId}`
-      });
-      return { ...run, workItemId: itemId };
-    }
-    if (["toggle_schedule", "delete_schedule"].includes(action)) {
-      const target = input.processId
-        ? { ...processContext(this.database, input.processId, ["admin", "member"]), targetKind: "process" }
-        : { ...itemContext(this.database, input.itemId, ["admin", "member"]), targetKind: "work_item" };
-      return this.processes.scheduleCommand(target.workspaceId, target.targetKind, target.id, {
-        type: action, scheduleId: required(input.scheduleId, "Schedule"),
-        ...(action === "toggle_schedule" ? { enabled: Boolean(input.enabled) } : {}),
-        idempotencyKey: input.idempotencyKey ?? randomUUID()
-      });
-    }
     if (action === "ask_bees") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const executionId = randomUUID();
@@ -1076,6 +1081,8 @@ export class BeesProduct {
     }
     if (action === "run_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
+      if (this.processes.isAutomatic(item.processId))
+        throw new Error("Temporal runs this process automatically");
       const executionId = input.scheduleOccurrenceId ? stableUuid(input.scheduleOccurrenceId) : randomUUID();
       if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
         return { executionId };

@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
         ["all-work", "All work"], ["goals", "Goals"], ["waiting", "Waiting on me"], ["completed", "Completed"]
       ] },
       { id: "processes", label: "Processes", icon: "◇", defaultChild: "all-processes", children: [
-        ["all-processes", "All processes"], ["schedules", "Schedules"], ["templates", "Templates"]
+        ["all-processes", "All processes"], ["templates", "Templates"]
       ] },
       { id: "agents", label: "Agents", icon: "◎", defaultChild: "all-agents", children: [
         ["all-agents", "All agents"], ["assignments", "Assignments"], ["skills", "Skills"]
@@ -35,7 +35,8 @@ window.__ModuleLoader__.load({
         ["personal-ai", "AI connections"], ["appearance", "Appearance"],
         ["organizations", "Organizations & invitations"], ["organization-settings", "Organization"],
         ["team-settings", "Team"], ["workspace-settings", "Workspace"],
-        ["connections", "Connections"], ["permissions", "Permissions"]
+        ["connections", "Connections"], ["permissions", "Permissions"],
+        ["dsh-settings", "DSH settings"]
       ] }
     ];
 
@@ -201,12 +202,15 @@ window.__ModuleLoader__.load({
     function workItemsFor(data, route, workspaceIds) {
       let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run" && !item.archivedAt);
       if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
-      if (route === "waiting") rows = rows.filter((item) => item.owner || item.agentAssignmentId);
+      if (route === "waiting") rows = rows.filter((item) =>
+        item.runtimePhase === "waiting" || data.runs.some((run) =>
+          run.workItemId === item.id && run.status === "waiting_for_approval"));
       return rows.filter(({ completed }) => route === "completed" ? completed : !completed);
     }
 
     function ItemCard({ item, data, stages, run, teamId, act }) {
       const index = stages.findIndex(({ id }) => id === item.stageId);
+      const automatic = stages.length > 0 && stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
       const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === data.processes.find(({ id }) => id === item.processId)?.workspaceId);
       const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
       const locations = data.locations.filter((location) => location.teamId === teamId && !location.archivedAt);
@@ -233,33 +237,38 @@ window.__ModuleLoader__.load({
         if (model === null) return;
         await act({ action: "run_item", itemId: item.id, model: model || null });
       };
-      const schedule = async () => {
-        const name = await ask("Schedule name", `Run ${item.title}`); if (!name) return;
-        const recurrence = await ask("Recurrence: hourly, daily, or weekdays", "daily");
-        if (!["hourly", "daily", "weekdays"].includes(recurrence)) return;
-        const nextRunAt = await ask("First run (ISO date and time)", new Date(Date.now() + 3_600_000).toISOString());
-        if (nextRunAt) await act({ action: "upsert_schedule", itemId: item.id, name, recurrence, nextRunAt });
-      };
-      return h("article", { className: "bees-card", draggable: true, onDragStart: (event) => event.dataTransfer.setData("text/bees-item", item.id) },
+      return h("article", { className: "bees-card", draggable: !automatic, onDragStart: (event) => {
+        if (!automatic) event.dataTransfer.setData("text/bees-item", item.id);
+      } },
         h("h3", null, item.title),
-        h("div", { className: "bees-muted" }, [item.kind, item.owner, assignments.find(({ id }) => id === item.agentAssignmentId)?.name].filter(Boolean).join(" · ")),
+        h("div", { className: "bees-muted" }, [item.kind, automatic ? item.runtimePhase : null, item.owner, assignments.find(({ id }) => id === item.agentAssignmentId)?.name].filter(Boolean).join(" · ")),
         item.description ? h("p", null, item.description) : null,
+        item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError) : null,
         ...data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId: id, relativePath }) => {
           const location = locations.find((row) => row.id === id);
           return location ? h(Button, { key: `${id}:${relativePath}`, onClick: () => act({ action: "detach_location", itemId: item.id, locationId: id }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
         }),
         h("div", { className: "bees-card-actions" },
-          run ? h("span", { className: `bees-status bees-${run.status}` }, run.status) : null,
-          index > 0 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index - 1].id }) }, "←") : null,
-          index < stages.length - 1 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index + 1].id }) }, "→") : null,
+          automatic ? h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase) :
+            run ? h("span", { className: `bees-status bees-${run.status}` }, run.status) : null,
+          !automatic && index > 0 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index - 1].id }) }, "←") : null,
+          !automatic && index < stages.length - 1 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index + 1].id }) }, "→") : null,
           h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: attach, disabled: !locations.some(({ id }) => !attached.includes(id)) }, "Files"),
-          h(Button, { onClick: schedule }, "Schedule"),
-          run?.status === "running" || run?.status === "waiting_for_approval"
+          automatic && ["running", "waiting"].includes(item.runtimePhase)
+            ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause")
+            : automatic && item.runtimePhase === "paused"
+              ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume")
+              : automatic && item.runtimePhase === "failed"
+                ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry")
+                : null,
+          automatic && ["running", "waiting", "paused", "failed"].includes(item.runtimePhase)
+            ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel")
+            : !automatic && (run?.status === "running" || run?.status === "waiting_for_approval")
             ? h(Button, { onClick: () => act({ action: "stop_run", executionId: run.id }) }, "Stop")
-            : run?.status === "interrupted"
+            : !automatic && run?.status === "interrupted"
               ? h(Button, { onClick: () => act({ action: "recover_run", executionId: run.id }) }, "Resume")
-              : h(Button, { className: "primary", onClick: start }, "Run"),
-          run?.status === "completed" && attached.length ? h(Button, { onClick: async () => {
+              : !automatic ? h(Button, { className: "primary", onClick: start }, "Run") : null,
+          !automatic && run?.status === "completed" && attached.length ? h(Button, { onClick: async () => {
             const choices = locations.filter(({ id }) => attached.includes(id));
             const name = await ask(`Publish to:\n${choices.map(({ name }) => name).join("\n")}`);
             const location = choices.find((row) => row.name === name);
@@ -272,6 +281,7 @@ window.__ModuleLoader__.load({
 
     function Board({ data, processId, teamId, act }) {
       const stages = data.stages.filter((stage) => stage.processId === processId);
+      const automatic = stages.length > 0 && stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
       const items = data.items.filter((item) => item.processId === processId && !item.archivedAt && item.kind !== "run");
       const latest = new Map();
       for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
@@ -285,12 +295,15 @@ window.__ModuleLoader__.load({
           h(Button, { className: "primary", disabled: !stages.length, onClick: create }, "New work")),
         h("div", { className: "bees-board" }, ...stages.map((stage) => {
         const rows = items.filter((item) => item.stageId === stage.id);
-        return h("section", { className: "bees-column", key: stage.id, onDragOver: (event) => event.preventDefault(), onDrop: (event) => {
+        return h("section", { className: "bees-column", key: stage.id, onDragOver: (event) => {
+          if (!automatic) event.preventDefault();
+        }, onDrop: (event) => {
+          if (automatic) return;
           event.preventDefault(); const itemId = event.dataTransfer.getData("text/bees-item");
           if (itemId) void act({ action: "move_item", itemId, stageId: stage.id });
         } },
         h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
-        h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => h(ItemCard, { key: item.id, item, data, stages, run: latest.get(item.id), teamId, act })) : [h(Empty, { key: "empty" }, "Drop work here")]))
+        h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => h(ItemCard, { key: item.id, item, data, stages, run: latest.get(item.id), teamId, act })) : [h(Empty, { key: "empty" }, automatic ? "No work in this stage" : "Drop work here")]))
         );
       })));
     }
@@ -374,35 +387,11 @@ window.__ModuleLoader__.load({
         }
       }
       if (route === "templates") return h(Empty, null, "No process templates yet. Save a real process as a template when reuse becomes useful.");
-      if (route === "schedules") {
-        const schedules = data.schedules.filter((schedule) => workspaceIds.includes(schedule.workspaceId));
-        const target = (schedule) => schedule.targetKind === "process"
-          ? data.processes.find(({ id }) => id === schedule.processId)?.name
-          : data.items.find(({ id }) => id === schedule.workItemId)?.title;
-        const command = (schedule) => schedule.targetKind === "process"
-          ? { processId: schedule.processId }
-          : { itemId: schedule.workItemId };
-        return h("div", null,
-          ...(schedules.length ? schedules.map((schedule) => h("div", { className: "bees-row", key: schedule.id },
-            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, schedule.name), h("div", { className: "bees-muted" }, `${target(schedule) ?? "Unavailable target"} · ${schedule.recurrence} · ${schedule.timezone} · next ${new Date(schedule.nextRunAt).toLocaleString()}`)),
-            h(Button, { onClick: () => act({ action: "trigger_schedule", ...command(schedule), scheduleId: schedule.id }) }, "Run now"),
-            h(Button, { onClick: () => act({ action: "toggle_schedule", ...command(schedule), scheduleId: schedule.id, enabled: !schedule.enabled }) }, schedule.enabled ? "Pause" : "Enable"),
-            h(Button, { className: "danger", onClick: async () => (await confirmAction(`Delete schedule “${schedule.name}”?`)) && act({ action: "delete_schedule", ...command(schedule), scheduleId: schedule.id }) }, "Delete")
-          )) : [h(Empty, { key: "empty" }, "No schedules yet")])
-        );
-      }
       const create = async () => {
         const name = await ask("Process name", ""); if (!name) return;
         const description = await ask("Description", "") ?? "";
         const stages = ((await ask("Stages, comma separated", "Plan, Doing, Done")) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
         await act({ action: "create_process", workspaceId, name, description, stages });
-      };
-      const schedule = async (process) => {
-        const name = await ask("Schedule name", `Run ${process.name}`); if (!name) return;
-        const recurrence = await ask("Recurrence: hourly, daily, or weekdays", "daily");
-        if (!["hourly", "daily", "weekdays"].includes(recurrence)) return;
-        const nextRunAt = await ask("First run (ISO date and time)", new Date(Date.now() + 3_600_000).toISOString());
-        if (nextRunAt) await act({ action: "upsert_schedule", processId: process.id, name, recurrence, nextRunAt });
       };
       return h("div", null,
         h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: create }, "New process")),
@@ -411,7 +400,6 @@ window.__ModuleLoader__.load({
           return h("div", { className: "bees-row", key: process.id },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))),
             h(Button, { onClick: () => setProcessId(process.id) }, "Board"),
-            h(Button, { onClick: () => schedule(process) }, "Schedule"),
             h(Button, { onClick: () => edit(process) }, "Edit"));
         }) : [h(Empty, { key: "empty" }, "No processes yet")])
       );
@@ -776,6 +764,10 @@ window.__ModuleLoader__.load({
         return result;
       };
       const navigate = (id) => {
+        if (id === "dsh-settings") {
+          document.querySelector('button[aria-haspopup="dialog"][aria-expanded]')?.click();
+          return;
+        }
         const section = NAVIGATION.find((row) => row.id === id);
         setRoute(section ? section.defaultChild : id); setProcessId("");
       };

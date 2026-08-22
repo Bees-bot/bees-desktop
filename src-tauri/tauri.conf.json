@@ -29,7 +29,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/bees-node"],
+    "externalBin": ["binaries/bees-node", "binaries/temporal"],
     "resources": {
       "../dsh-runtime": "dsh-runtime",
       "../llama-runtime": "llama-runtime"

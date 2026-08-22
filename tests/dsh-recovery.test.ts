@@ -74,7 +74,8 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('id: "bees-product"');
     expect(client).toContain('.bees-main{min-width:0;min-height:0;overflow:hidden');
     expect(client).not.toContain('id: "bees-navigation"');
-    expect(client).not.toContain("openDsh");
+    expect(client).toContain('["dsh-settings", "DSH settings"]');
+    expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
     expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');
     expect(client).not.toContain('const LOCAL_MODELS = [');
@@ -89,6 +90,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).not.toContain("window.prompt");
     expect(client).not.toContain("window.confirm");
     expect(client).toContain('document.createElement("dialog")');
+    expect(client).toContain('item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError)');
     expect(client).not.toContain("<iframe");
   });
 
@@ -153,6 +155,28 @@ describe("DSH-owned desktop and recovery", () => {
     expect(replacement.pendingApproval("run")).toMatchObject({ approvalId: "approval-1" });
   });
 
+  it("projects a DSH question as human input and recovers it as agent work", () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database);
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/call", seq: 4,
+      data: { name: "ask_user_question", callId: "question-1", arguments: "Which market?" }
+    });
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "waiting_for_input" });
+    expect(runtime.pendingInteraction("run")).toMatchObject({
+      kind: "question", callId: "question-1"
+    });
+
+    const replacement = new AgentRuntime(context(), database.connection);
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "interrupted" });
+    expect(replacement.pendingApproval("run")).toBeNull();
+  });
+
   it("records a completed tool boundary once under duplicate delivery", () => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
@@ -178,7 +202,15 @@ describe("DSH-owned desktop and recovery", () => {
     const runtime = new AgentRuntime({
       on: () => () => undefined,
       agentPresets: { mount: async () => undefined },
-      agents: { create: async () => { throw new Error("provider unavailable"); } },
+      agentDefaultModel: {
+        currentSelection: () => ({ provider: "test-default", model: "configured-model" })
+      },
+      agents: { create: async (options: any) => {
+        expect(options.agentOptions).toEqual({
+          provider: "test-default", model: "configured-model"
+        });
+        throw new Error("provider unavailable");
+      } },
       approval: { setPolicy: () => undefined },
       sessionPersistence: { load: async () => ({ events: [] }) }
     }, database.connection);
@@ -197,5 +229,18 @@ describe("DSH-owned desktop and recovery", () => {
       "SELECT 1 FROM execution_links WHERE execution_id = 'retryable'"
     ).get()).toBeUndefined();
     rmSync(runDirectory, { recursive: true });
+  });
+
+  it("preserves the original DSH failure across activity retries", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database, "failed");
+    database.connection.prepare(`
+      INSERT INTO dsh_deliveries
+        (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
+      VALUES ('delivery', 'run', 'submission', 'failed', ?, '2026-01-01', '2026-01-01')
+    `).run(JSON.stringify({ message: "configured model is unavailable" }));
+
+    await expect(runtime.executeStage("run", {})).rejects.toThrow("configured model is unavailable");
   });
 });

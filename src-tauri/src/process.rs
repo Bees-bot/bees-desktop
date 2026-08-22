@@ -22,13 +22,13 @@ pub fn available_loopback_port() -> Result<u16, String> {
     bind_loopback().map(|(_, port)| port)
 }
 
-fn managed_node_sidecar(executable: Option<&Path>, node: &Path) -> bool {
-    executable == Some(node)
+fn managed_sidecar(executable: Option<&Path>, expected: &Path) -> bool {
+    executable == Some(expected)
 }
 
-/// Remove a Node sidecar whose Bees parent was hard-killed before `Drop` could reap it.
-/// The exact bundled executable path keeps this from touching another app's Node process.
-pub fn reap_orphaned_node_sidecars(node: &Path) -> usize {
+/// Remove a bundled sidecar whose Bees parent was hard-killed before `Drop` could reap it.
+/// The exact executable path keeps this from touching another app's process.
+pub fn reap_orphaned_sidecars(executable: &Path) -> usize {
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
     let mut reaped = 0;
@@ -36,7 +36,7 @@ pub fn reap_orphaned_node_sidecars(node: &Path) -> usize {
         let orphaned = process
             .parent()
             .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
-        if orphaned && managed_node_sidecar(process.exe(), node) && process.kill() {
+        if orphaned && managed_sidecar(process.exe(), executable) && process.kill() {
             reaped += 1;
         }
     }
@@ -87,13 +87,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn orphan_reaper_matches_only_our_exact_node_executable() {
+    fn orphan_reaper_matches_only_our_exact_executable() {
         let node = Path::new("/Applications/Bees.app/Contents/MacOS/bees-node");
-        assert!(managed_node_sidecar(Some(node), node));
-        assert!(!managed_node_sidecar(
-            Some(Path::new("/usr/bin/node")),
-            node
-        ));
-        assert!(!managed_node_sidecar(None, node));
+        assert!(managed_sidecar(Some(node), node));
+        assert!(!managed_sidecar(Some(Path::new("/usr/bin/node")), node));
+        assert!(!managed_sidecar(None, node));
     }
 }

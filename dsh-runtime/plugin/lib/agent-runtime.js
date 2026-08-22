@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -12,18 +13,23 @@ Work only in the session workspace. For ordinary runs read inputs from inputs/ a
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
+const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
+
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
-  "instructions", "workspaceId", "workItemId", "agentPresetId", "grants"
+  "instructions", "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
 ]);
 
 export function validateRunData(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Run data must be an object");
   for (const key of Object.keys(value)) if (!RUN_DATA_KEYS.has(key)) throw new Error(`Unknown run data field: ${key}`);
-  if (value.version !== 1 || !["work", "planning"].includes(value.mode) ||
+  if (value.version !== 1 || !["work", "planning", "review"].includes(value.mode) ||
       !value.executionId || !value.agentId || !value.agentName || !value.workspaceId)
     throw new Error("Run data is missing its identity");
-  if (value.mode === "work" && !value.workItemId) throw new Error("Work run data needs a work item");
+  if (["work", "review"].includes(value.mode) && !value.workItemId)
+    throw new Error("Work run data needs a work item");
+  if (value.stagePurpose && !["worker", "reviewer"].includes(value.stagePurpose))
+    throw new Error("Run data has an invalid stage purpose");
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
@@ -34,10 +40,10 @@ export function validateRunData(value) {
 }
 
 function modelRef(value) {
-  const ref = String(value ?? "deepseek-official/deepseek-v4-flash");
+  const ref = String(value ?? "");
   const separator = ref.indexOf("/");
   if (separator <= 0 || separator === ref.length - 1)
-    return { provider: "deepseek-official", model: "deepseek-v4-flash" };
+    throw new Error("Run data has an invalid provider/model route");
   return { provider: ref.slice(0, separator), model: ref.slice(separator + 1).replace(/@.*$/, "") };
 }
 
@@ -248,7 +254,6 @@ export class AgentRuntime {
         execution_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
         transition TEXT NOT NULL,
-        definition_version INTEGER NOT NULL,
         input_refs_json TEXT NOT NULL,
         completed_outputs_json TEXT NOT NULL,
         pending_interaction_json TEXT,
@@ -259,11 +264,18 @@ export class AgentRuntime {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS bees_run_checkpoints_execution
         ON bees_run_checkpoints(execution_id, created_at);
+      CREATE TABLE IF NOT EXISTS bees_stage_results (
+        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'pass', 'revise')),
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;
     `);
     const at = new Date().toISOString();
     for (const run of database.prepare(`
       SELECT execution_id, current_session_id FROM execution_links
-      WHERE status IN ('running', 'waiting_for_approval')
+      WHERE status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all()) {
       database.prepare("UPDATE execution_links SET status = 'interrupted', updated_at = ? WHERE execution_id = ?")
         .run(at, run.execution_id);
@@ -304,9 +316,9 @@ export class AgentRuntime {
       : previous?.pendingInteractionJson ? JSON.parse(previous.pendingInteractionJson) : null;
     this.database.prepare(`
       INSERT OR IGNORE INTO bees_run_checkpoints
-        (id, execution_id, session_id, transition, definition_version, input_refs_json,
+        (id, execution_id, session_id, transition, input_refs_json,
          completed_outputs_json, pending_interaction_json, config_hash, idempotency_key, created_at)
-      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomUUID(), executionId, sessionId, transition, JSON.stringify(inputRefs),
       JSON.stringify(completedOutputs), pendingInteraction ? JSON.stringify(pendingInteraction) : null,
@@ -314,13 +326,18 @@ export class AgentRuntime {
     );
   }
 
-  pendingApproval(executionId) {
+  pendingInteraction(executionId) {
     const row = this.database.prepare(`
       SELECT transition, pending_interaction_json AS pendingInteractionJson
       FROM bees_run_checkpoints WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1
     `).get(executionId);
     if (!row?.pendingInteractionJson) return null;
     return JSON.parse(row.pendingInteractionJson);
+  }
+
+  pendingApproval(executionId) {
+    const pending = this.pendingInteraction(executionId);
+    return pending?.kind === "approval" ? pending : null;
   }
 
   onSessionEvent(session, event) {
@@ -330,6 +347,27 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
+    if (event.type === "tool/call" && event.data.name === "ask_user_question") {
+      const pending = {
+        kind: "question",
+        callId: String(event.data.callId),
+        questions: String(event.data.arguments ?? "").slice(0, 8_000)
+      };
+      const at = new Date().toISOString();
+      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_input', updated_at = ? WHERE execution_id = ?")
+        .run(at, executionId);
+      this.database.prepare(`
+        UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
+        WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
+          AND runtime_phase = 'running'
+      `).run(at, executionId);
+      this.checkpoint(executionId, sessionId, "waiting_for_input", {
+        pendingInteraction: pending,
+        idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
+      });
+      this.audit("question-requested", executionId, sessionId, pending);
+      return;
+    }
     if (event.type === "approval/asked") {
       const pending = {
         kind: "approval",
@@ -340,6 +378,11 @@ export class AgentRuntime {
       };
       this.database.prepare("UPDATE execution_links SET status = 'waiting_for_approval', updated_at = ? WHERE execution_id = ?")
         .run(new Date().toISOString(), executionId);
+      this.database.prepare(`
+        UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
+        WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
+          AND runtime_phase = 'running'
+      `).run(new Date().toISOString(), executionId);
       this.checkpoint(executionId, sessionId, "waiting_for_approval", {
         pendingInteraction: pending,
         idempotencyKey: `approval-asked:${sessionId}:${pending.approvalId}`
@@ -351,6 +394,11 @@ export class AgentRuntime {
       const transition = event.data.outcome === "allowed-once" ? "approved" : "rejected";
       this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
         .run(new Date().toISOString(), executionId);
+      this.database.prepare(`
+        UPDATE work_items SET runtime_phase = 'running', updated_at = ?
+        WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
+          AND runtime_phase = 'waiting'
+      `).run(new Date().toISOString(), executionId);
       this.checkpoint(executionId, sessionId, transition, {
         pendingInteraction: null,
         idempotencyKey: `approval-decided:${sessionId}:${event.data.id}`
@@ -361,10 +409,27 @@ export class AgentRuntime {
       return;
     }
     if (event.type === "tool/result") {
+      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      const pending = this.pendingInteraction(executionId);
+      if (pending?.kind === "question" && pending.callId === callId) {
+        const at = new Date().toISOString();
+        this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
+          .run(at, executionId);
+        this.database.prepare(`
+          UPDATE work_items SET runtime_phase = 'running', updated_at = ?
+          WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
+            AND runtime_phase = 'waiting'
+        `).run(at, executionId);
+        this.checkpoint(executionId, sessionId, "input_received", {
+          pendingInteraction: null,
+          idempotencyKey: `question-answered:${sessionId}:${callId}`
+        });
+        this.audit("question-answered", executionId, sessionId, { callId });
+      }
       const output = {
         sessionId,
         seq: event.seq,
-        callId: event.data.message?.source?.callId ?? null,
+        callId: callId || null,
         error: Boolean(event.data.error),
         contentHash: jsonHash(event.data.message?.content ?? null)
       };
@@ -394,7 +459,7 @@ export class AgentRuntime {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
-      text: `${data.mode === "planning" ? PLAN_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
+      text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
     });
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
@@ -424,6 +489,44 @@ export class AgentRuntime {
           workspaceId: data.workspaceId, sessionId: String(exec.agent?.session.id ?? ""),
           title: args.proposal_title, summary: args.proposal_summary, changes
         });
+      }
+    }));
+    if (data.stagePurpose) agentCtx.tools.register(defineTool({
+      name: "bees_submit_stage_result",
+      description: "Finish this automatic process stage. Workers submit candidate; reviewers submit pass or revise. The first submitted result is immutable.",
+      parameters: {
+        outcome: {
+          type: "string", required: true,
+          enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"],
+          description: "The allowed result for this stage."
+        },
+        summary: { type: "string", required: true, description: "Concise evidence or revision feedback." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            outcome: { type: "string", required: true }, summary: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+      },
+      execute: async (args) => {
+        const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"];
+        if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
+        const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
+        if (!result.summary) throw new Error("Stage result evidence is required");
+        const prior = this.database.prepare(`
+          SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
+        `).get(executionId);
+        if (prior) {
+          if (prior.outcome !== result.outcome || prior.summary !== result.summary)
+            throw new Error("This stage already submitted a different immutable result");
+          return prior;
+        }
+        this.database.prepare(`
+          INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
+        `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
+        return result;
       }
     }));
     const grants = this.database.prepare(`
@@ -488,7 +591,9 @@ export class AgentRuntime {
       sessionId = `${run.executionId}-r${Number(run.recoveryCount) + 1}-${randomUUID().slice(0, 8)}`;
     }
     const common = {
-      ...(data.model ? { agentOptions: modelRef(data.model) } : {}),
+      agentOptions: data.model
+        ? modelRef(data.model)
+        : this.ctx.agentDefaultModel.currentSelection(),
       setup: (agentCtx) => this.setup(agentCtx, data, run?.executionId ?? sessionId, workspace)
     };
     let handle;
@@ -707,6 +812,69 @@ export class AgentRuntime {
     live?.approvalAbort.abort();
     this.live.delete(executionId);
     await handle.dispose().catch(() => undefined);
+  }
+
+  stageResult(executionId) {
+    return this.database.prepare(`
+      SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
+    `).get(executionId);
+  }
+
+  async waitForDelivery(executionId, submissionId, signal) {
+    while (true) {
+      const delivery = this.database.prepare(`
+        SELECT outcome, error_json AS errorJson FROM dsh_deliveries WHERE submission_id = ?
+      `).get(submissionId);
+      if (!delivery) throw new Error("The DSH stage delivery disappeared");
+      if (delivery.outcome) return delivery;
+      if (signal?.aborted) {
+        this.abort(executionId);
+        throw signal.reason ?? new Error("The Temporal activity was cancelled");
+      }
+      try {
+        await delay(250, undefined, signal ? { signal } : undefined);
+      } catch (error) {
+        this.abort(executionId);
+        throw error;
+      }
+    }
+  }
+
+  async executeStage(executionId, payload, signal) {
+    let run = this.run(executionId);
+    const completed = this.stageResult(executionId);
+    if (completed && run?.status === "completed") return completed;
+    if (signal?.aborted) throw signal.reason ?? new Error("The Temporal activity was cancelled");
+
+    let submission = run ? this.database.prepare(`
+      SELECT submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
+      WHERE execution_id = ? ORDER BY created_at DESC LIMIT 1
+    `).get(executionId) : null;
+    if (!run) {
+      submission = await this.admit("bees-run", executionId, payload);
+    } else if (run.status === "interrupted") {
+      submission = await this.admit("bees-run", executionId, {
+        ...payload,
+        initialData: undefined,
+        idempotencyKey: `process:${executionId}:recover:${Number(run.recoveryCount) + 1}`,
+        body: `Resume this automatic process stage from its durable DSH checkpoint.\n\n${payload.body}`
+      });
+    } else if (!submission || submission.outcome) {
+      const result = this.stageResult(executionId);
+      if (result && this.run(executionId)?.status === "completed") return result;
+      const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
+      if (detail) throw new Error(detail);
+      throw new Error(`DSH stage ended ${run.status} without submitting a stage result`);
+    }
+
+    const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    if (delivery.outcome !== "completed") {
+      const detail = delivery.errorJson ? JSON.parse(delivery.errorJson)?.message : null;
+      throw new Error(detail || `DSH stage ${delivery.outcome}`);
+    }
+    const result = this.stageResult(executionId);
+    if (!result) throw new Error("DSH completed without calling bees_submit_stage_result");
+    return result;
   }
 
   async history(executionId) {

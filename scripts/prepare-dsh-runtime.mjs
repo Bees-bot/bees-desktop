@@ -43,6 +43,12 @@ const destination = resolve(
   "binaries",
   `bees-node-${target}${extension}`
 );
+const temporalDestination = resolve(
+  desktopRoot,
+  "src-tauri",
+  "binaries",
+  `temporal-${target}${extension}`
+);
 
 mkdirSync(dirname(destination), { recursive: true });
 copyFileSync(process.execPath, destination);
@@ -75,6 +81,33 @@ const llamaAssets = {
   "x86_64-pc-windows-msvc": [
     "llama-b10164-bin-win-cpu-x64.zip",
     "3ce47be7fe67ea3cae38d0e6932efa38c17cf889c8d438d6befa044dc8141464"
+  ]
+};
+const temporalRelease = "1.8.2";
+const temporalAssets = {
+  "aarch64-apple-darwin": [
+    "temporal_cli_1.8.2_darwin_arm64.tar.gz",
+    "dacdc3587682c04cf27e67c8878ca2d755230b6ad63c0c6ebddd7348ae90ed94"
+  ],
+  "x86_64-apple-darwin": [
+    "temporal_cli_1.8.2_darwin_amd64.tar.gz",
+    "489d7f5420cae02b559774ac23df035141954c33a51dba96f5759a0ddccdf1b6"
+  ],
+  "aarch64-unknown-linux-gnu": [
+    "temporal_cli_1.8.2_linux_arm64.tar.gz",
+    "83600a8fac6e3da54093e5da6918d399f501532b9f1172235603f9606f4ac6e4"
+  ],
+  "x86_64-unknown-linux-gnu": [
+    "temporal_cli_1.8.2_linux_amd64.tar.gz",
+    "d8421bda989e6514b4bdb4d63a9012a8a05a806892e881a5aad8510496349a94"
+  ],
+  "aarch64-pc-windows-msvc": [
+    "temporal_cli_1.8.2_windows_arm64.tar.gz",
+    "da78339510b1f91a8212ff247940d3b1dd3022ccfa00add400359311f941697e"
+  ],
+  "x86_64-pc-windows-msvc": [
+    "temporal_cli_1.8.2_windows_amd64.tar.gz",
+    "c845948aa4ab3b1a3643f9fea6d1cd691188bc31513de5f2dc5f7eceea25f22a"
   ]
 };
 const freeLlmVersion = "0.8.4";
@@ -119,6 +152,42 @@ async function downloadVerified(url, expectedSha256) {
     throw new Error(`Integrity check failed for ${basename(url)}.`);
   }
   return archive;
+}
+
+async function prepareTemporalRuntime() {
+  const asset = temporalAssets[target];
+  if (!asset) throw new Error(`No embedded Temporal runtime is configured for ${target}.`);
+  const marker = resolve(desktopRoot, "src-tauri", "binaries", `.temporal-${target}.version`);
+  if (
+    existsSync(temporalDestination) && existsSync(marker) &&
+    readFileSync(marker, "utf8").trim() === temporalRelease
+  ) {
+    signMacBinary(temporalDestination, "Temporal");
+    return;
+  }
+
+  const [fileName, expectedSha256] = asset;
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-temporal-"));
+  try {
+    console.log(`Preparing embedded Temporal ${temporalRelease} for ${target}...`);
+    const archive = await downloadVerified(
+      `https://github.com/temporalio/cli/releases/download/v${temporalRelease}/${fileName}`,
+      expectedSha256
+    );
+    const archivePath = join(temporaryRoot, fileName);
+    const extracted = join(temporaryRoot, "extracted");
+    writeFileSync(archivePath, archive);
+    mkdirSync(extracted);
+    execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
+    const temporal = findFile(extracted, `temporal${extension}`);
+    if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
+    copyFileSync(temporal, temporalDestination);
+    if (!target.includes("windows")) chmodSync(temporalDestination, 0o755);
+    signMacBinary(temporalDestination, "Temporal");
+    writeFileSync(marker, `${temporalRelease}\n`);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 async function prepareFreeLlmRuntime() {
@@ -189,6 +258,19 @@ function hasValidMacSignature(path) {
   } catch {
     return false;
   }
+}
+
+function signMacBinary(path, label) {
+  if (!(target.includes("apple") || target.includes("darwin") || target.includes("macos"))) return;
+  execFileSync("xattr", ["-c", path]);
+  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+  const adhoc = !identity || identity === "-";
+  if (adhoc && hasValidMacSignature(path)) return;
+  const signArgs = adhoc
+    ? ["--force", "--timestamp=none", "--sign", "-"]
+    : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
+  console.log(adhoc ? `Signing ${label} ad-hoc.` : `Signing ${label} with ${identity}.`);
+  execFileSync("codesign", [...signArgs, path]);
 }
 
 async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
@@ -347,4 +429,5 @@ async function prepareLlamaRuntime() {
 }
 
 await prepareFreeLlmRuntime();
+await prepareTemporalRuntime();
 await prepareLlamaRuntime();

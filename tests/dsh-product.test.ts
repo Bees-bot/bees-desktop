@@ -32,7 +32,7 @@ describe("Bees DSH product plugin", () => {
       { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 5 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
     initializeProductDatabase(database);
@@ -40,7 +40,7 @@ describe("Bees DSH product plugin", () => {
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
   });
 
-  it("shares team locations across workspaces and owns private work, proposals, and schedules", async () => {
+  it("shares team locations and starts automatic goals while manual processes remain runnable", async () => {
     const files = mkdtempSync(join(tmpdir(), "bees-product-"));
     const runRoot = mkdtempSync(join(tmpdir(), "bees-runs-"));
     writeFileSync(join(files, "brief.md"), "Honey launch requirements and milestones");
@@ -48,7 +48,13 @@ describe("Bees DSH product plugin", () => {
     const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
     const admissions: any[] = [];
     (agents as any).admit = async (...args: any[]) => { admissions.push(args); return { submissionId: "submission", uid: "uid" }; };
-    const processes = new ProcessRuntime(database.connection);
+    const temporalStarts: any[] = [];
+    const processes = new ProcessRuntime(database.connection, { client: {
+      workflow: {
+        start: async (name: string, options: any) => { temporalStarts.push({ name, ...options }); },
+        getHandle: () => ({ signal: async () => undefined, cancel: async () => undefined })
+      }
+    } });
     const product = new BeesProduct(database.connection, agents, processes, runRoot);
     await product.initialize();
     const initial = await product.snapshot();
@@ -59,22 +65,18 @@ describe("Bees DSH product plugin", () => {
     expect((await product.snapshot()).organizations).toContainEqual(expect.objectContaining({ id: organization.id, name: "Acme", role: "owner" }));
     expect((await product.snapshot()).teams).toContainEqual(expect.objectContaining({ id: organizationTeam.id, organizationId: organization.id, name: "Marketing" }));
     const goals = initial.processes.find(({ workspaceId, kind }: any) => workspaceId === workspace.id && kind === "goals");
-    const plan = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Plan");
-    const doing = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Doing");
+    const work = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Work");
 
     const created = await product.command({
       action: "create_goal", workspaceId: workspace.id, title: "Ship Stage 1",
       description: "Make DSH the product runtime"
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
-      id: created.id, stageId: plan.id, kind: "goal", title: "Ship Stage 1"
+      id: created.id, stageId: work.id, kind: "goal", title: "Ship Stage 1", runtimePhase: "running"
     }));
-
-    await product.command({ action: "move_item", itemId: created.id, stageId: doing.id });
-    await product.command({
-      action: "upsert_schedule", itemId: created.id, name: "Daily follow-up",
-      recurrence: "daily", timezone: "UTC", nextRunAt: "2099-01-01T00:00:00.000Z"
-    });
+    await expect(product.command({ action: "move_item", itemId: created.id, stageId: work.id }))
+      .rejects.toThrow("Temporal moves");
+    expect(temporalStarts).toContainEqual(expect.objectContaining({ workflowId: `bees/work-item/${created.id}` }));
     const location = await product.command({
       action: "add_location", teamId: team.id, name: "Work", kind: "folder", path: files
     });
@@ -98,9 +100,7 @@ describe("Bees DSH product plugin", () => {
     expect(secondGoals).toBeTruthy();
 
     const after = await product.snapshot();
-    expect(after.schedules).toContainEqual(expect.objectContaining({
-      workItemId: created.id, name: "Daily follow-up"
-    }));
+    expect(after.schedules).toEqual([]);
     expect(after.locations).toContainEqual(expect.objectContaining({
       teamId: team.id, name: "Work", localPath: realpathSync(files), mapped: true
     }));
@@ -109,19 +109,8 @@ describe("Bees DSH product plugin", () => {
       kind: "file", title: "Work/brief.md"
     }));
 
-    const run = await product.command({ action: "run_item", itemId: created.id, model: "local-openai/default" });
-    expect(admissions.at(-1)[0]).toBe("bees-run");
-    expect(admissions.at(-1)[2].initialData.grants).toEqual([location.id]);
-    expect(readFileSync(join(
-      runRoot, "runs", run.executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
-    ), "utf8")).toContain("Honey launch");
-
     const newProcess = await product.command({
       action: "create_process", workspaceId: workspace.id, name: "Publishing", stages: ["Draft", "Published"]
-    });
-    const processSchedule = await product.command({
-      action: "upsert_schedule", processId: newProcess.id, name: "Weekday publishing",
-      recurrence: "weekdays", timezone: "UTC", nextRunAt: "2099-01-01T00:00:00.000Z"
     });
     await product.command({ action: "attach_location", processId: newProcess.id, locationId: location.id });
     await product.command({
@@ -131,18 +120,17 @@ describe("Bees DSH product plugin", () => {
     expect((await product.snapshot()).processes).toContainEqual(expect.objectContaining({
       id: newProcess.id, workspaceId: workspace.id, name: "Editorial"
     }));
-    expect((await product.snapshot()).schedules).toContainEqual(expect.objectContaining({
-      targetKind: "process", processId: newProcess.id, name: "Weekday publishing"
-    }));
-    const scheduledRun = await product.command({
-      action: "trigger_schedule", processId: newProcess.id,
-      scheduleId: processSchedule.schedules[0].id
+    const manualItem = await product.command({
+      action: "create_run", processId: newProcess.id, title: "Publish this week"
     });
+    const run = await product.command({ action: "run_item", itemId: manualItem.id, model: "local-openai/default" });
+    expect(admissions.at(-1)[0]).toBe("bees-run");
+    expect(admissions.at(-1)[2].initialData.grants).toEqual([location.id]);
     expect((await product.snapshot()).processAttachments).toContainEqual(expect.objectContaining({
       processId: newProcess.id, locationId: location.id
     }));
     expect(readFileSync(join(
-      runRoot, "runs", scheduledRun.executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
+      runRoot, "runs", run.executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
     ), "utf8")).toContain("Honey launch");
 
     const proposal = product.storeProposal({

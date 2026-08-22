@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -15,6 +16,7 @@ const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const OUTPUT_LIMIT = 2 * 1024 * 1024;
+const REQUIRED_TOOL_NAMES = new Set(["bees_propose_changes", "bees_submit_stage_result"]);
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -93,18 +95,56 @@ function messageText(content) {
   if (!Array.isArray(content)) return "";
   return content.map((block) => {
     if (block?.type === "text" || block?.type === "reasoning") return block.text ?? "";
+    if (block?.type === "tool-call") return `DSH tool call ${block.name}: ${block.arguments}`;
     if (block?.type === "tool-result") return block.content?.map((part) => part.text ?? "").join("\n") ?? "";
     return "";
   }).filter(Boolean).join("\n");
 }
 
-function claudePrompt(options) {
+export function claudeProtocolMode(options) {
+  if (!(options.tools ?? []).some((tool) => REQUIRED_TOOL_NAMES.has(tool.name))) return "either";
+  const requiredCalls = new Set();
+  for (const message of options.messages ?? []) for (const block of message.content ?? []) {
+    if (block?.type === "tool-call" && REQUIRED_TOOL_NAMES.has(block.name))
+      requiredCalls.add(String(block.id));
+    if (block?.type === "tool-result" && !block.isError && requiredCalls.has(String(block.toolCallId)))
+      return "finish";
+  }
+  return "tool";
+}
+
+export function claudeResponseSchema(tools, mode = "either") {
+  const names = [...new Set(tools.map((tool) => String(tool.name)).filter(Boolean))];
+  return {
+    type: "object",
+    properties: {
+      tool: { type: "string", enum: mode === "tool" ? names : mode === "finish" ? [""] : ["", ...names] },
+      arguments: { type: "object" },
+      text: { type: "string" }
+    },
+    required: ["tool", "arguments", "text"],
+    additionalProperties: false
+  };
+}
+
+function claudePrompt(options, mode) {
   const rows = [];
   if (options.system) rows.push(`System:\n${options.system}`);
   for (const message of options.messages ?? []) {
     const text = messageText(message.content);
     if (text) rows.push(`${message.role === "assistant" ? "Assistant" : "User"}:\n${text}`);
   }
+  const tools = options.tools ?? [];
+  if (tools.length) rows.push([
+    "DSH tool protocol:",
+    mode === "tool"
+      ? "Choose exactly one DSH tool. A text-only response is not allowed; use the required completion tool when finished."
+      : mode === "finish"
+        ? "The required completion tool succeeded. Do not call another tool; return a concise final answer with an empty tool name."
+        : "Choose one DSH tool, or answer with an empty tool name and put the answer in text.",
+    "For a tool call, set text to an empty string and provide its JSON arguments.",
+    `Available DSH tools:\n${JSON.stringify(tools)}`
+  ].join("\n"));
   return rows.join("\n\n");
 }
 
@@ -115,11 +155,23 @@ function safeEnvironment() {
     !["NODE_OPTIONS", "BASH_ENV", "ENV"].includes(key)));
 }
 
-function runClaude(command, model, effort, prompt, signal) {
+function structuredOutput(parsed) {
+  if (parsed.structured_output && typeof parsed.structured_output === "object")
+    return parsed.structured_output;
+  try {
+    const value = JSON.parse(parsed.result);
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function runClaude(command, model, effort, prompt, signal, schema) {
   const args = [
     "--print", "--output-format", "json", "--safe-mode", "--no-session-persistence",
     "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
     "--tools", "", "--permission-mode", "dontAsk",
+    ...(schema ? ["--json-schema", JSON.stringify(schema)] : []),
     ...(model && model !== "default" ? ["--model", model] : []),
     ...(effort ? ["--effort", effort] : [])
   ];
@@ -132,6 +184,7 @@ function runClaude(command, model, effort, prompt, signal) {
     let stdout = "";
     let stderr = "";
     let overflow = false;
+    let timedOut = false;
     const append = (current, chunk) => {
       const left = OUTPUT_LIMIT - Buffer.byteLength(current);
       if (left <= 0) { overflow = true; return current; }
@@ -139,7 +192,7 @@ function runClaude(command, model, effort, prompt, signal) {
       return current + chunk.subarray(0, Math.max(0, left)).toString();
     };
     const stop = () => child.kill("SIGKILL");
-    const timer = setTimeout(stop, 15 * 60 * 1000);
+    const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
     const abort = () => stop();
     signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); if (overflow) stop(); });
@@ -150,18 +203,54 @@ function runClaude(command, model, effort, prompt, signal) {
       signal?.removeEventListener("abort", abort);
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
+      if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
       try {
+        if (!stdout.trim()) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
         const parsed = JSON.parse(stdout);
-        if (code !== 0 || parsed.is_error || !String(parsed.result ?? "").trim()) {
+        const structured = schema ? structuredOutput(parsed) : null;
+        if (code !== 0 || parsed.is_error || (schema ? !structured : !String(parsed.result ?? "").trim())) {
           throw new Error(parsed.result || stderr.trim() || `Claude Code exited with code ${code}`);
         }
-        resolve({ text: String(parsed.result), usage: parsed.usage ?? {} });
+        resolve({ text: String(parsed.result ?? ""), structured, usage: parsed.usage ?? {} });
       } catch (error) {
         reject(error instanceof LlmError ? error : new LlmError(error.message, "CLAUDE_CODE"));
       }
     });
     child.stdin.end(prompt);
   });
+}
+
+export function claudeChunks(result, tools) {
+  const usage = { type: "usage", usage: {
+    inputTokens: Number(result.usage.input_tokens ?? 0),
+    outputTokens: Number(result.usage.output_tokens ?? 0)
+  } };
+  if (result.structured?.tool) {
+    const name = String(result.structured.tool);
+    if (!tools.some((tool) => tool.name === name))
+      throw new LlmError(`Claude Code selected unknown DSH tool ${name}`, "CLAUDE_CODE");
+    const args = result.structured.arguments;
+    if (!args || typeof args !== "object" || Array.isArray(args))
+      throw new LlmError("Claude Code returned invalid DSH tool arguments", "CLAUDE_CODE");
+    const id = randomUUID();
+    const argumentsText = JSON.stringify(args);
+    return [
+      { type: "block-start", index: 0, blockType: "tool-call" },
+      { type: "tool-call-delta", index: 0, id, name, argumentsDelta: argumentsText },
+      { type: "block-end", index: 0, block: { type: "tool-call", id, name, arguments: argumentsText } },
+      usage,
+      { type: "finish", reason: { kind: "tool-calls" } }
+    ];
+  }
+  const text = String(result.structured?.text ?? result.text ?? "").trim();
+  if (!text) throw new LlmError("Claude Code returned an empty response", "CLAUDE_CODE");
+  return [
+    { type: "block-start", index: 0, blockType: "text" },
+    { type: "text-delta", index: 0, text },
+    { type: "block-end", index: 0, block: { type: "text", text } },
+    usage,
+    { type: "finish", reason: { kind: "stop" } }
+  ];
 }
 
 class ClaudeCodeAdapter extends LlmAdapter {
@@ -182,14 +271,13 @@ class ClaudeCodeAdapter extends LlmAdapter {
   async *stream(options) {
     const command = (await this.ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
     if (!command) throw new LlmError("Choose Claude Code under Settings → AI", "MISSING_CREDENTIAL");
-    const result = await runClaude(command, options.model, options.reasoningEffort, claudePrompt(options), options.signal);
-    yield { type: "block-start", index: 0, blockType: "text" };
-    yield { type: "text-delta", index: 0, text: result.text };
-    yield { type: "block-end", index: 0, block: { type: "text", text: result.text } };
-    yield { type: "usage", usage: {
-      inputTokens: Number(result.usage.input_tokens ?? 0), outputTokens: Number(result.usage.output_tokens ?? 0)
-    } };
-    yield { type: "finish", reason: { kind: "stop" } };
+    const tools = options.tools ?? [];
+    const mode = claudeProtocolMode(options);
+    const schema = tools.length ? claudeResponseSchema(tools, mode) : undefined;
+    const result = await runClaude(
+      command, options.model, options.reasoningEffort, claudePrompt(options, mode), options.signal, schema
+    );
+    for (const chunk of claudeChunks(result, tools)) yield chunk;
   }
 }
 

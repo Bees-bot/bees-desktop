@@ -56,4 +56,4 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, agentDefaultModel]

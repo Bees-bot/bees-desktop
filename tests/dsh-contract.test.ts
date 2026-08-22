@@ -42,8 +42,14 @@ function testContext(
   const settings: string[] = [];
   const persistenceLoads: string[] = [];
   let workspaceSequence = workspaces.size;
+  const temporalClient = {
+    workflow: {
+      start: async () => undefined,
+      getHandle: () => ({ signal: async () => undefined, cancel: async () => undefined })
+    }
+  };
   const ctx: any = {
-    logger: { warn: () => undefined },
+    logger: { warn: () => undefined, error: () => undefined },
     credentials: {
       resolve: async () => undefined,
       set: async () => undefined,
@@ -55,6 +61,9 @@ function testContext(
       return dispose;
     },
     on: () => () => undefined,
+    agentDefaultModel: {
+      currentSelection: () => ({ provider: "local-openai", model: "active" })
+    },
     settings: { register: (namespace: { name?: string } | string) => settings.push(String((namespace as any).name ?? namespace)) },
     webServer: {
       server,
@@ -123,8 +132,9 @@ function testContext(
     policies,
     settings,
     persistenceLoads,
+    temporalClient,
     dispose: async () => {
-      for (const dispose of disposers.reverse()) await dispose();
+      for (const dispose of disposers.splice(0).reverse()) await dispose();
     }
   };
 }
@@ -183,7 +193,7 @@ describe("Bees DSH public contract", () => {
     const server = new EventEmitter();
     let harness = testContext(server, routes, workspaces, sessions);
     try {
-      await apply(harness.ctx);
+      await apply(harness.ctx, {}, { temporalClient: harness.temporalClient });
       expect((await request(server, routes, "/healthz")).status).toBe(200);
       expect((await request(server, routes, "/bees-api/snapshot")).status).toBe(401);
       const auth = await request(server, routes, "/bees-auth?token=contract-token");
@@ -202,16 +212,27 @@ describe("Bees DSH public contract", () => {
         method: "POST", headers,
         body: { action: "create_goal", workspaceId: initial.workspaces[0].id, title: "Contract goal" }
       })).json() as any;
+      const customProcess = (await request(server, routes, "/bees-api/command", {
+        method: "POST", headers,
+        body: {
+          action: "create_process", workspaceId: initial.workspaces[0].id,
+          name: "Contract process", stages: ["Ready", "Done"]
+        }
+      })).json() as any;
+      const runnable = (await request(server, routes, "/bees-api/command", {
+        method: "POST", headers,
+        body: { action: "create_run", processId: customProcess.id, title: "Contract run" }
+      })).json() as any;
       await request(server, routes, "/bees-api/command", {
         method: "POST", headers,
-        body: { action: "run_item", itemId: created.id, model: "test-provider/test-model" }
+        body: { action: "run_item", itemId: runnable.id, model: "test-provider/test-model" }
       });
       await waitFor(async () => {
         const snapshot = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
-        return snapshot.runs.some((run: any) => run.workItemId === created.id && run.status === "completed");
+        return snapshot.runs.some((run: any) => run.workItemId === runnable.id && run.status === "completed");
       });
       const completed = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
-      const firstRun = completed.runs.find((run: any) => run.workItemId === created.id);
+      const firstRun = completed.runs.find((run: any) => run.workItemId === runnable.id);
       const history = (await request(server, routes, `/bees-api/run-history?executionId=${firstRun.id}`, { headers })).json() as any;
       expect(history.history.messages).toContainEqual(expect.objectContaining({ role: "assistant" }));
       expect(harness.mountedPresets).toEqual(["standard"]);
@@ -227,14 +248,14 @@ describe("Bees DSH public contract", () => {
       database.prepare("UPDATE execution_links SET status = 'running' WHERE execution_id = ?").run(firstRun.id);
       database.close();
       harness = testContext(server, routes, workspaces, sessions);
-      await apply(harness.ctx);
+      await apply(harness.ctx, {}, { temporalClient: harness.temporalClient });
       const secondAuth = await request(server, routes, "/bees-auth?token=contract-token");
       const secondCookie = secondAuth.headers["set-cookie"]?.split(";")[0];
       const restarted = (await request(server, routes, "/bees-api/snapshot", {
         headers: { cookie: String(secondCookie) }
       })).json() as any;
       expect(restarted.items).toContainEqual(expect.objectContaining({ id: created.id, title: "Contract goal" }));
-      expect(restarted.runs).toContainEqual(expect.objectContaining({ workItemId: created.id, status: "interrupted" }));
+      expect(restarted.runs).toContainEqual(expect.objectContaining({ workItemId: runnable.id, status: "interrupted" }));
       await request(server, routes, "/bees-api/command", {
         method: "POST", headers: { cookie: String(secondCookie), "content-type": "application/json" },
         body: { action: "recover_run", executionId: firstRun.id }
@@ -345,7 +366,8 @@ describe("Bees DSH public contract", () => {
       expect(client).not.toContain('api.llm.providers({})');
       expect(client).not.toContain('"Other runtime providers"');
       expect(client).not.toContain('"Models"');
-      expect(client).not.toContain("openDsh");
+      expect(client).toContain('["dsh-settings", "DSH settings"]');
+      expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
       expect(client).toContain('ctx.settingsScope.bind({ namespace: "bees-ui" })');
       expect(client).not.toContain('id: "bees-navigation"');
       const runtimePackage = JSON.parse(readFileSync(new URL(
@@ -364,6 +386,9 @@ describe("Bees DSH public contract", () => {
       expect(pluginPackage.dsh.client.inject).toEqual(expect.arrayContaining([
         "@bees/dsh-local-ai", "@bees/dsh-free-ai", "@bees/dsh-custom-ai", "@bees/dsh-subscriptions"
       ]));
+      const requiredClientModules = [...client.matchAll(/require\(\"(@bees\/[^\"]+)\"\)/g)]
+        .map((match) => match[1]);
+      expect(pluginPackage.dsh.client.external).toEqual(requiredClientModules);
       const release = runtimePackage.dependencies["@deepseek-ai/dsh"];
       expect(release).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
       for (const [name, version] of Object.entries(runtimePackage.dependencies))
