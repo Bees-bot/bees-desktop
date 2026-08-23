@@ -32,7 +32,7 @@ describe("Bees DSH product plugin", () => {
       { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 5 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 6 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
     initializeProductDatabase(database);
@@ -40,14 +40,14 @@ describe("Bees DSH product plugin", () => {
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
   });
 
-  it("shares team locations and starts automatic goals while manual processes remain runnable", async () => {
+  it("shares team locations and starts every process with visible default agents", async () => {
     const files = mkdtempSync(join(tmpdir(), "bees-product-"));
     const runRoot = mkdtempSync(join(tmpdir(), "bees-runs-"));
     writeFileSync(join(files, "brief.md"), "Honey launch requirements and milestones");
     const database = new NodeDatabase();
     const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
-    const admissions: any[] = [];
-    (agents as any).admit = async (...args: any[]) => { admissions.push(args); return { submissionId: "submission", uid: "uid" }; };
+    const stageRuns: any[] = [];
+    (agents as any).executeStage = async (...args: any[]) => { stageRuns.push(args); return { outcome: "candidate", summary: "Ready" }; };
     const temporalStarts: any[] = [];
     const processes = new ProcessRuntime(database.connection, { client: {
       workflow: {
@@ -66,13 +66,27 @@ describe("Bees DSH product plugin", () => {
     expect((await product.snapshot()).teams).toContainEqual(expect.objectContaining({ id: organizationTeam.id, organizationId: organization.id, name: "Marketing" }));
     const goals = initial.processes.find(({ workspaceId, kind }: any) => workspaceId === workspace.id && kind === "goals");
     const work = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Work");
+    expect(initial.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Bees work agent", systemRole: "worker" }),
+      expect.objectContaining({ name: "Bees reviewer", systemRole: "reviewer" })
+    ]));
+    const reviewer = initial.assignments.find(({ systemRole }: any) => systemRole === "reviewer");
+    await product.command({
+      action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
+      presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
+      model: "test/reviewer"
+    });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({
+      id: reviewer.id, name: "Bees reviewer", instructions: "Challenge every claim", model: "test/reviewer"
+    }));
 
     const created = await product.command({
       action: "create_goal", workspaceId: workspace.id, title: "Ship Stage 1",
       description: "Make DSH the product runtime"
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
-      id: created.id, stageId: work.id, kind: "goal", title: "Ship Stage 1", runtimePhase: "running"
+      id: created.id, stageId: work.id, kind: "goal", title: "Ship Stage 1", runtimePhase: "running",
+      agentAssignmentId: initial.assignments.find(({ systemRole }: any) => systemRole === "worker").id
     }));
     await expect(product.command({ action: "move_item", itemId: created.id, stageId: work.id }))
       .rejects.toThrow("Temporal moves");
@@ -115,23 +129,34 @@ describe("Bees DSH product plugin", () => {
     await product.command({ action: "attach_location", processId: newProcess.id, locationId: location.id });
     await product.command({
       action: "edit_process", processId: newProcess.id, name: "Editorial",
-      description: "Publish reviewed work", stages: ["Published", "Draft", "Review"]
+      description: "Publish reviewed work", stages: ["Draft", "Review", "Published"]
     });
     expect((await product.snapshot()).processes).toContainEqual(expect.objectContaining({
       id: newProcess.id, workspaceId: workspace.id, name: "Editorial"
     }));
-    const manualItem = await product.command({
+    const automaticItem = await product.command({
       action: "create_run", processId: newProcess.id, title: "Publish this week"
     });
-    const run = await product.command({ action: "run_item", itemId: manualItem.id, model: "local-openai/default" });
-    expect(admissions.at(-1)[0]).toBe("bees-run");
-    expect(admissions.at(-1)[2].initialData.grants).toEqual([location.id]);
+    const executionId = "editorial-stage";
+    await product.runProcessStage({ workItemId: automaticItem.id, executionId, purpose: "worker", instructions: "Draft it" });
+    expect(stageRuns.at(-1)[1].initialData.grants).toEqual([location.id]);
+    await product.runProcessStage({ workItemId: automaticItem.id, executionId: "editorial-review", purpose: "reviewer", instructions: "Review it" });
+    expect(stageRuns.at(-1)[1].initialData).toMatchObject({
+      agentName: "Bees reviewer", model: "test/reviewer", instructions: "Challenge every claim\n\nReview it", grants: []
+    });
+    expect(temporalStarts).toContainEqual(expect.objectContaining({ workflowId: `bees/work-item/${automaticItem.id}` }));
     expect((await product.snapshot()).processAttachments).toContainEqual(expect.objectContaining({
       processId: newProcess.id, locationId: location.id
     }));
     expect(readFileSync(join(
-      runRoot, "runs", run.executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
+      runRoot, "runs", executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
     ), "utf8")).toContain("Honey launch");
+
+    const [child] = await product.createSubitems({ parentId: automaticItem.id, items: [{ title: "Check links" }] });
+    expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
+      id: child.id, parentId: automaticItem.id, agentAssignmentId: initial.assignments.find(({ systemRole }: any) => systemRole === "worker").id,
+      runtimePhase: "running"
+    }));
 
     const proposal = product.storeProposal({
       workspaceId: workspace.id, sessionId: "planning-session", title: "Launch plan", summary: "Visible work",

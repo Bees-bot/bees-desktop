@@ -59,7 +59,8 @@ window.__ModuleLoader__.load({
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
       .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
       .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}
-      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}}
+      .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr);gap:12px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-agent-form textarea{min-height:180px}
+      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}.bees-cockpit-detail{grid-template-columns:1fr}}
     `;
 
     async function request(path, options) {
@@ -208,106 +209,6 @@ window.__ModuleLoader__.load({
       return rows.filter(({ completed }) => route === "completed" ? completed : !completed);
     }
 
-    function ItemCard({ item, data, stages, run, teamId, act }) {
-      const index = stages.findIndex(({ id }) => id === item.stageId);
-      const automatic = stages.length > 0 && stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
-      const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === data.processes.find(({ id }) => id === item.processId)?.workspaceId);
-      const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
-      const locations = data.locations.filter((location) => location.teamId === teamId && !location.archivedAt);
-      const edit = async () => {
-        const title = await ask("Work title", item.title); if (!title) return;
-        const description = await ask("Description", item.description) ?? item.description;
-        const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? "";
-        const agentName = await ask(`Agent assignment (optional):\n${assignments.map(({ name }) => name).join("\n")}`, assignments.find(({ id }) => id === item.agentAssignmentId)?.name ?? "") ?? "";
-        const assignment = assignments.find(({ name }) => name === agentName);
-        await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: assignment?.id ?? null });
-      };
-      const attach = async () => {
-        const available = locations.filter(({ id }) => !attached.includes(id));
-        const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
-        const location = available.find((row) => row.name === name);
-        if (!location) return;
-        const relativePath = location.kind === "folder"
-          ? await ask("Relative file or folder inside this location (optional)", "")
-          : "";
-        if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
-      };
-      const start = async () => {
-        const model = await ask("Model route (provider/model), or blank for the default", "");
-        if (model === null) return;
-        await act({ action: "run_item", itemId: item.id, model: model || null });
-      };
-      return h("article", { className: "bees-card", draggable: !automatic, onDragStart: (event) => {
-        if (!automatic) event.dataTransfer.setData("text/bees-item", item.id);
-      } },
-        h("h3", null, item.title),
-        h("div", { className: "bees-muted" }, [item.kind, automatic ? item.runtimePhase : null, item.owner, assignments.find(({ id }) => id === item.agentAssignmentId)?.name].filter(Boolean).join(" · ")),
-        item.description ? h("p", null, item.description) : null,
-        item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError) : null,
-        ...data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId: id, relativePath }) => {
-          const location = locations.find((row) => row.id === id);
-          return location ? h(Button, { key: `${id}:${relativePath}`, onClick: () => act({ action: "detach_location", itemId: item.id, locationId: id }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
-        }),
-        h("div", { className: "bees-card-actions" },
-          automatic ? h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase) :
-            run ? h("span", { className: `bees-status bees-${run.status}` }, run.status) : null,
-          !automatic && index > 0 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index - 1].id }) }, "←") : null,
-          !automatic && index < stages.length - 1 ? h(Button, { onClick: () => act({ action: "move_item", itemId: item.id, stageId: stages[index + 1].id }) }, "→") : null,
-          h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: attach, disabled: !locations.some(({ id }) => !attached.includes(id)) }, "Files"),
-          automatic && ["running", "waiting"].includes(item.runtimePhase)
-            ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause")
-            : automatic && item.runtimePhase === "paused"
-              ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume")
-              : automatic && item.runtimePhase === "failed"
-                ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry")
-                : null,
-          automatic && ["running", "waiting", "paused", "failed"].includes(item.runtimePhase)
-            ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel")
-            : !automatic && (run?.status === "running" || run?.status === "waiting_for_approval")
-            ? h(Button, { onClick: () => act({ action: "stop_run", executionId: run.id }) }, "Stop")
-            : !automatic && run?.status === "interrupted"
-              ? h(Button, { onClick: () => act({ action: "recover_run", executionId: run.id }) }, "Resume")
-              : !automatic ? h(Button, { className: "primary", onClick: start }, "Run") : null,
-          !automatic && run?.status === "completed" && attached.length ? h(Button, { onClick: async () => {
-            const choices = locations.filter(({ id }) => attached.includes(id));
-            const name = await ask(`Publish to:\n${choices.map(({ name }) => name).join("\n")}`);
-            const location = choices.find((row) => row.name === name);
-            if (location) await act({ action: "publish_run", executionId: run.id, locationId: location.id });
-          } }, "Publish") : null,
-          h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive “${item.title}”?`)) && act({ action: "archive_item", itemId: item.id }) }, "Archive")
-        )
-      );
-    }
-
-    function Board({ data, processId, teamId, act }) {
-      const stages = data.stages.filter((stage) => stage.processId === processId);
-      const automatic = stages.length > 0 && stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
-      const items = data.items.filter((item) => item.processId === processId && !item.archivedAt && item.kind !== "run");
-      const latest = new Map();
-      for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
-      const create = async () => {
-        const title = await ask("Work title", ""); if (!title) return;
-        const description = await ask("Description", "") ?? "";
-        await act({ action: "create_item", processId, stageId: stages[0]?.id, title, description });
-      };
-      return h("div", null,
-        h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-          h(Button, { className: "primary", disabled: !stages.length, onClick: create }, "New work")),
-        h("div", { className: "bees-board" }, ...stages.map((stage) => {
-        const rows = items.filter((item) => item.stageId === stage.id);
-        return h("section", { className: "bees-column", key: stage.id, onDragOver: (event) => {
-          if (!automatic) event.preventDefault();
-        }, onDrop: (event) => {
-          if (automatic) return;
-          event.preventDefault(); const itemId = event.dataTransfer.getData("text/bees-item");
-          if (itemId) void act({ action: "move_item", itemId, stageId: stage.id });
-        } },
-        h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
-        h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => h(ItemCard, { key: item.id, item, data, stages, run: latest.get(item.id), teamId, act })) : [h(Empty, { key: "empty" }, automatic ? "No work in this stage" : "Drop work here")]))
-        );
-      })));
-    }
-
     function Home({ data, workspaceId, act, askBees }) {
       const [outcome, setOutcome] = useState("");
       const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
@@ -332,26 +233,148 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkPage({ data, route, workspaceIds, workspaceId, act, openProcess }) {
+    function WorkItemDetails({ data, item, teamId, act }) {
+      const process = data.processes.find(({ id }) => id === item.processId);
+      const stage = data.stages.find(({ id }) => id === item.stageId);
+      const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
+      const assignment = assignments.find(({ id }) => id === item.agentAssignmentId);
+      const defaultAgent = assignments.find(({ systemRole }) => systemRole === "worker") ?? assignments[0];
+      const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
+      const [selectedRun, setSelectedRun] = useState("");
+      const [history, setHistory] = useState(null);
+      const [audit, setAudit] = useState([]);
+      const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
+      useEffect(() => { setSelectedRun(""); setHistory(null); }, [item.id]);
+      useEffect(() => {
+        let active = true;
+        if (!run) { setHistory(null); return () => { active = false; }; }
+        request(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`)
+          .then((value) => active && setHistory(value.history))
+          .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+        return () => { active = false; };
+      }, [run?.id]);
+      useEffect(() => { let active = true; request("/bees-api/audit").then(({ events }) => active && setAudit(events)); return () => { active = false; }; }, [item.id, data.runs.length]);
+      const edit = async () => {
+        const title = await ask("Work title", item.title); if (!title) return;
+        const description = await ask("Description", item.description) ?? item.description;
+        const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? "";
+        const agentName = await ask(`Agent assignment (required):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? defaultAgent?.name ?? "");
+        const nextAgent = assignments.find(({ name }) => name === agentName); if (!nextAgent) return;
+        await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: nextAgent.id });
+      };
+      const addFile = async () => {
+        const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
+        const available = data.locations.filter(({ teamId: id, archivedAt, id: locationId }) => id === teamId && !archivedAt && !attached.includes(locationId));
+        const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
+        const location = available.find((row) => row.name === name); if (!location) return;
+        const relativePath = location.kind === "folder" ? await ask("Relative file or folder inside this location (optional)", "") : "";
+        if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
+      };
+      const addSubitem = async () => {
+        const title = await ask("Sub-item title", ""); if (!title) return;
+        const description = await ask("What does success look like?", "") ?? "";
+        const agentName = await ask(`Agent assignment (required):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? defaultAgent?.name ?? "");
+        const childAgent = assignments.find(({ name }) => name === agentName); if (!childAgent) return;
+        await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description, agentAssignmentId: childAgent.id });
+      };
+      const publish = async () => {
+        const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
+        const choices = data.locations.filter(({ id }) => attached.includes(id));
+        const name = await ask(`Publish to:\n${choices.map(({ name }) => name).join("\n")}`);
+        const location = choices.find((row) => row.name === name);
+        if (run && location) await act({ action: "publish_run", executionId: run.id, locationId: location.id });
+      };
+      const runAudit = new Set(itemRuns.map(({ id }) => id));
+      const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
+      return h("div", { className: "bees-cockpit-detail" },
+        h("section", { className: "bees-box" }, h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
+          h("h2", null, item.title), item.description ? h("p", null, item.description) : h("p", { className: "bees-muted" }, "No description"),
+          item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError) : null,
+          h("p", { className: "bees-muted" }, `Agent: ${assignment?.name ?? defaultAgent?.name ?? "Unavailable"}${assignment?.model ? ` · ${assignment.model}` : " · default model"}`),
+          h("div", { className: "bees-detail-actions" },
+            h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"),
+            ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
+            item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
+            item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
+            ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel") : null,
+            run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)),
+        h("section", { className: "bees-box" }, h("h3", null, "Runs"),
+          itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
+            h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)))) : h(Empty, null, "No runs yet"),
+          run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
+          history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null,
+          h("h3", { className: "bees-section-title" }, "Audit"),
+          ...(events.length ? events.map((event) => h("div", { className: "bees-row", key: event.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, event.type), h("div", { className: "bees-muted" }, new Date(event.createdAt).toLocaleString())))) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")]))
+      );
+    }
+
+    function WorkItemCockpit({ data, rootId, teamId, act, onBack }) {
+      const root = data.items.find(({ id }) => id === rootId);
+      const [selectedId, setSelectedId] = useState(rootId);
+      useEffect(() => setSelectedId(rootId), [rootId]);
+      if (!root) return h(Empty, null, "Work item not found");
+      const process = data.processes.find(({ id }) => id === root.processId);
+      const stages = data.stages.filter(({ processId }) => processId === root.processId);
+      const visibleIds = new Set([root.id]);
+      for (let added = true; added;) {
+        added = false;
+        for (const item of data.items) if (item.processId === root.processId && item.parentId && visibleIds.has(item.parentId) && !visibleIds.has(item.id)) {
+          visibleIds.add(item.id); added = true;
+        }
+      }
+      const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
+      const selected = items.find(({ id }) => id === selectedId) ?? root;
+      const latest = new Map();
+      for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
+      const lineage = (item) => {
+        const names = []; let current = item;
+        while (current?.parentId && visibleIds.has(current.parentId)) {
+          current = data.items.find(({ id }) => id === current.parentId);
+          if (current) names.unshift(current.title);
+        }
+        return names.join(" → ");
+      };
+      const completed = items.filter(({ completed }) => completed).length;
+      return h("div", null,
+        h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
+          h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${items.length} work items complete`))),
+        h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
+          const rows = items.filter(({ stageId }) => stageId === stage.id);
+          return h("section", { className: "bees-column", key: stage.id },
+            h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
+            h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
+              const run = latest.get(item.id); const parentPath = lineage(item);
+              return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
+                h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Sub-item"),
+                h("div", { className: "bees-muted" }, [item.runtimePhase, data.assignments.find(({ id }) => id === item.agentAssignmentId)?.name, run?.status].filter(Boolean).join(" · ")));
+            }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
+        })),
+        h(WorkItemDetails, { data, item: selected, teamId, act })
+      );
+    }
+
+    function WorkPage({ data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, act }) {
+      if (workItemId) return h(WorkItemCockpit, { data, rootId: workItemId, teamId, act, onBack: () => setWorkItemId("") });
       const rows = workItemsFor(data, route, workspaceIds);
       const createGoal = async () => {
         const title = await ask("Goal", ""); if (!title) return;
         const description = await ask("What does success look like?", "") ?? "";
-        await act({ action: "create_goal", workspaceId, title, description });
+        const created = await act({ action: "create_goal", workspaceId, title, description });
+        if (created?.id) setWorkItemId(created.id);
       };
       return h("div", null,
         route === "goals" ? h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: createGoal }, "New goal")) : null,
         ...(rows.length ? rows.map((item) => {
           const process = data.processes.find(({ id }) => id === item.processId);
           const stage = data.stages.find(({ id }) => id === item.stageId);
-          return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openProcess(item.processId) },
+          return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => setWorkItemId(item.id) },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
             h("span", { className: "bees-status" }, item.kind));
         }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : "No work in this view")])
       );
     }
 
-    function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, act }) {
+    function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, act }) {
       const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
       const edit = async (process) => {
         const name = await ask("Process name", process.name); if (!name) return;
@@ -365,6 +388,7 @@ window.__ModuleLoader__.load({
         if (process) {
           const attached = data.processAttachments.filter((row) => row.processId === process.id);
           const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
+          const roots = data.items.filter((item) => item.processId === process.id && !item.parentId && !item.archivedAt && item.kind !== "run");
           const attach = async () => {
             const available = locations.filter((location) => !attached.some(({ locationId }) => locationId === location.id));
             const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
@@ -375,14 +399,26 @@ window.__ModuleLoader__.load({
               : "";
             if (relativePath !== null) await act({ action: "attach_location", processId: process.id, locationId: location.id, relativePath });
           };
+          const createWork = async () => {
+            const title = await ask("Work title", ""); if (!title) return;
+            const description = await ask("What does success look like?", "") ?? "";
+            const created = await act({ action: "create_item", processId: process.id, title, description });
+            if (created?.id) openWorkItem(created.id);
+          };
           return h("div", null,
             h("div", { className: "bees-row" }, h(Button, { onClick: () => setProcessId("") }, "← All processes"), h("strong", null, process.name), h("div", { className: "bees-grow" }),
               ...attached.map(({ locationId, relativePath }) => {
                 const location = locations.find(({ id }) => id === locationId);
                 return location ? h(Button, { key: `${locationId}:${relativePath}`, onClick: () => act({ action: "detach_location", processId: process.id, locationId }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
               }),
-              h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files")),
-            h(Board, { data, processId, teamId, act })
+              h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
+              h(Button, { className: "primary", onClick: createWork }, "New work")),
+            ...(roots.length ? roots.map((item) => {
+              const stage = data.stages.find(({ id }) => id === item.stageId);
+              return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openWorkItem(item.id) },
+                h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${stage?.name ?? "Stage"} · ${item.runtimePhase}`)),
+                h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase));
+            }) : [h(Empty, { key: "empty" }, "No root work items in this process")])
           );
         }
       }
@@ -399,7 +435,7 @@ window.__ModuleLoader__.load({
           const stages = data.stages.filter(({ processId }) => processId === process.id);
           return h("div", { className: "bees-row", key: process.id },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))),
-            h(Button, { onClick: () => setProcessId(process.id) }, "Board"),
+            h(Button, { onClick: () => setProcessId(process.id) }, "Open"),
             h(Button, { onClick: () => edit(process) }, "Edit"));
         }) : [h(Empty, { key: "empty" }, "No processes yet")])
       );
@@ -407,6 +443,8 @@ window.__ModuleLoader__.load({
 
     function AgentsPage({ data, route, workspaceIds, workspaceId, act }) {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
+      const [selectedId, setSelectedId] = useState("");
+      const selected = assignments.find(({ id }) => id === selectedId);
       if (route === "skills") return h(Empty, null, "No additional skills are configured for this workspace.");
       const add = async () => {
         const presetName = await ask(`Agent preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, data.presets.find(({ id }) => id === "standard")?.name ?? "standard");
@@ -418,8 +456,27 @@ window.__ModuleLoader__.load({
         const rows = data.items.filter((item) => item.agentAssignmentId && assignments.some(({ id }) => id === item.agentAssignmentId));
         return rows.length ? rows.map((item) => h("div", { className: "bees-row", key: item.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, assignments.find(({ id }) => id === item.agentAssignmentId)?.name)))) : h(Empty, null, "No work is assigned to an agent yet");
       }
+      if (selected) return h("form", { className: "bees-box bees-form bees-agent-form", key: selected.id, onSubmit: async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        const saved = await act({
+          action: "edit_agent_assignment", agentAssignmentId: selected.id,
+          name: String(form.get("name") ?? selected.name), presetId: String(form.get("presetId") ?? selected.presetId),
+          description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
+          model: String(form.get("model") ?? "")
+        });
+        if (saved) setSelectedId("");
+      } },
+        h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedId("") }, "← Agents"), h("strong", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
+        h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
+        h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description })),
+        h("label", null, "DSH preset", h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId }, ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+        h("label", null, "Model route (provider/model); blank uses the current default", h("input", { className: "bees-input", name: "model", defaultValue: selected.model ?? "", placeholder: "Default model" })),
+        h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
+        h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
+        h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
+      );
       return h("div", null, h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: add }, "New agent assignment")),
-        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.presetId} · ${agent.description || "Agent preset assignment"}`)))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
+        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.presetId}${agent.model ? ` · ${agent.model}` : " · default model"} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
       );
     }
 
@@ -735,6 +792,7 @@ window.__ModuleLoader__.load({
       const [route, setRoute] = useState("home");
       const [scope, setScopeState] = useState("");
       const [processId, setProcessId] = useState("");
+      const [workItemId, setWorkItemId] = useState("");
       const load = async () => {
         try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
         catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -748,7 +806,7 @@ window.__ModuleLoader__.load({
         setScopeState((current) => valid.has(current) ? current : preferred);
       }, [data, preference.lastScope]);
       const setScope = (next) => {
-        setScopeState(next); setProcessId("");
+        setScopeState(next); setProcessId(""); setWorkItemId("");
         void preferences.set("lastScope", next);
       };
       const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
@@ -769,7 +827,7 @@ window.__ModuleLoader__.load({
           return;
         }
         const section = NAVIGATION.find((row) => row.id === id);
-        setRoute(section ? section.defaultChild : id); setProcessId("");
+        setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId("");
       };
       const createOrganization = async () => {
         const name = await ask("Organization name", ""); if (!name) return;
@@ -791,7 +849,11 @@ window.__ModuleLoader__.load({
         const result = await act({ action: "create_workspace", teamId: team.id, name });
         if (result?.id) setScope(`workspace:${result.id}`);
       };
-      const createGoal = async () => { const title = await ask("Goal", ""); if (title && parts.workspaceId) await act({ action: "create_goal", workspaceId: parts.workspaceId, title }); };
+      const createGoal = async () => {
+        const title = await ask("Goal", ""); if (!title || !parts.workspaceId) return;
+        const created = await act({ action: "create_goal", workspaceId: parts.workspaceId, title });
+        if (created?.id) { setRoute("goals"); setWorkItemId(created.id); }
+      };
       const createProcess = async () => {
         if (!parts.workspaceId) return;
         const name = await ask("Process name", ""); if (!name) return;
@@ -804,7 +866,7 @@ window.__ModuleLoader__.load({
         const process = processes.find(({ name }) => name === processName); if (!process) return;
         const title = await ask("One-off run name", `New ${process.name} run`); if (!title) return;
         const work = await act({ action: "create_run", processId: process.id, title });
-        if (work?.id) await act({ action: "run_item", itemId: work.id });
+        if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
       };
       const createAgent = async () => {
         if (!parts.workspaceId) return;
@@ -820,12 +882,13 @@ window.__ModuleLoader__.load({
       const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
       const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
       const setPins = (next) => preferences.set("pins", next);
-      const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); };
+      const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); };
+      const openWorkItem = (id) => { setRoute("all-work"); setProcessId(""); setWorkItemId(id); };
       const pinnedRows = (targetRoute) => {
         const target = sectionFor(targetRoute);
         const openRoute = () => navigate(targetRoute);
         if (target.id === "work") return workItemsFor(data, targetRoute, workspaceIds)
-          .map((item) => ({ id: item.id, label: item.title, open: () => openProcess(item.processId) }));
+          .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
         if (target.id === "processes") {
           if (targetRoute === "schedules") return data.schedules.filter((row) => workspaceIds.includes(row.workspaceId))
             .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -836,7 +899,7 @@ window.__ModuleLoader__.load({
           const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
           if (targetRoute === "skills") return [];
           if (targetRoute === "assignments") return data.items.filter((item) => item.agentAssignmentId && assignments.some(({ id }) => id === item.agentAssignmentId))
-            .map((item) => ({ id: item.id, label: item.title, open: () => openProcess(item.processId) }));
+            .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
           return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
         }
         if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt)
@@ -859,8 +922,8 @@ window.__ModuleLoader__.load({
         return [];
       };
       const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees })
-        : section.id === "work" ? h(WorkPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act, openProcess })
-          : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, act })
+        : section.id === "work" ? h(WorkPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, act })
+          : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, act })
             : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act })
               : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
                 : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds })

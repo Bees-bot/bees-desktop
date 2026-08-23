@@ -291,6 +291,10 @@ export class AgentRuntime {
     this.proposalStore = store;
   }
 
+  setSubitemStore(store) {
+    this.subitemStore = store;
+  }
+
   audit(eventType, executionId, sessionId, metadata = {}) {
     this.database.prepare(`
       INSERT INTO dsh_audit_events (id, event_type, execution_id, session_id, metadata_json, created_at)
@@ -489,6 +493,36 @@ export class AgentRuntime {
           workspaceId: data.workspaceId, sessionId: String(exec.agent?.session.id ?? ""),
           title: args.proposal_title, summary: args.proposal_summary, changes
         });
+      }
+    }));
+    if (data.mode === "work" && data.workItemId) agentCtx.tools.register(defineTool({
+      name: "bees_create_subitems",
+      description: "Create visible child work items under this work item when the outcome genuinely needs independently tracked work. Each child starts its process automatically.",
+      parameters: {
+        items_json: {
+          type: "string", required: true,
+          description: "JSON array of 1-25 objects shaped {title:string,description?:string}."
+        }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            count: { type: "integer", required: true }, ids: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+      },
+      execute: async (args, exec) => {
+        if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
+        let items;
+        try { items = JSON.parse(args.items_json); }
+        catch { throw new Error("items_json must be valid JSON"); }
+        if (!Array.isArray(items) || !items.length || items.length > 25)
+          throw new Error("items_json must contain between 1 and 25 sub-items");
+        const created = await this.subitemStore({ parentId: data.workItemId, items });
+        const ids = created.map(({ id }) => id);
+        this.audit("subitems-created", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
+        return { count: ids.length, ids: ids.join(",") };
       }
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({

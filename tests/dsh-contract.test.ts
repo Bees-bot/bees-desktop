@@ -219,20 +219,23 @@ describe("Bees DSH public contract", () => {
           name: "Contract process", stages: ["Ready", "Done"]
         }
       })).json() as any;
-      const runnable = (await request(server, routes, "/bees-api/command", {
+      const runnable = await request(server, routes, "/bees-api/command", {
         method: "POST", headers,
-        body: { action: "create_run", processId: customProcess.id, title: "Contract run" }
-      })).json() as any;
-      await request(server, routes, "/bees-api/command", {
-        method: "POST", headers,
-        body: { action: "run_item", itemId: runnable.id, model: "test-provider/test-model" }
+        body: { action: "ask_bees", workspaceId: initial.workspaces[0].id, outcome: "Plan a contract launch" }
       });
+      const planning = runnable.json() as any;
       await waitFor(async () => {
         const snapshot = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
-        return snapshot.runs.some((run: any) => run.workItemId === runnable.id && run.status === "completed");
+        return snapshot.runs.some((run: any) => run.id === planning.executionId && run.status === "completed");
       });
       const completed = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
-      const firstRun = completed.runs.find((run: any) => run.workItemId === runnable.id);
+      expect(completed.assignments).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "Bees work agent", systemRole: "worker" }),
+        expect.objectContaining({ name: "Bees reviewer", systemRole: "reviewer" })
+      ]));
+      expect(completed.stages.filter((stage: any) => stage.processId === customProcess.id).map(({ driver }: any) => driver))
+        .toEqual(["agent", "terminal"]);
+      const firstRun = completed.runs.find((run: any) => run.id === planning.executionId);
       const history = (await request(server, routes, `/bees-api/run-history?executionId=${firstRun.id}`, { headers })).json() as any;
       expect(history.history.messages).toContainEqual(expect.objectContaining({ role: "assistant" }));
       expect(harness.mountedPresets).toEqual(["standard"]);
@@ -255,7 +258,7 @@ describe("Bees DSH public contract", () => {
         headers: { cookie: String(secondCookie) }
       })).json() as any;
       expect(restarted.items).toContainEqual(expect.objectContaining({ id: created.id, title: "Contract goal" }));
-      expect(restarted.runs).toContainEqual(expect.objectContaining({ workItemId: runnable.id, status: "interrupted" }));
+      expect(restarted.runs).toContainEqual(expect.objectContaining({ id: firstRun.id, status: "interrupted" }));
       await request(server, routes, "/bees-api/command", {
         method: "POST", headers: { cookie: String(secondCookie), "content-type": "application/json" },
         body: { action: "recover_run", executionId: firstRun.id }
@@ -297,6 +300,10 @@ describe("Bees DSH public contract", () => {
         "../dsh-runtime/plugins/subscriptions/lib/client.js", import.meta.url
       ), "utf8");
       expect(client).toContain('const NAVIGATION = [');
+      expect(client).toContain('function WorkItemCockpit');
+      expect(client).toContain('"Root work item"');
+      expect(client).toContain('"New sub-item"');
+      expect(client).toContain('action: "edit_agent_assignment"');
       expect(client).toContain('NAVIGATION.flatMap((item) => [');
       expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
       expect(client).toContain('...pinnedRows(pinned.route).map');

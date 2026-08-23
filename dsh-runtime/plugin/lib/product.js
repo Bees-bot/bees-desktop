@@ -114,6 +114,43 @@ function parentFor(database, itemId, processId, parentId) {
   throw new Error("The work hierarchy is too deep");
 }
 
+function defaultAssignment(database, workspaceId, role = "worker") {
+  return database.prepare(`
+    SELECT id, preset_id AS presetId, name, description, instructions, model, system_role AS systemRole
+    FROM agent_assignments WHERE workspace_id = ? AND system_role = ? LIMIT 1
+  `).get(workspaceId, role);
+}
+
+function ensureAgentDefaults(database, workspaceId) {
+  const at = iso();
+  if (!defaultAssignment(database, workspaceId, "worker")) {
+    const existing = database.prepare(`
+      SELECT id FROM agent_assignments WHERE workspace_id = ? AND name = 'Bees work agent' LIMIT 1
+    `).get(workspaceId);
+    if (existing) database.prepare(`
+      UPDATE agent_assignments SET system_role = 'worker', updated_at = ? WHERE id = ?
+    `).run(at, existing.id);
+    else database.prepare(`
+      INSERT INTO agent_assignments
+        (id, workspace_id, preset_id, name, description, instructions, model, system_role, created_at, updated_at)
+      VALUES (?, ?, 'standard', 'Bees work agent', 'Default agent for completing work', '', NULL, 'worker', ?, ?)
+    `).run(stableUuid(`${workspaceId}:bees-work-agent`), workspaceId, at, at);
+  }
+  if (!defaultAssignment(database, workspaceId, "reviewer")) {
+    const existing = database.prepare(`
+      SELECT id FROM agent_assignments WHERE workspace_id = ? AND name = 'Bees reviewer' LIMIT 1
+    `).get(workspaceId);
+    if (existing) database.prepare(`
+      UPDATE agent_assignments SET system_role = 'reviewer', updated_at = ? WHERE id = ?
+    `).run(at, existing.id);
+    else database.prepare(`
+      INSERT INTO agent_assignments
+        (id, workspace_id, preset_id, name, description, instructions, model, system_role, created_at, updated_at)
+      VALUES (?, ?, 'standard', 'Bees reviewer', 'Default independent reviewer', '', NULL, 'reviewer', ?, ?)
+    `).run(stableUuid(`${workspaceId}:bees-reviewer`), workspaceId, at, at);
+  }
+}
+
 function mappedLocation(database, locationId) {
   const { deviceId } = currentIdentity(database);
   return database.prepare(`
@@ -275,7 +312,11 @@ function insertProcess(database, workspaceId, name, description, stages, kind = 
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
-    const definition = typeof stage === "string" ? { name: stage, driver: "manual" } : stage;
+    const stageName = typeof stage === "string" ? stage : stage.name;
+    const definition = typeof stage === "string" ? {
+      name: stageName,
+      driver: position === stages.length - 1 ? "terminal" : /review/i.test(stageName) ? "review" : "agent"
+    } : stage;
     insert.run(
       randomUUID(), id, required(definition.name, "Stage"), position,
       definition.driver ?? "manual", String(definition.instructions ?? ""),
@@ -297,11 +338,7 @@ function insertWorkspaceDefaults(database, workspaceId) {
     },
     { name: "Done", driver: "terminal" }
   ], "goals");
-  const at = iso();
-  database.prepare(`
-    INSERT INTO agent_assignments (id, workspace_id, preset_id, name, description, created_at, updated_at)
-    VALUES (?, ?, 'standard', 'Bees work agent', 'General DSH agent for this workspace', ?, ?)
-  `).run(randomUUID(), workspaceId, at, at);
+  ensureAgentDefaults(database, workspaceId);
 }
 
 export function initializeProductDatabase(database) {
@@ -391,6 +428,8 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS agent_assignments (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       preset_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+      instructions TEXT NOT NULL DEFAULT '', model TEXT,
+      system_role TEXT CHECK (system_role IN ('worker', 'reviewer')),
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(workspace_id, name)
     ) STRICT;
@@ -467,10 +506,33 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_items_stage ON work_items(stage_id, updated_at);
     CREATE INDEX IF NOT EXISTS bees_locations_team ON team_locations(team_id, name);
   `);
+  const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
+  if (!assignmentColumns.has("instructions")) database.exec("ALTER TABLE agent_assignments ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
+  if (!assignmentColumns.has("model")) database.exec("ALTER TABLE agent_assignments ADD COLUMN model TEXT");
+  if (!assignmentColumns.has("system_role")) database.exec("ALTER TABLE agent_assignments ADD COLUMN system_role TEXT");
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
+      ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
+    UPDATE stages SET driver = CASE
+      WHEN is_terminal = 1 THEN 'terminal'
+      WHEN lower(name) LIKE '%review%' THEN 'review'
+      ELSE 'agent'
+    END;
+    PRAGMA user_version = 6;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
+    `);
+    for (const { id } of database.prepare("SELECT id FROM workspaces WHERE status = 'active'").all())
+      ensureAgentDefaults(database, id);
+    database.exec(`
+      UPDATE work_items SET agent_assignment_id = (
+        SELECT a.id FROM processes p JOIN agent_assignments a
+          ON a.workspace_id = p.workspace_id AND a.system_role = 'worker'
+        WHERE p.id = work_items.process_id
+      ) WHERE agent_assignment_id IS NULL;
     `);
     return;
   }
@@ -508,6 +570,7 @@ export class BeesProduct {
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
+    this.agents?.setSubitemStore?.((input) => this.createSubitems(input));
   }
 
   async initialize() {
@@ -543,10 +606,13 @@ export class BeesProduct {
       mkdirSync(destination, { recursive: true });
       stageLocation({ name, kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
     }
-    const assignment = item.agentAssignmentId ? this.database.prepare(`
-      SELECT preset_id AS presetId, name FROM agent_assignments WHERE id = ? AND workspace_id = ?
-    `).get(item.agentAssignmentId, item.workspaceId) : null;
     const reviewer = stage.purpose === "reviewer";
+    const assignment = reviewer
+      ? defaultAssignment(this.database, item.workspaceId, "reviewer")
+      : item.agentAssignmentId ? this.database.prepare(`
+        SELECT preset_id AS presetId, name, instructions, model
+        FROM agent_assignments WHERE id = ? AND workspace_id = ?
+      `).get(item.agentAssignmentId, item.workspaceId) : defaultAssignment(this.database, item.workspaceId);
     const feedback = stage.feedback ? `\n\nPrior review feedback:\n${stage.feedback}` : "";
     const body = reviewer
       ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
@@ -560,7 +626,8 @@ export class BeesProduct {
         executionId, workItemId: item.id,
         agentId: reviewer ? "bees-reviewer" : item.agentAssignmentId || "bees-run",
         agentName: reviewer ? "Bees reviewer" : assignment?.name || "Bees work agent",
-        purpose: item.title, model: null, instructions: String(stage.instructions ?? ""),
+        purpose: item.title, model: assignment?.model || null,
+        instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
         grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
       }
@@ -636,7 +703,8 @@ export class BeesProduct {
       FROM process_locations ORDER BY process_id, location_id
     `).all();
     const assignments = workspaceIds.length ? this.database.prepare(`
-      SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description
+      SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
+             instructions, model, system_role AS systemRole
       FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?)) ORDER BY name
     `).all(JSON.stringify(workspaceIds)) : [];
     const runs = workspaceIds.length ? this.database.prepare(`
@@ -767,6 +835,21 @@ export class BeesProduct {
     return { id, changes: normalized.length };
   }
 
+  async createSubitems({ parentId, items }) {
+    const parent = itemContext(this.database, parentId, ["admin", "member"]);
+    if (!Array.isArray(items) || !items.length || items.length > 25)
+      throw new Error("A run can create between 1 and 25 sub-items at once");
+    const created = [];
+    for (const item of items) created.push(await this.command({ action: "create_item",
+      processId: parent.processId,
+      parentId: parent.id,
+      title: required(item?.title, "Sub-item title"),
+      description: String(item?.description ?? ""),
+      agentAssignmentId: parent.agentAssignmentId
+    }));
+    return created;
+  }
+
   async command(input) {
     const action = required(input?.action, "Action");
     try {
@@ -781,7 +864,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "stageId", "itemId", "locationId", "scheduleId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "stageId", "itemId", "parentId", "agentAssignmentId", "locationId", "scheduleId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;
@@ -851,7 +934,8 @@ export class BeesProduct {
       if (!stageId || !this.database.prepare(`
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
-      const assignmentId = input.agentAssignmentId || null;
+      const assignmentId = input.agentAssignmentId || defaultAssignment(this.database, process.workspaceId)?.id;
+      if (!assignmentId) throw new Error("A work item requires an agent");
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
       `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this workspace");
@@ -872,7 +956,8 @@ export class BeesProduct {
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
-      const assignmentId = input.agentAssignmentId || null;
+      const assignmentId = input.agentAssignmentId || item.agentAssignmentId || defaultAssignment(this.database, item.workspaceId)?.id;
+      if (!assignmentId) throw new Error("A work item requires an agent");
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
       `).get(assignmentId, item.workspaceId)) throw new Error("Agent assignment is not in this workspace");
@@ -938,12 +1023,13 @@ export class BeesProduct {
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("DELETE FROM stages WHERE id = ?").run(id));
       names.forEach((name, position) => {
+        const driver = position === names.length - 1 ? "terminal" : /review/i.test(name) ? "review" : "agent";
         if (assigned[position]) this.database.prepare(`
-          UPDATE stages SET name = ?, position = ?, is_terminal = ? WHERE id = ?
-        `).run(name, position, position === names.length - 1 ? 1 : 0, assigned[position].id);
+          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
+        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages VALUES (?, ?, ?, ?, 'manual', '', ?, NULL)
-        `).run(randomUUID(), processId, name, position, position === names.length - 1 ? 1 : 0);
+          INSERT INTO stages VALUES (?, ?, ?, ?, ?, '', ?, NULL)
+        `).run(randomUUID(), processId, name, position, driver, position === names.length - 1 ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
@@ -958,13 +1044,35 @@ export class BeesProduct {
         if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
       }
       return transaction(this.database, () => {
-      const id = randomUUID();
-      this.database.prepare(`
-        INSERT INTO agent_assignments VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
-        String(input.description ?? ""), at, at);
-      return { id };
+        const id = randomUUID();
+        this.database.prepare(`
+          INSERT INTO agent_assignments
+            (id, workspace_id, preset_id, name, description, instructions, model, system_role, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
+          String(input.description ?? ""), String(input.instructions ?? ""), input.model || null, at, at);
+        return { id };
       });
+    }
+    if (action === "edit_agent_assignment") {
+      const id = required(input.agentAssignmentId, "Agent");
+      const assignment = this.database.prepare(`
+        SELECT workspace_id AS workspaceId, name, system_role AS systemRole
+        FROM agent_assignments WHERE id = ?
+      `).get(id);
+      if (!assignment) throw new Error("Agent not found");
+      workspaceContext(this.database, assignment.workspaceId, ["admin", "member"]);
+      const presetId = required(input.presetId, "DSH preset");
+      if (this.agentPresets) {
+        const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
+        if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
+      }
+      this.database.prepare(`
+        UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
+          model = ?, updated_at = ? WHERE id = ?
+      `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
+        String(input.description ?? ""), String(input.instructions ?? ""), input.model || null, at, id);
+      return { id };
     }
     if (action === "add_location") {
       const teamId = required(input.teamId, "Team");
@@ -1089,15 +1197,17 @@ export class BeesProduct {
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       const assignment = item.agentAssignmentId ? this.database.prepare(`
-        SELECT preset_id AS presetId, name FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(item.agentAssignmentId, item.workspaceId) : null;
+        SELECT preset_id AS presetId, name, instructions, model
+        FROM agent_assignments WHERE id = ? AND workspace_id = ?
+      `).get(item.agentAssignmentId, item.workspaceId) : defaultAssignment(this.database, item.workspaceId);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`,
         initialData: {
           version: 1, mode: "work", executionId, workItemId: item.id,
           agentId: item.agentAssignmentId || "bees-run", agentName: assignment?.name || "Bees work agent",
-          purpose: item.title, model: input.model || null, instructions: item.description,
+          purpose: item.title, model: input.model || assignment?.model || null,
+          instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
           grants
         }
@@ -1108,9 +1218,17 @@ export class BeesProduct {
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");
       const run = this.database.prepare(`
-        SELECT work_item_id AS workItemId FROM execution_links WHERE execution_id = ?
+        SELECT work_item_id AS workItemId, config_json AS configJson FROM execution_links WHERE execution_id = ?
       `).get(executionId);
-      if (!run?.workItemId) throw new Error("Execution cannot be recovered as work");
+      if (!run) throw new Error("Execution not found");
+      if (!run.workItemId) {
+        const data = JSON.parse(run.configJson);
+        workspaceContext(this.database, data.workspaceId, ["admin", "member"]);
+        return this.agents.admit("bees-run", executionId, {
+          idempotencyKey: `recover:${executionId}:${Date.now()}`,
+          body: `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
+        });
+      }
       const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `recover:${executionId}:${Date.now()}`,

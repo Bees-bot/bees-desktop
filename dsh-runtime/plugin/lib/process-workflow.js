@@ -86,8 +86,8 @@ export async function processWorkflow(input) {
       if (stage.driver === "review") state.reviewCycle += 1;
       const purpose = stage.driver === "review" ? "reviewer" : "worker";
       state.executionId = purpose === "reviewer"
-        ? `${input.workItemId}-review-${state.attempt}-${state.reviewCycle}`
-        : `${input.workItemId}-work-${state.attempt}`;
+        ? `${input.workItemId}-stage-${index}-review-${state.attempt}-${state.reviewCycle}`
+        : `${input.workItemId}-stage-${index}-work-${state.attempt}`;
       await project("running", null);
 
       let result;
