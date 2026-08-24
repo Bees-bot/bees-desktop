@@ -56,6 +56,7 @@ describe("Temporal process projection", () => {
       "../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url
     ), "utf8");
     expect(workflow).toContain('startToCloseTimeout: "36500 days"');
+    expect(workflow).not.toContain('startToCloseTimeout: "36500 days",\n  heartbeatTimeout: "30 seconds",\n  retry:');
     expect(workflow).toContain('patched("bees-durable-human-waits-v1")');
     expect(workflow).toContain("durableHumanWaits ? durableDshActivities : legacyDshActivities");
     expect(workflow).toContain('message === "Stopped by user"');
@@ -89,6 +90,19 @@ describe("Temporal process projection", () => {
         ]
       })]
     })]);
+    expect(state.database.connection.prepare("SELECT runtime_phase FROM work_items WHERE id = 'goal'").get())
+      .toEqual({ runtime_phase: "running" });
+  });
+
+  it("retries a heartbeat-interrupted human wait during reconciliation", async () => {
+    const state = harness();
+    insertGoal(state);
+    state.database.connection.prepare(`
+      UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'activity Heartbeat timeout'
+      WHERE id = 'goal'
+    `).run();
+    await state.runtime.reconcile();
+    expect(state.signals).toEqual([{ workflowId: processWorkflowId("goal"), name: "retry" }]);
     expect(state.database.connection.prepare("SELECT runtime_phase FROM work_items WHERE id = 'goal'").get())
       .toEqual({ runtime_phase: "running" });
   });

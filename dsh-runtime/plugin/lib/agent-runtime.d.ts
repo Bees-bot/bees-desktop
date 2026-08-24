@@ -22,6 +22,7 @@ export declare class AgentRuntime {
   pendingApproval(executionId: string): Record<string, unknown> | null;
   admit(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
+  reviewEvidence(executionId: string): Promise<Record<string, unknown>>;
   abort(executionId: string): boolean;
   purge(executionId: string): Promise<void>;
 }

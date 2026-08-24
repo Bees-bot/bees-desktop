@@ -247,10 +247,15 @@ describe("Bees DSH product plugin", () => {
     })).rejects.toThrow("Finish or cancel active automatic work");
     const expectedReviewers = [reviewer.id, backupReviewer.id].sort();
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
-      executionId: "editorial-review", purpose: "reviewer", instructions: "Review it" });
+      executionId: "editorial-review", candidateExecutionId: executionId,
+      purpose: "reviewer", instructions: "Review it" });
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: expectedReviewers[0], grants: []
     });
+    expect(stageRuns.at(-1)[1].body).toContain("inputs/execution-evidence.json");
+    expect(JSON.parse(readFileSync(
+      join(runRoot, "runs", "editorial-review", "inputs", "execution-evidence.json"), "utf8"
+    ))).toMatchObject({ candidateExecutionId: executionId, executions: [{ executionId }] });
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
       executionId: "editorial-review-2", purpose: "reviewer", instructions: "Review it again" });
     expect(stageRuns.at(-1)[1].initialData.agentId).toBe(expectedReviewers[1]);

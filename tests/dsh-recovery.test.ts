@@ -14,15 +14,15 @@ function context(): { on: () => () => void } {
   return { on: () => () => undefined };
 }
 
-function insertRun(database: NodeDatabase, status = "running"): void {
+function insertRun(database: NodeDatabase, status = "running", workItemId: string | null = null): void {
   const at = "2026-01-01T00:00:00.000Z";
   const workspace = database.connection.prepare("SELECT id FROM workspaces ORDER BY created_at LIMIT 1").get() as { id: string };
   database.connection.prepare(`
     INSERT INTO execution_links
-      (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+      (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
        run_directory, config_json, status, created_at, updated_at)
-    VALUES ('run', ?, 'bees-run', 'session', 'uid', '/tmp/work', ?, ?, ?, ?)
-  `).run(workspace.id, JSON.stringify({ version: 1, model: null }), status, at, at);
+    VALUES ('run', ?, ?, 'bees-run', 'session', 'uid', '/tmp/work', ?, ?, ?, ?)
+  `).run(workspace.id, workItemId, JSON.stringify({ version: 1, model: null }), status, at, at);
 }
 
 describe("DSH-owned desktop and recovery", () => {
@@ -117,6 +117,50 @@ describe("DSH-owned desktop and recovery", () => {
     expect(safeRecoverySeed(events)).toEqual(events.slice(0, 3));
   });
 
+  it("provides reviewers with durable subagent and approval evidence", async () => {
+    const database = new NodeDatabase();
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    database.connection.prepare(`
+      INSERT INTO work_items (id, process_id, stage_id, kind, title, created_at, updated_at)
+      VALUES ('goal', ?, ?, 'goal', 'Goal', '2026-01-01', '2026-01-01')
+    `).run(stage.processId, stage.stageId);
+    const events = [
+      { type: "tool/call", seq: 1, time: 1_000, data: { name: "subagent", callId: "child-call", arguments: "first" } },
+      { type: "tool/result", seq: 2, time: 2_000, data: { message: { source: { callId: "child-call" }, content: [{ type: "text", text: "done" }] } } },
+      { type: "tool/call", seq: 3, time: 3_000, data: { name: "ask_user_question", callId: "approval-call", arguments: "Approve?" } },
+      { type: "tool/result", seq: 4, time: 4_000, data: { message: { source: { callId: "approval-call" }, content: [{ type: "text", text: "approved" }] } } }
+    ];
+    const runtime = new AgentRuntime({
+      on: () => () => undefined,
+      sessionPersistence: { inspect: async () => ({ events }) },
+      subagents: { listChildren: async () => [{ kind: "child", id: "child-1", activity: "inactive", mode: "one-shot", label: "Append first" }] }
+    }, database.connection);
+    insertRun(database, "completed", "goal");
+    const workspace = database.connection.prepare("SELECT id FROM workspaces ORDER BY created_at LIMIT 1").get() as { id: string };
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('candidate', ?, 'goal', 'bees-run', 'candidate-session', 'candidate-uid', '/tmp/candidate',
+        ?, 'completed', '2026-01-02', '2026-01-02')
+    `).run(workspace.id, JSON.stringify({ version: 1, mode: "work", stagePurpose: "worker" }));
+
+    const evidence = await runtime.reviewEvidence("candidate") as any;
+    expect(evidence.executions.map(({ executionId }: any) => executionId)).toEqual(["run", "candidate"]);
+    expect(evidence.executions[0].sessions[0]).toMatchObject({
+      sessionId: "session",
+      subagents: [{ id: "child-1", kind: "child", activity: "inactive", mode: "one-shot", label: "Append first" }]
+    });
+    expect(evidence.executions[0].sessions[0].timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "tool/call", tool: "subagent", callId: "child-call" }),
+      expect.objectContaining({ type: "tool/call", tool: "ask_user_question", callId: "approval-call" }),
+      expect.objectContaining({ type: "tool/result", callId: "approval-call", error: false })
+    ]));
+  });
+
   it("preserves stable @ and $ identity independently of display labels", () => {
     expect(typedReferences(
       "Ask @[Design team](bees:team:team-1) to read $[Quarterly folder](bees:location:folder-9)"
@@ -187,6 +231,35 @@ describe("DSH-owned desktop and recovery", () => {
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
     ).get()).toEqual({ status: "interrupted" });
     expect(replacement.pendingApproval("run")).toBeNull();
+  });
+
+  it("revives a cancelled human wait after an orchestration heartbeat failure", () => {
+    const database = new NodeDatabase();
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    database.connection.prepare(`
+      INSERT INTO work_items (id, process_id, stage_id, kind, title, created_at, updated_at)
+      VALUES ('goal', ?, ?, 'goal', 'Goal', '2026-01-01', '2026-01-01')
+    `).run(stage.processId, stage.stageId);
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database, "running", "goal");
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/call", seq: 4,
+      data: { name: "ask_user_question", callId: "question-1", arguments: "Continue?" }
+    });
+    database.connection.prepare("UPDATE execution_links SET status = 'cancelled' WHERE execution_id = 'run'").run();
+    database.connection.prepare(`
+      UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'activity Heartbeat timeout'
+      WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = 'run')
+    `).run();
+
+    const replacement = new AgentRuntime(context(), database.connection);
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "interrupted" });
+    expect(replacement.pendingInteraction("run")).toMatchObject({ kind: "question", callId: "question-1" });
   });
 
   it("records an aborted question as cancelled rather than answered", () => {
@@ -271,5 +344,32 @@ describe("DSH-owned desktop and recovery", () => {
     `).run(JSON.stringify({ message: "configured model is unavailable" }));
 
     await expect(runtime.executeStage("run", {})).rejects.toThrow("configured model is unavailable");
+  });
+
+  it("only reports an explicit Temporal cancellation as a user stop", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database);
+    database.connection.prepare(`
+      INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+      VALUES ('delivery', 'run', 'submission', '2026-01-01')
+    `).run();
+    const cancellations: unknown[] = [];
+    (runtime as any).live.set("run", {
+      approvalAbort: new AbortController(),
+      handle: { agent: { cancel: (reason: unknown) => cancellations.push(reason) } }
+    });
+
+    const shutdown = new AbortController();
+    shutdown.abort(new Error("WORKER_SHUTDOWN"));
+    await expect((runtime as any).waitForDelivery("run", "submission", shutdown.signal))
+      .rejects.toThrow("WORKER_SHUTDOWN");
+    expect(cancellations).toEqual([]);
+
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("CANCELLED"));
+    await expect((runtime as any).waitForDelivery("run", "submission", cancelled.signal))
+      .rejects.toThrow("CANCELLED");
+    expect(cancellations).toEqual([{ kind: "user" }]);
   });
 });

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync
+  copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync
 } from "node:fs";
 import { basename, extname, relative, resolve, sep } from "node:path";
 
@@ -841,13 +841,17 @@ export class BeesProduct {
         : resolve(runDirectory, "outputs");
       mkdirSync(destination, { recursive: true });
       stageLocation({ name: "candidate", kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
+      if (reviewer) {
+        const evidence = await this.agents.reviewEvidence(stage.candidateExecutionId);
+        writeFileSync(resolve(runDirectory, "inputs", "execution-evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+      }
     }
     const feedback = stage.feedback ? `\n\nPrior review feedback:\n${stage.feedback}` : "";
     const handoff = stage.candidateExecutionId && !reviewer
       ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from DSH sessions and Bees audit records; use it to verify procedural requirements such as subagent ordering and human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
       : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,

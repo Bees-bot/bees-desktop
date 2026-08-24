@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { Context } from "@temporalio/activity";
+import { ApplicationFailure, Context } from "@temporalio/activity";
 import {
   Client, Connection, WorkflowExecutionAlreadyStartedError
 } from "@temporalio/client";
@@ -64,6 +64,11 @@ export class ProcessRuntime {
         try {
           context.heartbeat();
           return await runStage(stage, context.cancellationSignal);
+        } catch (error) {
+          if (context.cancellationSignal.aborted) throw error;
+          throw ApplicationFailure.nonRetryable(
+            error instanceof Error ? error.message : String(error), "DshStageFailure"
+          );
         } finally {
           clearInterval(heartbeat);
         }
@@ -93,7 +98,15 @@ export class ProcessRuntime {
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
         AND w.runtime_phase = 'ready'
     `).all();
-    await Promise.all(items.map(({ id }) => this.startItem(id)));
+    const interruptedWaits = this.database.prepare(`
+      SELECT w.id FROM work_items w
+      WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
+        AND w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
+    `).all();
+    await Promise.all([
+      ...items.map(({ id }) => this.startItem(id)),
+      ...interruptedWaits.map(({ id }) => this.signal(id, "retry"))
+    ]);
   }
 
   async startItem(workItemId) {
