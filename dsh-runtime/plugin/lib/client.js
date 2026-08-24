@@ -385,12 +385,10 @@ window.__ModuleLoader__.load({
             activeTab === "needs" ? h(React.Fragment, null,
               item.runtimeError ? h("div", { className: "bees-callout" },
                 h("h3", null, item.runtimePhase === "failed" ? "This needs your attention" : "Waiting"), h("div", null, item.runtimeError)) : null,
-              interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
-                : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
-                  : pendingRun ? h(Empty, null, pendingRun.status === "interrupted"
-                    ? "The prior request was interrupted. Retry the work to ask again."
-                    : pendingSession?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…")
-                    : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item"))
+              pendingRun ? h(AgentInteractionPanel, {
+                run: pendingRun, item, summary: pendingSummary, session: pendingSession,
+                interaction, handled, onAnswered: answered
+              }) : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item"))
               : activeTab === "description" ? h(React.Fragment, null,
                 h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
                 h("h2", null, item.title),
@@ -721,12 +719,38 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
+
+    function AgentInteractionPanel({ run, item, summary, session, interaction, handled, onAnswered, onOpenWork }) {
+      const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
+      const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
+      const fileKey = files.join("|");
+      useEffect(() => setViewer((current) => files.length
+        ? current?.executionId === run.id && files.includes(current.path)
+          ? current : { executionId: run.id, path: files[0] }
+        : null), [run.id, fileKey]);
+      return h("section", { className: "bees-box bees-answer-card" },
+        h("div", { className: "bees-answer-head" }, h("div", null,
+          h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
+          h("h2", null, item?.title ?? summary?.displayTitle ?? "Agent run")),
+        h("div", { className: "bees-grow" }), onOpenWork ? h(Button, { onClick: onOpenWork }, "Open work") : null),
+        interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
+          : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
+            : h(Empty, null, run.status === "interrupted"
+              ? "The prior request was interrupted. Retry the work to ask again."
+              : session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
+        files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
+          ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
+            onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
+        viewer ? h(FilePreview, { target: viewer }) : null
+      );
+    }
+
     function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
       const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
       const [selectedId, setSelectedId] = useState("");
       const [handled, setHandled] = useState(() => new Set());
       const [handledRuns, setHandledRuns] = useState(() => new Set());
-      const [viewer, setViewer] = useState(null);
       const seen = new Set();
       const rows = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) && run.sessionId)
         .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
@@ -735,26 +759,18 @@ window.__ModuleLoader__.load({
       useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
       useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
       const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
-      const files = selected ? selected.run.files ?? (selected.run.outputs ?? []).map((path) => `outputs/${path}`) : [];
-      const fileKey = files.join("|");
-      useEffect(() => setViewer((current) => selected && files.length
-        ? current?.executionId === selected.run.id && files.includes(current.path)
-          ? current : { executionId: selected.run.id, path: files[0] }
-        : null), [selected?.run.id, fileKey]);
       useEffect(() => {
         for (const { run } of rows) if (run.sessionId) void ctx.sessions.open(run.sessionId);
       }, [ctx, rowKey]);
       useEffect(() => { if (selected?.run.sessionId) ctx.sessions.open(selected.run.sessionId); }, [ctx, selected?.run.sessionId]);
       const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
       const session = useSnapshot(binding?.session);
-      const selectedPending = selected?.session?.pendingInteraction;
       const interaction = session?.pending?.find((pending) => !handled.has(pending.key) &&
-        (selectedPending === "plan-review" ? pending.kind === "question" : pending.kind === selectedPending))
+        (selected?.session?.pendingInteraction === "plan-review" ? pending.kind === "question" : pending.kind === selected?.session?.pendingInteraction))
         ?? session?.pending?.find((pending) => !handled.has(pending.key));
       const actionableRunIds = new Set(rows.map(({ run }) => run.id));
       const blocked = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
         ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !actionableRunIds.has(run.id));
-      const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
       const answered = (key) => {
         setHandled((current) => new Set(current).add(key));
         const completed = new Set(handledRuns);
@@ -776,18 +792,10 @@ window.__ModuleLoader__.load({
                   h("span", { className: "bees-muted" }, agent?.name ?? summary?.agentPreset ?? "Agent")),
                 h("span", { className: "bees-badge" }, interactionName(summary?.pendingInteraction)));
             })),
-            h("section", { className: "bees-box bees-answer-card" },
-              h("div", { className: "bees-answer-head" }, h("div", null,
-                h("div", { className: "bees-status" }, interactionName(selectedPending)),
-                h("h2", null, selected.item?.title ?? selected.session?.displayTitle ?? "Agent run")),
-              h("div", { className: "bees-grow" }), selected.run.workItemId ? h(Button, { onClick: () => openWorkItem(selected.run.workItemId) }, "Open work") : null),
-            interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
-              : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
-                : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
-            files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
-              ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
-                onClick: () => setViewer({ executionId: selected.run.id, path }) }, path))) : null,
-            viewer ? h(FilePreview, { target: viewer }) : null)
+            h(AgentInteractionPanel, {
+              run: selected.run, item: selected.item, summary: selected.session, session, interaction, handled,
+              onAnswered: answered, onOpenWork: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : null
+            })
         ) : h(Empty, null, "No live agent questions or approvals right now"),
         blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
           ...blocked.map((run) => {

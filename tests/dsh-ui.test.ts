@@ -24,6 +24,12 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('role: "tabpanel"');
   });
 
+  it("uses one agent interaction card in Needs you and the Kanban detail tab", () => {
+    expect(client).toContain("function AgentInteractionPanel");
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
+    expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
+  });
+
   it("keeps live subagent catalogs open and projects their children immediately", () => {
     expect(client).toContain("sessions.subagentsByParent");
     expect(client).toContain("ctx.sessions.setSubagentCatalogOpen(sessionId, true)");
