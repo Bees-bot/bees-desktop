@@ -11,6 +11,7 @@ import {
   safeRecoverySeed,
   typedReferences
 } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+import { clientSource as client } from "./client-source.js";
 import { NodeDatabase } from "./node-database.js";
 
 function context(): { on: () => () => void } {
@@ -49,9 +50,6 @@ describe("DSH-owned desktop and recovery", () => {
     const entry = readFileSync(new URL("../src/entry.ts", import.meta.url), "utf8");
     const profile = readFileSync(new URL(
       "../dsh-runtime/profile/cordis.patch.yml", import.meta.url
-    ), "utf8");
-    const client = readFileSync(new URL(
-      "../dsh-runtime/plugin/lib/client.js", import.meta.url
     ), "utf8");
     const localAiClient = readFileSync(new URL(
       "../dsh-runtime/plugins/local-ai/lib/client.js", import.meta.url

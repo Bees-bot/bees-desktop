@@ -10,8 +10,9 @@
     "prepare:dsh": "node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "dev": "vite",
     "build": "vite build",
+    "build:dsh-client": "node scripts/build-dsh-client.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests/dsh-*.test.ts",
+    "test": "npm run build:dsh-client && vitest run tests/dsh-*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "tauri:dev": "npm run build && npm run prepare:dsh && tauri dev",
     "tauri:build": "tauri build"

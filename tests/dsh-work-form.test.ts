@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-
-const client = readFileSync(new URL("../dsh-runtime/plugin/lib/client.js", import.meta.url), "utf8");
+import { clientSource as client } from "./client-source.js";
 
 describe("New work form", () => {
   it("offers every process in the selected workspace", () => {

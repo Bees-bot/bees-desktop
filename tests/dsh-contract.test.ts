@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { apply } from "../dsh-runtime/plugin/lib/index.js";
+import { clientSource } from "./client-source.js";
 
 type Route = {
   kind: "exact";
@@ -288,7 +289,7 @@ describe("Bees DSH public contract", () => {
         provider: "local-openai", model: "active", reasoningEffort: "high"
       });
 
-      const client = readFileSync(new URL("../dsh-runtime/plugin/lib/client.js", import.meta.url), "utf8");
+      const client = clientSource;
       const localAiClient = readFileSync(new URL(
         "../dsh-runtime/plugins/local-ai/lib/client.js", import.meta.url
       ), "utf8");

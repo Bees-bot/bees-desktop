@@ -1,12 +1,35 @@
-import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-
-const client = readFileSync(new URL("../dsh-runtime/plugin/lib/client.js", import.meta.url), "utf8");
+import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("Bees work cockpit UI", () => {
   it("ships a parseable client bundle", () => {
-    expect(() => new Script(client)).not.toThrow();
+    expect(() => new Script(clientBundle)).not.toThrow();
+  });
+
+  it("registers the bundled client module", () => {
+    let registration: any;
+    new Script(clientBundle).runInNewContext({
+      window: { __ModuleLoader__: { load: (value: any) => { registration = value; } } }
+    });
+    const noop = (): undefined => undefined;
+    const React = {
+      createElement: noop, useEffect: noop, useMemo: noop, useRef: noop, useState: noop
+    };
+    const modules: Record<string, any> = {
+      react: React,
+      "@deepseek-ai/dsh-client-ui-primitives": { MarkdownText: noop },
+      "@deepseek-ai/dsh-client-ui-user-questions": { PendingQuestion: class {} },
+      "@bees/dsh-local-ai": {
+        LocalAiController: noop, LocalAiSettings: noop, ExternalLocalAiSettings: noop
+      },
+      "@bees/dsh-free-ai": { FreeAiController: noop, FreeAiSettings: noop },
+      "@bees/dsh-custom-ai": { CustomAiSettings: noop },
+      "@bees/dsh-subscriptions": { SubscriptionSettings: noop }
+    };
+    const plugin = registration.factory((id: string) => modules[id]);
+    expect(plugin.inject).toContain("slots");
+    expect(plugin.apply).toBeTypeOf("function");
   });
 
   it("routes terminal and archived work to Completed", () => {
