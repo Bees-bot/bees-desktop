@@ -20,8 +20,7 @@ const legacyDshActivities = proxyActivities({
 const durableDshActivities = proxyActivities({
   // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
   startToCloseTimeout: "36500 days",
-  heartbeatTimeout: "30 seconds",
-  retry: { maximumAttempts: 3 }
+  heartbeatTimeout: "30 seconds"
 });
 
 function failureMessage(error) {
@@ -65,13 +64,14 @@ export async function processWorkflow(input) {
     await projectWorkItem({ ...state });
   };
   const waitForRetry = async (error) => {
+    const recoverInterruptedWait = error.toLocaleLowerCase().includes("heartbeat timeout");
     retryRequested = false;
     await project("failed", error);
     await condition(() => retryRequested);
     retryRequested = false;
     if (!durableHumanWaits && patched(`bees-durable-human-waits-retry-${state.attempt}`))
       durableHumanWaits = true;
-    state.attempt += 1;
+    if (!recoverInterruptedWait) state.attempt += 1;
     state.error = null;
   };
 

@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
       .bees-app{position:absolute;inset:0;z-index:90;display:grid;grid-template-columns:240px 1fr;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:14px/1.4 system-ui,-apple-system,sans-serif;pointer-events:auto}
       .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:auto}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 10px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}.bees-context-switcher{position:relative;margin:0 12px 11px}.bees-context-switcher summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer;list-style:none}.bees-context-switcher summary::-webkit-details-marker{display:none}.bees-context-summary{min-width:0;flex:1}.bees-context-primary,.bees-context-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-context-primary{font-weight:750}.bees-context-secondary{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-context-arrow{color:var(--dsw-alias-label-secondary)}.bees-context-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:100%;max-height:430px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-context-search{margin-bottom:7px}.bees-context-section{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l1)}.bees-context-section:first-of-type{border-top:0}.bees-context-label{padding:2px 7px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}.bees-context-option{display:flex;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-context-option:hover,.bees-context-option.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-context-check{width:14px}.bees-context-add{color:var(--dsw-alias-label-secondary)}
       .bees-nav{display:grid;gap:2px;padding:0 8px 12px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link:hover,.bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;filter:grayscale(1);opacity:.55}.bees-nav-pin:hover,.bees-nav-pin.active{background:var(--dsw-alias-interactive-bg-hover);filter:none;opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}
-      .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-button-elevated-fill);cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-hover)}.bees-theme-toggle svg{width:16px;height:16px}.bees-theme-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}
+      .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-button-elevated-fill);cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-hover)}.bees-theme-toggle svg{width:16px;height:16px}.bees-theme-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}.bees-panel-wide{max-width:none}
       .bees-btn,.bees-select,.bees-input,.bees-textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-button-elevated-fill);font:inherit}.bees-btn{padding:7px 11px;cursor:pointer}.bees-btn:hover{background:var(--dsw-alias-button-floating-hover)}.bees-btn.primary{background:#f2b84b;color:#21190b;border-color:#f2b84b;font-weight:700}.bees-btn.danger{color:#d15353}.bees-btn:disabled{opacity:.5;cursor:not-allowed}.bees-select,.bees-input,.bees-textarea{padding:8px 9px}.bees-input,.bees-textarea{width:100%}.bees-textarea{min-height:88px;resize:vertical}
       .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:15px;background:var(--dsw-specific-sidebar-fill)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;padding:28px;text-align:center;color:var(--dsw-alias-label-secondary)}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed,.bees-interrupted{color:#cf5b5b}
       .bees-hero{padding:34px;border:1px solid var(--dsw-alias-border-l1);border-radius:18px;background:linear-gradient(135deg,#f2b84b18,transparent 55%)}.bees-hero h1{font-size:32px;line-height:1.15;margin:0 0 10px}.bees-hero form{display:flex;gap:8px;margin-top:20px}.bees-hero .bees-input{font-size:16px}.bees-proposals{margin-top:18px}.bees-change{margin:7px 0;padding:9px;border-radius:8px;background:var(--dsw-alias-bg-base)}
@@ -63,7 +63,7 @@ window.__ModuleLoader__.load({
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
       .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
       .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
-      .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr);gap:12px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-agent-form textarea{min-height:180px}
+      .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabs{display:flex;gap:4px;margin:-5px -5px 14px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-agent-form textarea{min-height:180px}
       .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
       .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
       @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
@@ -218,14 +218,16 @@ window.__ModuleLoader__.load({
       }, "📌");
     }
 
+    const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
+
     function workItemsFor(data, route, workspaceIds) {
-      let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run" && !item.archivedAt);
+      let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
       if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
       if (route === "waiting") rows = rows.filter((item) =>
-        ["waiting", "failed"].includes(item.runtimePhase) || data.runs.some((run) =>
-          run.workItemId === item.id && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status)));
+        !isDone(item) && (["waiting", "failed"].includes(item.runtimePhase) || data.runs.some((run) =>
+          run.workItemId === item.id && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status))));
       if (route === "waiting") return rows;
-      return rows.filter(({ completed }) => route === "completed" ? completed : !completed);
+      return rows.filter((item) => route === "completed" ? isDone(item) : !isDone(item));
     }
 
     function Home({ data, workspaceId, act, askBees }) {
@@ -279,7 +281,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkItemDetails({ data, item, teamId, act, onArchived }) {
+    function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
       const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -289,10 +291,27 @@ window.__ModuleLoader__.load({
       const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
       const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
       const [selectedRun, setSelectedRun] = useState("");
+      const [activeTab, setActiveTab] = useState("description");
+      const [handled, setHandled] = useState(() => new Set());
       const [history, setHistory] = useState(null);
       const [audit, setAudit] = useState([]);
       const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
-      useEffect(() => { setSelectedRun(""); setHistory(null); }, [item.id]);
+      const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status));
+      const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
+      const pendingSummary = pendingRun ? sessions.byId[pendingRun.sessionId] : null;
+      const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : null;
+      const pendingSession = useSnapshot(binding?.session);
+      const expectedInteraction = pendingSummary?.pendingInteraction;
+      const interaction = pendingSession?.pending?.find((wait) => !handled.has(wait.key) &&
+        (expectedInteraction === "plan-review" ? wait.kind === "question" : wait.kind === expectedInteraction))
+        ?? pendingSession?.pending?.find((wait) => !handled.has(wait.key));
+      const attentionCount = Math.max(itemRuns.filter(({ status }) => ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status)).length, item.runtimeError ? 1 : 0);
+      const needsAttention = attentionCount > 0;
+      useEffect(() => {
+        setSelectedRun(""); setHistory(null); setHandled(new Set());
+        setActiveTab(needsAttention ? "needs" : "description");
+      }, [item.id]);
+      useEffect(() => { if (pendingRun?.sessionId) void ctx.sessions.open(pendingRun.sessionId); }, [ctx, pendingRun?.sessionId]);
       useEffect(() => {
         let active = true;
         if (!run) { setHistory(null); return () => { active = false; }; }
@@ -347,43 +366,81 @@ window.__ModuleLoader__.load({
         if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
         if (await act({ action: "archive_item", itemId: item.id })) onArchived?.();
       };
+      const answered = (key) => setHandled((current) => new Set(current).add(key));
+      const tabs = [
+        ["needs", "Questions & approvals"],
+        ["description", "Process description"],
+        ["runs", "Runs & details"],
+        ["audit", "Audit"]
+      ];
       return h("div", { className: "bees-cockpit-detail" },
-        h("section", { className: "bees-box" }, h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
-          h("h2", null, item.title), item.description ? h("p", null, item.description) : h("p", { className: "bees-muted" }, "No description"),
-          item.runtimeError ? h("div", { className: "bees-callout" },
-            h("h3", null, item.runtimePhase === "failed" ? "This needs your attention" : "Waiting"),
-            h("div", null, item.runtimeError)) : null,
-          h("p", { className: "bees-muted" }, assignment
-            ? `Worker override: ${assignment.name}${assignment.model ? ` · ${assignment.model}` : " · default model"}`
-            : `Stage route: ${routeLabel}`),
-          stage?.driver !== "terminal" ? h("label", { className: "bees-form" }, "Agent for this item",
-            h("select", { className: "bees-select", value: item.agentAssignmentId ?? "",
-              "aria-label": "Agent for this work item", onChange: (event) => void assignAgent(event.target.value) },
-              h("option", { value: "" }, `Use stage route (${routeLabel})`),
-              ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled },
-                `${agent.name}${agent.enabled ? "" : " (unavailable)"}`)))) : null,
-          h("div", { className: "bees-detail-actions" },
-            h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"),
-            ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
-            item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
-            item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
-            ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
-            h(Button, { className: "danger", onClick: archive }, "Archive"),
-            run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)),
-        h("section", { className: "bees-box" }, h("h3", null, "Runs"),
-          itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
-            h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)))) : h(Empty, null, "No runs yet"),
-          run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
-          history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null,
-          h("h3", { className: "bees-section-title" }, "Audit"),
-          ...(events.length ? events.map((event) => h("div", { className: "bees-row", key: event.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, event.type), h("div", { className: "bees-muted" }, new Date(event.createdAt).toLocaleString())))) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")]))
+        h("section", { className: "bees-box" },
+          h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" }, ...tabs.map(([id, label]) => h("button", {
+            type: "button", role: "tab", id: `bees-tab-${id}`, key: id,
+            className: `bees-tab ${activeTab === id ? "active" : ""}`,
+            "aria-selected": activeTab === id, "aria-controls": "bees-detail-panel",
+            onClick: () => setActiveTab(id)
+          }, label, id === "needs" && needsAttention ? ` · ${attentionCount}` : ""))),
+          h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
+            activeTab === "needs" ? h(React.Fragment, null,
+              item.runtimeError ? h("div", { className: "bees-callout" },
+                h("h3", null, item.runtimePhase === "failed" ? "This needs your attention" : "Waiting"), h("div", null, item.runtimeError)) : null,
+              interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
+                : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
+                  : pendingRun ? h(Empty, null, pendingRun.status === "interrupted"
+                    ? "The prior request was interrupted. Retry the work to ask again."
+                    : pendingSession?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…")
+                    : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item"))
+              : activeTab === "description" ? h(React.Fragment, null,
+                h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
+                h("h2", null, item.title),
+                h("h3", { className: "bees-section-title" }, process?.name ?? "Process"),
+                process?.description ? h("p", null, process.description) : h("p", { className: "bees-muted" }, "No process description"),
+                h("h3", { className: "bees-section-title" }, "Work item"),
+                item.description ? h("p", null, item.description) : h("p", { className: "bees-muted" }, "No work item description"),
+                h("p", { className: "bees-muted" }, assignment
+                  ? `Worker override: ${assignment.name}${assignment.model ? ` · ${assignment.model}` : " · default model"}`
+                  : `Stage route: ${routeLabel}`),
+                stage?.driver !== "terminal" ? h("label", { className: "bees-form" }, "Agent for this item",
+                  h("select", { className: "bees-select", value: item.agentAssignmentId ?? "",
+                    "aria-label": "Agent for this work item", onChange: (event) => void assignAgent(event.target.value) },
+                    h("option", { value: "" }, `Use stage route (${routeLabel})`),
+                    ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled },
+                      `${agent.name}${agent.enabled ? "" : " (unavailable)"}`)))) : null,
+                h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item")))
+                : activeTab === "runs" ? h(React.Fragment, null,
+                  h("div", { className: "bees-detail-actions" },
+                    ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
+                    item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
+                    item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
+                    ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
+                    h(Button, { className: "danger", onClick: archive }, "Archive"),
+                    run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null),
+                  h("h3", { className: "bees-section-title" }, "Runs"),
+                  itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
+                    h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)))) : h(Empty, null, "No runs yet"),
+                  run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
+                  history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null)
+                  : h(React.Fragment, null, h("h3", null, "Audit"),
+                    ...(events.length ? events.map((event) => h("div", { className: "bees-row", key: event.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, event.type), h("div", { className: "bees-muted" }, new Date(event.createdAt).toLocaleString())))) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")]))))
       );
     }
 
-    function descendantSessions(sessionIds, summaries) {
+    function descendantSessions(sessionIds, sessions) {
+      const summaries = new Map(Object.values(sessions.byId).map((summary) => [summary.id, summary]));
+      for (const [parentId, catalog] of Object.entries(sessions.subagentsByParent ?? {})) {
+        for (const entry of catalog.entries) if (entry.kind === "child") {
+          const summary = summaries.get(entry.id);
+          summaries.set(entry.id, {
+            ...summary, id: entry.id, displayTitle: entry.label ?? summary?.displayTitle ?? entry.id,
+            running: entry.activity === "running", blank: summary?.blank ?? false,
+            updatedAt: summary?.updatedAt ?? 0, parentId, origin: "subagent"
+          });
+        }
+      }
       const descendants = [];
       const byParent = new Map();
-      for (const summary of Object.values(summaries)) if (summary.origin === "subagent" && summary.parentId) {
+      for (const summary of summaries.values()) if (summary.origin === "subagent" && summary.parentId) {
         const children = byParent.get(summary.parentId) ?? [];
         children.push(summary); byParent.set(summary.parentId, children);
       }
@@ -398,29 +455,48 @@ window.__ModuleLoader__.load({
       return descendants;
     }
 
+    function runsForAttempt(item, data) {
+      const runs = data.runs.filter(({ workItemId }) => workItemId === item.id);
+      const attempt = Number(item.runtimeAttempt);
+      if (!attempt) return runs;
+      const suffix = new RegExp(`-(?:work-${attempt}|review-${attempt}-\\d+)$`);
+      const current = runs.filter(({ id }) => suffix.test(id));
+      return current.length ? current : runs;
+    }
+
     function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
       const root = data.items.find(({ id }) => id === rootId);
-      const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
+      const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {}, subagentsByParent: {} });
       const [selectedId, setSelectedId] = useState(rootId);
       useEffect(() => setSelectedId(rootId), [rootId]);
-      if (!root) return h(Empty, null, "Work item not found");
-      const process = data.processes.find(({ id }) => id === root.processId);
-      const stages = data.stages.filter(({ processId }) => processId === root.processId);
-      const visibleIds = new Set([root.id]);
+      const visibleIds = new Set([rootId]);
       for (let added = true; added;) {
         added = false;
-        for (const item of data.items) if (item.processId === root.processId && item.parentId && visibleIds.has(item.parentId) && !visibleIds.has(item.id)) {
+        for (const item of data.items) if ((!root || item.processId === root.processId) && item.parentId && visibleIds.has(item.parentId) && !visibleIds.has(item.id)) {
           visibleIds.add(item.id); added = true;
         }
       }
       const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
+      const hierarchyRuns = items.flatMap((item) => runsForAttempt(item, data));
+      const runSessionIds = [...new Set(hierarchyRuns
+        .flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
+      const catalogParents = [...new Set([...runSessionIds,
+        ...descendantSessions(runSessionIds, sessions).map(({ summary }) => summary.id)])];
+      const catalogKey = catalogParents.join("|");
+      useEffect(() => {
+        for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, true);
+        return () => { for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, false); };
+      }, [ctx, catalogKey]);
+      if (!root) return h(Empty, null, "Work item not found");
+      const process = data.processes.find(({ id }) => id === root.processId);
+      const stages = data.stages.filter(({ processId }) => processId === root.processId);
       const selected = items.find(({ id }) => id === selectedId) ?? root;
       const latest = new Map();
       for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
       const subagents = items.flatMap((item) => {
-        const sessionIds = [...new Set(data.runs.filter(({ workItemId }) => workItemId === item.id)
+        const sessionIds = [...new Set(runsForAttempt(item, data)
           .flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-        return descendantSessions(sessionIds, sessions.byId).map(({ summary, depth }) => ({ summary, depth, item }));
+        return descendantSessions(sessionIds, sessions).map(({ summary, depth }) => ({ summary, depth, item }));
       });
       const terminalStage = stages.find(({ isTerminal }) => isTerminal) ?? stages.at(-1);
       const workStage = stages.find(({ name, isTerminal }) => !isTerminal && /^work$/i.test(name));
@@ -461,12 +537,12 @@ window.__ModuleLoader__.load({
                 h("div", { className: "bees-muted" }, status));
             })] : [h(Empty, { key: "empty" }, "No work in this stage")])));
         })),
-        h(WorkItemDetails, { data, item: selected, teamId, act, onArchived: onBack })
+        h(WorkItemDetails, { ctx, data, item: selected, teamId, act, onArchived: onBack })
       );
     }
 
     function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated }) {
-      const processes = data.processes.filter((process) => process.workspaceId === workspaceId && process.kind === "standard");
+      const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
       const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
       const goal = kind === "goal";
       if (!workspaceId) return h("div", { className: "bees-stack" },
@@ -1552,7 +1628,7 @@ window.__ModuleLoader__.load({
             )),
             h(ThemeToggle, { ctx })),
           error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-          h("main", { className: "bees-content" }, h("div", { className: "bees-panel" }, page))
+          h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
         )
       ));
     }

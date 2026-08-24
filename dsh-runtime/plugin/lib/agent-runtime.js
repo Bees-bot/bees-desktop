@@ -53,6 +53,33 @@ function textBlocks(content) {
     : [];
 }
 
+function excerpt(value, limit = 1_200) {
+  let text;
+  try { text = typeof value === "string" ? value : JSON.stringify(value); }
+  catch { text = String(value); }
+  if (text === undefined) text = "";
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function reviewTimeline(events) {
+  const calls = new Set();
+  return events.flatMap((event) => {
+    if (event.type === "tool/call" && ["subagent", "ask_user_question"].includes(event.data.name)) {
+      calls.add(String(event.data.callId));
+      return [{ seq: event.seq, time: event.time, type: event.type,
+        tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
+    }
+    if (event.type === "tool/result") {
+      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      return calls.has(callId) ? [{ seq: event.seq, time: event.time, type: event.type,
+        callId, error: Boolean(event.data.error), detail: excerpt(event.data.message?.content) }] : [];
+    }
+    return ["approval/asked", "approval/decided"].includes(event.type)
+      ? [{ seq: event.seq, time: event.time, type: event.type, detail: excerpt(event.data) }]
+      : [];
+  }).slice(-256);
+}
+
 function messageParts(content) {
   return Array.isArray(content) ? content.flatMap((block) => {
     if (block?.type === "text") return [{ type: "text", text: block.text ?? "" }];
@@ -273,13 +300,27 @@ export class AgentRuntime {
       ) STRICT;
     `);
     const at = new Date().toISOString();
-    for (const run of database.prepare(`
+    const interrupted = database.prepare(`
       SELECT execution_id, current_session_id FROM execution_links
       WHERE status IN ('running', 'waiting_for_approval', 'waiting_for_input')
-    `).all()) {
+    `).all();
+    const cancelledWaits = database.prepare(`
+      SELECT e.execution_id, e.current_session_id,
+        (SELECT c.pending_interaction_json FROM bees_run_checkpoints c
+         WHERE c.execution_id = e.execution_id
+           AND (c.pending_interaction_json IS NOT NULL OR c.transition IN ('input_received', 'approved', 'rejected'))
+         ORDER BY c.rowid DESC LIMIT 1) AS pending_interaction_json
+      FROM execution_links e JOIN work_items w ON w.id = e.work_item_id
+      WHERE e.status = 'cancelled' AND w.runtime_phase = 'failed'
+        AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
+    `).all().filter((run) => run.pending_interaction_json);
+    for (const run of [...interrupted, ...cancelledWaits]) {
       database.prepare("UPDATE execution_links SET status = 'interrupted', updated_at = ? WHERE execution_id = ?")
         .run(at, run.execution_id);
       this.checkpoint(String(run.execution_id), String(run.current_session_id), "interrupted", {
+        ...(run.pending_interaction_json
+          ? { pendingInteraction: JSON.parse(run.pending_interaction_json) }
+          : {}),
         idempotencyKey: `startup-interrupted:${run.current_session_id}`
       });
       this.audit("run-interrupted", String(run.execution_id), String(run.current_session_id), { detectedAt: at });
@@ -863,13 +904,13 @@ export class AgentRuntime {
       if (!delivery) throw new Error("The DSH stage delivery disappeared");
       if (delivery.outcome) return delivery;
       if (signal?.aborted) {
-        this.abort(executionId);
+        if (signal.reason?.message === "CANCELLED") this.abort(executionId);
         throw signal.reason ?? new Error("The Temporal activity was cancelled");
       }
       try {
         await delay(250, undefined, signal ? { signal } : undefined);
       } catch (error) {
-        this.abort(executionId);
+        if (signal?.reason?.message === "CANCELLED") this.abort(executionId);
         throw error;
       }
     }
@@ -927,6 +968,71 @@ export class AgentRuntime {
       ...(row.errorJson ? { error: JSON.parse(row.errorJson) } : {})
     }] : []);
     return eventsToConversation(events, settlements);
+  }
+
+  async reviewEvidence(executionId) {
+    const target = this.database.prepare(`
+      SELECT work_item_id AS workItemId, created_at AS createdAt
+      FROM execution_links WHERE execution_id = ?
+    `).get(executionId);
+    if (!target) return { version: 1, candidateExecutionId: executionId, executions: [] };
+    const runs = (target.workItemId ? this.database.prepare(`
+      SELECT execution_id AS executionId, current_session_id AS currentSessionId,
+             previous_session_id AS previousSessionId, agent_name AS agentName,
+             status, config_json AS configJson, created_at AS createdAt, updated_at AS updatedAt
+      FROM execution_links
+      WHERE work_item_id = ? AND created_at <= ?
+      ORDER BY created_at DESC LIMIT 24
+    `).all(target.workItemId, target.createdAt) : this.database.prepare(`
+      SELECT execution_id AS executionId, current_session_id AS currentSessionId,
+             previous_session_id AS previousSessionId, agent_name AS agentName,
+             status, config_json AS configJson, created_at AS createdAt, updated_at AS updatedAt
+      FROM execution_links WHERE execution_id = ?
+    `).all(executionId)).reverse();
+    const executions = [];
+    for (const run of runs) {
+      let config = {};
+      try { config = JSON.parse(run.configJson); } catch {}
+      const sessions = [];
+      for (const sessionId of [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))]) {
+        let events = [];
+        try {
+          events = String(this.live.get(run.executionId)?.handle.agent.session.id ?? "") === sessionId
+            ? this.live.get(run.executionId).handle.agent.session.events
+            : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
+        } catch {}
+        let subagents = [];
+        try { subagents = await this.ctx.subagents?.listChildren?.(SessionId(sessionId)) ?? []; }
+        catch {}
+        sessions.push({
+          sessionId,
+          subagents: subagents.map((child) => ({
+            id: String(child.id), kind: child.kind,
+            ...(child.kind === "child" ? { activity: child.activity, mode: child.mode, label: child.label ?? null } : { reason: child.reason })
+          })),
+          timeline: reviewTimeline(events)
+        });
+      }
+      const result = this.database.prepare(`
+        SELECT outcome, summary, created_at AS createdAt
+        FROM bees_stage_results WHERE execution_id = ?
+      `).get(run.executionId) ?? null;
+      const audit = this.database.prepare(`
+        SELECT event_type AS type, session_id AS sessionId, metadata_json AS metadata,
+               created_at AS createdAt
+        FROM dsh_audit_events WHERE execution_id = ? ORDER BY created_at
+      `).all(run.executionId).map((row) => ({ ...row, metadata: excerpt(row.metadata) }));
+      executions.push({
+        executionId: run.executionId, agentName: run.agentName, status: run.status,
+        mode: config.mode ?? null, stagePurpose: config.stagePurpose ?? null,
+        createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit
+      });
+    }
+    return {
+      version: 1, candidateExecutionId: executionId,
+      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence.",
+      executions
+    };
   }
 
   abort(executionId) {
