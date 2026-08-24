@@ -24,6 +24,14 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('role: "tabpanel"');
   });
 
+  it("renders descriptions as markdown and makes audit evidence inspectable", () => {
+    expect(client).toContain('h(MarkdownText, { text: process.description })');
+    expect(client).toContain('h(MarkdownText, { text: item.description })');
+    expect(client).toContain("function AuditEvent");
+    expect(client).toContain('openLabel: "Open run"');
+    expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
+  });
+
   it("uses one agent interaction card in Needs you and the Kanban detail tab", () => {
     expect(client).toContain("function AgentInteractionPanel");
     expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);

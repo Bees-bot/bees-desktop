@@ -89,11 +89,18 @@ function messageParts(content) {
   }) : [];
 }
 
+function isInternalPromptMessage(message) {
+  const source = message?.source;
+  return source?.kind === "skill-catalog" ||
+    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt");
+}
+
 function eventsToConversation(events, settlements) {
   const messages = [];
   const calls = new Map();
   for (const event of events) {
     if (event.type === "user/message") {
+      if (isInternalPromptMessage(event.data)) continue;
       messages.push({
         id: event.data.id,
         role: "user",
