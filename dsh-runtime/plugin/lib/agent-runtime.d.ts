@@ -1,4 +1,9 @@
 export declare function validateRunData(value: unknown): Record<string, unknown>;
+export declare const LATEST_SOL_MODEL: "__bees_latest_sol__";
+export declare const LATEST_LUNA_MODEL: "__bees_latest_luna__";
+export declare const LATEST_TERRA_MODEL: "__bees_latest_terra__";
+export declare function latestCodexModel<T extends { id: string }>(models: T[], family: string): T | undefined;
+export declare function latestSolModel<T extends { id: string }>(models: T[]): T | undefined;
 export declare function typedReferences(value: string): Array<{
   namespace: "@" | "$";
   label: string;

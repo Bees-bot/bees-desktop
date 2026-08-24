@@ -10,14 +10,30 @@ import { BeesProduct, initializeProductDatabase } from "./product.js";
 export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
-  "workspaceRegistry", "settings", "credentials", "agentDefaultModel"
+  "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm"
 ];
+
+const ModelPreference = z.object({
+  id: z.string(),
+  name: z.string(),
+  contextWindow: z.number(),
+  maxTokens: z.number()
+});
 
 const BeesUiSettings = z.object({
   pins: z.array(z.string()).default([]),
   lastScope: z.string().default(""),
   localModelWantedId: z.string().default(""),
   freeAiProviders: z.array(z.string()).default([]),
+  generalAiProviders: z.array(z.string()).default([]),
+  generalAiModels: z.dict(z.array(ModelPreference)).default({}),
+  codexModels: z.array(ModelPreference).default([]),
+  externalLocalAiProfile: z.object({
+    displayName: z.string(),
+    api: z.string(),
+    baseURL: z.string(),
+    models: z.array(ModelPreference).default([])
+  }).default({}),
   localModels: z.array(z.object({
     id: z.string(),
     name: z.string(),
@@ -125,7 +141,19 @@ export async function apply(ctx, _config = {}, internals = {}) {
     res.end();
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) =>
-    reply(res, 200, await product.snapshot()) });
+    reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
+    if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+    try {
+      const value = await body(req);
+      const provider = String(value.provider ?? "").trim();
+      const model = String(value.model ?? "").trim();
+      const reasoningEffort = String(value.reasoningEffort ?? "").trim();
+      if (!provider || !model) throw new Error("Choose a provider and model");
+      await ctx.agentDefaultModel.saveSelection({ provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) });
+      reply(res, 200, { systemDefaultModel: ctx.agentDefaultModel.currentSelection() });
+    } catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/references", handler: async (req, res) => {
     const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("q") ?? "";
     const workspaceId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("workspaceId") ?? "";

@@ -42,6 +42,9 @@ function testContext(
   const settings: string[] = [];
   const persistenceLoads: string[] = [];
   let workspaceSequence = workspaces.size;
+  let defaultModel = { provider: "local-openai", model: "active" } as {
+    provider: string; model: string; reasoningEffort?: string;
+  };
   const temporalClient = {
     workflow: {
       start: async () => undefined,
@@ -62,7 +65,8 @@ function testContext(
     },
     on: () => () => undefined,
     agentDefaultModel: {
-      currentSelection: () => ({ provider: "local-openai", model: "active" })
+      currentSelection: () => ({ ...defaultModel }),
+      saveSelection: async (next: typeof defaultModel) => { defaultModel = { ...next }; }
     },
     settings: { register: (namespace: { name?: string } | string) => settings.push(String((namespace as any).name ?? namespace)) },
     webServer: {
@@ -276,6 +280,13 @@ describe("Bees DSH public contract", () => {
       expect(recovered.runs).toContainEqual(expect.objectContaining({
         id: firstRun.id, previousSessionId: firstRun.sessionId, status: "completed"
       }));
+      const changedDefault = (await request(server, routes, "/bees-api/system-default-model", {
+        method: "POST", headers: { cookie: String(secondCookie), "content-type": "application/json" },
+        body: { provider: "local-openai", model: "active", reasoningEffort: "high" }
+      })).json() as any;
+      expect(changedDefault.systemDefaultModel).toEqual({
+        provider: "local-openai", model: "active", reasoningEffort: "high"
+      });
 
       const client = readFileSync(new URL("../dsh-runtime/plugin/lib/client.js", import.meta.url), "utf8");
       const localAiClient = readFileSync(new URL(
@@ -299,11 +310,18 @@ describe("Bees DSH public contract", () => {
       const subscriptionsClient = readFileSync(new URL(
         "../dsh-runtime/plugins/subscriptions/lib/client.js", import.meta.url
       ), "utf8");
+      const subscriptionsHost = readFileSync(new URL(
+        "../dsh-runtime/plugins/subscriptions/lib/index.js", import.meta.url
+      ), "utf8");
       expect(client).toContain('const NAVIGATION = [');
       expect(client).toContain('function WorkItemCockpit');
       expect(client).toContain('"Root work item"');
       expect(client).toContain('"New sub-item"');
       expect(client).toContain('action: "edit_agent_assignment"');
+      const pluginHost = readFileSync(new URL("../dsh-runtime/plugin/lib/index.js", import.meta.url), "utf8");
+      expect(pluginHost).toContain("systemDefaultModel: ctx.agentDefaultModel.currentSelection()");
+      expect(pluginHost).toContain('path: "/bees-api/system-default-model"');
+      expect(pluginHost).toContain("ctx.agentDefaultModel.saveSelection");
       expect(client).toContain('NAVIGATION.flatMap((item) => [');
       expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
       expect(client).toContain('...pinnedRows(pinned.route).map');
@@ -332,6 +350,10 @@ describe("Bees DSH public contract", () => {
       expect(localAiClient).toContain('"data-model-toggle": "run"');
       expect(localAiClient).toContain('"Add a model"');
       expect(localAiClient).toContain('"external-local-ai"');
+      expect(localAiClient).toContain('"externalLocalAiProfile"');
+      expect(localAiClient).toContain('"Add model"');
+      expect(localAiClient).toContain('systemDefault?.provider === "local-openai"');
+      expect(localAiClient).toContain('systemDefault?.provider === "external-local-ai"');
       expect(freeAiClient).toContain('data-bees-plugin": "@bees/dsh-free-ai"');
       expect(freeAiClient).toContain('"Free LLM"');
       expect(freeAiClient).toContain('{ id: "openrouter", name: "OpenRouter Free"');
@@ -344,6 +366,7 @@ describe("Bees DSH public contract", () => {
       expect(freeAiClient).toContain('className: `bees-provider-card');
       expect(freeAiClient).toContain('openExternal(provider.signup)');
       expect(freeAiClient).toContain('"Add and test"');
+      expect(freeAiClient).toContain('systemDefault?.provider === "freellmapi"');
       expect(freeAiClient).toContain("it does not spend OpenRouter API credits");
       expect(freeAiClient).not.toContain("credentials.describe");
       expect(freeAiHost).toContain("embedded.startServer({");
@@ -360,12 +383,21 @@ describe("Bees DSH public contract", () => {
       expect(customAiClient).toContain('"/bees-api/general-ai/test"');
       expect(customAiClient).toContain('credentials.describe({ refs: Object.values(refs) })');
       expect(customAiClient).toContain('openExternal(provider.signup)');
+      expect(customAiClient).toContain('"generalAiModels"');
+      expect(customAiClient).toContain('"Model ID"');
+      expect(customAiClient).toContain("systemDefault?.provider === provider");
       expect(customAiHost).toContain('path: "/bees-api/general-ai/test"');
       expect(customAiHost).toContain("Preserve credentials saved by the earlier combined AI APIs screen");
       expect(subscriptionsClient).toContain('data-bees-plugin": "@bees/dsh-subscriptions"');
       expect(subscriptionsClient).toContain('"Codex"');
       expect(subscriptionsClient).toContain('"Claude Code"');
       expect(subscriptionsClient).toContain('await openExternal(authUrl)');
+      expect(subscriptionsClient).toContain('"aria-label": "Enable Codex"');
+      expect(subscriptionsClient).toContain('"claude_models"');
+      expect(subscriptionsClient).toContain('"Add model"');
+      expect(subscriptionsClient).toContain("systemDefault?.provider === provider");
+      expect(subscriptionsHost).toContain("const CLAUDE_REASONING");
+      expect(subscriptionsHost).toContain('"low", "medium", "high", "xhigh", "max"');
       expect(subscriptionsClient).not.toContain('"Continue sign in"');
       expect(client).toContain('action: "create_organization"');
       expect(client).not.toContain("organizationOrder");
@@ -376,6 +408,8 @@ describe("Bees DSH public contract", () => {
       expect(client).toContain('["dsh-settings", "DSH settings"]');
       expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
       expect(client).toContain('ctx.settingsScope.bind({ namespace: "bees-ui" })');
+      expect(readFileSync(new URL("../dsh-runtime/plugin/lib/index.js", import.meta.url), "utf8"))
+        .toContain("generalAiModels: z.dict(z.array(ModelPreference)).default({})");
       expect(client).not.toContain('id: "bees-navigation"');
       const runtimePackage = JSON.parse(readFileSync(new URL(
         "../dsh-runtime/package.json", import.meta.url

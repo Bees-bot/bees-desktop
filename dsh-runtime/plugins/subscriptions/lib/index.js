@@ -14,6 +14,11 @@ const CODEX_OAUTH_REF = "BEES_CODEX_OAUTH";
 const CODEX_ACCESS_REF = "BEES_CODEX_ACCESS_TOKEN";
 const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
+const CLAUDE_MODELS_REF = "BEES_CLAUDE_CODE_MODELS";
+const DEFAULT_CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"];
+const CLAUDE_REASONING = { efforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
+  id, name: `${id[0].toUpperCase()}${id.slice(1)}`
+})) };
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const OUTPUT_LIMIT = 2 * 1024 * 1024;
 const REQUIRED_TOOL_NAMES = new Set(["bees_propose_changes", "bees_submit_stage_result"]);
@@ -73,6 +78,22 @@ function credential(value) {
   } catch {
     return undefined;
   }
+}
+
+export function normalizeClaudeModels(value) {
+  if (!Array.isArray(value) || !value.length) throw new Error("Choose at least one Claude Code model");
+  if (value.some((model) => typeof model !== "string")) throw new Error("Claude Code model IDs must be strings");
+  const models = [...new Set(value.map((model) => String(model).trim()))];
+  if (models.some((model) => !model || model.length > 200)) throw new Error("Claude Code model IDs must be 1–200 characters");
+  if (models.length > 50) throw new Error("Claude Code supports up to 50 configured models");
+  return models;
+}
+
+async function configuredClaudeModels(ctx) {
+  const value = (await ctx.credentials.resolve(CLAUDE_MODELS_REF))?.value;
+  if (!value) return DEFAULT_CLAUDE_MODELS;
+  try { return normalizeClaudeModels(JSON.parse(value)); }
+  catch { return DEFAULT_CLAUDE_MODELS; }
 }
 
 async function refreshCodex(ctx) {
@@ -256,17 +277,15 @@ export function claudeChunks(result, tools) {
 class ClaudeCodeAdapter extends LlmAdapter {
   constructor(ctx) { super(); this.ctx = ctx; }
   providerInfo() { return { id: "claude-code", name: "Claude Code subscription" }; }
-  listModels() {
-    return Promise.resolve([
-      { provider: "claude-code", id: "default", name: "Claude Code (default)", inputModalities: ["text"] },
-      { provider: "claude-code", id: "sonnet", name: "Claude Sonnet", inputModalities: ["text"] },
-      { provider: "claude-code", id: "opus", name: "Claude Opus", inputModalities: ["text"] },
-      { provider: "claude-code", id: "haiku", name: "Claude Haiku", inputModalities: ["text"] }
-    ]);
+  async listModels() {
+    return (await configuredClaudeModels(this.ctx)).map((id) => ({
+      provider: "claude-code", id, name: id === "default" ? "Claude Code (default)" : `Claude ${id}`,
+      inputModalities: ["text"]
+    }));
   }
   resolveModel(provider, model) {
     return Promise.resolve({ provider, id: model, name: model === "default" ? "Claude Code (default)" : `Claude ${model}`,
-      inputModalities: ["text"], context: { contextWindow: 200_000 } });
+      inputModalities: ["text"], context: { contextWindow: 200_000 }, reasoning: CLAUDE_REASONING });
   }
   async *stream(options) {
     const command = (await this.ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
@@ -325,13 +344,14 @@ export async function apply(ctx) {
     refreshingCodex ??= refreshCodex(ctx).finally(() => { refreshingCodex = null; });
     return refreshingCodex;
   };
-  const updateClaude = async () => {
+  const updateClaude = async (reset = false) => {
     const enabled = Boolean((await ctx.credentials.resolve(CLAUDE_ENABLED_REF))?.value);
     const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
+    if (reset && claudeRegistration) { claudeRegistration(); claudeRegistration = null; }
     if (enabled && path && !claudeRegistration) claudeRegistration = ctx.llm.registerAdapter(["claude-code"], adapter);
     if ((!enabled || !path) && claudeRegistration) { claudeRegistration(); claudeRegistration = null; }
   };
-  const syncClaude = () => { claudeSync = claudeSync.then(updateClaude, updateClaude); return claudeSync; };
+  const syncClaude = (reset = false) => { claudeSync = claudeSync.then(() => updateClaude(reset), () => updateClaude(reset)); return claudeSync; };
   await ensureCodex().catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
   await syncClaude();
   ctx.on("credentials/updated", (ref) => {
@@ -349,9 +369,10 @@ export async function apply(ctx) {
         const codex = await ensureCodex().catch(() => false);
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value ?? "";
         const enabled = Boolean((await ctx.credentials.resolve(CLAUDE_ENABLED_REF))?.value);
+        const models = await configuredClaudeModels(ctx);
         let version = "";
         if (path) version = await claudeVersion(path).catch(() => "Unavailable");
-        return json(res, 200, { codex, claude: { configured: Boolean(path), enabled, path, version } });
+        return json(res, 200, { codex, claude: { configured: Boolean(path), enabled, path, version, models } });
       }
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       const input = await requestBody(req);
@@ -398,6 +419,12 @@ export async function apply(ctx) {
         } else await ctx.credentials.unset(CLAUDE_ENABLED_REF);
         await syncClaude();
         return json(res, 200, { enabled: Boolean(input.enabled) });
+      }
+      if (input.action === "claude_models") {
+        const models = normalizeClaudeModels(input.models);
+        await ctx.credentials.set(CLAUDE_MODELS_REF, JSON.stringify(models));
+        await syncClaude(true);
+        return json(res, 200, { models });
       }
       if (input.action === "claude_disconnect") {
         await ctx.credentials.unset(CLAUDE_ENABLED_REF);

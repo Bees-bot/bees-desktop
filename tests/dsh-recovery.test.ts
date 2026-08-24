@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentRuntime,
+  LATEST_SOL_MODEL,
   copyOutputs,
+  latestCodexModel,
+  latestSolModel,
   safeRecoverySeed,
   typedReferences
 } from "../dsh-runtime/plugin/lib/agent-runtime.js";
@@ -26,6 +29,16 @@ function insertRun(database: NodeDatabase, status = "running", workItemId: strin
 }
 
 describe("DSH-owned desktop and recovery", () => {
+  it("resolves the newest configured Sol release numerically", () => {
+    const models = [
+      { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },
+      { id: "gpt-6.0-terra" }, { id: "gpt-5.6-luna" }
+    ];
+    expect(latestSolModel(models)).toEqual({ id: "gpt-5.10-sol" });
+    expect(latestCodexModel(models, "terra")).toEqual({ id: "gpt-6.0-terra" });
+    expect(latestCodexModel(models, "luna")).toEqual({ id: "gpt-5.6-luna" });
+  });
+
   it("keeps Tauri as a one-command launcher and opens Bees directly", () => {
     const permission = readFileSync(new URL(
       "../src-tauri/permissions/bees-ui.toml", import.meta.url
@@ -345,6 +358,38 @@ describe("DSH-owned desktop and recovery", () => {
     expect(database.connection.prepare(
       "SELECT 1 FROM execution_links WHERE execution_id = 'retryable'"
     ).get()).toBeUndefined();
+    rmSync(runDirectory, { recursive: true });
+  });
+
+  it("freezes Latest Sol and its effort before opening the DSH session", async () => {
+    const database = new NodeDatabase();
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+    ).get() as { id: string };
+    const runDirectory = mkdtempSync(join(tmpdir(), "bees-sol-"));
+    const runtime = new AgentRuntime({
+      on: () => () => undefined,
+      llm: { listModels: async () => [
+        { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" }, { id: "gpt-6.0-terra" }
+      ] },
+      agents: { create: async (options: any) => {
+        expect(options.agentOptions).toEqual({
+          provider: "openai-codex", model: "gpt-5.10-sol", reasoningEffort: "high"
+        });
+        throw new Error("stop after selection");
+      } },
+      approval: { setPolicy: () => undefined },
+      sessionPersistence: { load: async () => ({ events: [] }) }
+    } as any, database.connection);
+    await expect(runtime.admit("bees-run", "latest-sol", {
+      idempotencyKey: "latest-sol-start", workspace: runDirectory, body: "Do the work",
+      initialData: {
+        version: 1, mode: "planning", executionId: "latest-sol", workItemId: null,
+        agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome",
+        model: `openai-codex/${LATEST_SOL_MODEL}`, reasoningEffort: "high",
+        instructions: "Plan", workspaceId: workspace.id, agentPresetId: "standard", grants: []
+      }
+    })).rejects.toThrow("stop after selection");
     rmSync(runDirectory, { recursive: true });
   });
 

@@ -117,6 +117,7 @@ function parentFor(database, itemId, processId, parentId) {
 function defaultAssignment(database, workspaceId, role = "worker") {
   return database.prepare(`
     SELECT id, preset_id AS presetId, name, description, instructions, model,
+           reasoning_effort AS reasoningEffort,
            system_role AS systemRole, capabilities_json AS capabilities,
            enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
     FROM agent_assignments WHERE workspace_id = ? AND system_role = ? LIMIT 1
@@ -131,6 +132,12 @@ function capabilities(value, label = "Capabilities") {
   return normalized;
 }
 
+function optionalReasoningEffort(value) {
+  const effort = String(value ?? "").trim();
+  if (effort.length > 100) throw new Error("Reasoning effort must be at most 100 characters");
+  return effort || null;
+}
+
 function agentCapabilities(agent) {
   try { return capabilities(JSON.parse(agent.capabilities || "[]")); }
   catch { return []; }
@@ -139,7 +146,8 @@ function agentCapabilities(agent) {
 function assignment(database, id, workspaceId) {
   return database.prepare(`
     SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
-           instructions, model, system_role AS systemRole, capabilities_json AS capabilities,
+           instructions, model, reasoning_effort AS reasoningEffort,
+           system_role AS systemRole, capabilities_json AS capabilities,
            enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
     FROM agent_assignments WHERE id = ? AND workspace_id = ?
   `).get(id, workspaceId);
@@ -247,6 +255,7 @@ function resolveStageAgent(database, { executionId, item, stageId, purpose, cand
     const agentConfig = JSON.stringify({
       id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,
       name: selected.name, instructions: selected.instructions, model: selected.model,
+      reasoningEffort: selected.reasoningEffort,
       capabilities: selected.capabilities, enabled: selected.enabled,
       maxConcurrency: selected.maxConcurrency, updatedAt: selected.updatedAt
     });
@@ -605,7 +614,7 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS agent_assignments (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       preset_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
-      instructions TEXT NOT NULL DEFAULT '', model TEXT,
+      instructions TEXT NOT NULL DEFAULT '', model TEXT, reasoning_effort TEXT,
       system_role TEXT CHECK (system_role IN ('worker', 'reviewer')),
       capabilities_json TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 1,
       max_concurrency INTEGER NOT NULL DEFAULT 0,
@@ -724,6 +733,7 @@ export function initializeProductDatabase(database) {
   const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
   if (!assignmentColumns.has("instructions")) database.exec("ALTER TABLE agent_assignments ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
   if (!assignmentColumns.has("model")) database.exec("ALTER TABLE agent_assignments ADD COLUMN model TEXT");
+  if (!assignmentColumns.has("reasoning_effort")) database.exec("ALTER TABLE agent_assignments ADD COLUMN reasoning_effort TEXT");
   if (!assignmentColumns.has("system_role")) database.exec("ALTER TABLE agent_assignments ADD COLUMN system_role TEXT");
   if (!assignmentColumns.has("capabilities_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'");
   if (!assignmentColumns.has("enabled")) database.exec("ALTER TABLE agent_assignments ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
@@ -862,6 +872,7 @@ export class BeesProduct {
         executionId, workItemId: item.id,
         agentId: assignment.id, agentName: assignment.name,
         purpose: item.title, model: assignment?.model || null,
+        reasoningEffort: assignment?.reasoningEffort || null,
         instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
         grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
@@ -953,7 +964,8 @@ export class BeesProduct {
     `).all();
     const assignments = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
-             instructions, model, system_role AS systemRole, capabilities_json AS capabilities,
+             instructions, model, reasoning_effort AS reasoningEffort,
+             system_role AS systemRole, capabilities_json AS capabilities,
              enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
       FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?)) ORDER BY name
     `).all(JSON.stringify(workspaceIds)).map((row) => ({
@@ -1478,11 +1490,12 @@ export class BeesProduct {
           throw new Error("Agent concurrency must be an integer from 0 to 1000");
         this.database.prepare(`
           INSERT INTO agent_assignments
-            (id, workspace_id, preset_id, name, description, instructions, model, system_role,
+            (id, workspace_id, preset_id, name, description, instructions, model, reasoning_effort, system_role,
              capabilities_json, enabled, max_concurrency, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
         `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
           String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+          optionalReasoningEffort(input.reasoningEffort),
           JSON.stringify(capabilities(input.capabilities)), input.enabled === false ? 0 : 1,
           maxConcurrency, at, at);
         return { id };
@@ -1492,7 +1505,8 @@ export class BeesProduct {
       const id = required(input.agentAssignmentId, "Agent");
       const assignment = this.database.prepare(`
         SELECT workspace_id AS workspaceId, name, system_role AS systemRole,
-               capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency
+               reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
+               enabled, max_concurrency AS maxConcurrency
         FROM agent_assignments WHERE id = ?
       `).get(id);
       if (!assignment) throw new Error("Agent not found");
@@ -1507,13 +1521,16 @@ export class BeesProduct {
       const enabled = Object.hasOwn(input, "enabled") ? input.enabled !== false : Boolean(assignment.enabled);
       const maxConcurrency = Number(Object.hasOwn(input, "maxConcurrency")
         ? input.maxConcurrency : assignment.maxConcurrency);
+      const reasoningEffort = Object.hasOwn(input, "reasoningEffort")
+        ? optionalReasoningEffort(input.reasoningEffort) : assignment.reasoningEffort;
       if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
         throw new Error("Agent concurrency must be an integer from 0 to 1000");
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
-          model = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?, updated_at = ? WHERE id = ?
+          model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
         String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+        reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency, at, id);
       return { id };
     }
@@ -1623,6 +1640,7 @@ export class BeesProduct {
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
+          reasoningEffort: optionalReasoningEffort(input.reasoningEffort),
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || "standard",
           grants: []
@@ -1652,6 +1670,7 @@ export class BeesProduct {
           version: 1, mode: "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
+          reasoningEffort: optionalReasoningEffort(input.reasoningEffort) || assignment?.reasoningEffort || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
           grants

@@ -50,4 +50,33 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("item.runtimeAttempt");
     expect(client).toContain("items.flatMap((item) => runsForAttempt(item, data))");
   });
+
+  it("selects automatic or pinned agent models with a separate reasoning effort", () => {
+    expect(client).toContain("function AgentModelSelect");
+    expect(client).toContain('api.llm.models({})');
+    expect(client).toContain('"System default (auto-updates)"');
+    expect(client).toContain('`System default — ${systemDefault.provider}/${systemDefault.model}');
+    expect(client).toContain('${channel.name} (auto-updates)`');
+    expect(client).toContain('"sol", "Sol"');
+    expect(client).toContain('"terra", "Terra"');
+    expect(client).toContain('"luna", "Luna"');
+    expect(client).toContain('"CLI default (auto-updates)"');
+    expect(client).toContain('"Model default (recommended)"');
+    expect(client).toContain('name: "reasoningEffort"');
+    expect(client).toContain('left.name.localeCompare(right.name, undefined, { sensitivity: "base" })');
+    expect(client).toContain('`Current: ${value} (unavailable)`');
+    expect(client).toContain('key: `provider:${group.id}` }, group.name');
+    expect(client).not.toContain('h("optgroup", { label: group.name');
+    expect(client.match(/h\(AgentModelSelect,/g)).toHaveLength(3);
+    expect(client).not.toContain('"Model route (optional provider/model)"');
+  });
+
+  it("shows and saves a required, visually separate system default", () => {
+    expect(client).toContain("function SystemDefaultSettings");
+    expect(client).toContain('className: "bees-box bees-system-default"');
+    expect(client).toContain('allowSystemDefault: false');
+    expect(client).toContain('required: !allowSystemDefault');
+    expect(client).toContain('request("/bees-api/system-default-model"');
+    expect(client).toContain("Choose another default before turning this connection off.");
+  });
 });

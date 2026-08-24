@@ -62,11 +62,11 @@ window.__ModuleLoader__.load({
       .bees-create{position:relative}.bees-create[open] summary{background:var(--dsw-alias-interactive-bg-hover)}.bees-create summary{list-style:none}.bees-menu{position:absolute;right:0;top:42px;z-index:5;min-width:190px;display:grid;gap:3px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-menu .bees-nav-link{padding:8px}.bees-search{display:flex;gap:8px;margin-bottom:16px}
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
       .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
-      .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
+      .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-system-default{border:2px solid #f2b84b;background:linear-gradient(135deg,#f2b84b18,transparent 65%)}.bees-system-default form{display:grid;grid-template-columns:minmax(260px,2fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.bees-system-default label{display:grid;gap:5px}.bees-system-default .bees-btn{margin-bottom:1px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
       .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabs{display:flex;gap:4px;margin:-5px -5px 14px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-audit{border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-audit>summary{cursor:pointer;list-style-position:inside}.bees-audit>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-audit>summary span{display:block}.bees-audit-detail{padding:0 12px 12px 27px}.bees-audit-detail pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-agent-form textarea{min-height:180px}
       .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
       .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
-      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
+      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
     `;
 
     async function request(path, options) {
@@ -1013,7 +1013,123 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AgentCreateForm({ data, workspaceId, act, onCancel, onCreated }) {
+    const CODEX_CHANNELS = [
+      ["__bees_latest_sol__", "sol", "Sol"],
+      ["__bees_latest_terra__", "terra", "Terra"],
+      ["__bees_latest_luna__", "luna", "Luna"]
+    ];
+
+    function latestCodexModel(models, family) {
+      const pattern = new RegExp(`^gpt-\\d+(?:\\.\\d+)*-${family}$`, "i");
+      return models.filter(({ id }) => pattern.test(id))
+        .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
+    }
+
+    function agentModelLabel(group, model) {
+      if (group.id === "claude-code") {
+        if (model.id === "default") return "CLI default (auto-updates)";
+        if (["sonnet", "opus", "haiku"].includes(model.id))
+          return `Latest ${model.id[0].toUpperCase()}${model.id.slice(1)} (auto-updates)`;
+      }
+      return model.name === model.id ? model.id : `${model.name} (${model.id})`;
+    }
+
+    function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true }) {
+      const [catalog, setCatalog] = useState({ groups: [], failures: [], loading: true, error: "" });
+      const [route, setRoute] = useState(value);
+      const [reasoningEffort, setReasoningEffort] = useState(effort);
+      useEffect(() => {
+        let mounted = true;
+        void ctx.get("connection").api.llm.models({}).then((response) => {
+          if (!response.result.ok) throw new Error(response.result.error.message);
+          if (mounted) setCatalog({ ...response.result.value, loading: false, error: "" });
+        }).catch((reason) => {
+          if (mounted) setCatalog({ groups: [], failures: [], loading: false,
+            error: reason instanceof Error ? reason.message : String(reason) });
+        });
+        return () => { mounted = false; };
+      }, [ctx]);
+      const groups = [...catalog.groups].sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+      const codex = groups.find(({ id }) => id === "openai-codex");
+      const channels = CODEX_CHANNELS.flatMap(([id, family, name]) => {
+        const model = latestCodexModel(codex?.models ?? [], family);
+        return model ? [{ id, name, model, route: `openai-codex/${id}` }] : [];
+      });
+      const routes = new Set(groups.flatMap((group) => group.models.map((model) => `${group.id}/${model.id}`)));
+      for (const channel of channels) routes.add(channel.route);
+      const preserveCurrent = value && (catalog.loading || catalog.error || !routes.has(value));
+      const selectedModel = channels.find((channel) => channel.route === route)?.model ?? groups.flatMap(({ id, models }) =>
+        models.map((model) => ({ ...model, route: `${id}/${model.id}` }))).find((model) => model.route === route);
+      const efforts = selectedModel?.reasoning?.efforts ?? [];
+      const effortIds = new Set(efforts.map(({ id }) => id));
+      const preserveEffort = reasoningEffort && !effortIds.has(reasoningEffort);
+      const defaultEffort = selectedModel?.reasoning?.defaultEffort;
+      const defaultEffortName = efforts.find(({ id }) => id === defaultEffort)?.name ?? defaultEffort;
+      const systemDefaultLabel = systemDefault?.provider && systemDefault?.model
+        ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}`
+        : "System default (auto-updates)";
+      return h(React.Fragment, null,
+        h("label", null, "Model",
+        h("select", { className: "bees-select", name: "model", value: route, required: !allowSystemDefault, onChange: (event) => {
+          setRoute(event.target.value); setReasoningEffort("");
+        } },
+          allowSystemDefault ? h("option", { value: "" }, catalog.loading ? `${systemDefaultLabel} (loading available models…)` : systemDefaultLabel)
+            : !route ? h("option", { value: "", disabled: true }, catalog.loading ? "Loading available models…" : "Choose a model") : null,
+          preserveCurrent ? h("option", { value }, catalog.loading ? `Current: ${value}`
+            : catalog.error ? `Current: ${value} (catalog unavailable)` : `Current: ${value} (unavailable)`) : null,
+          ...groups.flatMap((group) => [
+            h("option", { value: `__provider_${group.id}`, disabled: true, key: `provider:${group.id}` }, group.name),
+            ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
+              value: channel.route, key: `${group.id}:channel:${channel.id}`
+            }, `\u00a0\u00a0Latest ${channel.name} (auto-updates)`)) : []),
+            ...group.models.map((model) => h("option", { value: `${group.id}/${model.id}`, key: `${group.id}:${model.id}` },
+              `\u00a0\u00a0${agentModelLabel(group, model)}`))])),
+        catalog.error ? h("span", { className: "bees-muted", role: "status" }, `Could not load available models: ${catalog.error}`)
+          : catalog.failures.length ? h("span", { className: "bees-muted", role: "status" },
+            `Some providers could not load: ${catalog.failures.map(({ name }) => name).join(", ")}`) : null),
+        h("label", null, "Reasoning effort",
+          h("select", { className: "bees-select", name: "reasoningEffort", value: reasoningEffort,
+            disabled: !selectedModel?.reasoning && !reasoningEffort,
+            onChange: (event) => setReasoningEffort(event.target.value) },
+            h("option", { value: "" }, defaultEffortName ? `Model default (${defaultEffortName})` : "Model default (recommended)"),
+            preserveEffort ? h("option", { value: reasoningEffort }, `Current: ${reasoningEffort} (unavailable)`) : null,
+            ...efforts.map((level) => h("option", { value: level.id, key: level.id }, level.name))),
+          !route ? h("span", { className: "bees-muted" }, "Choose a model to override its reasoning effort.") : null));
+    }
+
+    function SystemDefaultSettings({ ctx, systemDefault, reload }) {
+      const [busy, setBusy] = useState(false);
+      const [message, setMessage] = useState("");
+      const route = systemDefault?.provider && systemDefault?.model
+        ? `${systemDefault.provider}/${systemDefault.model}` : "";
+      const save = async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const modelRoute = String(form.get("model") ?? "");
+        const separator = modelRoute.indexOf("/");
+        if (separator < 1 || separator === modelRoute.length - 1) return setMessage("Choose a model.");
+        setBusy(true); setMessage("");
+        try {
+          await request("/bees-api/system-default-model", { method: "POST", body: JSON.stringify({
+            provider: modelRoute.slice(0, separator), model: modelRoute.slice(separator + 1),
+            reasoningEffort: String(form.get("reasoningEffort") ?? "")
+          }) });
+          await reload();
+          setMessage("System default updated.");
+        } catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(false); }
+      };
+      return h("section", { className: "bees-box bees-system-default" },
+        h("h2", null, "System default"),
+        h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
+        h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, onSubmit: save },
+          h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false }),
+          h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
+        message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
+    }
+
+    function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
       const presets = data.presets.filter(({ broken }) => !broken);
       if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
       return h("form", { className: "bees-box bees-form bees-agent-form", onSubmit: async (event) => {
@@ -1022,7 +1138,8 @@ window.__ModuleLoader__.load({
           action: "add_agent_assignment", workspaceId,
           name: String(form.get("name") ?? ""), presetId: String(form.get("presetId") ?? ""),
           description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
-          model: String(form.get("model") ?? ""), capabilities: String(form.get("capabilities") ?? "").split(","),
+          model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
+          capabilities: String(form.get("capabilities") ?? "").split(","),
           enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
         });
         if (created?.id) onCreated(created.id);
@@ -1034,7 +1151,7 @@ window.__ModuleLoader__.load({
         h("label", null, "Agent preset (skills and tools)", h("select", { className: "bees-select", name: "presetId", required: true,
           defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
           ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
-        h("label", null, "Model route (optional provider/model)", h("input", { className: "bees-input", name: "model", placeholder: "Use the current default" })),
+        h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
         h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
         h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
         h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
@@ -1060,14 +1177,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AgentsPage({ data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
+    function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
       const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
       const [selectedId, setSelectedId] = useState("");
       const [selectedPoolId, setSelectedPoolId] = useState("");
       const selected = assignments.find(({ id }) => id === selectedId);
       const selectedPool = pools.find(({ id }) => id === selectedPoolId);
-      if (creating === "agent") return h(AgentCreateForm, { data, workspaceId, act,
+      if (creating === "agent") return h(AgentCreateForm, { ctx, data, workspaceId, act,
         onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
       if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
         onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); } });
@@ -1139,7 +1256,8 @@ window.__ModuleLoader__.load({
           action: "edit_agent_assignment", agentAssignmentId: selected.id,
           name: String(form.get("name") ?? selected.name), presetId: String(form.get("presetId") ?? selected.presetId),
           description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
-          model: String(form.get("model") ?? ""), capabilities: String(form.get("capabilities") ?? "").split(","),
+          model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
+          capabilities: String(form.get("capabilities") ?? "").split(","),
           enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
         });
         if (saved) setSelectedId("");
@@ -1148,7 +1266,8 @@ window.__ModuleLoader__.load({
         h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
         h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description })),
         h("label", null, "DSH preset", h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId }, ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
-        h("label", null, "Model route (provider/model); blank uses the current default", h("input", { className: "bees-input", name: "model", defaultValue: selected.model ?? "", placeholder: "Default model" })),
+        h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "",
+          systemDefault: data.systemDefaultModel }),
         h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
         h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
         h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
@@ -1157,7 +1276,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
       );
       return h("div", null, h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")),
-        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
+        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
       );
     }
 
@@ -1266,13 +1385,14 @@ window.__ModuleLoader__.load({
         h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
     }
 
-    function AiSettings({ ctx, modelSettings, preferences }) {
+    function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
       return h("div", { className: "bees-stack" },
-        h(SubscriptionSettings, { modelSettings, openExternal, Button }),
-        h(FreeAiSettings, { ctx, modelSettings, preferences, ask, confirmAction, openExternal, Button }),
-        h(LocalAiSettings, { modelSettings, preferences, ask, confirmAction, Button }),
-        h(ExternalLocalAiSettings, { modelSettings, ask, Button }),
-        h(CustomAiSettings, { ctx, modelSettings, preferences, ask, confirmAction, openExternal, Button }));
+        h(SystemDefaultSettings, { ctx, systemDefault, reload }),
+        h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }),
+        h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
+        h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
+        h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }),
+        h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }));
     }
 
     function AppearanceSettings({ ctx }) {
@@ -1424,7 +1544,7 @@ window.__ModuleLoader__.load({
       const workspace = data.workspaces.find(({ id }) => id === workspaceId);
       const team = data.teams.find(({ id }) => id === teamId);
       const organization = data.organizations.find(({ id }) => id === organizationId);
-      if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences });
+      if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload });
       if (route === "appearance") return h(AppearanceSettings, { ctx });
       if (route === "organizations") return h(OrganizationsSettings, { reload });
       if (route === "connections") return h(Empty, null, "No external tool connections are configured in this Bees profile.");
@@ -1619,7 +1739,7 @@ window.__ModuleLoader__.load({
           ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem })
           : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act })
           : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
-            : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
+            : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
               : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
                 : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess })
                   : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })

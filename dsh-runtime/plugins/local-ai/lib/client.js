@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
     const css = `
       .bees-local-model-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}
       .bees-local-model-table table{width:100%;min-width:680px;border-collapse:collapse}.bees-local-model-table th,.bees-local-model-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-local-model-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-local-model-table tbody tr:last-child td{border-bottom:0}.bees-local-model-table th:nth-last-child(-n+3),.bees-local-model-table td:nth-last-child(-n+3){width:1%;text-align:center;white-space:nowrap}
-      .bees-local-model-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-local-model-name{display:flex;align-items:center;gap:7px;font-weight:700}.bees-local-model-status{min-width:130px}.bees-local-model-progress{display:block;width:125px;height:5px;margin-top:5px;accent-color:#f2b84b}.bees-local-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-local-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-local-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-local-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-local-toggle input:checked:after{left:16px;background:#151515}.bees-local-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-local-delete{padding:5px 8px}
+      .bees-local-model-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-local-model-name{display:flex;align-items:center;gap:7px;font-weight:700}.bees-local-model-status{min-width:130px}.bees-local-model-progress{display:block;width:125px;height:5px;margin-top:5px;accent-color:#f2b84b}.bees-local-server-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}.bees-local-server-models .bees-badge{gap:4px;text-transform:none}.bees-local-server-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-local-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-local-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-local-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-local-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-local-toggle input:checked:after{left:16px;background:#151515}.bees-local-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-local-delete{padding:5px 8px}
     `;
 
     function usePreference(scope) {
@@ -68,7 +68,7 @@ window.__ModuleLoader__.load({
       const connection = await invokeLocal("local_model_connection");
       const config = settingValue(modelSettings);
       await modelSettings.set("providers", { ...config.providers, "local-openai": {
-        ...(config.providers?.["local-openai"] ?? {}), displayName: "Bees Local AI",
+        ...(config.providers?.["local-openai"] ?? {}), displayName: "Local AI",
         api: "openai-completions", baseURL: connection.baseUrl,
         models: [{ id: "active", name: model.name, contextWindow: connection.contextWindow,
           maxTokens: Math.min(4096, Math.floor(connection.contextWindow / 2)) }]
@@ -94,7 +94,7 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    function LocalModels({ modelSettings, preferences, ask, Button, confirmAction }) {
+    function LocalModels({ modelSettings, preferences, systemDefault, ask, Button, confirmAction }) {
       const config = usePreference(preferences);
       const models = useMemo(() => allModels(config), [config.localModels]);
       const [statuses, setStatuses] = useState({});
@@ -197,6 +197,8 @@ window.__ModuleLoader__.load({
                 : downloaded > 0 ? "Paused" : "Not downloaded";
             const downloadChecked = !cancelling && (complete || downloading);
             const runChecked = running || runPending;
+            const protectedRunning = runChecked && systemDefault?.provider === "local-openai";
+            const defaultGuard = "Choose another System default above before stopping or removing the running local model.";
             const otherBusy = Boolean(busy) && !busy.endsWith(`:${model.id}`);
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
@@ -212,60 +214,98 @@ window.__ModuleLoader__.load({
                   disabled: running || otherBusy,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : remove(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
-              h("td", null, h("label", { className: "bees-local-toggle" },
+              h("td", null, h("label", { className: "bees-local-toggle", title: protectedRunning ? defaultGuard : "" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "run",
                   "aria-label": `Run ${model.name}`, checked: runChecked,
-                  disabled: otherBusy || (Boolean(busy) && !runPending),
+                  disabled: protectedRunning || otherBusy || (Boolean(busy) && !runPending),
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
-              h("td", null, h(Button, { className: "danger bees-local-delete", title: `Delete ${model.name}`,
-                "aria-label": `Delete ${model.name}`, disabled: Boolean(busy) || (!downloaded && !complete && !config.localModels?.some(({ id }) => id === model.id)),
+              h("td", null, h(Button, { className: "danger bees-local-delete", title: protectedRunning ? defaultGuard : `Delete ${model.name}`,
+                "aria-label": `Delete ${model.name}`, disabled: protectedRunning || Boolean(busy) || (!downloaded && !complete && !config.localModels?.some(({ id }) => id === model.id)),
                 onClick: () => remove(model) }, config.localModels?.some(({ id }) => id === model.id) ? "Remove" : "Delete")));
           })))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 
-    function LocalAiSettings({ modelSettings, preferences, ask, confirmAction, Button }) {
+    function LocalAiSettings({ modelSettings, preferences, systemDefault, ask, confirmAction, Button }) {
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
         h("h2", { className: "bees-section-title" }, "Local AI"),
         h("p", { className: "bees-muted" }, "Bees downloads and starts GGUF models for you. Use the switches to keep a model downloaded or run it."),
-        h(LocalModels, { modelSettings, preferences, ask, Button, confirmAction }));
+        h(LocalModels, { modelSettings, preferences, systemDefault, ask, Button, confirmAction }));
     }
 
-    function ExternalLocalAiSettings({ modelSettings, ask, Button }) {
+    function ExternalLocalAiSettings({ modelSettings, preferences, systemDefault, ask, Button }) {
       const config = usePreference(modelSettings);
-      const local = config.providers?.["external-local-ai"] ?? {};
+      const ui = usePreference(preferences);
+      const active = config.providers?.["external-local-ai"];
+      const local = active ?? ui.externalLocalAiProfile ?? {};
+      const enabled = Boolean(active);
+      const protects = (model) => systemDefault?.provider === "external-local-ai" && (!model || systemDefault.model === model);
+      const defaultGuard = "Choose another System default above before removing or turning off this connection.";
       const [error, setError] = useState("");
+      const saveProfile = async (profile) => {
+        await preferences.set("externalLocalAiProfile", profile);
+        if (enabled) await modelSettings.set("providers", { ...config.providers, "external-local-ai": profile });
+      };
       const configure = async () => {
         try {
           const baseURL = await ask("Other local AI server URL", local.baseURL ?? "http://127.0.0.1:1234/v1");
           if (!baseURL) return;
           const url = new URL(baseURL);
           if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http:// or https:// URL");
-          const currentModel = local.models?.[0] ?? {};
-          const modelId = await ask("Model ID", currentModel.id ?? "active"); if (!modelId) return;
-          const modelName = await ask("Model name", currentModel.name ?? modelId); if (!modelName) return;
-          await modelSettings.set("providers", { ...config.providers, "external-local-ai": {
+          let models = local.models ?? [];
+          if (!models.length) {
+            const id = (await ask("Model ID", "active")).trim(); if (!id) return;
+            models = [{ id, name: id, contextWindow: 32768, maxTokens: 8192 }];
+          }
+          const profile = {
             ...local, displayName: "Another local AI server", api: local.api ?? "openai-completions", baseURL: url.toString().replace(/\/$/, ""),
-            models: [{ contextWindow: 32768, maxTokens: 8192, ...currentModel, id: modelId, name: modelName }]
-          } });
+            models
+          };
+          await preferences.set("externalLocalAiProfile", profile);
+          await modelSettings.set("providers", { ...config.providers, "external-local-ai": profile });
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
+      const addModel = async () => {
+        try {
+          const id = (await ask("Model ID", "")).trim(); if (!id) return;
+          if (local.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
+          await saveProfile({ ...local, models: [...(local.models ?? []), { id, name: id, contextWindow: 32768, maxTokens: 8192 }] });
+          setError("");
+        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      const removeModel = async (id) => {
+        if ((local.models?.length ?? 0) <= 1) return;
+        await saveProfile({ ...local, models: local.models.filter((entry) => entry.id !== id) });
+      };
       const toggle = async (enabled) => {
         const providers = { ...(config.providers ?? {}) };
-        if (enabled) await configure();
-        else { delete providers["external-local-ai"]; await modelSettings.set("providers", providers); }
+        if (enabled) {
+          if (!local.baseURL) return configure();
+          providers["external-local-ai"] = local;
+        } else {
+          await preferences.set("externalLocalAiProfile", local);
+          delete providers["external-local-ai"];
+        }
+        await modelSettings.set("providers", providers);
       };
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai-external" },
         h("h2", { className: "bees-section-title" }, "Another local AI server"),
         h("p", { className: "bees-muted" }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."),
         h("section", { className: "bees-box bees-subscription" }, h("div", null, h("h3", null, local.displayName ?? "OpenAI-compatible local server"),
-          h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.[0]?.id ?? "active"}` : "Not connected")),
+          h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}` : "Not connected"),
+          local.baseURL ? h("div", { className: "bees-local-server-models" },
+            ...(local.models ?? []).map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
+              h(Button, { title: protects(model.id) ? defaultGuard : `Remove ${model.id}`, "aria-label": `Remove ${model.id}`,
+                disabled: local.models.length <= 1 || protects(model.id),
+                onClick: () => removeModel(model.id) }, "×"))),
+            h(Button, { onClick: addModel }, "Add model")) : null),
           h("div", { className: "bees-subscription-actions" },
-            local.baseURL ? h("label", { className: "bees-local-toggle" }, h("input", { type: "checkbox", role: "switch", checked: true,
-              "aria-label": "Enable another local AI server", onChange: (event) => toggle(event.target.checked) }), h("span", null, "On")) : null,
-            h(Button, { className: local.baseURL ? "" : "primary", onClick: configure }, local.baseURL ? "Edit connection" : "Connect"))),
+            local.baseURL ? h("label", { className: "bees-local-toggle", title: enabled && protects() ? defaultGuard : "" }, h("input", {
+              type: "checkbox", role: "switch", checked: enabled, disabled: enabled && protects(),
+              "aria-label": "Enable another local AI server", onChange: (event) => toggle(event.target.checked) }), h("span", null, enabled ? "On" : "Off")) : null,
+            h(Button, { className: local.baseURL ? "" : "primary", onClick: configure }, local.baseURL ? "Edit endpoint" : "Connect"))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 

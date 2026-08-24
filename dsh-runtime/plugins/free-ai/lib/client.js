@@ -114,7 +114,7 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    function FreeAiSettings({ modelSettings, confirmAction, openExternal, Button }) {
+    function FreeAiSettings({ modelSettings, systemDefault, confirmAction, openExternal, Button }) {
       const config = usePreference(modelSettings);
       const [state, setState] = useState(null);
       const [adding, setAdding] = useState(false);
@@ -199,6 +199,9 @@ window.__ModuleLoader__.load({
             const runtimeProvider = state.providers.find((provider) => provider.platform === row.platform);
             const provider = providerInfo(row.platform, runtimeProvider);
             const healthy = row.status === "healthy";
+            const lastDefaultKey = systemDefault?.provider === "freellmapi" && row.enabled
+              && state.keys.filter((entry) => entry.enabled).length <= 1;
+            const defaultGuard = "Choose another System default above before disabling the last Free LLM provider.";
             return h("tr", { key: row.id, "data-provider-id": row.platform },
               h("td", null, h("strong", null, provider.name), h("div", { className: "bees-muted" }, provider.note)),
               h("td", null, h(Button, { disabled: Boolean(busy), onClick: () => visit(provider) }, "Provider website")),
@@ -206,11 +209,12 @@ window.__ModuleLoader__.load({
               h("td", null, h("div", { className: "bees-free-actions" },
                 h(Button, { disabled: Boolean(busy), onClick: () => test(row) }, busy === `test:${row.id}` ? "Testing…" : "Test"),
                 h("span", { className: `bees-status ${healthy ? "bees-running" : ""}`, title: row.lastHealthError ?? "" }, statusText(row)))),
-              h("td", null, h("label", { className: "bees-free-toggle" },
-                h("input", { type: "checkbox", role: "switch", checked: Boolean(row.enabled), disabled: Boolean(busy),
+              h("td", null, h("label", { className: "bees-free-toggle", title: lastDefaultKey ? defaultGuard : "" },
+                h("input", { type: "checkbox", role: "switch", checked: Boolean(row.enabled), disabled: Boolean(busy) || lastDefaultKey,
                   "aria-label": `Enable ${provider.name}`, onChange: (event) => toggle(row, event.target.checked) }),
                 h("span", null, row.enabled ? "On" : "Off"))),
-              h("td", null, h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => remove(row) }, "Remove")));
+              h("td", null, h(Button, { className: "danger", title: lastDefaultKey ? defaultGuard : "",
+                disabled: Boolean(busy) || lastDefaultKey, onClick: () => remove(row) }, "Remove")));
           })))) : state ? h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "No Free LLM provider has been added yet. Select Add provider to get started.")) :
           h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "Starting the embedded FreeLLMAPI router…")),
         notice ? h("div", { className: "bees-free-callout", role: "status" }, notice) : null,

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The local DSH plugin is authored as runtime JavaScript.
-import { claudeChunks, claudeProtocolMode, claudeResponseSchema } from "../dsh-runtime/plugins/subscriptions/lib/index.js";
+import { claudeChunks, claudeProtocolMode, claudeResponseSchema, normalizeClaudeModels } from "../dsh-runtime/plugins/subscriptions/lib/index.js";
 
 describe("Claude Code DSH tool bridge", () => {
+  it("accepts multiple unique model IDs and rejects an empty model list", () => {
+    expect(normalizeClaudeModels(["sonnet", " opus ", "sonnet"])).toEqual(["sonnet", "opus"]);
+    expect(() => normalizeClaudeModels([])).toThrow("Choose at least one Claude Code model");
+    expect(() => normalizeClaudeModels([{}])).toThrow("must be strings");
+  });
+
   it("requires and emits the automatic stage result as a DSH tool call", () => {
     const tools = [{
       name: "bees_submit_stage_result",

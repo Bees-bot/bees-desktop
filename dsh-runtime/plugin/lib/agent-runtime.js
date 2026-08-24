@@ -17,7 +17,15 @@ const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
-  "instructions", "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
+  "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
+  "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
+]);
+
+export const LATEST_SOL_MODEL = "__bees_latest_sol__";
+export const LATEST_LUNA_MODEL = "__bees_latest_luna__";
+export const LATEST_TERRA_MODEL = "__bees_latest_terra__";
+const CODEX_CHANNELS = new Map([
+  [LATEST_SOL_MODEL, "sol"], [LATEST_LUNA_MODEL, "luna"], [LATEST_TERRA_MODEL, "terra"]
 ]);
 
 export function validateRunData(value) {
@@ -33,6 +41,14 @@ export function validateRunData(value) {
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
+  if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
+      (typeof value.reasoningEffort !== "string" || !value.reasoningEffort || value.reasoningEffort.length > 100))
+    throw new Error("Run data has an invalid reasoning effort");
+  if (value.resolvedModel !== undefined && (typeof value.resolvedModel !== "string" || !value.resolvedModel.includes("/")))
+    throw new Error("Run data has an invalid resolved provider/model route");
+  if (value.resolvedReasoningEffort !== null && value.resolvedReasoningEffort !== undefined &&
+      (typeof value.resolvedReasoningEffort !== "string" || !value.resolvedReasoningEffort || value.resolvedReasoningEffort.length > 100))
+    throw new Error("Run data has an invalid resolved reasoning effort");
   if (!["instructions", "purpose"].every((key) => typeof value[key] === "string"))
     throw new Error("Run instructions are invalid");
   if (!Array.isArray(value.grants)) throw new Error("Run grants must be an array");
@@ -45,6 +61,42 @@ function modelRef(value) {
   if (separator <= 0 || separator === ref.length - 1)
     throw new Error("Run data has an invalid provider/model route");
   return { provider: ref.slice(0, separator), model: ref.slice(separator + 1).replace(/@.*$/, "") };
+}
+
+export function latestCodexModel(models, family) {
+  const pattern = new RegExp(`^gpt-\\d+(?:\\.\\d+)*-${family}$`, "i");
+  return models.filter(({ id }) => pattern.test(id))
+    .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
+}
+
+export function latestSolModel(models) {
+  return latestCodexModel(models, "sol");
+}
+
+async function resolveRunModel(ctx, data) {
+  let selection = data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
+  const channel = CODEX_CHANNELS.get(selection.model);
+  if (channel) {
+    const name = `${channel[0].toUpperCase()}${channel.slice(1)}`;
+    if (selection.provider !== "openai-codex") throw new Error(`Latest ${name} requires the Codex connection`);
+    const latest = latestCodexModel(await ctx.llm.listModels(selection.provider), channel);
+    if (!latest) throw new Error(`No ${name} model is available in Codex. Add one under Settings → AI.`);
+    selection = { provider: selection.provider, model: latest.id };
+  }
+  const effort = data.reasoningEffort ?? (data.model ? undefined : selection.reasoningEffort);
+  return {
+    resolvedModel: `${selection.provider}/${selection.model}`,
+    resolvedReasoningEffort: effort ?? null
+  };
+}
+
+function runAgentOptions(ctx, data) {
+  const selection = data.resolvedModel
+    ? modelRef(data.resolvedModel)
+    : data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
+  const effort = data.resolvedModel ? data.resolvedReasoningEffort : data.reasoningEffort;
+  if (effort !== null && effort !== undefined) selection.reasoningEffort = effort;
+  return selection;
 }
 
 function textBlocks(content) {
@@ -593,7 +645,7 @@ export class AgentRuntime {
         },
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
-      execute: async (args) => {
+      execute: async (args, exec) => {
         const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"];
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
@@ -604,11 +656,13 @@ export class AgentRuntime {
         if (prior) {
           if (prior.outcome !== result.outcome || prior.summary !== result.summary)
             throw new Error("This stage already submitted a different immutable result");
+          exec.concludeTurn();
           return prior;
         }
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
+        exec.concludeTurn();
         return result;
       }
     }));
@@ -674,9 +728,7 @@ export class AgentRuntime {
       sessionId = `${run.executionId}-r${Number(run.recoveryCount) + 1}-${randomUUID().slice(0, 8)}`;
     }
     const common = {
-      agentOptions: data.model
-        ? modelRef(data.model)
-        : this.ctx.agentDefaultModel.currentSelection(),
+      agentOptions: runAgentOptions(this.ctx, data),
       setup: (agentCtx) => this.setup(agentCtx, data, run?.executionId ?? sessionId, workspace)
     };
     let handle;
@@ -723,6 +775,8 @@ export class AgentRuntime {
       if (!initialData) throw new Error("A new work run requires immutable initialData");
       validateRunData(initialData);
       authorizeReferences(this.database, initialData.workspaceId, typedReferences(payload.body));
+      const storedData = { ...initialData, ...await resolveRunModel(this.ctx, initialData) };
+      validateRunData(storedData);
       const workspace = resolve(String(payload.workspace ?? process.env.BEES_DEFAULT_WORKSPACE ?? process.cwd()));
       await mkdir(workspace, { recursive: true });
       const uid = randomUUID();
@@ -733,7 +787,7 @@ export class AgentRuntime {
            instance_uid, run_directory, config_json, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
       `).run(executionId, initialData.workspaceId, initialData.workItemId || null, agentName,
-        executionId, uid, workspace, JSON.stringify(initialData), at, at);
+        executionId, uid, workspace, JSON.stringify(storedData), at, at);
       run = this.run(executionId);
       this.checkpoint(executionId, executionId, "ready", {
         inputReferences: typedReferences(payload.body),
@@ -777,7 +831,11 @@ export class AgentRuntime {
       .run(at, executionId);
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
-      submissionId
+      submissionId,
+      requestedModel: data.model,
+      requestedReasoningEffort: data.reasoningEffort ?? null,
+      resolvedModel: data.resolvedModel ?? null,
+      resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
     this.live.set(executionId, { handle, approvalAbort });

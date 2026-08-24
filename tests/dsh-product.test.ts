@@ -106,10 +106,11 @@ describe("Bees DSH product plugin", () => {
     await product.command({
       action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
       presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
-      model: "test/reviewer", capabilities: ["review"]
+      model: "test/reviewer", reasoningEffort: "high", capabilities: ["review"]
     });
     expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({
-      id: reviewer.id, name: "Bees reviewer", instructions: "Challenge every claim", model: "test/reviewer"
+      id: reviewer.id, name: "Bees reviewer", instructions: "Challenge every claim",
+      model: "test/reviewer", reasoningEffort: "high"
     }));
 
     const created = await product.command({
