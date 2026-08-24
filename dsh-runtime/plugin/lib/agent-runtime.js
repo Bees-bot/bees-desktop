@@ -416,6 +416,7 @@ export class AgentRuntime {
       const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
       const pending = this.pendingInteraction(executionId);
       if (pending?.kind === "question" && pending.callId === callId) {
+        const answered = !event.data.error;
         const at = new Date().toISOString();
         this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
           .run(at, executionId);
@@ -426,9 +427,9 @@ export class AgentRuntime {
         `).run(at, executionId);
         this.checkpoint(executionId, sessionId, "input_received", {
           pendingInteraction: null,
-          idempotencyKey: `question-answered:${sessionId}:${callId}`
+          idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
-        this.audit("question-answered", executionId, sessionId, { callId });
+        this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
       }
       const output = {
         sessionId,

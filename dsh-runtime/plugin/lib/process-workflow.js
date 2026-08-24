@@ -1,5 +1,6 @@
 import {
-  CancellationScope, condition, defineQuery, defineSignal, isCancellation, proxyActivities, setHandler
+  CancellationScope, condition, defineQuery, defineSignal, isCancellation, patched,
+  proxyActivities, setHandler, sleep
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
@@ -11,8 +12,14 @@ const { projectWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
   retry: { maximumAttempts: 5 }
 });
-const { runDshStage } = proxyActivities({
+const legacyDshActivities = proxyActivities({
   startToCloseTimeout: "24 hours",
+  heartbeatTimeout: "30 seconds",
+  retry: { maximumAttempts: 3 }
+});
+const durableDshActivities = proxyActivities({
+  // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
+  startToCloseTimeout: "36500 days",
   heartbeatTimeout: "30 seconds",
   retry: { maximumAttempts: 3 }
 });
@@ -33,6 +40,7 @@ export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
+  let durableHumanWaits = patched("bees-durable-human-waits-v1");
   let candidateExecutionId = null;
   let feedback = "";
   const state = {
@@ -61,6 +69,8 @@ export async function processWorkflow(input) {
     await project("failed", error);
     await condition(() => retryRequested);
     retryRequested = false;
+    if (!durableHumanWaits && patched(`bees-durable-human-waits-retry-${state.attempt}`))
+      durableHumanWaits = true;
     state.attempt += 1;
     state.error = null;
   };
@@ -92,7 +102,7 @@ export async function processWorkflow(input) {
 
       let result;
       try {
-        result = await runDshStage({
+        result = await (durableHumanWaits ? durableDshActivities : legacyDshActivities).runDshStage({
           ...state,
           purpose,
           stageName: stage.name,
@@ -101,10 +111,21 @@ export async function processWorkflow(input) {
           feedback
         });
       } catch (error) {
-        await waitForRetry(failureMessage(error));
+        const message = failureMessage(error);
+        if (durableHumanWaits && message === "Stopped by user") {
+          await project("cancelled", message);
+          return state;
+        }
+        await waitForRetry(message);
         continue;
       }
 
+      if (result.outcome === "waiting") {
+        await project("waiting", result.summary || "Waiting for agent capacity");
+        await sleep("15 seconds");
+        state.error = null;
+        continue;
+      }
       if (purpose === "worker" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   PROCESS_TASK_QUEUE, ProcessRuntime, processWorkflowId
@@ -50,6 +51,17 @@ function insertGoal(state: ReturnType<typeof harness>, id = "goal") {
 }
 
 describe("Temporal process projection", () => {
+  it("keeps human waits open and treats user stops as cancellation", () => {
+    const workflow = readFileSync(new URL(
+      "../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url
+    ), "utf8");
+    expect(workflow).toContain('startToCloseTimeout: "36500 days"');
+    expect(workflow).toContain('patched("bees-durable-human-waits-v1")');
+    expect(workflow).toContain("durableHumanWaits ? durableDshActivities : legacyDshActivities");
+    expect(workflow).toContain('message === "Stopped by user"');
+    expect(workflow).toContain('project("cancelled", message)');
+  });
+
   it("keeps manual boards movable and rejects a stage from another process", () => {
     const state = harness();
     insertManual(state);

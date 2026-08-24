@@ -9,6 +9,9 @@ export class BeesProduct {
   search(query: string, workspaceId: string): any[];
   audit(): any[];
   runHistory(executionId: string): Promise<any>;
+  runFile(executionId: string, filePath: string): {
+    name: string; path: string; format: "markdown" | "text"; content: string;
+  };
   storeProposal(input: Record<string, any>): any;
   command(input: Record<string, any>): Promise<any>;
 }

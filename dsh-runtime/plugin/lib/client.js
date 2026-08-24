@@ -5,22 +5,26 @@ window.__ModuleLoader__.load({
     const exports = module.exports;
     const React = require("react");
     const h = React.createElement;
-    const { useEffect, useRef, useState } = React;
+    const { useEffect, useMemo, useRef, useState } = React;
+    const { MarkdownText } = require("@deepseek-ai/dsh-client-ui-primitives");
+    const { PendingQuestion } = require("@deepseek-ai/dsh-client-ui-user-questions");
     const { LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai");
     const { FreeAiController, FreeAiSettings } = require("@bees/dsh-free-ai");
     const { CustomAiSettings } = require("@bees/dsh-custom-ai");
     const { SubscriptionSettings } = require("@bees/dsh-subscriptions");
 
     const NAVIGATION = [
-      { id: "home", label: "Home", icon: "⌂", defaultChild: "home", children: [] },
+      { id: "home", label: "Home", icon: "⌂", defaultChild: "home", children: [
+        ["guide", "How Bees works"]
+      ] },
       { id: "work", label: "Work", icon: "✓", defaultChild: "all-work", children: [
-        ["all-work", "All work"], ["goals", "Goals"], ["waiting", "Waiting on me"], ["completed", "Completed"]
+        ["all-work", "All work"], ["goals", "Goals"], ["waiting", "Needs you"], ["completed", "Completed"]
       ] },
       { id: "processes", label: "Processes", icon: "◇", defaultChild: "all-processes", children: [
         ["all-processes", "All processes"], ["templates", "Templates"]
       ] },
       { id: "agents", label: "Agents", icon: "◎", defaultChild: "all-agents", children: [
-        ["all-agents", "All agents"], ["assignments", "Assignments"], ["skills", "Skills"]
+        ["all-agents", "All agents"], ["pools", "Pools"], ["skills", "Skills & tools"]
       ] },
       { id: "files", label: "Files & Folders", icon: "$", defaultChild: "locations", children: [
         ["locations", "Locations"], ["mappings", "My mappings"], ["references", "References"]
@@ -58,9 +62,11 @@ window.__ModuleLoader__.load({
       .bees-create{position:relative}.bees-create[open] summary{background:var(--dsw-alias-interactive-bg-hover)}.bees-create summary{list-style:none}.bees-menu{position:absolute;right:0;top:42px;z-index:5;min-width:190px;display:grid;gap:3px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-menu .bees-nav-link{padding:8px}.bees-search{display:flex;gap:8px;margin-bottom:16px}
       .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
       .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
-      .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}
+      .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
       .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr);gap:12px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-agent-form textarea{min-height:180px}
-      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}.bees-cockpit-detail{grid-template-columns:1fr}}
+      .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+      .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
+      @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form{display:grid}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
     `;
 
     async function request(path, options) {
@@ -165,6 +171,18 @@ window.__ModuleLoader__.load({
       return snapshot.value ?? { pins: [], lastScope: "" };
     }
 
+    function useSnapshot(source, fallback = null) {
+      const [observed, setObserved] = useState(() => ({ source, snapshot: source?.getSnapshot() ?? fallback }));
+      const snapshot = observed.source === source ? observed.snapshot : source?.getSnapshot() ?? fallback;
+      useEffect(() => {
+        if (!source) { setObserved({ source, snapshot: fallback }); return undefined; }
+        const update = () => setObserved({ source, snapshot: source.getSnapshot() });
+        update();
+        return source.subscribe(update);
+      }, [source]);
+      return snapshot;
+    }
+
     function sectionFor(child) {
       return NAVIGATION.find((section) => section.id === child || section.children.some(([id]) => id === child)) ?? NAVIGATION[0];
     }
@@ -204,8 +222,9 @@ window.__ModuleLoader__.load({
       let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run" && !item.archivedAt);
       if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
       if (route === "waiting") rows = rows.filter((item) =>
-        item.runtimePhase === "waiting" || data.runs.some((run) =>
-          run.workItemId === item.id && run.status === "waiting_for_approval"));
+        ["waiting", "failed"].includes(item.runtimePhase) || data.runs.some((run) =>
+          run.workItemId === item.id && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status)));
+      if (route === "waiting") return rows;
       return rows.filter(({ completed }) => route === "completed" ? completed : !completed);
     }
 
@@ -233,12 +252,41 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkItemDetails({ data, item, teamId, act }) {
+    function GuidePage() {
+      return h("div", { className: "bees-stack" },
+        h("div", { className: "bees-callout" }, h("h3", null, "Bees in one sentence"),
+          h("div", null, "Tell Bees the outcome, choose the repeatable path, and let agents move the work through it.")),
+        h("div", { className: "bees-grid bees-help-grid" },
+          h("section", { className: "bees-box" }, h("h3", null, "Goal = the outcome"),
+            h("p", null, "Use a goal when you care about the result but do not want to plan every task."),
+            h("p", { className: "bees-muted" }, "Example: “Launch the new website.” Bees may create or coordinate several work items to reach it.")),
+          h("section", { className: "bees-box" }, h("h3", null, "Work item = one piece of work"),
+            h("p", null, "Use a work item for one concrete deliverable that follows a process."),
+            h("p", { className: "bees-muted" }, "Example: “Write the launch announcement.” It moves through Draft → Review → Done.")),
+          h("section", { className: "bees-box" }, h("h3", null, "Process = the path"),
+            h("p", null, "A process is a live sequence of stages that routes real work to agents."),
+            h("p", { className: "bees-muted" }, "Create one when work should repeatedly follow the same handoffs.")),
+          h("section", { className: "bees-box" }, h("h3", null, "Template = a saved blueprint"),
+            h("p", null, "A template remembers a process design but runs nothing."),
+            h("p", { className: "bees-muted" }, "Create one directly under Processes → Templates, or save an existing process as a template.")),
+          h("section", { className: "bees-box" }, h("h3", null, "Agent pool = interchangeable agents"),
+            h("p", null, "Use a pool when several agents can handle the same stage and Bees may choose any available match."),
+            h("p", { className: "bees-muted" }, "Use one named agent when context, ownership, or continuity matters.")),
+          h("section", { className: "bees-box" }, h("h3", null, "Needs you = blocked work"),
+            h("p", null, "This queue collects questions, approvals, failures, and other work an agent cannot continue alone."),
+            h("p", { className: "bees-muted" }, "It is not a stage and you do not assign an agent to it. Assign agents on a process stage or override one on the work item."))
+        )
+      );
+    }
+
+    function WorkItemDetails({ data, item, teamId, act, onArchived }) {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
       const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
       const assignment = assignments.find(({ id }) => id === item.agentAssignmentId);
-      const defaultAgent = assignments.find(({ systemRole }) => systemRole === "worker") ?? assignments[0];
+      const routeAgent = assignments.find(({ id }) => id === stage?.routeTargetId);
+      const routePool = data.pools.find(({ id }) => id === stage?.routeTargetId);
+      const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
       const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
       const [selectedRun, setSelectedRun] = useState("");
       const [history, setHistory] = useState(null);
@@ -258,9 +306,11 @@ window.__ModuleLoader__.load({
         const title = await ask("Work title", item.title); if (!title) return;
         const description = await ask("Description", item.description) ?? item.description;
         const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? "";
-        const agentName = await ask(`Agent assignment (required):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? defaultAgent?.name ?? "");
-        const nextAgent = assignments.find(({ name }) => name === agentName); if (!nextAgent) return;
-        await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: nextAgent.id });
+        const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
+        if (agentName === null) return;
+        const nextAgent = assignments.find(({ name }) => name === agentName);
+        if (agentName && !nextAgent) return;
+        await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: nextAgent?.id ?? null });
       };
       const addFile = async () => {
         const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
@@ -273,9 +323,11 @@ window.__ModuleLoader__.load({
       const addSubitem = async () => {
         const title = await ask("Sub-item title", ""); if (!title) return;
         const description = await ask("What does success look like?", "") ?? "";
-        const agentName = await ask(`Agent assignment (required):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? defaultAgent?.name ?? "");
-        const childAgent = assignments.find(({ name }) => name === agentName); if (!childAgent) return;
-        await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description, agentAssignmentId: childAgent.id });
+        const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
+        if (agentName === null) return;
+        const childAgent = assignments.find(({ name }) => name === agentName);
+        if (agentName && !childAgent) return;
+        await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description, agentAssignmentId: childAgent?.id ?? null });
       };
       const publish = async () => {
         const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
@@ -286,17 +338,37 @@ window.__ModuleLoader__.load({
       };
       const runAudit = new Set(itemRuns.map(({ id }) => id));
       const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
+      const assignAgent = (agentAssignmentId) => act({
+        action: "edit_item", itemId: item.id, title: item.title, description: item.description,
+        owner: item.owner, priority: item.priority, parentId: item.parentId,
+        agentAssignmentId: agentAssignmentId || null
+      });
+      const archive = async () => {
+        if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
+        if (await act({ action: "archive_item", itemId: item.id })) onArchived?.();
+      };
       return h("div", { className: "bees-cockpit-detail" },
         h("section", { className: "bees-box" }, h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
           h("h2", null, item.title), item.description ? h("p", null, item.description) : h("p", { className: "bees-muted" }, "No description"),
-          item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError) : null,
-          h("p", { className: "bees-muted" }, `Agent: ${assignment?.name ?? defaultAgent?.name ?? "Unavailable"}${assignment?.model ? ` · ${assignment.model}` : " · default model"}`),
+          item.runtimeError ? h("div", { className: "bees-callout" },
+            h("h3", null, item.runtimePhase === "failed" ? "This needs your attention" : "Waiting"),
+            h("div", null, item.runtimeError)) : null,
+          h("p", { className: "bees-muted" }, assignment
+            ? `Worker override: ${assignment.name}${assignment.model ? ` · ${assignment.model}` : " · default model"}`
+            : `Stage route: ${routeLabel}`),
+          stage?.driver !== "terminal" ? h("label", { className: "bees-form" }, "Agent for this item",
+            h("select", { className: "bees-select", value: item.agentAssignmentId ?? "",
+              "aria-label": "Agent for this work item", onChange: (event) => void assignAgent(event.target.value) },
+              h("option", { value: "" }, `Use stage route (${routeLabel})`),
+              ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled },
+                `${agent.name}${agent.enabled ? "" : " (unavailable)"}`)))) : null,
           h("div", { className: "bees-detail-actions" },
             h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"),
             ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
             item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
             item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
-            ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel") : null,
+            ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
+            h(Button, { className: "danger", onClick: archive }, "Archive"),
             run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)),
         h("section", { className: "bees-box" }, h("h3", null, "Runs"),
           itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
@@ -308,8 +380,27 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkItemCockpit({ data, rootId, teamId, act, onBack }) {
+    function descendantSessions(sessionIds, summaries) {
+      const descendants = [];
+      const byParent = new Map();
+      for (const summary of Object.values(summaries)) if (summary.origin === "subagent" && summary.parentId) {
+        const children = byParent.get(summary.parentId) ?? [];
+        children.push(summary); byParent.set(summary.parentId, children);
+      }
+      const seen = new Set();
+      const visit = (parentId, depth) => {
+        for (const summary of byParent.get(parentId) ?? []) {
+          if (seen.has(summary.id)) continue;
+          seen.add(summary.id); descendants.push({ summary, depth }); visit(summary.id, depth + 1);
+        }
+      };
+      for (const sessionId of sessionIds) visit(sessionId, 0);
+      return descendants;
+    }
+
+    function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
       const root = data.items.find(({ id }) => id === rootId);
+      const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
       const [selectedId, setSelectedId] = useState(rootId);
       useEffect(() => setSelectedId(rootId), [rootId]);
       if (!root) return h(Empty, null, "Work item not found");
@@ -326,6 +417,17 @@ window.__ModuleLoader__.load({
       const selected = items.find(({ id }) => id === selectedId) ?? root;
       const latest = new Map();
       for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
+      const subagents = items.flatMap((item) => {
+        const sessionIds = [...new Set(data.runs.filter(({ workItemId }) => workItemId === item.id)
+          .flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
+        return descendantSessions(sessionIds, sessions.byId).map(({ summary, depth }) => ({ summary, depth, item }));
+      });
+      const terminalStage = stages.find(({ isTerminal }) => isTerminal) ?? stages.at(-1);
+      const workStage = stages.find(({ name, isTerminal }) => !isTerminal && /^work$/i.test(name));
+      const waitingStage = stages.find(({ name }) => /^(waiting|blocked)$/i.test(name));
+      const subagentStageId = ({ summary, item }) => !summary.running
+        ? terminalStage?.id
+        : summary.pendingInteraction ? waitingStage?.id ?? item.stageId : workStage?.id ?? item.stageId;
       const lineage = (item) => {
         const names = []; let current = item;
         while (current?.parentId && visibleIds.has(current.parentId)) {
@@ -334,48 +436,361 @@ window.__ModuleLoader__.load({
         }
         return names.join(" → ");
       };
-      const completed = items.filter(({ completed }) => completed).length;
+      const completed = items.filter(({ completed }) => completed).length + subagents.filter(({ summary }) => !summary.running).length;
+      const total = items.length + subagents.length;
       return h("div", null,
         h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
-          h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${items.length} work items complete`))),
+          h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`))),
         h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
           const rows = items.filter(({ stageId }) => stageId === stage.id);
+          const childRows = subagents.filter((child) => subagentStageId(child) === stage.id);
           return h("section", { className: "bees-column", key: stage.id },
-            h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
-            h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
+            h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length + childRows.length)),
+            h("div", { className: "bees-cards" }, ...(rows.length || childRows.length ? [...rows.map((item) => {
               const run = latest.get(item.id); const parentPath = lineage(item);
+              const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
               return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
                 h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Sub-item"),
-                h("div", { className: "bees-muted" }, [item.runtimePhase, data.assignments.find(({ id }) => id === item.agentAssignmentId)?.name, run?.status].filter(Boolean).join(" · ")));
-            }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
+                h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
+            }), ...childRows.map(({ summary, depth, item }) => {
+              const label = summary.projectionValues?.subagent?.label ?? summary.displayTitle;
+              const status = summary.pendingInteraction ? "waiting" : summary.running ? "running" : "done";
+              return h("article", { className: "bees-hierarchy-card bees-subagent-card", key: summary.id },
+                h("h3", null, label),
+                h("div", { className: "bees-lineage bees-muted" }, `${item.title} → ${depth ? "Nested subagent" : "Subagent"}`),
+                h("div", { className: "bees-muted" }, status));
+            })] : [h(Empty, { key: "empty" }, "No work in this stage")])));
         })),
-        h(WorkItemDetails, { data, item: selected, teamId, act })
+        h(WorkItemDetails, { data, item: selected, teamId, act, onArchived: onBack })
       );
     }
 
-    function WorkPage({ data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, act }) {
-      if (workItemId) return h(WorkItemCockpit, { data, rootId: workItemId, teamId, act, onBack: () => setWorkItemId("") });
-      const rows = workItemsFor(data, route, workspaceIds);
-      const createGoal = async () => {
-        const title = await ask("Goal", ""); if (!title) return;
-        const description = await ask("What does success look like?", "") ?? "";
-        const created = await act({ action: "create_goal", workspaceId, title, description });
-        if (created?.id) setWorkItemId(created.id);
+    function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated }) {
+      const processes = data.processes.filter((process) => process.workspaceId === workspaceId && process.kind === "standard");
+      const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
+      const goal = kind === "goal";
+      if (!workspaceId) return h("div", { className: "bees-stack" },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
+        h(Empty, null, "Choose one workspace before creating work."));
+      if (!goal && !processes.length) return h("div", { className: "bees-stack" },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
+        h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
+      return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        const command = goal ? {
+          action: "create_goal", workspaceId, title: String(form.get("title") ?? ""),
+          description: String(form.get("description") ?? ""), priority: String(form.get("priority") ?? "normal")
+        } : {
+          action: "create_item", processId: String(form.get("processId") ?? ""),
+          title: String(form.get("title") ?? ""), description: String(form.get("description") ?? ""),
+          priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null
+        };
+        const created = await act(command); if (created?.id) onCreated(created.id);
+      } },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"),
+          h("div", null, h("h2", null, goal ? "New goal" : "New work"),
+            h("div", { className: "bees-muted" }, goal
+              ? "Describe the outcome. Bees will plan and execute the work needed to reach it."
+              : "Create the whole work item here, then Bees starts it in the process's first stage."))),
+        !goal ? h("label", null, "Process", h("select", { className: "bees-select", name: "processId", required: true,
+          defaultValue: processes.some(({ id }) => id === defaultProcessId) ? defaultProcessId : processes[0]?.id },
+          ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name)))) : null,
+        h("label", null, goal ? "Goal" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
+          placeholder: goal ? "Launch the product successfully" : "Draft the launch announcement" })),
+        h("label", null, "What does success look like?", h("textarea", { className: "bees-textarea", name: "description",
+          placeholder: "Include the result, constraints, and evidence Bees should produce." })),
+        h("div", { className: "bees-form-row" },
+          h("label", null, "Priority", h("select", { className: "bees-select", name: "priority", defaultValue: "normal" },
+            h("option", { value: "low" }, "Low"), h("option", { value: "normal" }, "Normal"), h("option", { value: "high" }, "High"))),
+          !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", defaultValue: "" },
+            h("option", { value: "" }, "Use each stage's assigned agent"),
+            ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled }, agent.name)))) : null),
+        h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, goal ? "Create goal" : "Create work"),
+          h(Button, { onClick: onCancel }, "Cancel"))
+      );
+    }
+
+    function displayOption(label) {
+      const text = String(label);
+      const recommended = /\s*\(recommended\)\s*$/i.test(text);
+      return { label: text.replace(/\s*\(recommended\)\s*$/i, ""), recommended };
+    }
+
+    function FilePreview({ target }) {
+      const [file, setFile] = useState(null);
+      const [error, setError] = useState("");
+      useEffect(() => {
+        let current = true;
+        setFile(null); setError("");
+        const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
+        request(`/bees-api/run-file?${query}`).then((value) => { if (current) setFile(value); })
+          .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)); });
+        return () => { current = false; };
+      }, [target.executionId, target.path]);
+      return h("section", { className: "bees-file-preview", "aria-label": "File contents" },
+        h("div", { className: "bees-file-preview-head" }, h("strong", null, file?.path ?? target.path)),
+        error ? h("div", { className: "bees-error", role: "alert" }, error)
+          : !file ? h("div", { className: "bees-loading" }, "Opening file…")
+            : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content)
+      );
+    }
+
+    function QuestionPanel({ wait, onAnswered }) {
+      const pending = useMemo(() => new PendingQuestion(wait), [wait]);
+      const questions = pending.questions ?? [];
+      const [index, setIndex] = useState(0);
+      const [drafts, setDrafts] = useState(() => questions.map(() => ({ selected: [], custom: "", skipped: false })));
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState("");
+      const question = questions[index];
+      if (!question) return h(Empty, null, "The agent sent an empty question request.");
+      const draft = drafts[index];
+      const setDraft = (change) => setDrafts((current) => current.map((value, itemIndex) => itemIndex === index ? change(value) : value));
+      const choose = (label) => setDraft((current) => ({
+        ...current,
+        selected: question.multiSelect === true
+          ? current.selected.includes(label) ? current.selected.filter((value) => value !== label) : [...current.selected, label]
+          : [label],
+        custom: question.multiSelect === true ? current.custom : "",
+        skipped: false
+      }));
+      const submit = async (nextDrafts) => {
+        setBusy(true); setError("");
+        try {
+          await pending.answer({ answers: questions.map((item, itemIndex) => {
+            const answer = nextDrafts[itemIndex];
+            return { id: item.id, selected: answer.selected, ...(answer.custom.trim() ? { custom: answer.custom.trim() } : {}) };
+          }) });
+          onAnswered(wait.key);
+        } catch (reason) { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); }
       };
+      const continueFlow = (nextDrafts = drafts) => {
+        const answer = nextDrafts[index];
+        if (!answer.skipped && !answer.selected.length && !answer.custom.trim()) {
+          setError("Choose an option or enter an answer."); return;
+        }
+        setError("");
+        if (index < questions.length - 1) setIndex((current) => current + 1);
+        else void submit(nextDrafts);
+      };
+      const skip = () => {
+        const next = drafts.map((value, itemIndex) => itemIndex === index
+          ? { selected: [], custom: "", skipped: true } : value);
+        setDrafts(next); continueFlow(next);
+      };
+      const custom = (event) => {
+        const value = event.target.value;
+        setDraft((current) => ({ ...current, custom: value, selected: question.multiSelect === true ? current.selected : [], skipped: false }));
+      };
+      return h(React.Fragment, null,
+        h("div", null,
+          h("div", { className: "bees-muted" }, [question.header, questions.length > 1 ? `Question ${index + 1} of ${questions.length}` : ""].filter(Boolean).join(" · ")),
+          h("h3", { className: "bees-section-title" }, question.question)),
+        question.detail ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: question.detail })) : null,
+        h("div", { className: "bees-question-options", role: question.multiSelect === true ? "group" : "radiogroup" },
+          ...(question.options ?? []).map((option, optionIndex) => {
+            const selected = draft.selected.includes(option.label);
+            const shown = displayOption(option.label);
+            return h("button", {
+              type: "button", key: `${option.label}:${optionIndex}`, disabled: busy,
+              className: `bees-choice ${selected ? "selected" : ""}`,
+              role: question.multiSelect === true ? "checkbox" : "radio", "aria-checked": selected,
+              onClick: () => choose(option.label)
+            }, h("span", { className: "bees-choice-mark", "aria-hidden": "true" }, question.multiSelect === true ? selected ? "✓" : "" : optionIndex + 1),
+              h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
+                option.description ? h("span", { className: "bees-muted" }, option.description) : null));
+          }),
+          (question.options ?? []).length ? h("input", {
+            className: "bees-input", type: "text", value: draft.custom, disabled: busy,
+            placeholder: question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer",
+            onChange: custom, onKeyDown: (event) => {
+              if (event.key === "Enter" && !event.nativeEvent?.isComposing) { event.preventDefault(); continueFlow(); }
+            }
+          }) : h("textarea", {
+            className: "bees-textarea", value: draft.custom, disabled: busy, autoFocus: true,
+            placeholder: "Type your answer", onChange: custom,
+            onKeyDown: (event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); continueFlow(); }
+            }
+          })),
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+        h("div", { className: "bees-answer-actions" },
+          index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
+          h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
+          h(Button, { className: "primary", disabled: busy, onClick: () => continueFlow() }, busy ? "Sending…" : index < questions.length - 1 ? "Next" : "Send answer"))
+      );
+    }
+
+    function ApprovalPanel({ wait, onAnswered }) {
+      const [busy, setBusy] = useState("");
+      const [error, setError] = useState("");
+      const answer = async (outcome) => {
+        setBusy(outcome); setError("");
+        try {
+          const receipt = await wait.respond({ ok: true, value: {
+            sessionId: wait.sessionId, approvalId: wait.payload.approvalId, outcome
+          } });
+          if (!receipt.accepted) throw new Error(`approval response rejected: ${receipt.reason}`);
+          onAnswered(wait.key);
+        } catch (reason) { setBusy(""); setError(reason instanceof Error ? reason.message : String(reason)); }
+      };
+      return h(React.Fragment, null,
+        h("div", null, h("div", { className: "bees-muted" }, wait.payload.toolName || "Agent action"),
+          h("h3", { className: "bees-section-title" }, "Approve this action?")),
+        wait.payload.reason ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: wait.payload.reason })) : null,
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+        h("div", { className: "bees-answer-actions" },
+          h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => void answer("rejected") }, busy === "rejected" ? "Denying…" : "Deny"),
+          h(Button, { className: "primary", disabled: Boolean(busy), onClick: () => void answer("allowed-once") }, busy === "allowed-once" ? "Approving…" : "Approve once"))
+      );
+    }
+
+    function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
+      const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
+      const [selectedId, setSelectedId] = useState("");
+      const [handled, setHandled] = useState(() => new Set());
+      const [handledRuns, setHandledRuns] = useState(() => new Set());
+      const [viewer, setViewer] = useState(null);
+      const seen = new Set();
+      const rows = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) && run.sessionId)
+        .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
+        .filter(({ run }) => ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
+      const rowKey = rows.map(({ run, session }) => `${run.id}:${session?.pendingInteraction ?? "none"}`).join("|");
+      useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
+      useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
+      const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
+      const files = selected ? selected.run.files ?? (selected.run.outputs ?? []).map((path) => `outputs/${path}`) : [];
+      const fileKey = files.join("|");
+      useEffect(() => setViewer((current) => selected && files.length
+        ? current?.executionId === selected.run.id && files.includes(current.path)
+          ? current : { executionId: selected.run.id, path: files[0] }
+        : null), [selected?.run.id, fileKey]);
+      useEffect(() => {
+        for (const { run } of rows) if (run.sessionId) void ctx.sessions.open(run.sessionId);
+      }, [ctx, rowKey]);
+      useEffect(() => { if (selected?.run.sessionId) ctx.sessions.open(selected.run.sessionId); }, [ctx, selected?.run.sessionId]);
+      const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
+      const session = useSnapshot(binding?.session);
+      const selectedPending = selected?.session?.pendingInteraction;
+      const interaction = session?.pending?.find((pending) => !handled.has(pending.key) &&
+        (selectedPending === "plan-review" ? pending.kind === "question" : pending.kind === selectedPending))
+        ?? session?.pending?.find((pending) => !handled.has(pending.key));
+      const actionableRunIds = new Set(rows.map(({ run }) => run.id));
+      const blocked = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
+        ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !actionableRunIds.has(run.id));
+      const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
+      const answered = (key) => {
+        setHandled((current) => new Set(current).add(key));
+        const completed = new Set(handledRuns);
+        if (selected) completed.add(selected.run.id);
+        setHandledRuns(completed);
+        const next = rows.find(({ run }) => !completed.has(run.id));
+        if (next) setSelectedId(next.run.id);
+      };
+      return h(React.Fragment, null,
+        h("div", { className: "bees-callout" }, h("h3", null, "Answer agents without leaving the queue"),
+          h("div", null, "Questions and approvals update live. After you answer, Bees moves to the next waiting agent.")),
+          rows.length ? h("div", { className: "bees-inbox" },
+            h("div", { className: "bees-inbox-list", "aria-label": "Waiting agents" }, ...rows.map(({ run, session: summary, item }) => {
+              const agent = data.assignments.find(({ id }) => id === run.resolvedAgentId);
+              const rowTitle = item?.title ?? summary?.displayTitle ?? "Agent run";
+              return h("button", { type: "button", className: `bees-inbox-row ${run.id === selected?.run.id ? "active" : ""}`, key: run.id, onClick: () => setSelectedId(run.id) },
+                h("span", { className: "bees-inbox-dot", "aria-hidden": "true" }),
+                h("span", { className: "bees-inbox-copy" }, h("strong", null, rowTitle),
+                  h("span", { className: "bees-muted" }, agent?.name ?? summary?.agentPreset ?? "Agent")),
+                h("span", { className: "bees-badge" }, interactionName(summary?.pendingInteraction)));
+            })),
+            h("section", { className: "bees-box bees-answer-card" },
+              h("div", { className: "bees-answer-head" }, h("div", null,
+                h("div", { className: "bees-status" }, interactionName(selectedPending)),
+                h("h2", null, selected.item?.title ?? selected.session?.displayTitle ?? "Agent run")),
+              h("div", { className: "bees-grow" }), selected.run.workItemId ? h(Button, { onClick: () => openWorkItem(selected.run.workItemId) }, "Open work") : null),
+            interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
+              : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })
+                : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
+            files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
+              ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
+                onClick: () => setViewer({ executionId: selected.run.id, path }) }, path))) : null,
+            viewer ? h(FilePreview, { target: viewer }) : null)
+        ) : h(Empty, null, "No live agent questions or approvals right now"),
+        blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
+          ...blocked.map((run) => {
+            const item = data.items.find(({ id }) => id === run.workItemId);
+            return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
+              h("div", { className: "bees-row-title" }, item?.title ?? "Agent run"),
+              h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
+              run.workItemId ? h(Button, { onClick: () => openWorkItem(run.workItemId) }, "Open work") : null);
+          })) : null
+      );
+    }
+
+    function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act }) {
+      if (workItemId) return h(WorkItemCockpit, { ctx, data, rootId: workItemId, teamId, act, onBack: () => setWorkItemId("") });
+      if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
+        data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
+        onCreated: (id) => { setCreating(""); setWorkItemId(id); }
+      });
+      const rows = workItemsFor(data, route, workspaceIds);
       return h("div", null,
-        route === "goals" ? h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: createGoal }, "New goal")) : null,
+        route === "waiting" ? h("div", { className: "bees-callout" }, h("h3", null, "Needs you is a queue, not a process stage"),
+          h("div", null, "Items appear here when an agent asks a question, needs approval, or cannot continue. Open one to change its agent, retry it, stop it, or archive it.")) : null,
+        h("div", { className: "bees-row" },
+          route === "goals" ? h("div", { className: "bees-muted bees-grow" }, "A goal is an outcome Bees owns; it can contain many work items.") : h("div", { className: "bees-grow" }),
+          ["all-work", "goals"].includes(route) ? h(Button, { className: "primary", disabled: !workspaceId,
+            onClick: () => setCreating(route === "goals" ? "goal" : "work") }, route === "goals" ? "New goal" : "New work") : null),
         ...(rows.length ? rows.map((item) => {
           const process = data.processes.find(({ id }) => id === item.processId);
           const stage = data.stages.find(({ id }) => id === item.stageId);
           return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => setWorkItemId(item.id) },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
             h("span", { className: "bees-status" }, item.kind));
-        }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : "No work in this view")])
+        }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : route === "waiting" ? "Nothing needs you right now" : "No work in this view")])
       );
     }
 
-    function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, act }) {
+    function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
+      const template = kind === "template";
+      const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
+      if (!workspaceId) return h("div", { className: "bees-stack" },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"), h("h2", null, template ? "New template" : "New process")),
+        h(Empty, null, "Choose one workspace before creating a process."));
+      return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
+        const created = await act({
+          action: template ? "create_process_template" : "create_process", workspaceId,
+          name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages
+        });
+        if (created?.id) onCreated(created.id);
+      } },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"),
+          h("div", null, h("h2", null, template ? "New process template" : draft ? "Create process from template" : "New process"),
+            h("div", { className: "bees-muted" }, template
+              ? "A template is a reusable blueprint. It does not run work by itself."
+              : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."))),
+        h("label", null, template ? "Template name" : "Process name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
+          defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
+        h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
+          placeholder: "When should someone use this workflow?" })),
+        h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
+          defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
+        h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. A stage named Review gets an independent reviewer; the last stage completes the work."),
+        h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, template ? "Create template" : "Create process"),
+          h(Button, { onClick: onCancel }, "Cancel"))
+      );
+    }
+
+    function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) {
       const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
+      if (["process", "template"].includes(creating)) return h(ProcessForm, {
+        kind: creating, draft: processDraft, workspaceId, act,
+        onCancel: () => { setCreating(""); setProcessDraft(null); },
+        onCreated: (id) => {
+          const wasTemplate = creating === "template";
+          setCreating(""); setProcessDraft(null);
+          if (!wasTemplate) setProcessId(id);
+        }
+      });
       const edit = async (process) => {
         const name = await ask("Process name", process.name); if (!name) return;
         const description = await ask("Description", process.description) ?? process.description;
@@ -388,6 +803,9 @@ window.__ModuleLoader__.load({
         if (process) {
           const attached = data.processAttachments.filter((row) => row.processId === process.id);
           const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
+          const processStages = data.stages.filter(({ processId }) => processId === process.id);
+          const processAgents = data.assignments.filter(({ workspaceId }) => workspaceId === process.workspaceId);
+          const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
           const roots = data.items.filter((item) => item.processId === process.id && !item.parentId && !item.archivedAt && item.kind !== "run");
           const attach = async () => {
             const available = locations.filter((location) => !attached.some(({ locationId }) => locationId === location.id));
@@ -399,11 +817,31 @@ window.__ModuleLoader__.load({
               : "";
             if (relativePath !== null) await act({ action: "attach_location", processId: process.id, locationId: location.id, relativePath });
           };
-          const createWork = async () => {
-            const title = await ask("Work title", ""); if (!title) return;
-            const description = await ask("What does success look like?", "") ?? "";
-            const created = await act({ action: "create_item", processId: process.id, title, description });
-            if (created?.id) openWorkItem(created.id);
+          const setStageRoute = async (stage, value) => {
+            const separator = value.indexOf(":");
+            await act({
+              action: "set_stage_route", stageId: stage.id,
+              targetType: separator < 0 ? null : value.slice(0, separator),
+              targetId: separator < 0 ? null : value.slice(separator + 1),
+              requiredCapabilities: stage.requiredCapabilities
+            });
+          };
+          const setRequirements = async (stage) => {
+            const value = await ask("Required capabilities, comma separated", stage.requiredCapabilities.join(", "));
+            if (value === null) return;
+            await act({
+              action: "set_stage_route", stageId: stage.id,
+              targetType: stage.routeType, targetId: stage.routeTargetId,
+              requiredCapabilities: value.split(",").map((entry) => entry.trim()).filter(Boolean)
+            });
+          };
+          const saveTemplate = async () => {
+            const name = await ask("Template name", process.name); if (!name) return;
+            await act({ action: "save_process_template", processId: process.id, name });
+          };
+          const archiveProcess = async () => {
+            if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
+            if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
           };
           return h("div", null,
             h("div", { className: "bees-row" }, h(Button, { onClick: () => setProcessId("") }, "← All processes"), h("strong", null, process.name), h("div", { className: "bees-grow" }),
@@ -412,25 +850,57 @@ window.__ModuleLoader__.load({
                 return location ? h(Button, { key: `${locationId}:${relativePath}`, onClick: () => act({ action: "detach_location", processId: process.id, locationId }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
               }),
               h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
-              h(Button, { className: "primary", onClick: createWork }, "New work")),
+              process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
+              h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")),
+            h("section", { className: "bees-box" }, h("h3", null, "Stage routing"),
+              h("p", { className: "bees-muted" }, "Assign an agent or pool to each stage here—including a stage named Waiting. “Needs you” is a separate queue for blocked work, not an assignable stage. Workspace defaults remain the fallback."),
+              ...processStages.map((stage) => h("div", { className: "bees-row", key: stage.id },
+                h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, stage.name),
+                  h("div", { className: "bees-muted" }, stage.requiredCapabilities.length
+                    ? `Requires: ${stage.requiredCapabilities.join(", ")}` : stage.driver)),
+                stage.driver === "terminal" ? h("span", { className: "bees-badge" }, "Terminal") : h(React.Fragment, null,
+                  h("select", {
+                    className: "bees-select", value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+                    "aria-label": `${stage.name} agent route`, onChange: (event) => void setStageRoute(stage, event.target.value)
+                  },
+                    h("option", { value: "" }, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`),
+                    h("optgroup", { label: "Agents" }, ...processAgents.map((agent) =>
+                      h("option", { value: `agent:${agent.id}`, key: agent.id, disabled: !agent.enabled }, agent.name))),
+                    h("optgroup", { label: "Pools" }, ...processPools.map((pool) =>
+                      h("option", { value: `pool:${pool.id}`, key: pool.id }, pool.name)))),
+                  h(Button, { onClick: () => setRequirements(stage) }, "Requirements"))))),
             ...(roots.length ? roots.map((item) => {
               const stage = data.stages.find(({ id }) => id === item.stageId);
               return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openWorkItem(item.id) },
                 h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${stage?.name ?? "Stage"} · ${item.runtimePhase}`)),
                 h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase));
-            }) : [h(Empty, { key: "empty" }, "No root work items in this process")])
+            }) : [h(Empty, { key: "empty" }, "No root work items in this process")]),
+            process.kind === "standard" ? h("section", { className: "bees-box bees-danger-zone" },
+              h("h3", null, "Archive process"), h("p", { className: "bees-muted" }, "Archive hides this process without breaking work history or database links."),
+              h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null
           );
         }
       }
-      if (route === "templates") return h(Empty, null, "No process templates yet. Save a real process as a template when reuse becomes useful.");
-      const create = async () => {
-        const name = await ask("Process name", ""); if (!name) return;
-        const description = await ask("Description", "") ?? "";
-        const stages = ((await ask("Stages, comma separated", "Plan, Doing, Done")) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
-        await act({ action: "create_process", workspaceId, name, description, stages });
-      };
+      if (route === "templates") {
+        const templates = (data.templates ?? []).filter((template) => workspaceIds.includes(template.workspaceId));
+        return h("div", null,
+          h("div", { className: "bees-callout" }, h("h3", null, "A template is a reusable process blueprint"),
+            h("div", null, "A process runs real work. A template only remembers the name, explanation, and stages so you can create similar processes quickly.")),
+          h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
+            h(Button, { className: "primary", disabled: !workspaceId, onClick: () => { setProcessDraft(null); setCreating("template"); } }, "New template")),
+          ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, template.name),
+              h("div", { className: "bees-muted" }, [template.description, template.stages.join(" → ")].filter(Boolean).join(" · "))),
+            h(Button, { className: "primary", disabled: template.workspaceId !== workspaceId,
+              onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
+            h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&
+              act({ action: "archive_process_template", templateId: template.id }) }, "Archive")))
+            : [h(Empty, { key: "empty" }, "No templates yet. Create one here or save an existing process as a template.")])
+        );
+      }
       return h("div", null,
-        h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: create }, "New process")),
+        h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId,
+          onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process")),
         ...(processes.length ? processes.map((process) => {
           const stages = data.stages.filter(({ processId }) => processId === process.id);
           return h("div", { className: "bees-row", key: process.id },
@@ -441,20 +911,125 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AgentsPage({ data, route, workspaceIds, workspaceId, act }) {
+    function AgentCreateForm({ data, workspaceId, act, onCancel, onCreated }) {
+      const presets = data.presets.filter(({ broken }) => !broken);
+      if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
+      return h("form", { className: "bees-box bees-form bees-agent-form", onSubmit: async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        const created = await act({
+          action: "add_agent_assignment", workspaceId,
+          name: String(form.get("name") ?? ""), presetId: String(form.get("presetId") ?? ""),
+          description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
+          model: String(form.get("model") ?? ""), capabilities: String(form.get("capabilities") ?? "").split(","),
+          enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
+        });
+        if (created?.id) onCreated(created.id);
+      } },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Agents"),
+          h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Configure the agent's complete toolbox and routing identity before adding it."))),
+        h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
+        h("label", null, "Description", h("input", { className: "bees-input", name: "description", placeholder: "What should this agent be used for?" })),
+        h("label", null, "Agent preset (skills and tools)", h("select", { className: "bees-select", name: "presetId", required: true,
+          defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
+          ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+        h("label", null, "Model route (optional provider/model)", h("input", { className: "bees-input", name: "model", placeholder: "Use the current default" })),
+        h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+        h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
+        h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
+        h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
+        h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: !presets.length }, "Create agent"),
+          h(Button, { onClick: onCancel }, "Cancel"))
+      );
+    }
+
+    function PoolCreateForm({ workspaceId, act, onCancel, onCreated }) {
+      if (!workspaceId) return h(Empty, null, "Choose one workspace before creating a pool.");
+      return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        const created = await act({ action: "add_agent_pool", workspaceId,
+          name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
+        if (created?.id) onCreated(created.id);
+      } },
+        h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Pools"),
+          h("div", null, h("h2", null, "New agent pool"), h("div", { className: "bees-muted" }, "Name the interchangeable role now, then add and prioritize member agents."))),
+        h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Editorial reviewers" })),
+        h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", placeholder: "When should Bees route work to this pool?" })),
+        h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Create pool"), h(Button, { onClick: onCancel }, "Cancel"))
+      );
+    }
+
+    function AgentsPage({ data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
+      const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
       const [selectedId, setSelectedId] = useState("");
+      const [selectedPoolId, setSelectedPoolId] = useState("");
       const selected = assignments.find(({ id }) => id === selectedId);
-      if (route === "skills") return h(Empty, null, "No additional skills are configured for this workspace.");
-      const add = async () => {
-        const presetName = await ask(`Agent preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, data.presets.find(({ id }) => id === "standard")?.name ?? "standard");
-        const preset = data.presets.find((row) => row.name === presetName || row.id === presetName); if (!preset) return;
-        const name = await ask("Agent name", preset.name); if (!name) return;
-        await act({ action: "add_agent_assignment", workspaceId, presetId: preset.id, name });
-      };
-      if (route === "assignments") {
-        const rows = data.items.filter((item) => item.agentAssignmentId && assignments.some(({ id }) => id === item.agentAssignmentId));
-        return rows.length ? rows.map((item) => h("div", { className: "bees-row", key: item.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, assignments.find(({ id }) => id === item.agentAssignmentId)?.name)))) : h(Empty, null, "No work is assigned to an agent yet");
+      const selectedPool = pools.find(({ id }) => id === selectedPoolId);
+      if (creating === "agent") return h(AgentCreateForm, { data, workspaceId, act,
+        onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
+      if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
+        onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); } });
+      if (route === "skills") return h("div", { className: "bees-stack" },
+        h("div", { className: "bees-callout" }, h("h3", null, "Skills are reusable instructions and tools"),
+          h("div", null, "An agent preset is its toolbox: prompt, skills, tools, and permissions. Choose a preset when you create or configure an agent; manage the preset's skill library in DSH settings.")),
+        h("section", { className: "bees-box" }, h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
+          h("h3", null, "Available agent presets"), h("div", { className: "bees-muted" }, "Agents select one of these libraries.")),
+          h(Button, { className: "primary", onClick: openDshSettings }, "Manage presets & skills")),
+          ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
+              h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
+            h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")])) ,
+        h("section", { className: "bees-box" }, h("h3", null, "Importing public libraries"),
+          h("p", { className: "bees-muted" }, "Public skill, tool, agent, and MCP repositories need a reviewed import flow because they can add instructions, code, network access, and permissions. Bees should show provenance and requested permissions before installation—not bulk-enable unknown repositories."))
+      );
+      if (route === "pools") {
+        if (selectedPool) {
+          const members = data.poolMembers.filter(({ poolId }) => poolId === selectedPool.id);
+          const memberAgents = members.map((member) => ({
+            ...member, agent: assignments.find(({ id }) => id === member.agentAssignmentId)
+          })).filter(({ agent }) => agent);
+          const available = assignments.filter(({ workspaceId: id, id: agentId }) =>
+            id === selectedPool.workspaceId && !members.some(({ agentAssignmentId }) => agentAssignmentId === agentId));
+          const addMember = async () => {
+            const name = await ask(`Agent:\n${available.map(({ name }) => name).join("\n")}`, available[0]?.name ?? "");
+            const agent = available.find((row) => row.name === name); if (!agent) return;
+            const priority = await ask("Priority (1 runs first)", "100", "number"); if (priority === null) return;
+            await act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: agent.id, priority: Number(priority) });
+          };
+          return h("div", { className: "bees-stack" },
+            h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
+              event.preventDefault(); const form = new FormData(event.currentTarget);
+              await act({ action: "edit_agent_pool", agentPoolId: selectedPool.id,
+                name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
+            } },
+              h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedPoolId("") }, "← Pools"), h("strong", null, selectedPool.name)),
+              h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selectedPool.name })),
+              h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selectedPool.description })),
+              h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save pool"))),
+            h("section", { className: "bees-box" },
+              h("div", { className: "bees-row" }, h("h3", null, "Members"), h("div", { className: "bees-grow" }),
+                h(Button, { className: "primary", disabled: !available.length, onClick: addMember }, "Add agent")),
+              ...(memberAgents.length ? memberAgents.map((member) => h("div", { className: "bees-row", key: member.agentAssignmentId },
+                h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.agent.name),
+                  h("div", { className: "bees-muted" }, `Priority ${member.priority}${member.lastAssignedAt ? ` · last selected ${new Date(member.lastAssignedAt).toLocaleString()}` : " · never selected"}`)),
+                h(Button, { onClick: () => act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id,
+                  agentAssignmentId: member.agentAssignmentId, priority: member.priority, enabled: !member.enabled }) }, member.enabled ? "Pause" : "Enable"),
+                h(Button, { className: "danger", onClick: async () => (await confirmAction(`Remove ${member.agent.name} from ${selectedPool.name}?`)) &&
+                  act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: member.agentAssignmentId, remove: true }) }, "Remove")))
+                : [h(Empty, { key: "empty" }, "No agents in this pool yet")])));
+        }
+        return h("div", null,
+          h("div", { className: "bees-callout" }, h("h3", null, "A pool is a backup bench"),
+            h("div", null, "Put interchangeable agents in a pool when any one of them can do the same stage. Bees picks an available compatible agent deterministically. Use one named agent when continuity matters.")),
+          h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
+          h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("pool") }, "New pool")),
+          ...(pools.length ? pools.map((pool) => {
+            const members = data.poolMembers.filter(({ poolId }) => poolId === pool.id);
+            return h("div", { className: "bees-row", key: pool.id },
+              h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, pool.name),
+                h("div", { className: "bees-muted" }, `${members.filter(({ enabled }) => enabled).length} enabled agents · ${pool.description || "Deterministic agent pool"}`)),
+              h(Button, { onClick: () => setSelectedPoolId(pool.id) }, "Configure"));
+          }) : [h(Empty, { key: "empty" }, "No agent pools yet")])) ;
       }
       if (selected) return h("form", { className: "bees-box bees-form bees-agent-form", key: selected.id, onSubmit: async (event) => {
         event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -462,7 +1037,8 @@ window.__ModuleLoader__.load({
           action: "edit_agent_assignment", agentAssignmentId: selected.id,
           name: String(form.get("name") ?? selected.name), presetId: String(form.get("presetId") ?? selected.presetId),
           description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
-          model: String(form.get("model") ?? "")
+          model: String(form.get("model") ?? ""), capabilities: String(form.get("capabilities") ?? "").split(","),
+          enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
         });
         if (saved) setSelectedId("");
       } },
@@ -471,12 +1047,15 @@ window.__ModuleLoader__.load({
         h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description })),
         h("label", null, "DSH preset", h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId }, ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
         h("label", null, "Model route (provider/model); blank uses the current default", h("input", { className: "bees-input", name: "model", defaultValue: selected.model ?? "", placeholder: "Default model" })),
+        h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
+        h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
+        h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
         h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
         h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
         h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
       );
-      return h("div", null, h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: add }, "New agent assignment")),
-        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.presetId}${agent.model ? ` · ${agent.model}` : " · default model"} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
+      return h("div", null, h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")),
+        ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
       );
     }
 
@@ -538,6 +1117,9 @@ window.__ModuleLoader__.load({
       const run = runs.find(({ id }) => id === selected);
       if (run) return h("div", null,
         h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelected("") }, "← Runs"), h("strong", null, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+        run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
+          h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
+          h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
         run.outputs.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
         history?.error ? h(Empty, null, history.error) : history ? h("div", { className: "bees-transcript" },
           ...(history.messages?.length ? history.messages.map((message) => h("div", { className: "bees-message", key: message.id },
@@ -547,7 +1129,7 @@ window.__ModuleLoader__.load({
         ) : h(Empty, null, "Loading transcript…")
       );
       return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setSelected(row.id) },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, new Date(row.updatedAt).toLocaleString())),
+        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
         h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No runs yet")]))
       ;
     }
@@ -793,6 +1375,9 @@ window.__ModuleLoader__.load({
       const [scope, setScopeState] = useState("");
       const [processId, setProcessId] = useState("");
       const [workItemId, setWorkItemId] = useState("");
+      const [creating, setCreating] = useState("");
+      const [processDraft, setProcessDraft] = useState(null);
+      const [workProcessId, setWorkProcessId] = useState("");
       const load = async () => {
         try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
         catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -806,7 +1391,7 @@ window.__ModuleLoader__.load({
         setScopeState((current) => valid.has(current) ? current : preferred);
       }, [data, preference.lastScope]);
       const setScope = (next) => {
-        setScopeState(next); setProcessId(""); setWorkItemId("");
+        setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
         void preferences.set("lastScope", next);
       };
       const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
@@ -827,7 +1412,7 @@ window.__ModuleLoader__.load({
           return;
         }
         const section = NAVIGATION.find((row) => row.id === id);
-        setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId("");
+        setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
       };
       const createOrganization = async () => {
         const name = await ask("Organization name", ""); if (!name) return;
@@ -849,17 +1434,9 @@ window.__ModuleLoader__.load({
         const result = await act({ action: "create_workspace", teamId: team.id, name });
         if (result?.id) setScope(`workspace:${result.id}`);
       };
-      const createGoal = async () => {
-        const title = await ask("Goal", ""); if (!title || !parts.workspaceId) return;
-        const created = await act({ action: "create_goal", workspaceId: parts.workspaceId, title });
-        if (created?.id) { setRoute("goals"); setWorkItemId(created.id); }
-      };
-      const createProcess = async () => {
-        if (!parts.workspaceId) return;
-        const name = await ask("Process name", ""); if (!name) return;
-        const stages = ((await ask("Stages, comma separated", "Plan, Doing, Done")) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
-        await act({ action: "create_process", workspaceId: parts.workspaceId, name, stages });
-      };
+      const createWork = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
+      const createGoal = () => { setRoute("goals"); setWorkItemId(""); setCreating("goal"); };
+      const createProcess = () => { setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
       const createRun = async () => {
         const processes = data.processes.filter((row) => row.workspaceId === parts.workspaceId && row.kind === "standard");
         const processName = await ask(`Process:\n${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
@@ -868,12 +1445,7 @@ window.__ModuleLoader__.load({
         const work = await act({ action: "create_run", processId: process.id, title });
         if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
       };
-      const createAgent = async () => {
-        if (!parts.workspaceId) return;
-        const presetName = await ask(`Agent preset:\n${data.presets.filter(({ broken }) => !broken).map(({ name }) => name).join("\n")}`, "standard");
-        const preset = data.presets.find((row) => row.name === presetName || row.id === presetName); if (!preset) return;
-        const name = await ask("Agent name", preset.name); if (name) await act({ action: "add_agent_assignment", workspaceId: parts.workspaceId, presetId: preset.id, name });
-      };
+      const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
       const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
       const freeAi = h(FreeAiController, { modelSettings, onError: setError });
       if (!data) return h(React.Fragment, null, localAi, freeAi,
@@ -882,8 +1454,11 @@ window.__ModuleLoader__.load({
       const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
       const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
       const setPins = (next) => preferences.set("pins", next);
-      const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); };
-      const openWorkItem = (id) => { setRoute("all-work"); setProcessId(""); setWorkItemId(id); };
+      const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
+      const openWorkItem = (id, processForWork = "") => {
+        setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
+        setWorkProcessId(processForWork); setCreating(id ? "" : "work");
+      };
       const pinnedRows = (targetRoute) => {
         const target = sectionFor(targetRoute);
         const openRoute = () => navigate(targetRoute);
@@ -892,14 +1467,16 @@ window.__ModuleLoader__.load({
         if (target.id === "processes") {
           if (targetRoute === "schedules") return data.schedules.filter((row) => workspaceIds.includes(row.workspaceId))
             .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
-          const rows = data.processes.filter((row) => workspaceIds.includes(row.workspaceId) && (targetRoute !== "templates" || row.kind === "template"));
-          return rows.map((row) => ({ id: row.id, label: row.name, open: () => { setRoute("all-processes"); setProcessId(row.id); } }));
+          if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
+            .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
+          return data.processes.filter((row) => workspaceIds.includes(row.workspaceId))
+            .map((row) => ({ id: row.id, label: row.name, open: () => { setRoute("all-processes"); setProcessId(row.id); } }));
         }
         if (target.id === "agents") {
           const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
           if (targetRoute === "skills") return [];
-          if (targetRoute === "assignments") return data.items.filter((item) => item.agentAssignmentId && assignments.some(({ id }) => id === item.agentAssignmentId))
-            .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
+          if (targetRoute === "pools") return data.pools.filter((row) => workspaceIds.includes(row.workspaceId))
+            .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
           return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
         }
         if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt)
@@ -922,9 +1499,12 @@ window.__ModuleLoader__.load({
         return [];
       };
       const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees })
-        : section.id === "work" ? h(WorkPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, act })
-          : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, act })
-            : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, act })
+        : route === "guide" ? h(GuidePage)
+        : section.id === "work" ? route === "waiting"
+          ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem })
+          : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act })
+          : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
+            : section.id === "agents" ? h(AgentsPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
               : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
                 : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds })
                   : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
@@ -963,6 +1543,7 @@ window.__ModuleLoader__.load({
             h("details", { className: "bees-create" }, h("summary", { className: "bees-btn", title: "Create", role: "button", "aria-label": "Create" }, "+"), h("div", { className: "bees-menu" },
               h("button", { className: "bees-nav-link", onClick: createOrganization }, "New organization"),
               h("button", { className: "bees-nav-link", disabled: !parts.teamId && !data.teams.some(({ organizationId }) => organizationId === parts.organizationId), onClick: createWorkspace }, "New workspace"),
+              h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createWork }, "New work"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createGoal }, "New goal"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createProcess }, "New process"),
               h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createRun }, "New one-off run"),
@@ -976,7 +1557,7 @@ window.__ModuleLoader__.load({
       ));
     }
 
-    exports.inject = ["slots", "workspaces", "settingsScope", "connection", "theme"];
+    exports.inject = ["slots", "workspaces", "settingsScope", "connection", "theme", "sessions"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";

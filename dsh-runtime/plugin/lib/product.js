@@ -116,9 +116,152 @@ function parentFor(database, itemId, processId, parentId) {
 
 function defaultAssignment(database, workspaceId, role = "worker") {
   return database.prepare(`
-    SELECT id, preset_id AS presetId, name, description, instructions, model, system_role AS systemRole
+    SELECT id, preset_id AS presetId, name, description, instructions, model,
+           system_role AS systemRole, capabilities_json AS capabilities,
+           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
     FROM agent_assignments WHERE workspace_id = ? AND system_role = ? LIMIT 1
   `).get(workspaceId, role);
+}
+
+function capabilities(value, label = "Capabilities") {
+  const values = Array.isArray(value) ? value : String(value ?? "").split(",");
+  const normalized = [...new Set(values.map((entry) => String(entry).trim().toLocaleLowerCase()).filter(Boolean))];
+  if (normalized.length > 20 || normalized.some((entry) => !/^[a-z0-9][a-z0-9-]{0,39}$/.test(entry)))
+    throw new Error(`${label} must contain at most 20 lowercase names using letters, numbers, and hyphens`);
+  return normalized;
+}
+
+function agentCapabilities(agent) {
+  try { return capabilities(JSON.parse(agent.capabilities || "[]")); }
+  catch { return []; }
+}
+
+function assignment(database, id, workspaceId) {
+  return database.prepare(`
+    SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
+           instructions, model, system_role AS systemRole, capabilities_json AS capabilities,
+           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
+    FROM agent_assignments WHERE id = ? AND workspace_id = ?
+  `).get(id, workspaceId);
+}
+
+function activeAgentRuns(database, agentId) {
+  return Number(database.prepare(`
+    SELECT count(*) AS count FROM agent_dispatches d
+    LEFT JOIN execution_links e ON e.execution_id = d.execution_id
+    WHERE d.agent_assignment_id = ? AND (
+      e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval', 'interrupted')
+      OR (e.execution_id IS NULL AND d.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
+    )
+  `).get(agentId)?.count ?? 0);
+}
+
+class AgentCapacityError extends Error {}
+
+function ensureAgentCapacity(database, agent, label) {
+  const activeRuns = activeAgentRuns(database, agent.id);
+  if (agent.maxConcurrency && activeRuns >= agent.maxConcurrency)
+    throw new AgentCapacityError(`${label} is at its concurrency limit`);
+  return activeRuns;
+}
+
+function resolveStageAgent(database, { executionId, item, stageId, purpose, candidateExecutionId }) {
+  const prior = database.prepare(`
+    SELECT d.agent_assignment_id AS agentAssignmentId, d.target_type AS targetType,
+           d.target_id AS targetId, d.reason, d.agent_revision AS agentRevision,
+           d.agent_config_json AS agentConfig
+    FROM agent_dispatches d WHERE d.execution_id = ?
+  `).get(executionId);
+  if (prior) return { ...JSON.parse(prior.agentConfig), ...prior };
+
+  const stage = database.prepare(`
+    SELECT s.id, s.name, s.driver, p.workspace_id AS workspaceId,
+           r.agent_assignment_id AS routeAgentId, r.agent_pool_id AS routePoolId,
+           r.required_capabilities_json AS requiredCapabilities
+    FROM stages s JOIN processes p ON p.id = s.process_id
+    LEFT JOIN stage_routes r ON r.stage_id = s.id
+    WHERE s.id = ? AND s.process_id = ? AND s.archived_at IS NULL
+  `).get(stageId, item.processId);
+  if (!stage) throw new Error("The process stage is unavailable");
+  const requiredCapabilities = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
+  const excludedAgentId = purpose === "reviewer" && candidateExecutionId ? database.prepare(`
+    SELECT agent_assignment_id AS agentAssignmentId FROM agent_dispatches WHERE execution_id = ?
+  `).get(candidateExecutionId)?.agentAssignmentId : null;
+  const accepts = (agent) => agent && Boolean(agent.enabled) && agent.id !== excludedAgentId &&
+    requiredCapabilities.every((requiredCapability) => agentCapabilities(agent).includes(requiredCapability));
+
+  return transaction(database, () => {
+    let selected;
+    let targetType;
+    let targetId;
+    let reason;
+    if (purpose !== "reviewer" && item.agentAssignmentId) {
+      selected = assignment(database, item.agentAssignmentId, stage.workspaceId);
+      targetType = "item";
+      targetId = item.id;
+      reason = "Work-item override";
+      if (!accepts(selected)) throw new Error("The work-item agent override is disabled or missing required capabilities");
+      ensureAgentCapacity(database, selected, selected.name);
+    } else if (stage.routeAgentId) {
+      selected = assignment(database, stage.routeAgentId, stage.workspaceId);
+      targetType = "agent";
+      targetId = stage.routeAgentId;
+      reason = `Direct stage assignment for ${stage.name}`;
+      if (!accepts(selected)) throw new Error(`The agent assigned to ${stage.name} is disabled, incompatible, or not independent`);
+      ensureAgentCapacity(database, selected, selected.name);
+    } else if (stage.routePoolId) {
+      const pool = database.prepare(`
+        SELECT id, name FROM agent_pools WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
+      `).get(stage.routePoolId, stage.workspaceId);
+      if (!pool) throw new Error(`The agent pool assigned to ${stage.name} is unavailable`);
+      const eligible = database.prepare(`
+        SELECT a.id, a.workspace_id AS workspaceId, a.preset_id AS presetId, a.name,
+               a.instructions, a.model, a.capabilities_json AS capabilities, a.enabled,
+               a.max_concurrency AS maxConcurrency, a.updated_at AS updatedAt,
+               m.priority, m.last_assigned_at AS lastAssignedAt
+        FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+        WHERE m.pool_id = ? AND m.enabled = 1
+        ORDER BY m.priority, m.last_assigned_at IS NOT NULL, m.last_assigned_at, a.id
+      `).all(pool.id).filter(accepts).map((agent) => ({
+        ...agent, activeRuns: activeAgentRuns(database, agent.id)
+      }));
+      const candidates = eligible.filter((agent) => !agent.maxConcurrency || agent.activeRuns < agent.maxConcurrency);
+      selected = candidates[0];
+      if (!selected && eligible.length) throw new AgentCapacityError(`The ${pool.name} pool is at capacity`);
+      if (!selected) throw new Error(`The ${pool.name} pool has no enabled, compatible, independent agent`);
+      targetType = "pool";
+      targetId = pool.id;
+      reason = `${pool.name}: priority ${selected.priority}; ${selected.activeRuns} active; least recently assigned`;
+      database.prepare(`
+        UPDATE agent_pool_members SET last_assigned_at = ? WHERE pool_id = ? AND agent_assignment_id = ?
+      `).run(iso(), pool.id, selected.id);
+    } else {
+      const role = purpose === "reviewer" ? "reviewer" : "worker";
+      selected = defaultAssignment(database, stage.workspaceId, role);
+      targetType = "workspace-default";
+      targetId = role;
+      reason = `Workspace ${role} fallback`;
+      if (!accepts(selected)) throw new Error(`The workspace ${role} agent is disabled, incompatible, or not independent`);
+      ensureAgentCapacity(database, selected, selected.name);
+    }
+    const agentConfig = JSON.stringify({
+      id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,
+      name: selected.name, instructions: selected.instructions, model: selected.model,
+      capabilities: selected.capabilities, enabled: selected.enabled,
+      maxConcurrency: selected.maxConcurrency, updatedAt: selected.updatedAt
+    });
+    database.prepare(`
+      INSERT INTO agent_dispatches
+        (execution_id, work_item_id, stage_id, target_type, target_id,
+         agent_assignment_id, reason, agent_revision, agent_config_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(executionId, item.id, stage.id, targetType, targetId, selected.id, reason,
+      selected.updatedAt, agentConfig, iso());
+    return {
+      ...selected, agentAssignmentId: selected.id, targetType, targetId, reason,
+      agentRevision: selected.updatedAt
+    };
+  });
 }
 
 function ensureAgentDefaults(database, workspaceId) {
@@ -301,6 +444,28 @@ function outputFiles(runDirectory) {
   }
 }
 
+function previewFiles(runDirectory) {
+  const files = [];
+  for (const rootName of ["inputs", "outputs"]) {
+    try {
+      const root = realpathSync(resolve(runDirectory, rootName));
+      const stack = [root];
+      while (stack.length && files.length < 200) {
+        const directory = stack.pop();
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          if (entry.isSymbolicLink()) continue;
+          const path = resolve(directory, entry.name);
+          if (entry.isDirectory()) stack.push(path);
+          else if (entry.isFile() && TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000)
+            files.push(`${rootName}/${relative(root, path)}`);
+          if (files.length >= 200) break;
+        }
+      }
+    } catch { /* a run may not have created this directory yet */ }
+  }
+  return files.sort();
+}
+
 function insertProcess(database, workspaceId, name, description, stages, kind = "standard", id = randomUUID()) {
   const at = iso();
   database.prepare(`
@@ -324,6 +489,14 @@ function insertProcess(database, workspaceId, name, description, stages, kind = 
     );
   });
   return id;
+}
+
+function processStageNames(value, label = "process") {
+  const names = Array.isArray(value) ? value.map((entry) => required(entry, "Stage")) : [];
+  if (names.length < 2 || names.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
+  if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length)
+    throw new Error("Stage names must be unique");
+  return names;
 }
 
 function insertWorkspaceDefaults(database, workspaceId) {
@@ -357,6 +530,7 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS dsh_audit_events;
     DROP TABLE IF EXISTS bees_domain_receipts;
     DROP TABLE IF EXISTS bees_schedules;
+    DROP TABLE IF EXISTS agent_dispatches;
     DROP TABLE IF EXISTS work_item_locations;
     DROP TABLE IF EXISTS process_locations;
     DROP TABLE IF EXISTS device_location_mappings;
@@ -364,8 +538,11 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS execution_links;
     DROP TABLE IF EXISTS dsh_runs;
     DROP TABLE IF EXISTS work_items;
+    DROP TABLE IF EXISTS stage_routes;
     DROP TABLE IF EXISTS stages;
     DROP TABLE IF EXISTS processes;
+    DROP TABLE IF EXISTS agent_pool_members;
+    DROP TABLE IF EXISTS agent_pools;
     DROP TABLE IF EXISTS agent_assignments;
     DROP TABLE IF EXISTS file_locations;
     DROP TABLE IF EXISTS workspaces;
@@ -430,13 +607,31 @@ export function initializeProductDatabase(database) {
       preset_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
       instructions TEXT NOT NULL DEFAULT '', model TEXT,
       system_role TEXT CHECK (system_role IN ('worker', 'reviewer')),
+      capabilities_json TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 1,
+      max_concurrency INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(workspace_id, name)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_pools (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', archived_at TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(workspace_id, name)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_pool_members (
+      pool_id TEXT NOT NULL REFERENCES agent_pools(id) ON DELETE CASCADE,
+      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id) ON DELETE CASCADE,
+      priority INTEGER NOT NULL DEFAULT 100, enabled INTEGER NOT NULL DEFAULT 1,
+      last_assigned_at TEXT, PRIMARY KEY (pool_id, agent_assignment_id)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS processes (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
       kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'goals')),
+      archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS process_templates (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', stages_json TEXT NOT NULL,
       archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stages (
@@ -445,6 +640,14 @@ export function initializeProductDatabase(database) {
       driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'review', 'terminal')),
       completion_rules TEXT NOT NULL DEFAULT '',
       is_terminal INTEGER NOT NULL DEFAULT 0, archived_at TEXT, UNIQUE(process_id, position)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS stage_routes (
+      stage_id TEXT PRIMARY KEY REFERENCES stages(id) ON DELETE CASCADE,
+      agent_assignment_id TEXT REFERENCES agent_assignments(id) ON DELETE RESTRICT,
+      agent_pool_id TEXT REFERENCES agent_pools(id) ON DELETE RESTRICT,
+      required_capabilities_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      CHECK (agent_assignment_id IS NULL OR agent_pool_id IS NULL)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS work_items (
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
@@ -457,6 +660,16 @@ export function initializeProductDatabase(database) {
       runtime_attempt INTEGER NOT NULL DEFAULT 0, runtime_review_cycle INTEGER NOT NULL DEFAULT 0,
       runtime_execution_id TEXT, runtime_error TEXT,
       archived_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_dispatches (
+      execution_id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL REFERENCES stages(id),
+      target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'pool', 'workspace-default')),
+      target_id TEXT NOT NULL,
+      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id),
+      reason TEXT NOT NULL, agent_revision TEXT NOT NULL,
+      agent_config_json TEXT NOT NULL, created_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS team_locations (
       id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -504,12 +717,19 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_processes_workspace ON processes(workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS bees_stages_process ON stages(process_id, position);
     CREATE INDEX IF NOT EXISTS bees_items_stage ON work_items(stage_id, updated_at);
+    CREATE INDEX IF NOT EXISTS bees_pool_members_agent ON agent_pool_members(agent_assignment_id, pool_id);
+    CREATE INDEX IF NOT EXISTS bees_dispatches_item ON agent_dispatches(work_item_id, created_at);
     CREATE INDEX IF NOT EXISTS bees_locations_team ON team_locations(team_id, name);
   `);
   const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
   if (!assignmentColumns.has("instructions")) database.exec("ALTER TABLE agent_assignments ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
   if (!assignmentColumns.has("model")) database.exec("ALTER TABLE agent_assignments ADD COLUMN model TEXT");
   if (!assignmentColumns.has("system_role")) database.exec("ALTER TABLE agent_assignments ADD COLUMN system_role TEXT");
+  if (!assignmentColumns.has("capabilities_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'");
+  if (!assignmentColumns.has("enabled")) database.exec("ALTER TABLE agent_assignments ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  if (!assignmentColumns.has("max_concurrency")) database.exec("ALTER TABLE agent_assignments ADD COLUMN max_concurrency INTEGER NOT NULL DEFAULT 0");
+  const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
+  if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   database.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
@@ -518,7 +738,7 @@ export function initializeProductDatabase(database) {
       WHEN lower(name) LIKE '%review%' THEN 'review'
       ELSE 'agent'
     END;
-    PRAGMA user_version = 6;
+    PRAGMA user_version = 7;
   `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
@@ -593,30 +813,42 @@ export class BeesProduct {
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
     const executionId = required(stage.executionId, "Execution");
+    let assignment;
+    try {
+      assignment = resolveStageAgent(this.database, {
+        executionId, item, stageId: required(stage.stageId, "Stage"), purpose: stage.purpose,
+        candidateExecutionId: stage.candidateExecutionId
+      });
+    } catch (error) {
+      if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
+      throw error;
+    }
     const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
     const locations = stageInputs(this.database, item.id, runDirectory);
+    const reviewer = stage.purpose === "reviewer";
+    let candidateSummary = "";
     if (stage.candidateExecutionId) {
       const candidate = this.database.prepare(`
-        SELECT run_directory AS runDirectory FROM execution_links
-        WHERE execution_id = ? AND work_item_id = ?
+        SELECT e.run_directory AS runDirectory, r.summary
+        FROM execution_links e
+        LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
+        WHERE e.execution_id = ? AND e.work_item_id = ?
       `).get(stage.candidateExecutionId, item.id);
       if (!candidate) throw new Error("The review candidate is unavailable");
-      const name = stage.purpose === "reviewer" ? "candidate" : "previous-candidate";
-      const destination = resolve(runDirectory, "inputs", name);
+      candidateSummary = candidate.summary || "";
+      const destination = reviewer
+        ? resolve(runDirectory, "inputs", "candidate")
+        : resolve(runDirectory, "outputs");
       mkdirSync(destination, { recursive: true });
-      stageLocation({ name, kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
+      stageLocation({ name: "candidate", kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
     }
-    const reviewer = stage.purpose === "reviewer";
-    const assignment = reviewer
-      ? defaultAssignment(this.database, item.workspaceId, "reviewer")
-      : item.agentAssignmentId ? this.database.prepare(`
-        SELECT preset_id AS presetId, name, instructions, model
-        FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(item.agentAssignmentId, item.workspaceId) : defaultAssignment(this.database, item.workspaceId);
     const feedback = stage.feedback ? `\n\nPrior review feedback:\n${stage.feedback}` : "";
+    const handoff = stage.candidateExecutionId && !reviewer
+      ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
+      : "";
     const body = reviewer
       ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
-      : `Own this goal through a review-ready result. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when the outcome is genuinely ready for independent review.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Complete the goal."}${feedback}`;
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -624,8 +856,7 @@ export class BeesProduct {
       initialData: {
         version: 1, mode: reviewer ? "review" : "work", stagePurpose: stage.purpose,
         executionId, workItemId: item.id,
-        agentId: reviewer ? "bees-reviewer" : item.agentAssignmentId || "bees-run",
-        agentName: reviewer ? "Bees reviewer" : assignment?.name || "Bees work agent",
+        agentId: assignment.id, agentName: assignment.name,
         purpose: item.title, model: assignment?.model || null,
         instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
@@ -668,13 +899,27 @@ export class BeesProduct {
       SELECT id, workspace_id AS workspaceId, name, description, kind FROM processes
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
     `).all(JSON.stringify(workspaceIds)) : [];
+    const templates = workspaceIds.length ? this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, name, description, stages_json AS stages
+      FROM process_templates
+      WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
+      ORDER BY created_at
+    `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, stages: JSON.parse(row.stages) })) : [];
     const processIds = processes.map(({ id }) => id);
     const stages = processIds.length ? this.database.prepare(`
       SELECT id, process_id AS processId, name, position, driver,
-             completion_rules AS instructions, is_terminal AS isTerminal
-      FROM stages WHERE process_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
+             completion_rules AS instructions, is_terminal AS isTerminal,
+             CASE WHEN r.agent_assignment_id IS NOT NULL THEN 'agent'
+                  WHEN r.agent_pool_id IS NOT NULL THEN 'pool' END AS routeType,
+             coalesce(r.agent_assignment_id, r.agent_pool_id) AS routeTargetId,
+             r.required_capabilities_json AS requiredCapabilities
+      FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
+      WHERE process_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
       ORDER BY process_id, position
-    `).all(JSON.stringify(processIds)).map((row) => ({ ...row, isTerminal: Boolean(row.isTerminal) })) : [];
+    `).all(JSON.stringify(processIds)).map((row) => ({
+      ...row, isTerminal: Boolean(row.isTerminal),
+      requiredCapabilities: JSON.parse(row.requiredCapabilities || "[]")
+    })) : [];
     const items = processIds.length ? this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.parent_id AS parentId,
              w.kind, w.title, w.description, w.owner, w.agent_assignment_id AS agentAssignmentId,
@@ -704,17 +949,39 @@ export class BeesProduct {
     `).all();
     const assignments = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
-             instructions, model, system_role AS systemRole
+             instructions, model, system_role AS systemRole, capabilities_json AS capabilities,
+             enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
       FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?)) ORDER BY name
+    `).all(JSON.stringify(workspaceIds)).map((row) => ({
+      ...row, enabled: Boolean(row.enabled), capabilities: JSON.parse(row.capabilities || "[]")
+    })) : [];
+    const pools = workspaceIds.length ? this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, name, description
+      FROM agent_pools WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
+      ORDER BY name
     `).all(JSON.stringify(workspaceIds)) : [];
+    const poolMembers = pools.length ? this.database.prepare(`
+      SELECT pool_id AS poolId, agent_assignment_id AS agentAssignmentId,
+             priority, enabled, last_assigned_at AS lastAssignedAt
+      FROM agent_pool_members WHERE pool_id IN (SELECT value FROM json_each(?))
+      ORDER BY pool_id, priority, agent_assignment_id
+    `).all(JSON.stringify(pools.map(({ id }) => id))).map((row) => ({
+      ...row, enabled: Boolean(row.enabled)
+    })) : [];
     const runs = workspaceIds.length ? this.database.prepare(`
-      SELECT execution_id AS id, workspace_id AS workspaceId, work_item_id AS workItemId,
-             current_session_id AS sessionId, previous_session_id AS previousSessionId,
-             status, run_directory AS runDirectory, updated_at AS updatedAt
-      FROM execution_links WHERE workspace_id IN (SELECT value FROM json_each(?))
+      SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
+             e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
+             e.status, e.run_directory AS runDirectory, e.updated_at AS updatedAt,
+             d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
+             d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
+             d.reason AS dispatchReason, d.agent_revision AS agentRevision
+      FROM execution_links e LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
+      WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
-      ...run, outputs: outputFiles(runDirectory)
+      ...run, outputs: outputFiles(runDirectory),
+      files: ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status)
+        ? previewFiles(runDirectory) : []
     })) : [];
     const schedules = [];
     const proposals = workspaceIds.length ? this.database.prepare(`
@@ -731,8 +998,8 @@ export class BeesProduct {
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
-      processes, stages, items, locations, attachments, processAttachments,
-      assignments, presets, runs, schedules, proposals
+      processes, templates, stages, items, locations, attachments, processAttachments,
+      assignments, pools, poolMembers, presets, runs, schedules, proposals
     };
   }
 
@@ -807,6 +1074,36 @@ export class BeesProduct {
     return this.agents.history(id);
   }
 
+  runFile(executionId, filePath) {
+    const id = required(executionId, "Run");
+    const row = this.database.prepare(`
+      SELECT workspace_id AS workspaceId, run_directory AS runDirectory
+      FROM execution_links WHERE execution_id = ?
+    `).get(id);
+    if (!row) throw new Error("Run not found");
+    workspaceContext(this.database, row.workspaceId);
+    const logical = logicalRelativePath(required(filePath, "File"));
+    const [rootName] = logical.split("/");
+    if (!["inputs", "outputs"].includes(rootName)) throw new Error("Only run inputs and outputs can be previewed");
+    if (!TEXT_EXTENSIONS.has(extname(logical).toLowerCase())) throw new Error("This file type cannot be previewed as text");
+    const runsRoot = realpathSync(resolve(this.defaultWorkspace, "runs"));
+    const runDirectory = realpathSync(row.runDirectory);
+    if (runDirectory !== runsRoot && !runDirectory.startsWith(`${runsRoot}${sep}`))
+      throw new Error("The run directory is outside the Bees workspace");
+    const root = realpathSync(resolve(runDirectory, rootName));
+    const path = realpathSync(resolve(runDirectory, logical));
+    if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("The file escaped its run directory");
+    const stat = lstatSync(path);
+    if (!stat.isFile()) throw new Error("The run file is unavailable");
+    if (stat.size > 1_000_000) throw new Error("The run file is too large to preview");
+    const extension = extname(path).toLowerCase();
+    return {
+      name: basename(path), path: logical,
+      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text",
+      content: readFileSync(path, "utf8")
+    };
+  }
+
   storeProposal({ workspaceId, sessionId, title, summary, changes }) {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
@@ -864,7 +1161,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "stageId", "itemId", "parentId", "agentAssignmentId", "locationId", "scheduleId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "scheduleId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;
@@ -934,8 +1231,7 @@ export class BeesProduct {
       if (!stageId || !this.database.prepare(`
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
-      const assignmentId = input.agentAssignmentId || defaultAssignment(this.database, process.workspaceId)?.id;
-      if (!assignmentId) throw new Error("A work item requires an agent");
+      const assignmentId = input.agentAssignmentId ? required(input.agentAssignmentId, "Agent") : null;
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
       `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this workspace");
@@ -956,8 +1252,9 @@ export class BeesProduct {
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
-      const assignmentId = input.agentAssignmentId || item.agentAssignmentId || defaultAssignment(this.database, item.workspaceId)?.id;
-      if (!assignmentId) throw new Error("A work item requires an agent");
+      const assignmentId = Object.hasOwn(input, "agentAssignmentId")
+        ? input.agentAssignmentId ? required(input.agentAssignmentId, "Agent") : null
+        : item.agentAssignmentId;
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
       `).get(assignmentId, item.workspaceId)) throw new Error("Agent assignment is not in this workspace");
@@ -982,11 +1279,53 @@ export class BeesProduct {
     }
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const stages = Array.isArray(input.stages) ? input.stages.map((value) => required(value, "Stage")) : [];
-      if (stages.length < 2 || stages.length > 12) throw new Error("A process needs 2 to 12 stages");
-      if (new Set(stages.map((name) => name.toLocaleLowerCase())).size !== stages.length)
-        throw new Error("Stage names must be unique");
+      const stages = processStageNames(input.stages);
       return { id: insertProcess(this.database, workspace.id, input.name, input.description, stages) };
+    });
+    if (action === "create_process_template") return transaction(this.database, () => {
+      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
+      const id = randomUUID();
+      const stages = processStageNames(input.stages, "process template");
+      this.database.prepare(`
+        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      `).run(id, workspace.id, required(input.name, "Template name"), String(input.description ?? ""),
+        JSON.stringify(stages), at, at);
+      return { id };
+    });
+    if (action === "save_process_template") return transaction(this.database, () => {
+      const process = processContext(this.database, input.processId, ["admin", "member"]);
+      const source = this.database.prepare("SELECT name, description FROM processes WHERE id = ?").get(process.id);
+      const stages = this.database.prepare(`
+        SELECT name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
+      `).all(process.id).map(({ name }) => name);
+      const id = randomUUID();
+      this.database.prepare(`
+        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      `).run(id, process.workspaceId, required(input.name || source.name, "Template name"),
+        source.description, JSON.stringify(stages), at, at);
+      return { id };
+    });
+    if (action === "archive_process_template") return transaction(this.database, () => {
+      const template = this.database.prepare(`
+        SELECT workspace_id AS workspaceId FROM process_templates WHERE id = ? AND archived_at IS NULL
+      `).get(required(input.templateId, "Template"));
+      if (!template) throw new Error("Process template not found");
+      workspaceContext(this.database, template.workspaceId, ["admin", "member"]);
+      this.database.prepare("UPDATE process_templates SET archived_at = ?, updated_at = ? WHERE id = ?")
+        .run(at, at, input.templateId);
+      return {};
+    });
+    if (action === "archive_process") return transaction(this.database, () => {
+      const process = processContext(this.database, input.processId, ["admin", "member"]);
+      const row = this.database.prepare("SELECT kind FROM processes WHERE id = ?").get(process.id);
+      if (row.kind === "goals") throw new Error("The built-in Goals process cannot be archived");
+      if (this.processes.isAutomatic(process.id) && this.database.prepare(`
+        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
+          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
+      `).get(process.id)) throw new Error("Finish or cancel active work before archiving this process");
+      this.database.prepare("UPDATE processes SET archived_at = ?, updated_at = ? WHERE id = ?")
+        .run(at, at, process.id);
+      return {};
     });
     if (action === "edit_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
@@ -997,10 +1336,7 @@ export class BeesProduct {
         SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
           AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
       `).get(processId)) throw new Error("Finish or cancel active automatic work before editing this process");
-      const names = Array.isArray(input.stages) ? input.stages.map((value) => required(value, "Stage")) : [];
-      if (names.length < 2 || names.length > 12) throw new Error("A process needs 2 to 12 stages");
-      if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length)
-        throw new Error("Stage names must be unique");
+      const names = processStageNames(input.stages);
       const existing = this.database.prepare(`
         SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
       `).all(processId);
@@ -1035,6 +1371,94 @@ export class BeesProduct {
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
       return { id: processId };
     });
+    if (action === "set_stage_route") return transaction(this.database, () => {
+      const stageId = required(input.stageId, "Stage");
+      const stage = this.database.prepare(`
+        SELECT s.id, s.process_id AS processId, s.driver, p.workspace_id AS workspaceId
+        FROM stages s JOIN processes p ON p.id = s.process_id
+        WHERE s.id = ? AND s.archived_at IS NULL
+      `).get(stageId);
+      if (!stage) throw new Error("Stage not found");
+      workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
+      if (stage.driver === "terminal") throw new Error("A terminal stage does not run an agent");
+      if (this.processes.isAutomatic(stage.processId) && this.database.prepare(`
+        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
+          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
+      `).get(stage.processId)) throw new Error("Finish or cancel active automatic work before changing stage routing");
+      const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
+      const targetType = input.targetType || null;
+      const targetId = input.targetId ? required(input.targetId, "Route target") : null;
+      let agentId = null;
+      let poolId = null;
+      if (targetType === "agent") {
+        if (!assignment(this.database, targetId, stage.workspaceId)) throw new Error("Agent is not in this workspace");
+        agentId = targetId;
+      } else if (targetType === "pool") {
+        if (!this.database.prepare(`
+          SELECT 1 FROM agent_pools WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
+        `).get(targetId, stage.workspaceId)) throw new Error("Agent pool is not in this workspace");
+        poolId = targetId;
+      } else if (targetType) throw new Error("Stage routing must use an agent or pool");
+      if (!targetType && !requiredCapabilities.length) {
+        this.database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
+        return { id: stage.id };
+      }
+      this.database.prepare(`
+        INSERT INTO stage_routes
+          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(stage_id) DO UPDATE SET agent_assignment_id = excluded.agent_assignment_id,
+          agent_pool_id = excluded.agent_pool_id,
+          required_capabilities_json = excluded.required_capabilities_json,
+          updated_at = excluded.updated_at
+      `).run(stage.id, agentId, poolId, JSON.stringify(requiredCapabilities), at, at);
+      return { id: stage.id };
+    });
+    if (action === "add_agent_pool") return transaction(this.database, () => {
+      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
+      const id = randomUUID();
+      this.database.prepare(`
+        INSERT INTO agent_pools (id, workspace_id, name, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, workspace.id, required(input.name, "Pool name"), String(input.description ?? ""), at, at);
+      return { id };
+    });
+    if (action === "edit_agent_pool") return transaction(this.database, () => {
+      const id = required(input.agentPoolId, "Agent pool");
+      const pool = this.database.prepare(`
+        SELECT workspace_id AS workspaceId FROM agent_pools WHERE id = ? AND archived_at IS NULL
+      `).get(id);
+      if (!pool) throw new Error("Agent pool not found");
+      workspaceContext(this.database, pool.workspaceId, ["admin", "member"]);
+      this.database.prepare(`UPDATE agent_pools SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
+        .run(required(input.name, "Pool name"), String(input.description ?? ""), at, id);
+      return { id };
+    });
+    if (action === "set_agent_pool_member") return transaction(this.database, () => {
+      const poolId = required(input.agentPoolId, "Agent pool");
+      const agentId = required(input.agentAssignmentId, "Agent");
+      const pool = this.database.prepare(`
+        SELECT workspace_id AS workspaceId FROM agent_pools WHERE id = ? AND archived_at IS NULL
+      `).get(poolId);
+      if (!pool) throw new Error("Agent pool not found");
+      workspaceContext(this.database, pool.workspaceId, ["admin", "member"]);
+      if (!assignment(this.database, agentId, pool.workspaceId)) throw new Error("Agent is not in this pool's workspace");
+      if (input.remove) {
+        this.database.prepare(`DELETE FROM agent_pool_members WHERE pool_id = ? AND agent_assignment_id = ?`)
+          .run(poolId, agentId);
+        return { id: poolId };
+      }
+      const priority = Number(input.priority ?? 100);
+      if (!Number.isInteger(priority) || priority < 1 || priority > 1000)
+        throw new Error("Pool priority must be an integer from 1 to 1000");
+      this.database.prepare(`
+        INSERT INTO agent_pool_members (pool_id, agent_assignment_id, priority, enabled)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(pool_id, agent_assignment_id) DO UPDATE SET
+          priority = excluded.priority, enabled = excluded.enabled
+      `).run(poolId, agentId, priority, input.enabled === false ? 0 : 1);
+      return { id: poolId };
+    });
     if (action === "add_agent_assignment") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const presetId = required(input.presetId, "DSH preset");
@@ -1045,19 +1469,26 @@ export class BeesProduct {
       }
       return transaction(this.database, () => {
         const id = randomUUID();
+        const maxConcurrency = Number(input.maxConcurrency ?? 0);
+        if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
+          throw new Error("Agent concurrency must be an integer from 0 to 1000");
         this.database.prepare(`
           INSERT INTO agent_assignments
-            (id, workspace_id, preset_id, name, description, instructions, model, system_role, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            (id, workspace_id, preset_id, name, description, instructions, model, system_role,
+             capabilities_json, enabled, max_concurrency, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
         `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
-          String(input.description ?? ""), String(input.instructions ?? ""), input.model || null, at, at);
+          String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+          JSON.stringify(capabilities(input.capabilities)), input.enabled === false ? 0 : 1,
+          maxConcurrency, at, at);
         return { id };
       });
     }
     if (action === "edit_agent_assignment") {
       const id = required(input.agentAssignmentId, "Agent");
       const assignment = this.database.prepare(`
-        SELECT workspace_id AS workspaceId, name, system_role AS systemRole
+        SELECT workspace_id AS workspaceId, name, system_role AS systemRole,
+               capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency
         FROM agent_assignments WHERE id = ?
       `).get(id);
       if (!assignment) throw new Error("Agent not found");
@@ -1067,11 +1498,19 @@ export class BeesProduct {
         const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
         if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
       }
+      const nextCapabilities = Object.hasOwn(input, "capabilities")
+        ? capabilities(input.capabilities) : JSON.parse(assignment.capabilities || "[]");
+      const enabled = Object.hasOwn(input, "enabled") ? input.enabled !== false : Boolean(assignment.enabled);
+      const maxConcurrency = Number(Object.hasOwn(input, "maxConcurrency")
+        ? input.maxConcurrency : assignment.maxConcurrency);
+      if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
+        throw new Error("Agent concurrency must be an integer from 0 to 1000");
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
-          model = ?, updated_at = ? WHERE id = ?
+          model = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
-        String(input.description ?? ""), String(input.instructions ?? ""), input.model || null, at, id);
+        String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+        JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency, at, id);
       return { id };
     }
     if (action === "add_location") {
@@ -1194,18 +1633,20 @@ export class BeesProduct {
       const executionId = input.scheduleOccurrenceId ? stableUuid(input.scheduleOccurrenceId) : randomUUID();
       if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
         return { executionId };
+      const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)
+        .get(item.stageId, item.processId);
+      const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
+      const assignment = resolveStageAgent(this.database, {
+        executionId, item, stageId: item.stageId, purpose: stagePurpose
+      });
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
-      const assignment = item.agentAssignmentId ? this.database.prepare(`
-        SELECT preset_id AS presetId, name, instructions, model
-        FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(item.agentAssignmentId, item.workspaceId) : defaultAssignment(this.database, item.workspaceId);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`,
         initialData: {
           version: 1, mode: "work", executionId, workItemId: item.id,
-          agentId: item.agentAssignmentId || "bees-run", agentName: assignment?.name || "Bees work agent",
+          agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",

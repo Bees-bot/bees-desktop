@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -32,12 +32,44 @@ describe("Bees DSH product plugin", () => {
       { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 7 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
     initializeProductDatabase(database);
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
+  });
+
+  it("previews run text files without allowing paths outside inputs and outputs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-preview-"));
+    const database = new NodeDatabase();
+    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agents, null, root);
+    const workspaceId = (await product.snapshot()).workspaces[0].id;
+    const runDirectory = join(root, "runs", "preview-run");
+    mkdirSync(join(runDirectory, "inputs"), { recursive: true });
+    mkdirSync(join(runDirectory, "outputs"), { recursive: true });
+    writeFileSync(join(runDirectory, "inputs", "brief.md"), "# Brief\n\nChoose **one**.");
+    writeFileSync(join(runDirectory, "outputs", "notes.txt"), "agent notes");
+    writeFileSync(join(runDirectory, "secret.md"), "not previewable");
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('preview-run', ?, 'Preview agent', 'preview-session', 'preview-instance',
+        ?, '{}', 'waiting_for_input', '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
+    `).run(workspaceId, runDirectory);
+
+    expect((await product.snapshot()).runs[0].files).toEqual([
+      "inputs/brief.md", "outputs/notes.txt"
+    ]);
+    expect(product.runFile("preview-run", "inputs/brief.md")).toEqual({
+      name: "brief.md", path: "inputs/brief.md", format: "markdown",
+      content: "# Brief\n\nChoose **one**."
+    });
+    expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
+    expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");
+    rmSync(root, { recursive: true });
   });
 
   it("shares team locations and starts every process with visible default agents", async () => {
@@ -74,7 +106,7 @@ describe("Bees DSH product plugin", () => {
     await product.command({
       action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
       presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
-      model: "test/reviewer"
+      model: "test/reviewer", capabilities: ["review"]
     });
     expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({
       id: reviewer.id, name: "Bees reviewer", instructions: "Challenge every claim", model: "test/reviewer"
@@ -86,7 +118,7 @@ describe("Bees DSH product plugin", () => {
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
       id: created.id, stageId: work.id, kind: "goal", title: "Ship Stage 1", runtimePhase: "running",
-      agentAssignmentId: initial.assignments.find(({ systemRole }: any) => systemRole === "worker").id
+      agentAssignmentId: null
     }));
     await expect(product.command({ action: "move_item", itemId: created.id, stageId: work.id }))
       .rejects.toThrow("Temporal moves");
@@ -129,21 +161,118 @@ describe("Bees DSH product plugin", () => {
     await product.command({ action: "attach_location", processId: newProcess.id, locationId: location.id });
     await product.command({
       action: "edit_process", processId: newProcess.id, name: "Editorial",
-      description: "Publish reviewed work", stages: ["Draft", "Review", "Published"]
+      description: "Publish reviewed work", stages: ["Draft", "Polish", "Review", "Published"]
     });
     expect((await product.snapshot()).processes).toContainEqual(expect.objectContaining({
       id: newProcess.id, workspaceId: workspace.id, name: "Editorial"
     }));
+    const writer = await product.command({
+      action: "add_agent_assignment", workspaceId: workspace.id, presetId: "standard",
+      name: "Content writer", capabilities: ["writing"], instructions: "Use the editorial voice"
+    });
+    const backupReviewer = await product.command({
+      action: "add_agent_assignment", workspaceId: workspace.id, presetId: "standard",
+      name: "Backup reviewer", capabilities: ["review"]
+    });
+    const reviewPool = await product.command({
+      action: "add_agent_pool", workspaceId: workspace.id, name: "Editorial reviewers",
+      description: "Independent review"
+    });
+    await product.command({
+      action: "set_agent_pool_member", agentPoolId: reviewPool.id,
+      agentAssignmentId: reviewer.id, priority: 10
+    });
+    await product.command({
+      action: "set_agent_pool_member", agentPoolId: reviewPool.id,
+      agentAssignmentId: backupReviewer.id, priority: 10
+    });
+    const routed = await product.snapshot();
+    const draft = routed.stages.find(({ processId, name }: any) => processId === newProcess.id && name === "Draft");
+    const polish = routed.stages.find(({ processId, name }: any) => processId === newProcess.id && name === "Polish");
+    const review = routed.stages.find(({ processId, name }: any) => processId === newProcess.id && name === "Review");
+    await product.command({
+      action: "set_stage_route", stageId: draft.id, targetType: "agent", targetId: writer.id,
+      requiredCapabilities: ["writing"]
+    });
+    await product.command({
+      action: "set_stage_route", stageId: polish.id, targetType: "agent", targetId: writer.id,
+      requiredCapabilities: ["writing"]
+    });
+    await product.command({
+      action: "set_stage_route", stageId: review.id, targetType: "pool", targetId: reviewPool.id,
+      requiredCapabilities: ["review"]
+    });
+    expect((await product.snapshot()).stages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: draft.id, routeType: "agent", routeTargetId: writer.id, requiredCapabilities: ["writing"] }),
+      expect.objectContaining({ id: polish.id, routeType: "agent", routeTargetId: writer.id, requiredCapabilities: ["writing"] }),
+      expect.objectContaining({ id: review.id, routeType: "pool", routeTargetId: reviewPool.id, requiredCapabilities: ["review"] })
+    ]));
     const automaticItem = await product.command({
       action: "create_run", processId: newProcess.id, title: "Publish this week"
     });
     const executionId = "editorial-stage";
-    await product.runProcessStage({ workItemId: automaticItem.id, executionId, purpose: "worker", instructions: "Draft it" });
-    expect(stageRuns.at(-1)[1].initialData.grants).toEqual([location.id]);
-    await product.runProcessStage({ workItemId: automaticItem.id, executionId: "editorial-review", purpose: "reviewer", instructions: "Review it" });
+    await product.runProcessStage({ workItemId: automaticItem.id, stageId: draft.id, executionId, purpose: "worker", instructions: "Draft it" });
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
-      agentName: "Bees reviewer", model: "test/reviewer", instructions: "Challenge every claim\n\nReview it", grants: []
+      agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
+         instance_uid, run_directory, config_json, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'Content writer', 'draft-session', 'draft-instance', ?, '{}',
+        'completed', '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
+    `).run(executionId, workspace.id, automaticItem.id, join(runRoot, "runs", executionId));
+    database.connection.prepare(`
+      INSERT INTO bees_stage_results VALUES (?, 'worker', 'candidate', ?, '2026-08-23T00:00:00.000Z')
+    `).run(executionId, "Draft complete; do not repeat it");
+    writeFileSync(join(runRoot, "runs", executionId, "outputs", "draft.md"), "finished draft");
+    await product.runProcessStage({ workItemId: automaticItem.id, stageId: polish.id,
+      executionId: "editorial-polish", candidateExecutionId: executionId,
+      purpose: "worker", stageName: "Polish", instructions: "Polish it" });
+    expect(stageRuns.at(-1)[1].initialData).toMatchObject({
+      agentId: writer.id, agentName: "Content writer"
+    });
+    expect(stageRuns.at(-1)[1].body).toContain("do not recreate completed work or repeat approvals/actions");
+    expect(stageRuns.at(-1)[1].body).toContain("Draft complete; do not repeat it");
+    expect(readFileSync(join(runRoot, "runs", "editorial-polish", "outputs", "draft.md"), "utf8"))
+      .toBe("finished draft");
+    await product.command({
+      action: "edit_agent_assignment", agentAssignmentId: writer.id, presetId: "standard",
+      name: "Content writer", capabilities: ["writing"], instructions: "Use a changed voice"
+    });
+    await product.runProcessStage({ workItemId: automaticItem.id, stageId: draft.id, executionId, purpose: "worker", instructions: "Draft it" });
+    expect(stageRuns.at(-1)[1].initialData.instructions).toBe("Use the editorial voice\n\nDraft it");
+    await expect(product.command({
+      action: "set_stage_route", stageId: draft.id, targetType: null, targetId: null
+    })).rejects.toThrow("Finish or cancel active automatic work");
+    const expectedReviewers = [reviewer.id, backupReviewer.id].sort();
+    await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
+      executionId: "editorial-review", purpose: "reviewer", instructions: "Review it" });
+    expect(stageRuns.at(-1)[1].initialData).toMatchObject({
+      agentId: expectedReviewers[0], grants: []
+    });
+    await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
+      executionId: "editorial-review-2", purpose: "reviewer", instructions: "Review it again" });
+    expect(stageRuns.at(-1)[1].initialData.agentId).toBe(expectedReviewers[1]);
+    await product.command({
+      action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
+      presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
+      model: "test/reviewer", capabilities: ["review"], maxConcurrency: 1
+    });
+    await product.command({
+      action: "edit_agent_assignment", agentAssignmentId: backupReviewer.id,
+      name: "Backup reviewer", presetId: "standard", capabilities: ["review"], maxConcurrency: 1
+    });
+    await expect(product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
+      executionId: "editorial-review-3", purpose: "reviewer", instructions: "Review when free" }))
+      .resolves.toEqual({ outcome: "waiting", summary: "The Editorial reviewers pool is at capacity" });
+    expect(database.connection.prepare(`
+      SELECT target_type, target_id, agent_assignment_id, reason
+      FROM agent_dispatches WHERE execution_id = 'editorial-review'
+    `).get()).toEqual(expect.objectContaining({
+      target_type: "pool", target_id: reviewPool.id,
+      agent_assignment_id: expectedReviewers[0], reason: expect.stringContaining("least recently assigned")
+    }));
     expect(temporalStarts).toContainEqual(expect.objectContaining({ workflowId: `bees/work-item/${automaticItem.id}` }));
     expect((await product.snapshot()).processAttachments).toContainEqual(expect.objectContaining({
       processId: newProcess.id, locationId: location.id
@@ -152,9 +281,24 @@ describe("Bees DSH product plugin", () => {
       runRoot, "runs", executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
     ), "utf8")).toContain("Honey launch");
 
+    const savedTemplate = await product.command({
+      action: "save_process_template", processId: newProcess.id, name: "Editorial blueprint"
+    });
+    expect((await product.snapshot()).templates).toContainEqual(expect.objectContaining({
+      id: savedTemplate.id, name: "Editorial blueprint",
+      stages: ["Draft", "Polish", "Review", "Published"]
+    }));
+    await product.command({ action: "archive_process_template", templateId: savedTemplate.id });
+    expect((await product.snapshot()).templates).not.toContainEqual(expect.objectContaining({ id: savedTemplate.id }));
+    const oldProcess = await product.command({
+      action: "create_process", workspaceId: workspace.id, name: "Old process", stages: ["Start", "Done"]
+    });
+    await product.command({ action: "archive_process", processId: oldProcess.id });
+    expect((await product.snapshot()).processes).not.toContainEqual(expect.objectContaining({ id: oldProcess.id }));
+
     const [child] = await product.createSubitems({ parentId: automaticItem.id, items: [{ title: "Check links" }] });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
-      id: child.id, parentId: automaticItem.id, agentAssignmentId: initial.assignments.find(({ systemRole }: any) => systemRole === "worker").id,
+      id: child.id, parentId: automaticItem.id, agentAssignmentId: null,
       runtimePhase: "running"
     }));
 

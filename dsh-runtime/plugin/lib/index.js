@@ -147,6 +147,12 @@ export async function apply(ctx, _config = {}, internals = {}) {
       reply(res, 200, { history: await product.runHistory(executionId) });
     } catch (error) { reply(res, 409, { error: message(error) }); }
   } });
+  register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? ""));
+    } catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try { reply(res, 200, await product.command(await body(req))); }

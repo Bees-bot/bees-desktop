@@ -78,6 +78,11 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
     expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');
+    expect(client).toContain('new PendingQuestion(wait)');
+    expect(client).toContain('"Approve once"');
+    expect(client).toContain('h(FilePreview, { target: viewer })');
+    expect(client).toContain('h(MarkdownText, { text: file.content })');
+    expect(client).toContain('"sessions"]');
     expect(client).not.toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('"data-model-toggle": "download"');
@@ -90,7 +95,14 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).not.toContain("window.prompt");
     expect(client).not.toContain("window.confirm");
     expect(client).toContain('document.createElement("dialog")');
-    expect(client).toContain('item.runtimeError ? h("p", { className: "bees-error" }, item.runtimeError)');
+    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-callout" }');
+    expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
+    expect(client).toContain('summary.origin === "subagent"');
+    expect(client).toContain('className: "bees-hierarchy-card bees-subagent-card"');
+    expect(client).toContain('!summary.running');
+    expect(client).toContain('.flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId])');
+    expect(client).not.toContain('function AgentActivity');
+    expect(client).toContain('"New work"');
     expect(client).not.toContain("<iframe");
   });
 
@@ -175,6 +187,23 @@ describe("DSH-owned desktop and recovery", () => {
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
     ).get()).toEqual({ status: "interrupted" });
     expect(replacement.pendingApproval("run")).toBeNull();
+  });
+
+  it("records an aborted question as cancelled rather than answered", () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database);
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/call", seq: 4,
+      data: { name: "ask_user_question", callId: "question-1", arguments: "Continue?" }
+    });
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/result", seq: 5,
+      data: { error: { code: "ASK_ABORTED" }, message: { source: { callId: "question-1" }, content: [] } }
+    });
+    expect(database.connection.prepare(`
+      SELECT count(*) AS count FROM dsh_audit_events WHERE event_type = 'question-cancelled'
+    `).get()).toEqual({ count: 1 });
   });
 
   it("records a completed tool boundary once under duplicate delivery", () => {
