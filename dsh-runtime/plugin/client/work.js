@@ -24,17 +24,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status));
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
   const pendingSummary = pendingRun ? sessions.byId[pendingRun.sessionId] : null;
-  const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : null;
-  const pendingSession = useSnapshot(binding?.session);
-  const expectedInteraction = pendingSummary?.pendingInteraction;
-  const interaction = pendingSession?.pending?.find((wait) => !handled.has(wait.key) &&
-    (expectedInteraction === "plan-review" ? wait.kind === "question" : wait.kind === expectedInteraction))
-    ?? pendingSession?.pending?.find((wait) => !handled.has(wait.key));
+  // Do NOT call ctx.sessions.binding() here — it tells the DeepSeek host the session
+  // is "active" and causes it to auto-navigate away from the work item cockpit.
+  const interaction = null;
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
     setActiveTab("details");
   }, [item.id]);
-  /* Removed ctx.sessions.open to prevent host UI from hijacking navigation */
   useEffect(() => {
     let active = true;
     if (!run) { setHistory(null); return () => { active = false; }; }
@@ -142,9 +138,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
         ...convoItems,
         pendingRun ? h(AgentInteractionPanel, {
           run: pendingRun, item, summary: pendingSummary, session: pendingSession,
-          interaction, handled, onAnswered: answered,
-          onOpen: () => ctx.sessions.open(pendingRun.sessionId),
-          openLabel: "Open DeepSeek screen"
+          interaction, handled, onAnswered: answered
         }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),
@@ -485,7 +479,6 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
   useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
-/* Removed ctx.sessions.open to prevent host UI from hijacking navigation */
   const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
   const session = useSnapshot(binding?.session);
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key) &&
@@ -518,7 +511,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         h(AgentInteractionPanel, {
           run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled,
           onAnswered: answered,
-          onOpen: () => { if (selected.run.workItemId) openWorkItem(selected.run.workItemId); else openRun(selected.run.id); ctx.sessions.open(selected.run.sessionId); },
+          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
           openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
     ) : h(Empty, null, "No live agent questions or approvals right now"),
@@ -528,7 +521,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
           h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
-          h(Button, { onClick: () => { if (run.workItemId) openWorkItem(run.workItemId); else openRun(run.id); if (run.sessionId) ctx.sessions.open(run.sessionId); } }, run.workItemId ? "Open work" : "Open run"));
+          h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run"));
       })) : null
   );
 }
