@@ -323,7 +323,7 @@ describe("Bees DSH public contract", () => {
       expect(pluginHost).toContain("systemDefaultModel: ctx.agentDefaultModel.currentSelection()");
       expect(pluginHost).toContain('path: "/bees-api/system-default-model"');
       expect(pluginHost).toContain("ctx.agentDefaultModel.saveSelection");
-      expect(client).toContain('NAVIGATION.flatMap((item) => [');
+      expect(client).toContain('NAVIGATION.find((item) => item.id === id || item.children.some(([child]) => child === id))');
       expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
       expect(client).toContain('...pinnedRows(pinned.route).map');
       expect(client).toContain('h(PinButton, { id: route, label: routeLabel, pins, setPins })');

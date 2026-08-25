@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   // dsh-runtime/plugin/client/runtime.js
-  var React2;
+  var React;
   var h;
   var useEffect;
   var useMemo;
@@ -17,9 +17,9 @@
   var CustomAiSettings;
   var SubscriptionSettings;
   function configureRuntime(require2) {
-    React2 = require2("react");
-    h = React2.createElement;
-    ({ useEffect, useMemo, useRef, useState } = React2);
+    React = require2("react");
+    h = React.createElement;
+    ({ useEffect, useMemo, useRef, useState } = React);
     ({ MarkdownText } = require2("@deepseek-ai/dsh-client-ui-primitives"));
     ({ PendingQuestion } = require2("@deepseek-ai/dsh-client-ui-user-questions"));
     ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require2("@bees/dsh-local-ai"));
@@ -28,42 +28,96 @@
     ({ SubscriptionSettings } = require2("@bees/dsh-subscriptions"));
   }
 
+  // dsh-runtime/plugin/client/icons.js
+  function Icon({ d, polyline, rect, circle, size = 18 }) {
+    const children = [];
+    if (d) {
+      (Array.isArray(d) ? d : [d]).forEach((pathData, i) => {
+        children.push(h("path", { d: pathData, key: `path-${i}` }));
+      });
+    }
+    if (polyline) {
+      (Array.isArray(polyline) ? polyline : [polyline]).forEach((points, i) => {
+        children.push(h("polyline", { points, key: `polyline-${i}` }));
+      });
+    }
+    if (rect) {
+      (Array.isArray(rect) ? rect : [rect]).forEach((props, i) => {
+        children.push(h("rect", { ...props, key: `rect-${i}` }));
+      });
+    }
+    if (circle) {
+      (Array.isArray(circle) ? circle : [circle]).forEach((props, i) => {
+        children.push(h("circle", { ...props, key: `circle-${i}` }));
+      });
+    }
+    return h("svg", {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    }, ...children);
+  }
+  var HomeIcon = () => h(Icon, { d: ["m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"], polyline: "9 22 9 12 15 12 15 22" });
+  var WorkIcon = () => h(Icon, { d: "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16", rect: { width: "20", height: "14", x: "2", y: "7", rx: "2", ry: "2" } });
+  var AgentsIcon = () => h(Icon, { d: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"], circle: { cx: "9", cy: "7", r: "4" } });
+  var ProcessesIcon = () => h(Icon, { d: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"] });
+  var FilesIcon = () => h(Icon, { d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" });
+  var ActivityIcon = () => h(Icon, { circle: { cx: "12", cy: "12", r: "10" }, polyline: "12 6 12 12 16 14" });
+  var KnowledgeIcon = () => h(Icon, { circle: { cx: "11", cy: "11", r: "8" }, d: "m21 21-4.3-4.3" });
+  var SettingsIcon = () => h(Icon, { circle: { cx: "12", cy: "12", r: "3" }, d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" });
+  var PinIcon = ({ active }) => h("svg", {
+    xmlns: "http://www.w3.org/2000/svg",
+    width: "16",
+    height: "16",
+    viewBox: "0 0 24 24",
+    fill: active ? "currentColor" : "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, h("line", { x1: "12", y1: "17", x2: "12", y2: "22" }), h("path", { d: "M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.87l-1.78.9A2 2 0 0 0 5 15.24Z" }));
+  var BookIcon = () => h(Icon, { d: ["M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"] });
+
   // dsh-runtime/plugin/client/shared.js
   var NAVIGATION = [
-    { id: "home", label: "Home", icon: "⌂", defaultChild: "home", children: [
-      ["guide", "How Bees works"]
-    ] },
-    { id: "work", label: "Work", icon: "✓", defaultChild: "all-work", children: [
+    { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
+    { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [
       ["all-work", "All work"],
       ["goals", "Goals"],
       ["waiting", "Needs you"],
       ["completed", "Completed"]
     ] },
-    { id: "processes", label: "Processes", icon: "◇", defaultChild: "all-processes", children: [
-      ["all-processes", "All processes"],
-      ["templates", "Templates"]
-    ] },
-    { id: "agents", label: "Agents", icon: "◎", defaultChild: "all-agents", children: [
+    { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
       ["all-agents", "All agents"],
       ["pools", "Pools"],
       ["skills", "Skills & tools"]
     ] },
-    { id: "files", label: "Files & Folders", icon: "$", defaultChild: "locations", children: [
+    { id: "processes", label: "Processes", icon: ProcessesIcon, defaultChild: "all-processes", children: [
+      ["all-processes", "All processes"],
+      ["templates", "Templates"]
+    ] },
+    { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [
       ["locations", "Locations"],
       ["mappings", "My mappings"],
       ["references", "References"]
     ] },
-    { id: "activity", label: "Activity", icon: "◷", defaultChild: "runs", children: [
+    { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
       ["runs", "Runs"],
       ["evaluations", "Evaluations"],
       ["audit", "Audit"]
     ] },
-    { id: "knowledge", label: "Knowledge", icon: "⌕", defaultChild: "search", children: [
+    { id: "knowledge", label: "Knowledge", icon: KnowledgeIcon, defaultChild: "search", children: [
       ["search", "Search"],
       ["sources", "Sources"],
       ["artifacts", "Artifacts"]
     ] },
-    { id: "settings", label: "Settings", icon: "⚙", defaultChild: "personal-ai", children: [
+    { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai", children: [
       ["personal-ai", "AI connections"],
       ["appearance", "Appearance"],
       ["organizations", "Organizations & invitations"],
@@ -81,10 +135,11 @@
     ["system", "System"]
   ];
   var css = `
-  .bees-app{position:absolute;inset:0;z-index:90;display:grid;grid-template-columns:240px 1fr;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:14px/1.4 system-ui,-apple-system,sans-serif;pointer-events:auto}
-  .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:auto}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 10px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}.bees-context-switcher{position:relative;margin:0 12px 11px}.bees-context-switcher summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer;list-style:none}.bees-context-switcher summary::-webkit-details-marker{display:none}.bees-context-summary{min-width:0;flex:1}.bees-context-primary,.bees-context-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-context-primary{font-weight:750}.bees-context-secondary{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-context-arrow{color:var(--dsw-alias-label-secondary)}.bees-context-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:100%;max-height:430px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-context-search{margin-bottom:7px}.bees-context-section{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l1)}.bees-context-section:first-of-type{border-top:0}.bees-context-label{padding:2px 7px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}.bees-context-option{display:flex;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-context-option:hover,.bees-context-option.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-context-check{width:14px}.bees-context-add{color:var(--dsw-alias-label-secondary)}
-  .bees-nav{display:grid;gap:2px;padding:0 8px 12px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link:hover,.bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;filter:grayscale(1);opacity:.55}.bees-nav-pin:hover,.bees-nav-pin.active{background:var(--dsw-alias-interactive-bg-hover);filter:none;opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}
-  .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-button-elevated-fill);cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-hover)}.bees-theme-toggle svg{width:16px;height:16px}.bees-theme-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}.bees-panel-wide{max-width:none}
+  .bees-app{position:absolute;inset:0;z-index:90;display:grid;grid-template-columns:240px 1fr;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";pointer-events:auto}
+  .bees-app *{box-sizing:border-box}.bees-sidebar{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);overflow:visible}.bees-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 10px;font-size:19px;font-weight:800}.bees-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2b84b;color:#21190b}.bees-context-switcher{position:relative;margin:0 12px 11px}.bees-context-switcher summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer;list-style:none;box-shadow:0 1px 2px #0001}.bees-context-switcher summary::-webkit-details-marker{display:none}.bees-context-summary{min-width:0;flex:1}.bees-context-primary,.bees-context-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-context-primary{font-weight:750}.bees-context-secondary{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-context-arrow{color:var(--dsw-alias-label-secondary)}.bees-context-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:100%;max-height:430px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 14px 35px #0004}.bees-context-search{margin-bottom:7px}.bees-context-section{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l1)}.bees-context-section:first-of-type{border-top:0}.bees-context-label{padding:2px 7px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}.bees-context-option{display:flex;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-context-option:hover,.bees-context-option.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-context-check{width:14px}.bees-context-add{color:var(--dsw-alias-label-secondary)}
+  .bees-nav{display:grid;gap:2px;padding:0 8px 12px;position:relative}.bees-nav-separator{height:1px;background:var(--dsw-alias-border-l1);margin:8px 6px}.bees-nav-group{padding:7px 6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-nav-group-head,.bees-nav-menu{display:flex;align-items:center;position:relative;border-radius:8px;transition:background 0.1s}.bees-nav-group-head:hover,.bees-nav-menu:hover,.bees-nav-group-head.active,.bees-nav-menu.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-group-head .bees-nav-link,.bees-nav-menu .bees-nav-link{min-width:0;flex:1}.bees-nav-link{display:flex;align-items:center;gap:9px;width:100%;border:0;border-radius:8px;padding:7px 9px;color:inherit;background:transparent;text-align:left;font:inherit;cursor:pointer}.bees-nav-link.active{font-weight:750}.bees-nav-child{padding-left:31px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bees-nav-record{padding-left:31px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-nav-record:hover,.bees-nav-record.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-pin{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;opacity:0}.bees-nav-pin:focus-visible,.bees-nav-group-head:hover .bees-nav-pin,.bees-nav-group-head.active .bees-nav-pin,.bees-nav-menu:hover .bees-nav-pin,.bees-nav-menu.active .bees-nav-pin,.bees-nav-flyout-item:hover .bees-nav-pin,.bees-nav-flyout-item.active .bees-nav-pin,.bees-nav-pin.active{opacity:1}.bees-nav-pin.active{opacity:0.55}.bees-nav-pin:hover,.bees-nav-pin.active:hover,.bees-nav-pin:focus-visible{background:var(--dsw-alias-interactive-bg-hover);opacity:1}.bees-nav-standard{margin-top:6px}.bees-sidebar-foot{margin-top:auto;padding:10px 12px}.bees-sidebar-foot .bees-nav-link.active{background:var(--dsw-alias-interactive-bg-hover)}
+  .bees-nav-flyout{position:absolute;left:calc(100% - 4px);top:0;z-index:100;min-width:180px;display:grid;gap:2px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 8px 30px #0003;pointer-events:none;opacity:0;transition:opacity 0.1s}.bees-nav-menu:hover .bees-nav-flyout,.bees-nav-menu:focus-within .bees-nav-flyout{pointer-events:auto;opacity:1}.bees-nav-flyout-item{display:flex;align-items:center;border-radius:8px}.bees-nav-flyout-item:hover,.bees-nav-flyout-item.active{background:var(--dsw-alias-interactive-bg-hover)}.bees-nav-flyout-item .bees-nav-link{padding-left:9px;font-size:13px;color:var(--dsw-alias-label-primary)}
+  .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.bees-top{height:58px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-button-elevated-fill);cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-hover)}.bees-theme-toggle svg{width:16px;height:16px}.bees-theme-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:22px}.bees-panel{max-width:1050px;margin:0 auto}.bees-panel-wide{max-width:none}
   .bees-btn,.bees-select,.bees-input,.bees-textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-button-elevated-fill);font:inherit}.bees-btn{padding:7px 11px;cursor:pointer}.bees-btn:hover{background:var(--dsw-alias-button-floating-hover)}.bees-btn.primary{background:#f2b84b;color:#21190b;border-color:#f2b84b;font-weight:700}.bees-btn.danger{color:#d15353}.bees-btn:disabled{opacity:.5;cursor:not-allowed}.bees-select,.bees-input,.bees-textarea{padding:8px 9px}.bees-input,.bees-textarea{width:100%}.bees-textarea{min-height:88px;resize:vertical}
   .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:15px;background:var(--dsw-specific-sidebar-fill)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;padding:28px;text-align:center;color:var(--dsw-alias-label-secondary)}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed,.bees-interrupted{color:#cf5b5b}
   .bees-hero{padding:34px;border:1px solid var(--dsw-alias-border-l1);border-radius:18px;background:linear-gradient(135deg,#f2b84b18,transparent 55%)}.bees-hero h1{font-size:32px;line-height:1.15;margin:0 0 10px}.bees-hero form{display:flex;gap:8px;margin-top:20px}.bees-hero .bees-input{font-size:16px}.bees-proposals{margin-top:18px}.bees-change{margin:7px 0;padding:9px;border-radius:8px;background:var(--dsw-alias-bg-base)}
@@ -96,7 +151,8 @@
   .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabs{display:flex;gap:4px;margin:-5px -5px 14px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-audit{border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-audit>summary{cursor:pointer;list-style-position:inside}.bees-audit>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-audit>summary span{display:block}.bees-audit-detail{padding:0 12px 12px 27px}.bees-audit-detail pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-agent-form textarea{min-height:180px}
   .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
   .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
-  @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
+  .bees-workspace-layout{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}.bees-convo-panel{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill);height:600px;overflow:hidden}.bees-convo-history{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}.bees-convo-composer{padding:12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}.bees-convo-msg{padding:10px 14px;border-radius:12px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);max-width:85%}.bees-convo-msg.user{align-self:flex-end;background:#f2b84b22;border-color:#f2b84b}.bees-convo-msg.agent{align-self:flex-start}.bees-convo-msg.system{align-self:center;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);background:transparent;border:none}.bees-details-panel{display:flex;flex-direction:column;gap:12px}
+  @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox,.bees-workspace-layout{grid-template-columns:1fr}}
 `;
   async function request2(path, options) {
     const response = await fetch(path, {
@@ -266,18 +322,16 @@
     return h("div", { className: "bees-empty" }, children);
   }
   function PinButton({ id, label, pins, setPins }) {
-    const pinned = pins.includes(id);
+    const active = pins.includes(id);
     return h("button", {
-      type: "button",
-      className: `bees-nav-pin ${pinned ? "active" : ""}`,
-      title: `${pinned ? "Unpin" : "Pin"} ${label}`,
-      "aria-label": `${pinned ? "Unpin" : "Pin"} ${label}`,
-      "aria-pressed": pinned,
-      onClick: (event) => {
-        event.stopPropagation();
-        setPins(pinned ? pins.filter((pin) => pin !== id) : [...pins, id]);
+      className: `bees-nav-pin ${active ? "active" : ""}`,
+      title: active ? `Unpin ${label}` : `Pin ${label}`,
+      "aria-label": active ? `Unpin ${label}` : `Pin ${label}`,
+      onClick: (e) => {
+        e.stopPropagation();
+        setPins(active ? pins.filter((p) => p !== id) : [...pins, id]);
       }
-    }, "📌");
+    }, h(PinIcon, { active }));
   }
   var isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
   function workItemsFor(data, route, workspaceIds) {
@@ -289,49 +343,89 @@
   }
 
   // dsh-runtime/plugin/client/home.js
-  function Home({ data, workspaceId, act, askBees }) {
+  function Home({ data, workspaceId, act, openWorkItem }) {
     const [outcome, setOutcome] = useState("");
-    const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const submit = async () => {
+      if (!workspaceId || !outcome.trim()) return;
+      setBusy(true);
+      setError("");
+      try {
+        const text = outcome.trim();
+        const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+        const title = lines[0].length > 60 ? lines[0].substring(0, 57) + "..." : lines[0];
+        const created = await act({ action: "create_goal", workspaceId, title, description: text, priority: "normal" });
+        if (created?.id) openWorkItem(created.id);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        setBusy(false);
+      }
+    };
+    const processes = data.processes.filter((row) => row.workspaceId === workspaceId && row.kind === "standard");
+    const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
+    const cards = [...templates.map((t) => ({ ...t, isTemplate: true })), ...processes.map((p) => ({ ...p, isTemplate: false }))];
     return h(
       "div",
       { className: "bees-panel" },
       h(
         "section",
-        { className: "bees-hero" },
-        h("h1", null, "What outcome should Bees own?"),
-        h("p", { className: "bees-muted" }, "Ask an agent to propose a goal or visible process. Nothing changes until you review and apply it."),
+        { className: "bees-hero bees-home-hero" },
+        h("div", { className: "bees-status" }, "START WITH THE OUTCOME"),
+        h("h1", null, "What do you want to accomplish?"),
+        h("p", { className: "bees-muted" }, "Describe your goal. Bees will plan the steps and perform the work."),
         h(
           "form",
           { onSubmit: (event) => {
             event.preventDefault();
-            if (outcome.trim()) void askBees(outcome).then(() => setOutcome(""));
+            void submit();
           } },
-          h("input", { className: "bees-input", value: outcome, disabled: !workspaceId, onChange: (event) => setOutcome(event.target.value), placeholder: workspaceId ? "Launch the new product without missing a handoff" : "Choose a workspace first", "aria-label": "Outcome" }),
-          h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() }, "Ask Bees")
+          h("textarea", {
+            className: "bees-textarea bees-home-textarea",
+            value: outcome,
+            disabled: !workspaceId || busy,
+            onChange: (event) => setOutcome(event.target.value),
+            placeholder: workspaceId ? "Before every sales meeting, research the company, attendees, and competitors, then rank the best reasons they should adopt Bees." : "Choose a workspace first",
+            "aria-label": "Goal outcome"
+          }),
+          error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+          h(
+            "div",
+            { className: "bees-prompt-actions" },
+            h("button", { type: "submit", className: "bees-btn primary bees-home-submit", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Ask Bees")
+          )
         )
       ),
       h(
         "div",
-        { className: "bees-proposals" },
-        h("h2", null, "Proposals"),
-        ...proposals.length ? proposals.map((proposal) => h(
-          "article",
-          { className: "bees-box", key: proposal.id },
-          h("h3", null, proposal.title),
-          h("p", { className: "bees-muted" }, proposal.summary),
-          ...proposal.changes.map((change, index) => h(
-            "div",
-            { className: "bees-change", key: index },
-            h("strong", null, change.action === "create_goal" ? `Goal: ${change.title}` : `Process: ${change.name}`),
-            change.stages ? h("div", { className: "bees-muted" }, change.stages.join(" → ")) : null
-          )),
-          h(
-            "div",
-            { className: "bees-card-actions" },
-            h(Button, { className: "primary", onClick: () => act({ action: "apply_proposal", proposalId: proposal.id }) }, "Apply proposal"),
-            h(Button, { onClick: () => act({ action: "reject_proposal", proposalId: proposal.id }) }, "Dismiss")
-          )
-        )) : [h(Empty, { key: "empty" }, "No proposals waiting for review")]
+        { className: "bees-home-templates" },
+        h("h3", { className: "bees-section-title" }, "Or start from a Template"),
+        cards.length ? h(
+          "div",
+          { className: "bees-grid" },
+          ...cards.map((card) => h(
+            "button",
+            {
+              className: "bees-hierarchy-card",
+              key: card.id,
+              onClick: async () => {
+                if (card.isTemplate) {
+                  const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
+                  if (p?.id) {
+                    const w = await act({ action: "create_run", processId: p.id, title: `Run ${card.name}` });
+                    if (w?.id) openWorkItem(w.id, p.id);
+                  }
+                } else {
+                  const w = await act({ action: "create_run", processId: card.id, title: `New ${card.name} run` });
+                  if (w?.id) openWorkItem(w.id, card.id);
+                }
+              }
+            },
+            h("h3", null, card.name),
+            h("div", { className: "bees-muted" }, card.description || (card.isTemplate ? "Template" : "Process"))
+          ))
+        ) : h("p", { className: "bees-muted" }, "No templates or processes available.")
       )
     );
   }
@@ -405,10 +499,11 @@
     const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
     const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
     const [selectedRun, setSelectedRun] = useState("");
-    const [activeTab, setActiveTab] = useState("description");
+    const [activeTab, setActiveTab] = useState("details");
     const [handled, setHandled] = useState(() => /* @__PURE__ */ new Set());
     const [history, setHistory] = useState(null);
     const [audit, setAudit] = useState([]);
+    const convoRef = React.useRef(null);
     const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
     const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status));
     const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
@@ -417,13 +512,11 @@
     const pendingSession = useSnapshot(binding?.session);
     const expectedInteraction = pendingSummary?.pendingInteraction;
     const interaction = pendingSession?.pending?.find((wait) => !handled.has(wait.key) && (expectedInteraction === "plan-review" ? wait.kind === "question" : wait.kind === expectedInteraction)) ?? pendingSession?.pending?.find((wait) => !handled.has(wait.key));
-    const attentionCount = Math.max(itemRuns.filter(({ status }) => ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status)).length, item.runtimeError ? 1 : 0);
-    const needsAttention = attentionCount > 0;
     useEffect(() => {
       setSelectedRun("");
       setHistory(null);
       setHandled(/* @__PURE__ */ new Set());
-      setActiveTab(needsAttention ? "needs" : "description");
+      setActiveTab("details");
     }, [item.id]);
     useEffect(() => {
       if (pendingRun?.sessionId) void ctx.sessions.open(pendingRun.sessionId);
@@ -448,6 +541,9 @@
         active = false;
       };
     }, [item.id, data.runs.length]);
+    useEffect(() => {
+      if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight;
+    }, [history, pendingRun, interaction]);
     const edit = async () => {
       const title = await ask("Work title", item.title);
       if (!title) return;
@@ -489,135 +585,129 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       const location = choices.find((row) => row.name === name);
       if (run && location) await act({ action: "publish_run", executionId: run.id, locationId: location.id });
     };
-    const runAudit = new Set(itemRuns.map(({ id }) => id));
-    const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
-    const assignAgent = (agentAssignmentId) => act({
-      action: "edit_item",
-      itemId: item.id,
-      title: item.title,
-      description: item.description,
-      owner: item.owner,
-      priority: item.priority,
-      parentId: item.parentId,
-      agentAssignmentId: agentAssignmentId || null
-    });
     const archive = async () => {
       if (!await confirmAction2(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
       if (await act({ action: "archive_item", itemId: item.id })) onArchived?.();
     };
     const answered = (key) => setHandled((current) => new Set(current).add(key));
-    const tabs = [
-      ["needs", "Questions & approvals"],
-      ["description", "Process description"],
-      ["runs", "Runs & details"],
-      ["audit", "Audit"]
-    ];
+    const runAudit = new Set(itemRuns.map(({ id }) => id));
+    const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
+    const convoItems = [];
+    if (item.title) convoItems.push(h("div", { className: "bees-convo-msg user", key: "start" }, h("strong", null, item.kind === "goal" ? "Goal" : "Work item"), h("div", null, item.title)));
+    if (history?.messages) {
+      let toolCount = 0;
+      for (const msg of history.messages) {
+        if (msg.role === "user") convoItems.push(h("div", { className: "bees-convo-msg user", key: msg.id }, msg.parts.map((p) => p.text).join(" ")));
+        else {
+          const textParts = msg.parts.filter((p) => p.text);
+          const toolParts = msg.parts.filter((p) => p.type === "tool");
+          if (textParts.length) convoItems.push(h("div", { className: "bees-convo-msg agent", key: msg.id }, h("strong", null, "Agent"), h("div", null, textParts.map((p) => p.text).join(" "))));
+          if (toolParts.length) {
+            toolCount += toolParts.length;
+            convoItems.push(h("div", { className: "bees-convo-msg system", key: `tool-${msg.id}` }, `${toolParts.length} tasks/actions performed`));
+          }
+        }
+      }
+    } else if (events.length) {
+      convoItems.push(h("div", { className: "bees-convo-msg system", key: "audit-events" }, `${events.length} background events recorded`));
+    }
     return h(
       "div",
-      { className: "bees-cockpit-detail" },
+      { className: "bees-workspace-layout" },
       h(
-        "section",
-        { className: "bees-box" },
-        h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" }, ...tabs.map(([id, label]) => h("button", {
-          type: "button",
-          role: "tab",
-          id: `bees-tab-${id}`,
-          key: id,
-          className: `bees-tab ${activeTab === id ? "active" : ""}`,
-          "aria-selected": activeTab === id,
-          "aria-controls": "bees-detail-panel",
-          onClick: () => setActiveTab(id)
-        }, label, id === "needs" && needsAttention ? ` · ${attentionCount}` : ""))),
+        "div",
+        { className: "bees-convo-panel" },
         h(
           "div",
-          { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
-          activeTab === "needs" ? h(
-            React2.Fragment,
-            null,
-            item.runtimeError ? h(
-              "div",
-              { className: "bees-callout" },
-              h("h3", null, item.runtimePhase === "failed" ? "This needs your attention" : "Waiting"),
-              h("div", null, item.runtimeError)
-            ) : null,
-            pendingRun ? h(AgentInteractionPanel, {
-              run: pendingRun,
-              item,
-              summary: pendingSummary,
-              session: pendingSession,
-              interaction,
-              handled,
-              onAnswered: answered
-            }) : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item")
-          ) : activeTab === "description" ? h(
-            React2.Fragment,
-            null,
-            h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
-            h("h2", null, item.title),
-            h("h3", { className: "bees-section-title" }, process?.name ?? "Process"),
-            process?.description ? h(MarkdownText, { text: process.description }) : h("p", { className: "bees-muted" }, "No process description"),
-            h("h3", { className: "bees-section-title" }, "Work item"),
-            item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted" }, "No work item description"),
-            h("p", { className: "bees-muted" }, assignment ? `Worker override: ${assignment.name}${assignment.model ? ` · ${assignment.model}` : " · default model"}` : `Stage route: ${routeLabel}`),
-            stage?.driver !== "terminal" ? h(
-              "label",
-              { className: "bees-form" },
-              "Agent for this item",
-              h(
-                "select",
-                {
-                  className: "bees-select",
-                  value: item.agentAssignmentId ?? "",
-                  "aria-label": "Agent for this work item",
-                  onChange: (event) => void assignAgent(event.target.value)
-                },
-                h("option", { value: "" }, `Use stage route (${routeLabel})`),
-                ...assignments.map((agent) => h(
-                  "option",
-                  { value: agent.id, key: agent.id, disabled: !agent.enabled },
-                  `${agent.name}${agent.enabled ? "" : " (unavailable)"}`
-                ))
-              )
-            ) : null,
-            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"))
-          ) : activeTab === "runs" ? h(
-            React2.Fragment,
-            null,
-            h(
-              "div",
-              { className: "bees-detail-actions" },
-              ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
-              item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
-              item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
-              ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
-              h(Button, { className: "danger", onClick: archive }, "Archive"),
+          { className: "bees-convo-history", ref: convoRef },
+          ...convoItems,
+          pendingRun ? h(AgentInteractionPanel, {
+            run: pendingRun,
+            item,
+            summary: pendingSummary,
+            session: pendingSession,
+            interaction,
+            handled,
+            onAnswered: answered
+          }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
+          item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
+        ),
+        h(
+          "div",
+          { className: "bees-convo-composer" },
+          h(
+            "div",
+            { style: { display: "flex", gap: "8px" } },
+            h("input", { className: "bees-input", placeholder: pendingRun ? "Answer above..." : "Composer available when agent asks...", disabled: true, style: { flex: 1 } }),
+            ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
+            item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
+            item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null
+          )
+        )
+      ),
+      h(
+        "div",
+        { className: "bees-details-panel" },
+        h(
+          "div",
+          { className: "bees-box" },
+          h(
+            "div",
+            { className: "bees-tabs", role: "tablist" },
+            h("button", { className: `bees-tab ${activeTab === "details" ? "active" : ""}`, onClick: () => setActiveTab("details") }, "Details"),
+            h("button", { className: `bees-tab ${activeTab === "files" ? "active" : ""}`, onClick: () => setActiveTab("files") }, "Files"),
+            h("button", { className: `bees-tab ${activeTab === "runs" ? "active" : ""}`, onClick: () => setActiveTab("runs") }, "Runs"),
+            h("button", { className: `bees-tab ${activeTab === "audit" ? "active" : ""}`, onClick: () => setActiveTab("audit") }, "Audit")
+          ),
+          h(
+            "div",
+            { className: "bees-tab-panel" },
+            activeTab === "details" ? h(
+              React.Fragment,
+              null,
+              h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
+              h("h3", null, "Active Agent"),
+              h("p", { className: "bees-muted" }, assignment ? `${assignment.name}${assignment.model ? ` · ${assignment.model}` : ""}` : `Stage route: ${routeLabel}`),
+              h("h3", null, "Process"),
+              process?.description ? h(MarkdownText, { text: process.description }) : h("p", { className: "bees-muted" }, "No description"),
+              h("h3", null, "Description"),
+              item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted" }, "No description"),
+              h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addSubitem }, "New sub-item"), h(Button, { className: "danger", onClick: archive }, "Archive"))
+            ) : activeTab === "files" ? h(
+              React.Fragment,
+              null,
+              h("h3", null, "Inputs"),
+              h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs")),
+              h("h3", null, "Generated Files"),
+              run?.outputs.length ? h("p", null, run.outputs.join(", ")) : h("p", { className: "bees-muted" }, "No outputs generated yet."),
               run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null
-            ),
-            h("h3", { className: "bees-section-title" }, "Runs"),
-            itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h(
-              "button",
-              { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
-              h("span", { className: `bees-status bees-${row.status}` }, row.status),
-              h("span", null, new Date(row.updatedAt).toLocaleString()),
-              h("span", { className: "bees-grow" }),
-              h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)
-            ))) : h(Empty, null, "No runs yet"),
-            run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
-            history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null
-          ) : h(
-            React2.Fragment,
-            null,
-            h("h3", null, "Audit"),
-            ...events.length ? events.map((event) => h(AuditEvent, {
-              event,
-              key: event.id,
-              detail: event.metadata?.action ?? event.metadata?.outcome,
-              onOpen: runAudit.has(event.executionId) ? () => {
-                setSelectedRun(event.executionId);
-                setActiveTab("runs");
-              } : null,
-              openLabel: "Open run"
-            })) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")]
+            ) : activeTab === "runs" ? h(
+              React.Fragment,
+              null,
+              h("h3", { className: "bees-section-title" }, "Runs"),
+              itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h(
+                "button",
+                { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
+                h("span", { className: `bees-status bees-${row.status}` }, row.status),
+                h("span", null, new Date(row.updatedAt).toLocaleString()),
+                h("span", { className: "bees-grow" }),
+                h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)
+              ))) : h(Empty, null, "No runs yet")
+            ) : h(
+              React.Fragment,
+              null,
+              h("h3", null, "Audit"),
+              ...events.length ? events.map((event) => h(AuditEvent, {
+                event,
+                key: event.id,
+                detail: event.metadata?.action ?? event.metadata?.outcome,
+                onOpen: runAudit.has(event.executionId) ? () => {
+                  setSelectedRun(event.executionId);
+                  setActiveTab("runs");
+                } : null,
+                openLabel: "Open run"
+              })) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")]
+            )
           )
         )
       )
@@ -938,7 +1028,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setDraft((current) => ({ ...current, custom: value, selected: question.multiSelect === true ? current.selected : [], skipped: false }));
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1035,7 +1125,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1120,7 +1210,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       if (next) setSelectedId(next.run.id);
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1556,7 +1646,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
     const defaultEffortName = efforts.find(({ id }) => id === defaultEffort)?.name ?? defaultEffort;
     const systemDefaultLabel = systemDefault?.provider && systemDefault?.model ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}` : "System default (auto-updates)";
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "label",
@@ -2650,7 +2740,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
     const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
     const freeAi = h(FreeAiController, { modelSettings, onError: setError });
     if (!data) return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       localAi,
       freeAi,
@@ -2709,8 +2799,8 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
-    return h(React2.Fragment, null, localAi, freeAi, h(
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },
       h(
@@ -2737,27 +2827,41 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
               { className: "bees-nav-group", key: `pin:${id}` },
               h(
                 "div",
-                { className: "bees-nav-group-head" },
-                h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, onClick: () => navigate(pinned.route) }, h("span", null, pinned.icon), h("span", null, pinned.label)),
+                { className: `bees-nav-group-head ${route === pinned.route ? "active" : ""}` },
+                h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, onClick: () => navigate(pinned.route) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(pinned.icon)), h("span", null, pinned.label)),
                 h(PinButton, { id: pinned.id, label: pinned.label, pins, setPins })
               ),
               ...pinnedRows(pinned.route).map((row) => h("button", { className: "bees-nav-link bees-nav-record", title: row.label, key: `${pinned.id}:${row.id}`, onClick: row.open }, row.label))
             );
           }),
-          h("div", { className: "bees-nav-standard" }, ...NAVIGATION.flatMap((item) => [
+          h("div", { className: "bees-nav-standard" }, ...NAVIGATION.map((item, idx) => h(
+            React.Fragment,
+            { key: item.id },
+            idx === 4 ? h("div", { className: "bees-nav-separator" }) : null,
             h(
               "div",
-              { className: "bees-nav-menu", key: item.id },
-              h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", null, item.icon), h("span", null, item.label)),
-              h(PinButton, { id: item.id, label: item.label, pins, setPins })
-            ),
-            ...section.id === item.id ? item.children.map(([child, label]) => h(
-              "div",
-              { className: "bees-nav-menu", key: `${item.id}:${child}` },
-              h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
-              h(PinButton, { id: child, label, pins, setPins })
-            )) : []
-          ]))
+              { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
+              h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
+              h(PinButton, { id: item.id, label: item.label, pins, setPins }),
+              item.children.length > 0 ? h(
+                "div",
+                { className: "bees-nav-flyout" },
+                ...item.children.map(
+                  ([child, label]) => h(
+                    "div",
+                    { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
+                    h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
+                    h(PinButton, { id: child, label, pins, setPins })
+                  )
+                )
+              ) : null
+            )
+          )))
+        ),
+        h(
+          "div",
+          { className: "bees-sidebar-foot" },
+          h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works"))
         )
       ),
       h(

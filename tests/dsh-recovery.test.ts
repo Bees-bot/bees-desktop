@@ -106,7 +106,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).not.toContain("window.prompt");
     expect(client).not.toContain("window.confirm");
     expect(client).toContain('document.createElement("dialog")');
-    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-callout" }');
+    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }');
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
     expect(client).toContain('summary.origin === "subagent"');
     expect(client).toContain('className: "bees-hierarchy-card bees-subagent-card"');

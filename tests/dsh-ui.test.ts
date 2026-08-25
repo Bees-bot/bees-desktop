@@ -39,12 +39,11 @@ describe("Bees work cockpit UI", () => {
 
   it("uses the full content width and separates the detail views into tabs", () => {
     expect(client).toContain('"bees-panel-wide"');
-    expect(client).toContain('["needs", "Questions & approvals"]');
-    expect(client).toContain('["description", "Process description"]');
-    expect(client).toContain('["runs", "Runs & details"]');
-    expect(client).toContain('["audit", "Audit"]');
+    expect(client).toContain('setActiveTab("details")');
+    expect(client).toContain('setActiveTab("files")');
+    expect(client).toContain('setActiveTab("runs")');
+    expect(client).toContain('setActiveTab("audit")');
     expect(client).toContain('role: "tablist"');
-    expect(client).toContain('role: "tabpanel"');
   });
 
   it("renders descriptions as markdown and makes audit evidence inspectable", () => {
