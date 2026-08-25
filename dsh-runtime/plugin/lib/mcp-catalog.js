@@ -169,6 +169,20 @@ export const MCP_CATALOG = [
 ];
 
 MCP_CATALOG.push({
+  id: "chrome-devtools",
+  serverName: "devtools",
+  label: "Chrome DevTools",
+  publisher: "Google Chrome",
+  homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+  summary: "Inspect a live page: the console, the network log, performance traces and the DOM.",
+  access: "Drives a Chrome instance and reads everything on the pages it opens, including any "
+    + "session you are already signed into in that profile.",
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "chrome-devtools-mcp@latest"],
+  env: [],
+  headers: []
+}, {
   id: "openapi-bridge",
   serverName: "api",
   label: "Any REST API (OpenAPI bridge)",
