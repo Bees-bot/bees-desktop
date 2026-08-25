@@ -117,7 +117,29 @@ export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
 }
 
-function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
+
+/** Which MCP servers this agent may use. Shared by the create and edit forms. */
+function McpAccess({ servers, access, chosen }) {
+  const [mode, setMode] = useState(access ?? "all");
+  const picked = new Set(chosen ?? []);
+  return h(React.Fragment, null,
+    h("label", null, "MCP servers this agent may use",
+      h("select", { className: "bees-select", name: "mcpAccess", value: mode,
+        onChange: (event) => setMode(event.target.value) },
+        h("option", { value: "all" }, "Every connected server"),
+        h("option", { value: "none" }, "None"),
+        h("option", { value: "listed" }, "Only the ones I pick")),
+      h("span", { className: "bees-muted" }, servers.length
+        ? "A server's tools reach an agent only if it is allowed here."
+        : "No MCP servers are connected yet; add one under Agents, MCP servers.")),
+    mode === "listed" ? h("div", { className: "bees-form" }, h("span", null, "Allowed servers"),
+      ...servers.map((server) => h("label", { key: server.id, className: "bees-muted" },
+        h("input", { type: "checkbox", name: "mcpServers", value: server.id, defaultChecked: picked.has(server.id) }),
+        ` ${server.label} (${server.toolCount} tool${server.toolCount === 1 ? "" : "s"})`)),
+      servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")) : null);
+}
+
+function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated }) {
   const presets = data.presets.filter(({ broken }) => !broken);
   if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
   return h("form", { className: "bees-box bees-form bees-agent-form", onSubmit: async (event) => {
@@ -128,6 +150,7 @@ function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
     if (created?.id) onCreated(created.id);
@@ -141,6 +164,7 @@ function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
       ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
     h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
     h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+    h(McpAccess, { servers }),
     h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
     h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
@@ -165,14 +189,14 @@ function PoolCreateForm({ workspaceId, act, onCancel, onCreated }) {
   );
 }
 
-export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
+export function AgentsPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
   const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
   const [selectedId, setSelectedId] = useState("");
   const [selectedPoolId, setSelectedPoolId] = useState("");
   const selected = assignments.find(({ id }) => id === selectedId);
   const selectedPool = pools.find(({ id }) => id === selectedPoolId);
-  if (creating === "agent") return h(AgentCreateForm, { ctx, data, workspaceId, act,
+  if (creating === "agent") return h(AgentCreateForm, { ctx, data, servers, workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
   if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); } });
@@ -245,6 +269,7 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
     if (saved) setSelectedId("");
@@ -256,6 +281,7 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
     h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "",
       systemDefault: data.systemDefaultModel }),
     h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
+    h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
     h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
     h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),

@@ -18,7 +18,8 @@ const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
   "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
-  "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
+  "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose",
+  "mcpAccess", "mcpServers"
 ]);
 
 export const LATEST_SOL_MODEL = "__bees_latest_sol__";
@@ -39,6 +40,8 @@ export function validateRunData(value) {
   if (value.stagePurpose && !["worker", "reviewer"].includes(value.stagePurpose))
     throw new Error("Run data has an invalid stage purpose");
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
+  if (value.mcpAccess !== undefined && !["all", "none", "listed"].includes(value.mcpAccess))
+    throw new Error("Run data has an invalid MCP access policy");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
   if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
@@ -560,8 +563,31 @@ export class AgentRuntime {
     `).get(executionId);
   }
 
+  /**
+   * Hold this agent to the MCP servers it was granted.
+   *
+   * The mask covers everything the agent inherits, preset tools included, so the allow list is
+   * "what it can see right now, minus the MCP tools it may not use". Called before any bees_* tool
+   * is registered: those land in the agent's own layer, which a mask may not name.
+   */
+  restrictMcp(agentCtx, data) {
+    const access = data.mcpAccess ?? "all";
+    if (access === "all") return;
+    const allowed = new Set(access === "listed" ? data.mcpServers ?? [] : []);
+    const visible = agentCtx.tools.schemas().map(({ name }) => name)
+      // The Code Mode transport is reserved and cannot be named in a mask.
+      .filter((name) => name !== "run_code");
+    const keep = visible.filter((name) => {
+      const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
+      return !match || allowed.has(match[1]);
+    });
+    if (keep.length === visible.length) return;
+    agentCtx.tools.restrict({ allow: keep });
+  }
+
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
+    this.restrictMcp(agentCtx, data);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true

@@ -204,7 +204,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
         : route === "skills" ? h(SkillsPage, { capabilities })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
           : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })

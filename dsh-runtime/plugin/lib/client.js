@@ -1652,7 +1652,45 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
       message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null
     );
   }
-  function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
+  function McpAccess({ servers, access, chosen }) {
+    const [mode, setMode] = useState(access ?? "all");
+    const picked = new Set(chosen ?? []);
+    return h(
+      React.Fragment,
+      null,
+      h(
+        "label",
+        null,
+        "MCP servers this agent may use",
+        h(
+          "select",
+          {
+            className: "bees-select",
+            name: "mcpAccess",
+            value: mode,
+            onChange: (event) => setMode(event.target.value)
+          },
+          h("option", { value: "all" }, "Every connected server"),
+          h("option", { value: "none" }, "None"),
+          h("option", { value: "listed" }, "Only the ones I pick")
+        ),
+        h("span", { className: "bees-muted" }, servers.length ? "A server's tools reach an agent only if it is allowed here." : "No MCP servers are connected yet; add one under Agents, MCP servers.")
+      ),
+      mode === "listed" ? h(
+        "div",
+        { className: "bees-form" },
+        h("span", null, "Allowed servers"),
+        ...servers.map((server) => h(
+          "label",
+          { key: server.id, className: "bees-muted" },
+          h("input", { type: "checkbox", name: "mcpServers", value: server.id, defaultChecked: picked.has(server.id) }),
+          ` ${server.label} (${server.toolCount} tool${server.toolCount === 1 ? "" : "s"})`
+        )),
+        servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")
+      ) : null
+    );
+  }
+  function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated }) {
     const presets = data.presets.filter(({ broken }) => !broken);
     if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
     return h(
@@ -1670,6 +1708,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
           model: String(form.get("model") ?? ""),
           reasoningEffort: String(form.get("reasoningEffort") ?? ""),
           capabilities: String(form.get("capabilities") ?? "").split(","),
+          mcpAccess: String(form.get("mcpAccess") ?? "all"),
+          mcpServers: form.getAll("mcpServers").map(String),
           enabled: form.get("enabled") === "on",
           maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
         });
@@ -1695,6 +1735,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
       )),
       h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
       h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+      h(McpAccess, { servers }),
       h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1e3, defaultValue: 0 })),
       h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
       h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
@@ -1732,7 +1773,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
       h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Create pool"), h(Button, { onClick: onCancel }, "Cancel"))
     );
   }
-  function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
+  function AgentsPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
     const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
     const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
     const [selectedId, setSelectedId] = useState("");
@@ -1742,6 +1783,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
     if (creating === "agent") return h(AgentCreateForm, {
       ctx,
       data,
+      servers,
       workspaceId,
       act,
       onCancel: () => setCreating(""),
@@ -1909,6 +1951,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           model: String(form.get("model") ?? ""),
           reasoningEffort: String(form.get("reasoningEffort") ?? ""),
           capabilities: String(form.get("capabilities") ?? "").split(","),
+          mcpAccess: String(form.get("mcpAccess") ?? "all"),
+          mcpServers: form.getAll("mcpServers").map(String),
           enabled: form.get("enabled") === "on",
           maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
         });
@@ -1925,6 +1969,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         systemDefault: data.systemDefaultModel
       }),
       h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
+      h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
       h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1e3, defaultValue: selected.maxConcurrency })),
       h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
       h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
@@ -3245,7 +3290,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : route === "skills" ? h(SkillsPage, { capabilities }) : route === "mcp" ? h(McpPage, { ctx, capabilities }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : route === "skills" ? h(SkillsPage, { capabilities }) : route === "mcp" ? h(McpPage, { ctx, capabilities }) : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
     return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },

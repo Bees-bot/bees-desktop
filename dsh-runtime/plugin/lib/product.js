@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
-  currentIdentity, initializeProductDatabase, iso, itemContext, required, workspaceContext
+  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, required, workspaceContext
 } from "./product-database.js";
 import {
   indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
@@ -98,6 +98,7 @@ export class BeesProduct {
         reasoningEffort: assignment?.reasoningEffort || null,
         instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
+        ...mcpGrantFor(this.database, assignment?.id),
         grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
       }
     }, signal);
@@ -189,10 +190,12 @@ export class BeesProduct {
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
              instructions, model, reasoning_effort AS reasoningEffort,
              system_role AS systemRole, capabilities_json AS capabilities,
-             enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
+             enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt,
+             mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
       FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?)) ORDER BY name
     `).all(JSON.stringify(workspaceIds)).map((row) => ({
-      ...row, enabled: Boolean(row.enabled), capabilities: JSON.parse(row.capabilities || "[]")
+      ...row, enabled: Boolean(row.enabled), capabilities: JSON.parse(row.capabilities || "[]"),
+      mcpServers: JSON.parse(row.mcpServers || "[]")
     })) : [];
     const pools = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description

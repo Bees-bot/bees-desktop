@@ -139,7 +139,8 @@ export function assignment(database, id, workspaceId) {
     SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
            instructions, model, reasoning_effort AS reasoningEffort,
            system_role AS systemRole, capabilities_json AS capabilities,
-           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
+           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt,
+           mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
     FROM agent_assignments WHERE id = ? AND workspace_id = ?
   `).get(id, workspaceId);
 }
@@ -448,6 +449,10 @@ export function initializeProductDatabase(database) {
   if (!assignmentColumns.has("capabilities_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'");
   if (!assignmentColumns.has("enabled")) database.exec("ALTER TABLE agent_assignments ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
   if (!assignmentColumns.has("max_concurrency")) database.exec("ALTER TABLE agent_assignments ADD COLUMN max_concurrency INTEGER NOT NULL DEFAULT 0");
+  // Which MCP servers this agent may use: 'all' (every connected one), 'none', or 'listed'.
+  // Existing agents default to 'all', which is what they already had.
+  if (!assignmentColumns.has("mcp_access")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_access TEXT NOT NULL DEFAULT 'all'");
+  if (!assignmentColumns.has("mcp_servers_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   database.exec(`
@@ -516,3 +521,24 @@ export function initializeProductDatabase(database) {
 }
 
 
+
+/**
+ * The MCP servers one agent may use, as server names for the `mcp__<name>__` tool prefix.
+ *
+ * Resolved by agent id at run time rather than carried through routing, so a policy edited between
+ * runs takes effect on the next one. A disabled server drops out here; its tools are gone anyway.
+ */
+export function mcpGrantFor(database, agentAssignmentId) {
+  const row = agentAssignmentId ? database.prepare(
+    "SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?"
+  ).get(agentAssignmentId) : null;
+  const access = row?.access ?? "all";
+  if (access !== "listed") return { mcpAccess: access === "none" ? "none" : "all", mcpServers: [] };
+  let ids = [];
+  try { ids = JSON.parse(row.servers || "[]"); } catch { ids = []; }
+  const names = ids.length ? database.prepare(`
+    SELECT server_name AS name FROM mcp_servers
+    WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
+  `).all(JSON.stringify(ids)).map(({ name }) => name) : [];
+  return { mcpAccess: "listed", mcpServers: names };
+}
