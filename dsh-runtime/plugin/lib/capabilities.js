@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -269,11 +269,18 @@ export class Capabilities {
     return { ...rest, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
-  /** A written document needs somewhere to live; the bridge takes a path or a URL, not a blob. */
+  /**
+   * A written document needs somewhere to live; the bridge takes a path or a URL, not a blob.
+   *
+   * The name carries a hash of the document, because two endpoints of one API are a normal thing to
+   * bridge and a host-only name would have the second install silently rewrite the first server's
+   * spec underneath it. Identical documents share a file, so re-installing one costs nothing.
+   */
   async writeSpec(host, spec) {
     const directory = join(process.env.BEES_STATE_DIR || tmpdir(), "api-specs");
     await mkdir(directory, { recursive: true });
-    const file = join(directory, `${host.replace(/[^a-z0-9.-]/gi, "-")}.json`);
+    const stamp = createHash("sha256").update(spec).digest("hex").slice(0, 12);
+    const file = join(directory, `${host.replace(/[^a-z0-9.-]/gi, "-")}-${stamp}.json`);
     await writeFile(file, spec);
     return file;
   }
