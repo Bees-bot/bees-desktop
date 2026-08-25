@@ -632,9 +632,6 @@
       setActiveTab("details");
     }, [item.id]);
     useEffect(() => {
-      if (pendingRun?.sessionId) void ctx.sessions.open(pendingRun.sessionId);
-    }, [ctx, pendingRun?.sessionId]);
-    useEffect(() => {
       let active = true;
       if (!run) {
         setHistory(null);
@@ -1286,12 +1283,6 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
     useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
     useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
     const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
-    useEffect(() => {
-      for (const { run } of rows) if (run.sessionId) void ctx.sessions.open(run.sessionId);
-    }, [ctx, rowKey]);
-    useEffect(() => {
-      if (selected?.run.sessionId) ctx.sessions.open(selected.run.sessionId);
-    }, [ctx, selected?.run.sessionId]);
     const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
     const session = useSnapshot(binding?.session);
     const interaction = session?.pending?.find((pending) => !handled.has(pending.key) && (selected?.session?.pendingInteraction === "plan-review" ? pending.kind === "question" : pending.kind === selected?.session?.pendingInteraction)) ?? session?.pending?.find((pending) => !handled.has(pending.key));

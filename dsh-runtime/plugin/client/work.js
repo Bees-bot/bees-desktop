@@ -34,7 +34,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
     setActiveTab("details");
   }, [item.id]);
-  useEffect(() => { if (pendingRun?.sessionId) void ctx.sessions.open(pendingRun.sessionId); }, [ctx, pendingRun?.sessionId]);
+  /* Removed ctx.sessions.open to prevent host UI from hijacking navigation */
   useEffect(() => {
     let active = true;
     if (!run) { setHistory(null); return () => { active = false; }; }
@@ -483,10 +483,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
   useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
-  useEffect(() => {
-    for (const { run } of rows) if (run.sessionId) void ctx.sessions.open(run.sessionId);
-  }, [ctx, rowKey]);
-  useEffect(() => { if (selected?.run.sessionId) ctx.sessions.open(selected.run.sessionId); }, [ctx, selected?.run.sessionId]);
+/* Removed ctx.sessions.open to prevent host UI from hijacking navigation */
   const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
   const session = useSnapshot(binding?.session);
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key) &&
