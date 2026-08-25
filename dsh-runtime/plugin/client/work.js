@@ -99,12 +99,20 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
   ];
   return h("div", { className: "bees-cockpit-detail" },
     h("section", { className: "bees-box" },
-      h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" }, ...tabs.map(([id, label]) => h("button", {
-        type: "button", role: "tab", id: `bees-tab-${id}`, key: id,
-        className: `bees-tab ${activeTab === id ? "active" : ""}`,
-        "aria-selected": activeTab === id, "aria-controls": "bees-detail-panel",
-        onClick: () => setActiveTab(id)
-      }, label, id === "needs" && needsAttention ? ` · ${attentionCount}` : ""))),
+      h("div", { className: "bees-tabbar" },
+        h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" }, ...tabs.map(([id, label]) => h("button", {
+          type: "button", role: "tab", id: `bees-tab-${id}`, key: id,
+          className: `bees-tab ${activeTab === id ? "active" : ""}`,
+          "aria-selected": activeTab === id, "aria-controls": "bees-detail-panel",
+          onClick: () => setActiveTab(id)
+        }, label, id === "needs" && needsAttention ? ` · ${attentionCount}` : ""))),
+        h("div", { className: "bees-tab-actions" },
+          ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
+          item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
+          item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
+          ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
+          h(Button, { className: "danger", onClick: archive }, "Archive"),
+          run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)),
       h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
         activeTab === "needs" ? h(React.Fragment, null,
           item.runtimeError ? h("div", { className: "bees-callout" },
@@ -131,13 +139,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
                   `${agent.name}${agent.enabled ? "" : " (unavailable)"}`)))) : null,
             h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "Delegate work")))
             : activeTab === "runs" ? h(React.Fragment, null,
-              h("div", { className: "bees-detail-actions" },
-                ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
-                item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
-                item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
-                ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
-                h(Button, { className: "danger", onClick: archive }, "Archive"),
-                run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null),
               h("h3", { className: "bees-section-title" }, "Runs"),
               itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
                 h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${row.outputs.length} outputs`)))) : h(Empty, null, "No runs yet"),
@@ -492,4 +493,3 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : route === "waiting" ? "Nothing needs you right now" : "No work in this view")])
   );
 }
-

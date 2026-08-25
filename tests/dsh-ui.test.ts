@@ -45,6 +45,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('["audit", "Audit"]');
     expect(client).toContain('role: "tablist"');
     expect(client).toContain('role: "tabpanel"');
+    expect(client).toContain('className: "bees-tab-actions"');
+    expect(client.indexOf('className: "bees-tab-actions"'))
+      .toBeLessThan(client.indexOf('className: "bees-tab-panel"'));
   });
 
   it("renders descriptions as markdown and makes audit evidence inspectable", () => {
