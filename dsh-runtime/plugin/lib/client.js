@@ -161,9 +161,7 @@
   .bees-home-side h3 { margin: 0; font-size: 16px; font-weight: 700; }
   
   .bees-hero { display: flex; flex-direction: column; gap: 20px; }
-  .bees-hero-head { display: flex; flex-direction: column; gap: 8px; }
   .bees-hero h1 { font-size: 32px; font-weight: 800; line-height: 1.2; margin: 0; }
-  .bees-hero-desc { margin: 0; font-size: 15px; color: var(--dsw-alias-label-secondary); }
   
   .bees-composer { display: flex; flex-direction: column; gap: 12px; background: var(--dsw-alias-bg-base); border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; padding: 16px; box-shadow: 0 4px 12px #0000000a; transition: border-color 0.2s, box-shadow 0.2s; }
   .bees-composer:focus-within { border-color: #f2b84b; box-shadow: 0 4px 20px #00000014; }
@@ -439,12 +437,7 @@
         h(
           "div",
           { className: "bees-hero" },
-          h(
-            "div",
-            { className: "bees-hero-head" },
-            h("h1", null, "What outcome should Bees own?"),
-            h("p", { className: "bees-hero-desc" }, "Ask an agent to propose a goal or visible process. Nothing changes until you review and apply it.")
-          ),
+          h("h1", null, "What would you like to achieve?"),
           h(
             "form",
             {
