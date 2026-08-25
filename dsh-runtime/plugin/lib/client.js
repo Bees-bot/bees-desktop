@@ -595,7 +595,7 @@
   }
 
   // dsh-runtime/plugin/client/work.js
-  function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
+  function WorkItemDetails({ data, item, teamId, act, onArchived }) {
     const process = data.processes.find(({ id }) => id === item.processId);
     const stage = data.stages.find(({ id }) => id === item.stageId);
     const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -612,8 +612,6 @@
     const convoRef = React.useRef(null);
     const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
     const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status));
-    const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
-    const pendingSummary = pendingRun ? sessions.byId[pendingRun.sessionId] : null;
     const interaction = null;
     useEffect(() => {
       setSelectedRun("");
@@ -744,15 +742,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           "div",
           { className: "bees-convo-history", ref: convoRef },
           ...convoItems,
-          pendingRun ? h(AgentInteractionPanel, {
-            run: pendingRun,
-            item,
-            summary: pendingSummary,
-            session: pendingSession,
-            interaction,
-            handled,
-            onAnswered: answered
-          }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
+          pendingRun ? h("div", { className: "bees-convo-msg system" }, "⚡ Agent is waiting for your input — go to Needs You to respond.") : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
           item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
         ),
         h(
@@ -932,7 +922,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           }) : [h(Empty, { key: "empty" }, "No work in this stage")])
         );
       })),
-      h(WorkItemDetails, { ctx, data, item: selected, teamId, act, onArchived: onBack })
+      h(WorkItemDetails, { data, item: selected, teamId, act, onArchived: onBack })
     );
   }
   function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated }) {

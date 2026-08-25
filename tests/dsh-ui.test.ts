@@ -64,9 +64,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
   });
 
-  it("uses one agent interaction card in Needs you and the Kanban detail tab", () => {
+  it("uses one agent interaction card in Needs you (detail tab removed to avoid harness hijack)", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(1);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
   });
 
@@ -75,6 +75,11 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
     expect(client).toContain('openLabel: selected.run.workItemId ? "Open work" : "Open run"');
     expect(client).toContain('setRunId(result.executionId)');
+  });
+
+  it("keeps work-item navigation inside the Bees task screen", () => {
+    expect(client).toContain("onClick: () => setWorkItemId(item.id)");
+    expect(client).not.toContain("ctx.sessions.open(");
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {
