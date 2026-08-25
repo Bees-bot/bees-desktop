@@ -61,6 +61,8 @@ export class Capabilities {
     this.defaultWorkspace = defaultWorkspace;
     /** serverId -> { fiber, error } for every row we have tried to mount. */
     this.mounted = new Map();
+    /** serverId -> the mutation currently in flight for it. */
+    this.queued = new Map();
   }
 
   async initialize() {
@@ -76,6 +78,21 @@ export class Capabilities {
 
   servers() {
     return this.database.prepare("SELECT * FROM mcp_servers ORDER BY created_at").all().map(rowToServer);
+  }
+
+  /**
+   * One mutation at a time per server.
+   *
+   * Two toggles landing together (a double click, or two windows) had the second disposing the
+   * fiber the first was still starting, and `dsh-mcp-client` holds its serverName reservation until
+   * that disposal finishes: the survivor then failed with "serverName is already in use" and stayed
+   * dead until someone toggled it again.
+   */
+  serialize(serverId, work) {
+    const previous = this.queued.get(serverId) ?? Promise.resolve();
+    const next = previous.then(work, work);
+    this.queued.set(serverId, next.then(() => {}, () => {}));
+    return next;
   }
 
   /** Resolve a row's secrets and hand `dsh-mcp-client` the config shape it validates. */
@@ -340,7 +357,7 @@ export class Capabilities {
     for (const [name, value] of Object.entries(secrets)) {
       if (value) await this.ctx.credentials.set(secretRef(server.serverName, name), value);
     }
-    await this.mount({ ...server, enabled: true });
+    await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
     return { id: server.id };
   }
 
@@ -428,7 +445,7 @@ export class Capabilities {
     const server = this.row(input.serverId);
     const enabled = input.enabled ? 1 : 0;
     this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled, server.id);
-    await this.remount({ ...server, enabled: Boolean(enabled) });
+    await this.serialize(server.id, () => this.remount({ ...server, enabled: Boolean(enabled) }));
     return { id: server.id, enabled: Boolean(enabled) };
   }
 
@@ -440,13 +457,13 @@ export class Capabilities {
     const value = String(input.value ?? "").trim();
     if (!value) throw new Error(`${name} cannot be blank`);
     await this.ctx.credentials.set(secretRef(server.serverName, name), value);
-    await this.remount(server);
+    await this.serialize(server.id, () => this.remount(server));
     return { id: server.id };
   }
 
   async remove(input) {
     const server = this.row(input.serverId);
-    await this.unmount(server.id);
+    await this.serialize(server.id, () => this.unmount(server.id));
     for (const name of [...server.envNames, ...server.headerNames]) {
       await this.ctx.credentials.unset(secretRef(server.serverName, name)).catch(() => {});
     }
