@@ -301,7 +301,7 @@
         "section",
         { className: "bees-hero" },
         h("h1", null, "What outcome should Bees own?"),
-        h("p", { className: "bees-muted" }, "Ask an agent to propose a goal or visible process. Nothing changes until you review and apply it."),
+        h("p", { className: "bees-muted" }, "Ask an agent to propose a goal or a process with initial work. Nothing changes until you review and apply it."),
         h(
           "form",
           { onSubmit: (event) => {
@@ -324,8 +324,8 @@
           ...proposal.changes.map((change, index) => h(
             "div",
             { className: "bees-change", key: index },
-            h("strong", null, change.action === "create_goal" ? `Goal: ${change.title}` : `Process: ${change.name}`),
-            change.stages ? h("div", { className: "bees-muted" }, change.stages.join(" → ")) : null
+            h("strong", null, change.action === "create_goal" ? `Goal: ${change.title}` : change.action === "create_item" ? `Work item: ${change.title}` : `Process: ${change.name}`),
+            change.stages ? h("div", { className: "bees-muted" }, change.stages.join(" → ")) : change.process ? h("div", { className: "bees-muted" }, `In ${change.process}`) : null
           )),
           h(
             "div",

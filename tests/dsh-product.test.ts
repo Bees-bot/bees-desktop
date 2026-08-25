@@ -32,15 +32,17 @@ describe("Bees DSH product plugin", () => {
       { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 7 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 8 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
-    database.exec("UPDATE stages SET completion_rules = 'Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review.' WHERE name = 'Work'");
+    database.exec("UPDATE stages SET completion_rules = 'Old goal instructions' WHERE name IN ('Work', 'Review'); PRAGMA user_version = 7");
     initializeProductDatabase(database);
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
     expect(database.prepare("SELECT completion_rules AS instructions FROM stages WHERE name = 'Work'").get())
-      .toEqual({ instructions: expect.stringContaining("peer agents one at a time") });
+      .toEqual({ instructions: expect.stringContaining("next safe wave") });
+    expect(database.prepare("SELECT completion_rules AS instructions FROM stages WHERE name = 'Review'").get())
+      .toEqual({ instructions: expect.stringContaining("stop condition") });
   });
 
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
@@ -367,15 +369,25 @@ describe("Bees DSH product plugin", () => {
     const proposal = product.storeProposal({
       workspaceId: workspace.id, sessionId: "planning-session", title: "Launch plan", summary: "Visible work",
       changes: [
-        { action: "create_goal", title: "Launch safely", description: "Review every handoff" },
-        { action: "create_process", name: "Launch", description: "Repeatable release", stages: ["Plan", "Release"] }
+        { action: "create_process", name: "Launch", description: "Repeatable release", stages: ["Plan", "Release"] },
+        { action: "create_item", process: "Launch", title: "Launch safely", description: "Review every handoff" }
       ]
     });
+    expect(() => product.storeProposal({
+      workspaceId: workspace.id, sessionId: "planning-session", title: "Bad order", summary: "Invalid",
+      changes: [
+        { action: "create_item", process: "Later", title: "Too early" },
+        { action: "create_process", name: "Later", stages: ["Work", "Done"] }
+      ]
+    })).toThrow("created earlier");
     await product.command({ action: "apply_proposal", proposalId: proposal.id });
     const applied = await product.snapshot();
     expect(applied.proposals).toContainEqual(expect.objectContaining({ id: proposal.id, status: "applied" }));
-    expect(applied.items).toContainEqual(expect.objectContaining({ title: "Launch safely", kind: "goal" }));
-    expect(applied.processes).toContainEqual(expect.objectContaining({ name: "Launch" }));
+    const launch = applied.processes.find(({ name }: any) => name === "Launch");
+    expect(launch).toBeTruthy();
+    expect(applied.items).toContainEqual(expect.objectContaining({
+      title: "Launch safely", kind: "work", processId: launch!.id
+    }));
 
     rmSync(files, { recursive: true });
     rmSync(runRoot, { recursive: true });

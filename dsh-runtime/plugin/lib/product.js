@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
-  currentIdentity, initializeProductDatabase, iso, itemContext, required, workspaceContext
+  currentIdentity, initializeProductDatabase, iso, itemContext, processStageNames, required, workspaceContext
 } from "./product-database.js";
 import {
   indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
@@ -385,6 +385,7 @@ export class BeesProduct {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
+    const proposedProcesses = new Set();
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
       if (change.action === "create_goal") return {
@@ -392,11 +393,22 @@ export class BeesProduct {
         description: String(change.description ?? "")
       };
       if (change.action === "create_process") {
-        const stages = Array.isArray(change.stages) ? change.stages.map((stage) => required(stage, "Stage")) : [];
-        if (stages.length < 2 || stages.length > 12) throw new Error("A proposed process needs 2 to 12 stages");
+        const name = required(change.name, "Process name");
+        const key = name.toLocaleLowerCase();
+        if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
+        proposedProcesses.add(key);
         return {
-          action: "create_process", name: required(change.name, "Process name"),
-          description: String(change.description ?? ""), stages
+          action: "create_process", name, description: String(change.description ?? ""),
+          stages: processStageNames(change.stages, "proposed process")
+        };
+      }
+      if (change.action === "create_item") {
+        const process = required(change.process, "Work item process");
+        if (!proposedProcesses.has(process.toLocaleLowerCase()))
+          throw new Error("A proposed work item must target a process created earlier in the same proposal");
+        return {
+          action: "create_item", process, title: required(change.title, "Work item title"),
+          description: String(change.description ?? "")
         };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);

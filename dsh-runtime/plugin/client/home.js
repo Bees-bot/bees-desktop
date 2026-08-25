@@ -6,7 +6,7 @@ export function Home({ data, workspaceId, act, askBees }) {
   const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
   return h("div", { className: "bees-panel" },
     h("section", { className: "bees-hero" }, h("h1", null, "What outcome should Bees own?"),
-      h("p", { className: "bees-muted" }, "Ask an agent to propose a goal or visible process. Nothing changes until you review and apply it."),
+      h("p", { className: "bees-muted" }, "Ask an agent to propose a goal or a process with initial work. Nothing changes until you review and apply it."),
       h("form", { onSubmit: (event) => { event.preventDefault(); if (outcome.trim()) void askBees(outcome).then(() => setOutcome("")); } },
         h("input", { className: "bees-input", value: outcome, disabled: !workspaceId, onChange: (event) => setOutcome(event.target.value), placeholder: workspaceId ? "Launch the new product without missing a handoff" : "Choose a workspace first", "aria-label": "Outcome" }),
         h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() }, "Ask Bees")
@@ -15,8 +15,10 @@ export function Home({ data, workspaceId, act, askBees }) {
       ...(proposals.length ? proposals.map((proposal) => h("article", { className: "bees-box", key: proposal.id },
         h("h3", null, proposal.title), h("p", { className: "bees-muted" }, proposal.summary),
         ...proposal.changes.map((change, index) => h("div", { className: "bees-change", key: index },
-          h("strong", null, change.action === "create_goal" ? `Goal: ${change.title}` : `Process: ${change.name}`),
-          change.stages ? h("div", { className: "bees-muted" }, change.stages.join(" → ")) : null)),
+          h("strong", null, change.action === "create_goal" ? `Goal: ${change.title}`
+            : change.action === "create_item" ? `Work item: ${change.title}` : `Process: ${change.name}`),
+          change.stages ? h("div", { className: "bees-muted" }, change.stages.join(" → "))
+            : change.process ? h("div", { className: "bees-muted" }, `In ${change.process}`) : null)),
         h("div", { className: "bees-card-actions" },
           h(Button, { className: "primary", onClick: () => act({ action: "apply_proposal", proposalId: proposal.id }) }, "Apply proposal"),
           h(Button, { onClick: () => act({ action: "reject_proposal", proposalId: proposal.id }) }, "Dismiss")
@@ -51,5 +53,4 @@ export function GuidePage() {
     )
   );
 }
-
 
