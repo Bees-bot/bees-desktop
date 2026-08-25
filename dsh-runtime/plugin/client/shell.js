@@ -7,6 +7,7 @@ import {
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
+import { dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouPage, WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
 import { AgentsPage } from "./agents.js";
@@ -107,6 +108,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       document.querySelector('button[aria-haspopup="dialog"][aria-expanded]')?.click();
       return;
     }
+    if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
     setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
   };
@@ -147,8 +149,10 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
+  const dashboards = dashboardsFrom(preference.dashboards);
+  const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
   const section = sectionFor(route);
-  const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
+  const routeLabel = route === "home" ? activeDashboard.name : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
   const setPins = (next) => preferences.set("pins", next);
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
@@ -198,7 +202,10 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     return [];
   };
-  const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem })
+  const page = route === "home" ? h(Home, {
+    data, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, navigate,
+    rowsForRoute: pinnedRows, preference, preferences
+  })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
       ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun })
@@ -231,7 +238,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
             h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
             h(PinButton, { id: item.id, label: item.label, pins, setPins }),
-            item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
+            item.children.length > 0 || item.id === "home" ? h("div", { className: "bees-nav-flyout" },
+              ...(item.id === "home" ? dashboards.map((dashboard) =>
+                h("div", { className: `bees-nav-flyout-item ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`, key: `dashboard:${dashboard.id}` },
+                  h("button", {
+                    className: `bees-nav-link bees-nav-child ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
+                    onClick: () => { void preferences.set("activeDashboardId", dashboard.id); setRoute("home"); }
+                  }, dashboard.name))) : []),
               ...item.children.map(([child, label]) =>
                 h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
                   h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
@@ -253,8 +266,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
 
         h(ThemeToggle, { ctx })),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
+      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
     )
   ));
 }
-
