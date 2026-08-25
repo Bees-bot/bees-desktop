@@ -102,7 +102,7 @@ describe("Bees work cockpit UI", () => {
 
   it("shows and saves a required, visually separate system default", () => {
     expect(client).toContain("function SystemDefaultSettings");
-    expect(client).toContain('import { ask, Button, Empty, request } from "./shared.js";');
+    expect(client).toContain('import { ask, Button, confirmAction, Empty, request } from "./shared.js";');
     expect(client).toContain('className: "bees-box bees-system-default"');
     expect(client).toContain('allowSystemDefault: false');
     expect(client).toContain('required: !allowSystemDefault');

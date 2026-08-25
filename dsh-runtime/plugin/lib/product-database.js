@@ -143,7 +143,8 @@ export function assignment(database, id, workspaceId) {
     SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
            instructions, model, reasoning_effort AS reasoningEffort,
            system_role AS systemRole, capabilities_json AS capabilities,
-           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt
+           enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt,
+           mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
     FROM agent_assignments WHERE id = ? AND workspace_id = ?
   `).get(id, workspaceId);
 }
@@ -452,9 +453,28 @@ export function initializeProductDatabase(database) {
   if (!assignmentColumns.has("capabilities_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'");
   if (!assignmentColumns.has("enabled")) database.exec("ALTER TABLE agent_assignments ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
   if (!assignmentColumns.has("max_concurrency")) database.exec("ALTER TABLE agent_assignments ADD COLUMN max_concurrency INTEGER NOT NULL DEFAULT 0");
+  // Which MCP servers this agent may use: 'all' (every connected one), 'none', or 'listed'.
+  // Existing agents default to 'all', which is what they already had.
+  if (!assignmentColumns.has("mcp_access")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_access TEXT NOT NULL DEFAULT 'all'");
+  if (!assignmentColumns.has("mcp_servers_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   database.exec(`
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      server_name TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      transport TEXT NOT NULL,
+      command TEXT NOT NULL DEFAULT '',
+      args_json TEXT NOT NULL DEFAULT '[]',
+      url TEXT NOT NULL DEFAULT '',
+      env_names_json TEXT NOT NULL DEFAULT '[]',
+      header_names_json TEXT NOT NULL DEFAULT '[]',
+      catalog_id TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'manual',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
     UPDATE stages SET driver = CASE
@@ -512,4 +532,24 @@ export function initializeProductDatabase(database) {
     `).run(workspaceId, teamId, at, at);
     insertWorkspaceDefaults(database, workspaceId);
   });
+}
+/**
+ * The MCP servers one agent may use, as the names its tools are prefixed with.
+ *
+ * Read by id at dispatch, not carried through routing: a rerun reuses its recorded agent config,
+ * which would pin a policy the owner has since changed.
+ */
+export function mcpGrantFor(database, agentAssignmentId) {
+  const row = database.prepare(`
+    SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
+  `).get(required(agentAssignmentId, "Agent"));
+  if (!row) throw new Error("Agent not found");
+  if (row.access !== "listed") return { mcpAccess: row.access, mcpServers: [] };
+  return {
+    mcpAccess: "listed",
+    mcpServers: database.prepare(`
+      SELECT server_name AS name FROM mcp_servers
+      WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
+    `).all(row.servers).map(({ name }) => name)
+  };
 }

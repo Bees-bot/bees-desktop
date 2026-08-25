@@ -3,13 +3,25 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assignment, capabilities, currentIdentity, insertProcess, insertWorkspaceDefaults, iso,
-  itemContext, optionalReasoningEffort, parentFor, processContext, processStageNames,
+  itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStageNames,
   requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
   canonicalMapping, logicalRelativePath, mappedLocation, stageInputs
 } from "./product-files.js";
 import { resolveStageAgent } from "./product-routing.js";
+
+/** An agent's MCP policy: every connected server, none of them, or a named few. */
+function mcpPolicy(input, current = { access: "all", servers: [] }) {
+  if (!Object.hasOwn(input, "mcpAccess")) return current;
+  const access = String(input.mcpAccess ?? "all");
+  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  const servers = access === "listed"
+    ? [...new Set((Array.isArray(input.mcpServers) ? input.mcpServers : []).map(String).filter(Boolean))]
+    : [];
+  if (access === "listed" && !servers.length) throw new Error("Choose at least one MCP server, or pick none");
+  return { access, servers };
+}
 
 export async function executeProductCommand(action, input) {
     const at = iso();
@@ -307,6 +319,7 @@ export async function executeProductCommand(action, input) {
         const preset = presets.find(({ id }) => id === presetId);
         if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
       }
+      const policy = mcpPolicy(input);
       return transaction(this.database, () => {
         const id = randomUUID();
         const maxConcurrency = Number(input.maxConcurrency ?? 0);
@@ -315,13 +328,13 @@ export async function executeProductCommand(action, input) {
         this.database.prepare(`
           INSERT INTO agent_assignments
             (id, workspace_id, preset_id, name, description, instructions, model, reasoning_effort, system_role,
-             capabilities_json, enabled, max_concurrency, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+             capabilities_json, enabled, max_concurrency, created_at, updated_at, mcp_access, mcp_servers_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
           String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
           optionalReasoningEffort(input.reasoningEffort),
           JSON.stringify(capabilities(input.capabilities)), input.enabled === false ? 0 : 1,
-          maxConcurrency, at, at);
+          maxConcurrency, at, at, policy.access, JSON.stringify(policy.servers));
         return { id };
       });
     }
@@ -330,7 +343,8 @@ export async function executeProductCommand(action, input) {
       const assignment = this.database.prepare(`
         SELECT workspace_id AS workspaceId, name, system_role AS systemRole,
                reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
-               enabled, max_concurrency AS maxConcurrency
+               enabled, max_concurrency AS maxConcurrency,
+               mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
         FROM agent_assignments WHERE id = ?
       `).get(id);
       if (!assignment) throw new Error("Agent not found");
@@ -349,13 +363,18 @@ export async function executeProductCommand(action, input) {
         ? optionalReasoningEffort(input.reasoningEffort) : assignment.reasoningEffort;
       if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
         throw new Error("Agent concurrency must be an integer from 0 to 1000");
+      const policy = mcpPolicy(input, {
+        access: assignment.mcpAccess ?? "all", servers: JSON.parse(assignment.mcpServers || "[]")
+      });
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
-          model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?, updated_at = ? WHERE id = ?
+          model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
+          mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
         String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
         reasoningEffort,
-        JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency, at, id);
+        JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
+        policy.access, JSON.stringify(policy.servers), at, id);
       return { id };
     }
     if (action === "add_location") {
@@ -479,6 +498,7 @@ export async function executeProductCommand(action, input) {
           reasoningEffort: optionalReasoningEffort(input.reasoningEffort),
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || "standard",
+          mcpAccess: "all", mcpServers: [],
           grants: []
         }
       });
@@ -509,6 +529,7 @@ export async function executeProductCommand(action, input) {
           reasoningEffort: optionalReasoningEffort(input.reasoningEffort) || assignment?.reasoningEffort || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
+          ...mcpGrantFor(this.database, assignment?.id),
           grants
         }
       });

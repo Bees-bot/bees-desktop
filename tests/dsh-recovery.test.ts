@@ -344,6 +344,7 @@ describe("DSH-owned desktop and recovery", () => {
         version: 1, mode: "planning", executionId: "retryable", workItemId: null,
         agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome", model: null,
         instructions: "Plan", workspaceId: workspace.id, agentPresetId: "standard",
+        mcpAccess: "all", mcpServers: [],
         grants: []
       }
     })).rejects.toThrow("provider unavailable");
@@ -379,7 +380,8 @@ describe("DSH-owned desktop and recovery", () => {
         version: 1, mode: "planning", executionId: "latest-sol", workItemId: null,
         agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome",
         model: `openai-codex/${LATEST_SOL_MODEL}`, reasoningEffort: "high",
-        instructions: "Plan", workspaceId: workspace.id, agentPresetId: "standard", grants: []
+        instructions: "Plan", workspaceId: workspace.id, agentPresetId: "standard",
+        mcpAccess: "all", mcpServers: [], grants: []
       }
     })).rejects.toThrow("stop after selection");
     rmSync(runDirectory, { recursive: true });
