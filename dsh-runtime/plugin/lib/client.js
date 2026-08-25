@@ -138,7 +138,8 @@
   ];
   var css = `
 
-.bees-panel-wide { max-width: none; height: 100%; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.bees-panel-wide { max-width: none; }
+.bees-panel-full-height { height: 100%; display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .bees-cockpit-head { flex-shrink: 0; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .bees-cockpit-board { flex-shrink: 0; margin-bottom: 16px; }
 .bees-workspace-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(320px, 4fr); gap: 20px; flex: 1; min-height: 0; }
@@ -2986,7 +2987,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
           h(ThemeToggle, { ctx })
         ),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-        h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
+        h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide bees-panel-full-height" : ""}` }, page))
       )
     ));
   }

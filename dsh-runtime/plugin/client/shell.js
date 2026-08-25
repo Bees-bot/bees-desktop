@@ -246,7 +246,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
 
         h(ThemeToggle, { ctx })),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
+      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide bees-panel-full-height" : ""}` }, page))
     )
   ));
 }
