@@ -2959,18 +2959,6 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
           route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
           route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null,
           h("div", { className: "bees-grow" }),
-          h("details", { className: "bees-create" }, h("summary", { className: "bees-btn", title: "Create", role: "button", "aria-label": "Create" }, "+"), h(
-            "div",
-            { className: "bees-menu" },
-            h("button", { className: "bees-nav-link", onClick: createOrganization }, "New organization"),
-            h("button", { className: "bees-nav-link", disabled: !parts.teamId && !data.teams.some(({ organizationId }) => organizationId === parts.organizationId), onClick: createWorkspace }, "New workspace"),
-            h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createWork }, "New work"),
-            h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createGoal }, "New goal"),
-            h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createProcess }, "New process"),
-            h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createRun }, "New one-off run"),
-            h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createAgent }, "New agent"),
-            h("button", { className: "bees-nav-link", disabled: !parts.organizationId, onClick: createTeam }, "New team")
-          )),
           h(ThemeToggle, { ctx })
         ),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
