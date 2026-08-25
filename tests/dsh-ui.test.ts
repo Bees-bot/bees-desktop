@@ -37,6 +37,12 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('route === "completed" ? isDone(item) : !isDone(item)');
   });
 
+  it("opens the work form from home cards instead of starting work", () => {
+    expect(client).toContain("if (p?.id) openWorkItem(null, p.id)");
+    expect(client).toContain("openWorkItem(null, card.id)");
+    expect(client).not.toContain('title: `New ${card.name} run`');
+  });
+
   it("uses the full content width and separates the detail views into tabs", () => {
     expect(client).toContain('"bees-panel-wide"');
     expect(client).toContain('setActiveTab("details")');

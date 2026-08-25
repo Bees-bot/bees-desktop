@@ -51,13 +51,9 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
           onClick: async () => {
             if (card.isTemplate) {
               const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
-              if (p?.id) {
-                const w = await act({ action: "create_run", processId: p.id, title: `Run ${card.name}` });
-                if (w?.id) openWorkItem(w.id, p.id);
-              }
+              if (p?.id) openWorkItem(null, p.id);
             } else {
-              const w = await act({ action: "create_run", processId: card.id, title: `New ${card.name} run` });
-              if (w?.id) openWorkItem(w.id, card.id);
+              openWorkItem(null, card.id);
             }
           }
         },
@@ -95,5 +91,4 @@ export function GuidePage() {
     )
   );
 }
-
 
