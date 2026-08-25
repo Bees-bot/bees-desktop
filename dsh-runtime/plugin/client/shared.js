@@ -5,7 +5,7 @@ export const NAVIGATION = [
     ["guide", "How Bees works"]
   ] },
   { id: "work", label: "Work", icon: "✓", defaultChild: "all-work", children: [
-    ["all-work", "All work"], ["goals", "Goals"], ["waiting", "Needs you"], ["completed", "Completed"]
+    ["all-work", "Work items"], ["goals", "Goals"], ["waiting", "Needs you"], ["completed", "Completed"]
   ] },
   { id: "processes", label: "Processes", icon: "◇", defaultChild: "all-processes", children: [
     ["all-processes", "All processes"], ["templates", "Templates"]
@@ -218,6 +218,11 @@ export function PinButton({ id, label, pins, setPins }) {
 }
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
+
+export function runTitle(data, run) {
+  return data.items.find(({ id }) => id === run.workItemId)?.title ??
+    (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
+}
 
 export function workItemsFor(data, route, workspaceIds) {
   let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");

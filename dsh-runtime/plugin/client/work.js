@@ -2,7 +2,7 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, request, useSnapshot, workItemsFor
+  ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useSnapshot, workItemsFor
 } from "./shared.js";
 
 function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
@@ -383,7 +383,7 @@ function ApprovalPanel({ wait, onAnswered }) {
 
 const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
 
-function AgentInteractionPanel({ run, item, summary, session, interaction, handled, onAnswered, onOpenWork }) {
+function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel }) {
   const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -394,8 +394,8 @@ function AgentInteractionPanel({ run, item, summary, session, interaction, handl
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
       h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
-      h("h2", null, item?.title ?? summary?.displayTitle ?? "Agent run")),
-    h("div", { className: "bees-grow" }), onOpenWork ? h(Button, { onClick: onOpenWork }, "Open work") : null),
+      h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
+    h("div", { className: "bees-grow" }), onOpen ? h(Button, { onClick: onOpen }, openLabel) : null),
     interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, run.status === "interrupted"
@@ -408,7 +408,7 @@ function AgentInteractionPanel({ run, item, summary, session, interaction, handl
   );
 }
 
-export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
+export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun }) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
   const [selectedId, setSelectedId] = useState("");
   const [handled, setHandled] = useState(() => new Set());
@@ -447,7 +447,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
       rows.length ? h("div", { className: "bees-inbox" },
         h("div", { className: "bees-inbox-list", "aria-label": "Waiting agents" }, ...rows.map(({ run, session: summary, item }) => {
           const agent = data.assignments.find(({ id }) => id === run.resolvedAgentId);
-          const rowTitle = item?.title ?? summary?.displayTitle ?? "Agent run";
+          const rowTitle = item?.title ?? runTitle(data, run) ?? summary?.displayTitle;
           return h("button", { type: "button", className: `bees-inbox-row ${run.id === selected?.run.id ? "active" : ""}`, key: run.id, onClick: () => setSelectedId(run.id) },
             h("span", { className: "bees-inbox-dot", "aria-hidden": "true" }),
             h("span", { className: "bees-inbox-copy" }, h("strong", null, rowTitle),
@@ -455,17 +455,19 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
             h("span", { className: "bees-badge" }, interactionName(summary?.pendingInteraction)));
         })),
         h(AgentInteractionPanel, {
-          run: selected.run, item: selected.item, summary: selected.session, session, interaction, handled,
-          onAnswered: answered, onOpenWork: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : null
+          run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled,
+          onAnswered: answered,
+          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
+          openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
     ) : h(Empty, null, "No live agent questions or approvals right now"),
     blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
       ...blocked.map((run) => {
         const item = data.items.find(({ id }) => id === run.workItemId);
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, item?.title ?? "Agent run"),
+          h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
           h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
-          run.workItemId ? h(Button, { onClick: () => openWorkItem(run.workItemId) }, "Open work") : null);
+          h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run"));
       })) : null
   );
 }

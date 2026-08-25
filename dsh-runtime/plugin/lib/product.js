@@ -43,6 +43,34 @@ export class BeesProduct {
     }
   }
 
+  async recoverHumanWaits() {
+    const runs = this.database.prepare(`
+      SELECT execution_id AS executionId, work_item_id AS workItemId,
+             recovery_count AS recoveryCount, config_json AS configJson
+      FROM execution_links WHERE status = 'interrupted' ORDER BY updated_at
+    `).all();
+    const recoveries = runs.flatMap((run) => {
+      const pending = this.agents.pendingInteraction(run.executionId);
+      if (!pending) return [];
+      const data = JSON.parse(run.configJson);
+      let body;
+      if (!run.workItemId && data.mode === "planning") {
+        body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
+      } else if (run.workItemId) {
+        const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
+        if (this.processes?.isAutomatic(item.processId)) return [];
+        body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
+      } else return [];
+      if (pending.kind === "question")
+        body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
+      return [this.agents.admit("bees-run", run.executionId, {
+        idempotencyKey: `human-wait:${run.executionId}:${Number(run.recoveryCount) + 1}`,
+        body
+      })];
+    });
+    await Promise.allSettled(recoveries);
+  }
+
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
     const executionId = required(stage.executionId, "Execution");
@@ -218,7 +246,9 @@ export class BeesProduct {
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
-             e.status, e.run_directory AS runDirectory, e.updated_at AS updatedAt,
+             e.status, json_extract(e.config_json, '$.mode') AS mode,
+             json_extract(e.config_json, '$.purpose') AS purpose,
+             e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision

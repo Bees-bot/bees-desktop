@@ -34,7 +34,7 @@
       ["guide", "How Bees works"]
     ] },
     { id: "work", label: "Work", icon: "✓", defaultChild: "all-work", children: [
-      ["all-work", "All work"],
+      ["all-work", "Work items"],
       ["goals", "Goals"],
       ["waiting", "Needs you"],
       ["completed", "Completed"]
@@ -279,6 +279,9 @@
     }, "📌");
   }
   var isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
+  function runTitle(data, run) {
+    return data.items.find(({ id }) => id === run.workItemId)?.title ?? (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
+  }
   function workItemsFor(data, route, workspaceIds) {
     let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
     if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
@@ -980,7 +983,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
     );
   }
   var interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
-  function AgentInteractionPanel({ run, item, summary, session, interaction, handled, onAnswered, onOpenWork }) {
+  function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel }) {
     const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
     const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
     const fileKey = files.join("|");
@@ -995,10 +998,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           "div",
           null,
           h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
-          h("h2", null, item?.title ?? summary?.displayTitle ?? "Agent run")
+          h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")
         ),
         h("div", { className: "bees-grow" }),
-        onOpenWork ? h(Button, { onClick: onOpenWork }, "Open work") : null
+        onOpen ? h(Button, { onClick: onOpen }, openLabel) : null
       ),
       interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered }) : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered }) : h(Empty, null, run.status === "interrupted" ? "The prior request was interrupted. Retry the work to ask again." : session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
       files.length ? h(
@@ -1015,7 +1018,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       viewer ? h(FilePreview, { target: viewer }) : null
     );
   }
-  function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
+  function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun }) {
     const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
     const [selectedId, setSelectedId] = useState("");
     const [handled, setHandled] = useState(() => /* @__PURE__ */ new Set());
@@ -1059,7 +1062,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
         { className: "bees-inbox" },
         h("div", { className: "bees-inbox-list", "aria-label": "Waiting agents" }, ...rows.map(({ run, session: summary, item }) => {
           const agent = data.assignments.find(({ id }) => id === run.resolvedAgentId);
-          const rowTitle = item?.title ?? summary?.displayTitle ?? "Agent run";
+          const rowTitle = item?.title ?? runTitle(data, run) ?? summary?.displayTitle;
           return h(
             "button",
             { type: "button", className: `bees-inbox-row ${run.id === selected?.run.id ? "active" : ""}`, key: run.id, onClick: () => setSelectedId(run.id) },
@@ -1076,12 +1079,14 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
         h(AgentInteractionPanel, {
           run: selected.run,
           item: selected.item,
+          title: runTitle(data, selected.run),
           summary: selected.session,
           session,
           interaction,
           handled,
           onAnswered: answered,
-          onOpenWork: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : null
+          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
+          openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
       ) : h(Empty, null, "No live agent questions or approvals right now"),
       blocked.length ? h(
@@ -1096,10 +1101,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             h(
               "div",
               { className: "bees-row-main" },
-              h("div", { className: "bees-row-title" }, item?.title ?? "Agent run"),
+              h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
               h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")
             ),
-            run.workItemId ? h(Button, { onClick: () => openWorkItem(run.workItemId) }, "Open work") : null
+            h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run")
           );
         })
       ) : null
@@ -1921,27 +1926,26 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       )) : [h(Empty, { key: "empty" }, "No shared team locations yet")]
     );
   }
-  function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess }) {
+  function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) {
     const runs = data.runs.filter((run2) => workspaceIds.includes(run2.workspaceId));
     const [events, setEvents] = useState([]);
-    const [selected, setSelected] = useState("");
     const [history, setHistory] = useState(null);
     useEffect(() => {
       if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events));
     }, [route]);
     useEffect(() => {
       let active = true;
-      if (!selected) {
+      if (!runId) {
         setHistory(null);
         return () => {
           active = false;
         };
       }
-      request(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(runId)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
-    }, [selected]);
+    }, [runId]);
     if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
     if (route === "audit") return h("div", null, ...events.length ? events.map((event) => {
       const run2 = runs.find(({ id }) => id === event.executionId);
@@ -1951,7 +1955,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       const runItem = run2 ? data.items.find(({ id }) => id === run2.workItemId) : null;
       const detail = runItem?.title ?? item?.title ?? process?.name ?? event.metadata?.action ?? event.metadata?.outcome;
       const onOpen = run2 ? () => {
-        setSelected(run2.id);
+        setRunId(run2.id);
         setRoute("runs");
       } : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
       return h(AuditEvent, {
@@ -1962,11 +1966,11 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         openLabel: run2 ? "Open run" : item ? "Open work item" : "Open process"
       });
     }) : [h(Empty, { key: "empty" }, "No audit events yet")]);
-    const run = runs.find(({ id }) => id === selected);
+    const run = runs.find(({ id }) => id === runId);
     if (run) return h(
       "div",
       null,
-      h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelected("") }, "← Runs"), h("strong", null, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+      h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Runs"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
       run.resolvedAgentId ? h(
         "section",
         { className: "bees-box" },
@@ -1988,8 +1992,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     );
     return h("div", null, ...runs.length ? runs.map((row) => h(
       "button",
-      { className: "bees-row bees-nav-link", key: row.id, onClick: () => setSelected(row.id) },
-      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
+      { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
+      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
       h("span", { className: `bees-status bees-${row.status}` }, row.status)
     )) : [h(Empty, { key: "empty" }, "No runs yet")]);
   }
@@ -2448,6 +2452,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [creating, setCreating] = useState("");
     const [processDraft, setProcessDraft] = useState(null);
     const [workProcessId, setWorkProcessId] = useState("");
+    const [runId, setRunId] = useState("");
     const load = async () => {
       try {
         const value = await request("/bees-api/snapshot");
@@ -2477,6 +2482,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       setCreating("");
       setProcessDraft(null);
       setWorkProcessId("");
+      setRunId("");
       void preferences.set("lastScope", next);
     };
     const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
@@ -2494,7 +2500,10 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const askBees = async (outcome) => {
       if (!parts.workspaceId) return null;
       const result = await act({ action: "ask_bees", workspaceId: parts.workspaceId, outcome });
-      if (result?.sessionId) setRoute("runs");
+      if (result?.executionId) {
+        setRunId(result.executionId);
+        setRoute("runs");
+      }
       return result;
     };
     const navigate = (id) => {
@@ -2509,6 +2518,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       setCreating("");
       setProcessDraft(null);
       setWorkProcessId("");
+      setRunId("");
     };
     const createOrganization = async () => {
       const name = await ask("Organization name", "");
@@ -2592,6 +2602,13 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       setWorkItemId("");
       setCreating("");
     };
+    const openRun = (id) => {
+      setRoute("runs");
+      setRunId(id);
+      setProcessId("");
+      setWorkItemId("");
+      setCreating("");
+    };
     const openWorkItem = (id, processForWork = "") => {
       setRoute("all-work");
       setProcessId("");
@@ -2620,8 +2637,8 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt).map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       if (targetRoute === "runs") return data.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
         id: row.id,
-        label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees",
-        open: openRoute
+        label: runTitle(data, row),
+        open: () => openRun(row.id)
       }));
       if (targetRoute === "artifacts") return data.runs.filter((row) => row.workspaceId === parts.workspaceId && row.outputs.length).map((row) => ({ id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
       if (targetRoute === "workspace-settings" && parts.workspace) return [{ id: parts.workspace.id, label: parts.workspace.name, open: openRoute }];
@@ -2635,7 +2652,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
     return h(React2.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },

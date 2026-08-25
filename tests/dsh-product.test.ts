@@ -60,12 +60,14 @@ describe("Bees DSH product plugin", () => {
         (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
          run_directory, config_json, status, created_at, updated_at)
       VALUES ('preview-run', ?, 'Preview agent', 'preview-session', 'preview-instance',
-        ?, '{}', 'waiting_for_input', '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
+        ?, '{"mode":"planning","purpose":"Preview outcome"}', 'waiting_for_input',
+        '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
     `).run(workspaceId, runDirectory);
 
-    expect((await product.snapshot()).runs[0].files).toEqual([
-      "inputs/brief.md", "outputs/notes.txt"
-    ]);
+    expect((await product.snapshot()).runs[0]).toMatchObject({
+      mode: "planning", purpose: "Preview outcome",
+      files: ["inputs/brief.md", "outputs/notes.txt"]
+    });
     expect(product.runFile("preview-run", "inputs/brief.md")).toEqual({
       name: "brief.md", path: "inputs/brief.md", format: "markdown",
       content: "# Brief\n\nChoose **one**."
@@ -73,6 +75,37 @@ describe("Bees DSH product plugin", () => {
     expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
     expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");
     rmSync(root, { recursive: true });
+  });
+
+  it("restarts a standalone planning question after the app restarts", async () => {
+    const database = new NodeDatabase();
+    const first = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+    ).get() as { id: string };
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('planning-run', ?, 'bees-run', 'planning-session', 'uid', '/tmp/planning-run',
+        ?, 'running', '2026-01-01', '2026-01-01')
+    `).run(workspace.id, JSON.stringify({
+      version: 1, mode: "planning", purpose: "Launch safely", workspaceId: workspace.id
+    }));
+    first.onSessionEvent({ id: "planning-session" }, {
+      type: "tool/call", seq: 4,
+      data: { name: "ask_user_question", callId: "question-1", arguments: "Which market?" }
+    });
+
+    const replacement = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const admit = vi.spyOn(replacement, "admit").mockResolvedValue({ submissionId: "replacement", uid: "uid" });
+    const product = new BeesProduct(database.connection, replacement, null, "/tmp");
+    await product.recoverHumanWaits();
+
+    expect(admit).toHaveBeenCalledWith("bees-run", "planning-run", {
+      idempotencyKey: "human-wait:planning-run:1",
+      body: expect.stringMatching(/Outcome: Launch safely[\s\S]*Which market\?/)
+    });
   });
 
   it("shares team locations and starts every process with visible default agents", async () => {

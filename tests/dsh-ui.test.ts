@@ -64,6 +64,13 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
   });
 
+  it("names work items precisely and opens standalone planning runs", () => {
+    expect(client).toContain('["all-work", "Work items"]');
+    expect(client).toContain('`Plan outcome: ${run.purpose}`');
+    expect(client).toContain('openLabel: selected.run.workItemId ? "Open work" : "Open run"');
+    expect(client).toContain('setRunId(result.executionId)');
+  });
+
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {
     expect(client).not.toContain("sessions.subagentsByParent");
     expect(client).not.toContain("setSubagentCatalogOpen");
