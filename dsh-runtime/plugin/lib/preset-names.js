@@ -1,11 +1,5 @@
-/**
- * English names for the presets DSH ships.
- *
- * DSH names and describes its own presets in its locale, and those strings reach the agent form,
- * the preset list and the skill rows, where an English reader cannot choose between them. The ids
- * are stable and already English, so they are what a fallback uses; the wording below describes
- * what each preset actually carries, measured from its own tool list rather than translated.
- */
+/** DSH names its presets in its own locale, which reaches the one required field on the agent
+ *  form. Wording below is what each preset carries, read off its tool list, not translated. */
 const SHIPPED = {
   standard: {
     name: "Standard",

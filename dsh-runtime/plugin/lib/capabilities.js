@@ -15,10 +15,7 @@ import { specFromCurl } from "./spec-from-curl.js";
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/**
- * Secrets never go in the product database. Each one is stored under a DSH credential reference
- * derived from the server and the variable, so removing a server can also remove exactly its own.
- */
+/** Secrets live in the DSH credential store, never in the product database. */
 function secretRef(serverName, name) {
   return credentialRef(`BEES_MCP_${serverName}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
@@ -32,29 +29,16 @@ function parseJson(text, fallback) {
 
 function rowToServer(row) {
   return {
-    id: row.id,
-    serverName: row.server_name,
-    label: row.label,
-    transport: row.transport,
-    command: row.command,
+    id: row.id, serverName: row.server_name, label: row.label, transport: row.transport,
+    command: row.command, url: row.url, catalogId: row.catalog_id, source: row.source,
+    createdAt: row.created_at, enabled: Boolean(row.enabled),
     args: parseJson(row.args_json, []),
-    url: row.url,
     envNames: parseJson(row.env_names_json, []),
-    headerNames: parseJson(row.header_names_json, []),
-    catalogId: row.catalog_id,
-    source: row.source,
-    enabled: Boolean(row.enabled),
-    createdAt: row.created_at
+    headerNames: parseJson(row.header_names_json, [])
   };
 }
 
-/**
- * Skills, tools and MCP servers as one surface.
- *
- * Skills and tools are read straight from DSH, which owns them. MCP servers are the part Bees
- * owns: the rows live in the product database and each enabled one is mounted as its own
- * `dsh-mcp-client` fiber, so adding a server publishes its tools without restarting the app.
- */
+/** Skills and tools come from DSH. MCP servers are ours: one mounted fiber per enabled row. */
 export class Capabilities {
   constructor(ctx, database, defaultWorkspace) {
     this.ctx = ctx;
@@ -81,14 +65,7 @@ export class Capabilities {
     return this.database.prepare("SELECT * FROM mcp_servers ORDER BY created_at").all().map(rowToServer);
   }
 
-  /**
-   * One mutation at a time per server.
-   *
-   * Two toggles landing together (a double click, or two windows) had the second disposing the
-   * fiber the first was still starting, and `dsh-mcp-client` holds its serverName reservation until
-   * that disposal finishes: the survivor then failed with "serverName is already in use" and stayed
-   * dead until someone toggled it again.
-   */
+  /** Two toggles at once had the second dispose the fiber the first was still starting. */
   serialize(serverId, work) {
     const previous = this.queued.get(serverId) ?? Promise.resolve();
     const next = previous.then(work, work);
@@ -110,8 +87,7 @@ export class Capabilities {
         command: server.command,
         args: server.args,
         env,
-        // Without this a missing command or a refused connection activates with no tools and no
-        // error, and the server sits on "Starting…" forever with nothing to tell the user.
+        // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
       };
     }
@@ -127,14 +103,10 @@ export class Capabilities {
     };
   }
 
-  /**
-   * Mount one server. A server that will not start is a normal, reportable state — a bad command
-   * or an expired token must leave the rest of Bees running, so the failure is recorded, not thrown.
-   */
+  /** A server that will not start is reportable state, not a reason to take the app down. */
   async mount(server) {
     if (this.mounted.has(server.id)) return this.mounted.get(server.id);
-    // Reserve the slot before the first await: two quick enables of the same row would otherwise
-    // both pass the check above and leave one fiber unreachable and undisposable.
+    // Reserve before the first await, or a second enable leaves an undisposable fiber.
     const entry = { fiber: null, error: "", ready: false };
     this.mounted.set(server.id, entry);
     try {
@@ -144,8 +116,7 @@ export class Capabilities {
       entry.ready = true;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      // The client's own message names the server but never what it tried, which is the one thing
-      // needed to fix it.
+      // The client names the server but never what it tried, which is what you need.
       const attempted = server.transport === "stdio"
         ? `Bees tried to run: ${[server.command, ...server.args].join(" ")}`
         : `Bees tried to reach ${server.url}`;
@@ -167,13 +138,7 @@ export class Capabilities {
     if (server.enabled) await this.mount(server);
   }
 
-  /**
-   * The tools each preset hands an agent.
-   *
-   * DSH keeps every model-facing tool on the agent plane, so the global registry holds only what
-   * Bees itself mounted (the MCP servers). Reading a preset's own scope is the only way to show
-   * what a run will actually be able to do.
-   */
+  /** DSH keeps tools on the agent plane, so only a preset's own scope knows what a run gets. */
   async presetTools() {
     let presets = [];
     try { presets = await this.ctx.agentPresets.list(); } catch { return []; }
@@ -209,8 +174,7 @@ export class Capabilities {
     let tools = [];
     try { tools = this.ctx.tools.schemas(); } catch { tools = []; }
     const presets = await this.presetTools();
-    // Skills, like tools, are registered per preset. The page lists them once, and says which
-    // presets can reach each one.
+    // Skills are per preset too; list each once and say which presets reach it.
     const merged = new Map();
     for (const preset of presets) {
       for (const skill of preset.skills) {
@@ -280,12 +244,7 @@ export class Capabilities {
     });
   }
 
-  /**
-   * Find an API's OpenAPI document from its base address, so bridging one is a single field.
-   *
-   * An API that lists its resources but publishes no document gets one written from that listing
-   * and saved beside the app's state, because the bridge takes a path or a URL, not a blob.
-   */
+  /** Ask the API where its document is, so bridging one is a single field. */
   async discoverSpec(apiBaseUrl) {
     const address = required(apiBaseUrl, "API base URL");
     const found = await discoverApi(address);
@@ -294,13 +253,7 @@ export class Capabilities {
     return { ...rest, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
-  /**
-   * A written document needs somewhere to live; the bridge takes a path or a URL, not a blob.
-   *
-   * The name carries a hash of the document, because two endpoints of one API are a normal thing to
-   * bridge and a host-only name would have the second install silently rewrite the first server's
-   * spec underneath it. Identical documents share a file, so re-installing one costs nothing.
-   */
+  /** Hashed name, or a second endpoint on one host would overwrite the first server's spec. */
   async writeSpec(host, spec) {
     const directory = join(process.env.BEES_STATE_DIR || tmpdir(), "api-specs");
     await mkdir(directory, { recursive: true });
@@ -360,8 +313,7 @@ export class Capabilities {
         JSON.stringify(server.args), server.url, JSON.stringify(server.envNames),
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
     });
-    // Secrets are written after the row lands so a rejected write leaves a visible, fixable server
-    // rather than an orphan credential under a name nothing points at.
+    // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     for (const [name, value] of Object.entries(secrets)) {
       if (value) await this.ctx.credentials.set(secretRef(server.serverName, name), value);
     }
@@ -381,8 +333,7 @@ export class Capabilities {
       if (value) secrets[secret.name] = value;
     }
     const given = { ...(input.inputs ?? {}) };
-    // The spec is the one field a person usually does not know. The API can normally be asked, and
-    // an API that publishes nothing can still be described by one request that already works.
+    // Nobody knows their spec URL. Ask the API, or read one working request.
     if (entry.inputs?.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
       const curl = String(given.curl ?? "").trim();
       const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
@@ -426,9 +377,7 @@ export class Capabilities {
       if (String(value ?? "").trim()) secrets[name] = String(value).trim();
     }
     const names = Object.keys(secrets);
-    // Someone pasting "npx -y some-package" into Command meant all of it. Splitting it here is what
-    // they intended; leaving it whole spawns a program with that entire string as its name and fails
-    // with a message that explains nothing.
+    // A pasted "npx -y pkg" means all of it; unsplit it spawns one absurd program name.
     const typed = String(input.args ?? "").split("\n").map((part) => part.trim()).filter(Boolean);
     const words = transport === "stdio"
       ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))

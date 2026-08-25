@@ -1,17 +1,9 @@
-/**
- * An OpenAPI document for an API that publishes none, written from a request that already works.
- *
- * The URL, method, query, headers and body are parsed, never inferred: a guessed path leaves a tool
- * that answers 404 to everything, and nothing downstream can tell the difference. Names are derived
- * from the method and path rather than invented, so the same curl always yields the same document.
- */
+/** An OpenAPI document written from one request that already works. Nothing here is guessed:
+ *  a wrong path leaves a tool that 404s on everything and nobody downstream can tell. */
 
 function parseCurl(command) {
-  // A URL copied out of chat, a doc or a ticket usually arrives as a markdown link, and the bare
-  // fallback match below would swallow the whole `[label](target)` into the query string. The path
-  // survives that, so the damage is invisible: a tool that sends nonsense parameters forever.
-  // The label half can itself contain brackets (`project_types[]=hourly`), so the match runs to the
-  // first `](http` rather than to the first `]`.
+  // A pasted markdown link would otherwise land whole in the query string, and the path survives
+  // that, so the damage is silent. The label can hold brackets, so match to the first `](http`.
   const text = String(command ?? "").trim()
     .replace(/\[[\s\S]*?\]\((https?:\/\/[^)\s]+)\)/g, "$1");
   if (!text) throw new Error("Paste a curl command.");
@@ -21,8 +13,7 @@ function parseCurl(command) {
   if (!url) throw new Error("No http address found. Paste a curl command that includes the full URL.");
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error(`"${url}" is not a valid address.`); }
-  // A second address inside the first means the paste was mangled. Refuse rather than describe an
-  // endpoint that is subtly wrong.
+  // A second address inside the first means a mangled paste; refuse rather than guess.
   if (/https?:\/\//.test(parsed.search) || /https?:\/\//.test(parsed.pathname))
     throw new Error("That address has another URL inside it. Paste the plain request URL, without any surrounding link markup.");
   if (/(^|\s)(-F|--form)\b/.test(text))

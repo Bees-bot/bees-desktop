@@ -20,7 +20,7 @@ async function json(url) {
   return response.json();
 }
 
-/** Frontmatter is all Bees reads to list a skill; DSH re-reads the body on every load. */
+/** Frontmatter only; DSH re-reads the body on every load. */
 function frontmatter(text, directory) {
   const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) throw new Error("SKILL.md has no closed frontmatter");
@@ -37,26 +37,18 @@ function frontmatter(text, directory) {
   return { name, description: fields.description.slice(0, 1024) };
 }
 
-/**
- * Skills published by one public repository.
- *
- * Read live off the default branch rather than pinned, so the list is whatever the publisher ships
- * today. Nothing is written until someone installs a specific skill.
- */
+/** Read live off the default branch. Nothing is written until a specific skill is installed. */
 export async function listPack(repo) {
   const source = SKILL_CATALOG.find((entry) => entry.repo === repo);
   if (!source) throw new Error("That skill collection is unavailable");
   const { tree = [] } = await json(`https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`);
-  const installed = new Set();
-  for (const path of tree.map(({ path }) => path)) {
-    if (!path.endsWith("/SKILL.md")) continue;
-    installed.add(path);
-  }
-  return [...installed].map((path) => {
-    const directory = path.slice(0, -"/SKILL.md".length);
-    const name = directory.split("/").pop();
-    return { repo, path, directory, name, installed: existsSync(join(skillsRoot(), name)) };
-  }).sort((left, right) => left.name.localeCompare(right.name));
+  return tree.map(({ path }) => path).filter((path) => path?.endsWith("/SKILL.md"))
+    .map((path) => {
+      const directory = path.slice(0, -"/SKILL.md".length);
+      const name = directory.split("/").pop();
+      return { repo, path, directory, name, installed: existsSync(join(skillsRoot(), name)) };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export async function installSkill(repo, directory) {
@@ -68,8 +60,8 @@ export async function installSkill(repo, directory) {
   if (files.length > MAX_FILES) throw new Error(`That skill ships ${files.length} files, more than Bees installs`);
   if (files.reduce((sum, { size }) => sum + (size ?? 0), 0) > MAX_BYTES) throw new Error("That skill is larger than Bees installs");
 
-  const root = skillsRoot();
-  const target = join(root, directory.split("/").pop());
+  const folder = directory.split("/").pop();
+  const target = join(skillsRoot(), folder);
   // Fetch everything before writing anything, so a failure halfway leaves no half-skill on disk.
   const fetched = [];
   for (const file of files) {
@@ -84,7 +76,7 @@ export async function installSkill(repo, directory) {
     fetched.push({ destination, body: Buffer.from(await response.arrayBuffer()) });
   }
   const skill = fetched.find(({ destination }) => destination === join(target, "SKILL.md"));
-  const { name, description } = frontmatter(skill.body.toString("utf8"), directory.split("/").pop());
+  const { name, description } = frontmatter(skill.body.toString("utf8"), folder);
 
   await rm(target, { recursive: true, force: true });
   for (const { destination, body } of fetched) {

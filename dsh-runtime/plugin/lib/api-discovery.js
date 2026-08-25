@@ -1,10 +1,4 @@
-/**
- * What an API will say about itself, asked at one address.
- *
- * Only the API is asked. It either publishes a document, or answers its own root with the resources
- * it offers, or it says nothing. Nothing here depends on a third party knowing about it, which is
- * the point: the bridge needs a spec, and most APIs have one without advertising where.
- */
+/** What an API says about itself. Only the API is asked, never a third party. */
 
 const SPEC_PATHS = [
   "/openapi.json", "/openapi.yaml", "/swagger.json", "/v3/api-docs",

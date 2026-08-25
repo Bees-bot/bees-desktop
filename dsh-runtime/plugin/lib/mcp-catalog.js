@@ -1,11 +1,5 @@
-/**
- * The public MCP servers Bees offers out of the box.
- *
- * Nothing here is installed until someone reviews the entry and presses Install, because an MCP
- * server is a program Bees runs on this machine with the tools it publishes handed straight to a
- * model. Every row therefore carries who publishes it, what it can reach, and what it needs from
- * the user. `access` is the sentence shown on the review screen; keep it honest and specific.
- */
+/** Servers offered out of the box. Nothing installs without review, because each one is a program
+ *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
 export const MCP_CATALOG = [
   {
     id: "filesystem",
