@@ -36,7 +36,10 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
   return h("div", { className: "bees-panel bees-panel-wide bees-home-layout" },
     h("div", { className: "bees-home-main" },
       h("div", { className: "bees-hero" },
-        h("h1", null, "What would you like to achieve?"),
+        h("div", { className: "bees-hero-head" },
+          h("h1", null, "What outcome should Bees own?"),
+          h("p", { className: "bees-hero-desc" }, "Ask an agent to propose a goal or visible process. Nothing changes until you review and apply it.")
+        ),
         h("form", {
           className: "bees-composer",
           onSubmit: (event) => { event.preventDefault(); void submit(); }
