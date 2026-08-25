@@ -579,16 +579,11 @@ export class AgentRuntime {
   }
 
   /**
-   * Hold this agent to the MCP servers it was granted.
+   * Hold this agent to the MCP servers it was granted. A deny list, not an allow list: the preset's
+   * tools are still registering at setup, so an allow mask would freeze the agent to whatever
+   * happened to exist at that instant.
    *
-   * Named as a deny list built from the global layer, which is the only place Bees mounts MCP
-   * servers. An allow list would have to enumerate what the agent may keep, and the preset's own
-   * tools are not all registered yet at setup time — the mask would freeze the agent to whatever
-   * existed at that instant and silently strip the rest.
-   *
-   * ponytail: a server connected mid-run is not in this list and stays visible to an agent already
-   * running. Re-resolve on connect if that ever matters; runs are short and the policy is read at
-   * dispatch.
+   * ponytail: a server connected mid-run stays visible to a run already going. Runs are short.
    */
   restrictMcp(agentCtx, data) {
     if (data.mcpAccess === "all") return;
