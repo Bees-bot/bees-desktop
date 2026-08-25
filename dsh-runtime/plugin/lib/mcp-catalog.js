@@ -197,8 +197,14 @@ MCP_CATALOG.push({
   // makes a large API usable at all.
   args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
   inputs: [
-    { name: "apiBaseUrl", flag: "--api-base-url", label: "API base URL", help: "https://api.example.com" },
-    { name: "openapiSpec", flag: "--openapi-spec", label: "OpenAPI spec URL", help: "https://api.example.com/openapi.json" }
+    { name: "apiBaseUrl", flag: "--api-base-url", optional: true, label: "API base URL",
+      help: "https://api.example.com. Taken from the curl command if you paste one instead." },
+    { name: "openapiSpec", flag: "--openapi-spec", optional: true,
+      label: "OpenAPI spec URL, if you know it",
+      help: "Leave this blank and Bees asks the API where its document is." },
+    { name: "curl", flag: "", optional: true, textarea: true,
+      label: "Or paste a curl command that already works",
+      help: "For an API that publishes no document at all. One request describes one endpoint." }
   ],
   env: [{
     name: "API_HEADERS",

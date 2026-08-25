@@ -2249,12 +2249,13 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         "label",
         { className: "bees-form", key: field.name },
         h("span", null, field.label),
-        h("input", {
-          className: "bees-input",
+        h(field.textarea ? "textarea" : "input", {
+          className: field.textarea ? "bees-textarea" : "bees-input",
           value: inputs[field.name] ?? "",
-          placeholder: field.help ?? "",
+          placeholder: field.textarea ? "curl 'https://api.example.com/v1/things' -H 'Authorization: Bearer …'" : "",
           onChange: (event) => setInputs({ ...inputs, [field.name]: event.target.value })
-        })
+        }),
+        field.help ? h("span", { className: "bees-muted" }, field.help) : null
       )),
       ...entry.secrets.map((secret) => h(
         "label",

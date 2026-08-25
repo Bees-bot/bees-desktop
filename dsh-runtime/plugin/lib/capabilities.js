@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { iso, required, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG, SKILL_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, skillsRoot } from "./skill-packs.js";
+import { discoverApi } from "./api-discovery.js";
+import { specFromCurl } from "./spec-from-curl.js";
 
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -250,9 +255,45 @@ export class Capabilities {
     });
   }
 
+  /**
+   * Find an API's OpenAPI document from its base address, so bridging one is a single field.
+   *
+   * An API that lists its resources but publishes no document gets one written from that listing
+   * and saved beside the app's state, because the bridge takes a path or a URL, not a blob.
+   */
+  async discoverSpec(apiBaseUrl) {
+    const address = required(apiBaseUrl, "API base URL");
+    const found = await discoverApi(address);
+    if (found.kind !== "endpoint-list") return found;
+    return { ...found, specUrl: await this.writeSpec(new URL(address).hostname, found.spec) };
+  }
+
+  /** A written document needs somewhere to live; the bridge takes a path or a URL, not a blob. */
+  async writeSpec(host, spec) {
+    const directory = join(process.env.BEES_STATE_DIR || tmpdir(), "api-specs");
+    await mkdir(directory, { recursive: true });
+    const file = join(directory, `${host.replace(/[^a-z0-9.-]/gi, "-")}.json`);
+    await writeFile(file, spec);
+    return file;
+  }
+
+  /** For an API that publishes nothing: one request that already works describes one endpoint. */
+  async specFromRequest(command) {
+    const { spec, request, host } = specFromCurl(command);
+    return {
+      kind: "from-curl",
+      specUrl: await this.writeSpec(host, spec),
+      apiBaseUrl: request.origin,
+      how: `described ${request.method.toUpperCase()} ${request.path} from your request`,
+      endpointCount: 1
+    };
+  }
+
   async command(input) {
     const action = String(input.action ?? "");
     if (action === "search_mcp_registry") return { results: await this.searchRegistry(input.query) };
+    if (action === "discover_api_spec") return this.discoverSpec(input.apiBaseUrl);
+    if (action === "spec_from_curl") return this.specFromRequest(input.curl);
     if (action === "list_skill_pack") return { skills: await listPack(String(input.repo ?? "")) };
     if (action === "install_skill") return installSkill(String(input.repo ?? ""), String(input.directory ?? ""));
     if (action === "remove_skill") return removeSkill(String(input.name ?? ""));
@@ -306,11 +347,22 @@ export class Capabilities {
       if (!value && !secret.optional) throw new Error(`${entry.label} needs ${secret.label}`);
       if (value) secrets[secret.name] = value;
     }
+    const given = { ...(input.inputs ?? {}) };
+    // The spec is the one field a person usually does not know. The API can normally be asked, and
+    // an API that publishes nothing can still be described by one request that already works.
+    if (entry.inputs?.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
+      const curl = String(given.curl ?? "").trim();
+      const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
+      if (!found.specUrl) throw new Error(`${found.how}. Paste its OpenAPI spec URL instead.`);
+      given.openapiSpec = found.specUrl;
+      if (found.apiBaseUrl && !String(given.apiBaseUrl ?? "").trim()) given.apiBaseUrl = found.apiBaseUrl;
+    }
     const args = [...(entry.args ?? [])];
     for (const field of entry.inputs ?? []) {
-      const value = String(input.inputs?.[field.name] ?? "").trim();
-      if (!value) throw new Error(`${entry.label} needs ${field.label}`);
-      args.push(field.flag, value);
+      const value = String(given[field.name] ?? "").trim();
+      if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);
+      // A field with no flag is consumed here rather than passed to the command.
+      if (value && field.flag) args.push(field.flag, value);
     }
     if (directory) args.push(directory);
     return this.insert({

@@ -191,10 +191,13 @@ function CatalogReview({ ctx, entry, onCancel, onInstall }) {
       h(Button, { onClick: pick }, directory ? "Change" : "Choose folder")) : null,
     ...(entry.inputs ?? []).map((field) => h("label", { className: "bees-form", key: field.name },
       h("span", null, field.label),
-      h("input", {
-        className: "bees-input", value: inputs[field.name] ?? "", placeholder: field.help ?? "",
+      h(field.textarea ? "textarea" : "input", {
+        className: field.textarea ? "bees-textarea" : "bees-input",
+        value: inputs[field.name] ?? "",
+        placeholder: field.textarea ? "curl 'https://api.example.com/v1/things' -H 'Authorization: Bearer …'" : "",
         onChange: (event) => setInputs({ ...inputs, [field.name]: event.target.value })
-      }))),
+      }),
+      field.help ? h("span", { className: "bees-muted" }, field.help) : null)),
     ...entry.secrets.map((secret) => h("label", { className: "bees-form", key: secret.name },
       h("span", null, secret.label),
       h("input", {

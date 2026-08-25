@@ -1,0 +1,94 @@
+/**
+ * What an API will say about itself, asked at one address.
+ *
+ * Only the API is asked. It either publishes a document, or answers its own root with the resources
+ * it offers, or it says nothing. Nothing here depends on a third party knowing about it, which is
+ * the point: the bridge needs a spec, and most APIs have one without advertising where.
+ */
+
+const SPEC_PATHS = [
+  "/openapi.json", "/openapi.yaml", "/swagger.json", "/v3/api-docs",
+  "/api-docs", "/.well-known/openapi.json"
+];
+
+const looksLikeSpec = (text) =>
+  /"?openapi"?\s*[:=]\s*["']?3|"?swagger"?\s*:\s*["']2/.test(text.slice(0, 2000));
+
+async function read(url) {
+  const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000) });
+  return { status: response.status, body: await response.text() };
+}
+
+const body = (reader, url) => reader(url)
+  .then((answer) => (answer.status >= 200 && answer.status < 300 ? answer.body : ""))
+  .catch(() => "");
+
+/** Anything in the answer that points back into the same API. */
+function selfLinks(value, origin) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value)
+    .filter(([, href]) => typeof href === "string" && href.startsWith(origin))
+    .map(([name, href]) => [name, href.replace(/\{.*?\}/g, "")]);
+}
+
+/** One read per resource the API lists for itself. */
+function specFromLinks(origin, links, title) {
+  const paths = {};
+  for (const [name, href] of links) {
+    let path;
+    try { path = new URL(href).pathname; } catch { continue; }
+    paths[path] = {
+      get: {
+        operationId: name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource",
+        summary: `List ${name.replace(/[-_]/g, " ")}`,
+        description: `Offered by ${origin} at its own root.`,
+        parameters: [
+          { name: "limit", in: "query", description: "How many to return", schema: { type: "integer" } },
+          { name: "offset", in: "query", description: "Where to start", schema: { type: "integer" } }
+        ],
+        responses: { 200: { description: "Success", content: { "application/json": { schema: { type: "object" } } } } }
+      }
+    };
+  }
+  return JSON.stringify({
+    openapi: "3.0.3",
+    info: { title, version: "0.1", description: `Written from what ${origin} lists at its own root.` },
+    servers: [{ url: origin }],
+    paths
+  }, null, 2);
+}
+
+export async function discoverApi(address, reader = read) {
+  const url = new URL(address);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http or https address");
+  const origin = url.origin;
+  const host = url.hostname.replace(/^www\./, "");
+
+  const answer = await body(reader, address);
+  if (answer && looksLikeSpec(answer))
+    return { kind: "spec-url", specUrl: address, how: "the address is an OpenAPI document", endpointCount: 0 };
+
+  for (const base of [address.replace(/\/+$/, ""), origin]) {
+    for (const path of SPEC_PATHS) {
+      const candidate = `${base}${path}`;
+      if (looksLikeSpec(await body(reader, candidate)))
+        return { kind: "spec-url", specUrl: candidate, how: `found a document at ${path}`, endpointCount: 0 };
+    }
+  }
+
+  let listed = null;
+  try { listed = JSON.parse(answer); } catch { listed = null; }
+  const links = selfLinks(listed, origin);
+  if (links.length >= 2) return {
+    kind: "endpoint-list",
+    spec: specFromLinks(origin, links, `${host} API`),
+    how: `${host} lists ${links.length} resources at this address`,
+    endpointCount: links.length
+  };
+
+  return {
+    kind: "none",
+    how: `${host} publishes no document and lists nothing at this address`,
+    endpointCount: 0
+  };
+}
