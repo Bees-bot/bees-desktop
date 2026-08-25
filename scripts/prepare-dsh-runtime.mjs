@@ -113,6 +113,8 @@ const temporalAssets = {
 const freeLlmVersion = "0.8.4";
 const freeLlmCommit = "6c4233b6847623328cdb8652d68e4d70d81f16e6";
 const freeLlmArchiveSha256 = "05cbaf60792f5183f74a238ca7938de93b0246e98a90ff571d243ea646e14469";
+const omniRouteVersion = "3.8.49";
+const omniRouteArchiveSha256 = "7dc1ac03139dbf5652c2ddb878726ef7b9724404ca070f2b61e16f193461c58b";
 
 function findFile(root, name) {
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -245,6 +247,44 @@ async function prepareFreeLlmRuntime() {
     });
     copyFileSync(join(sourceRoot, "LICENSE"), join(runtimeRoot, "LICENSE"));
     writeFileSync(marker, `${revision}\n`);
+    writeFileSync(join(runtimeRoot, ".gitkeep"), "");
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+async function prepareOmniRouteRuntime() {
+  const runtimeRoot = resolve(desktopRoot, "dsh-runtime", "omniroute");
+  const server = join(runtimeRoot, "server-ws.mjs");
+  const marker = join(runtimeRoot, ".omniroute-version");
+  if (
+    existsSync(server) &&
+    existsSync(marker) &&
+    readFileSync(marker, "utf8").trim() === omniRouteVersion
+  ) return;
+
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-omniroute-"));
+  try {
+    console.log(`Preparing embedded OmniRoute v${omniRouteVersion}...`);
+    const archive = await downloadVerified(
+      `https://registry.npmjs.org/omniroute/-/omniroute-${omniRouteVersion}.tgz`,
+      omniRouteArchiveSha256
+    );
+    const archivePath = join(temporaryRoot, `omniroute-${omniRouteVersion}.tgz`);
+    const extracted = join(temporaryRoot, "extracted");
+    writeFileSync(archivePath, archive);
+    mkdirSync(extracted);
+    execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
+    const packageRoot = join(extracted, "package");
+    const sourceRoot = join(packageRoot, "dist");
+    if (!existsSync(join(sourceRoot, "server-ws.mjs"))) {
+      throw new Error("The OmniRoute package did not contain its standalone server.");
+    }
+
+    rmSync(runtimeRoot, { recursive: true, force: true });
+    copyRuntimeDirectory(sourceRoot, runtimeRoot);
+    copyFileSync(join(packageRoot, "LICENSE"), join(runtimeRoot, "LICENSE"));
+    writeFileSync(marker, `${omniRouteVersion}\n`);
     writeFileSync(join(runtimeRoot, ".gitkeep"), "");
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -429,5 +469,6 @@ async function prepareLlamaRuntime() {
 }
 
 await prepareFreeLlmRuntime();
+await prepareOmniRouteRuntime();
 await prepareTemporalRuntime();
 await prepareLlamaRuntime();

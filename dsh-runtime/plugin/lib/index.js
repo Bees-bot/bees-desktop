@@ -138,7 +138,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
   const guard = (req) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-    if (["/bees-auth", "/healthz", "/_bees_unauthorized"].includes(path)) return;
+    if (["/bees-auth", "/bees-omniroute-auth", "/healthz", "/_bees_unauthorized"].includes(path)) return;
     if (!equalSecret(tokenFrom(req), token)) req.url = "/_bees_unauthorized";
   };
   server.prependListener("request", guard);
@@ -164,6 +164,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) =>
     reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/config", handler: async (req, res) => {
+    if (req.method !== "GET") return reply(res, 405, { error: "method not allowed" });
+    try { reply(res, 200, await connected.configuration()); }
+    catch { reply(res, 200, { omniroute_enabled: false }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {

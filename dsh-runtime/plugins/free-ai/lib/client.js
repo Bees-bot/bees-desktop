@@ -53,12 +53,6 @@ window.__ModuleLoader__.load({
       .bees-free-table table{width:100%;min-width:900px;border-collapse:collapse}.bees-free-table th,.bees-free-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-free-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-free-table tbody tr:last-child td{border-bottom:0}.bees-free-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-free-add{display:grid;grid-template-columns:minmax(160px,1fr) minmax(220px,2fr);gap:10px;align-items:end}.bees-free-add label{display:grid;gap:5px}.bees-free-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-free-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-free-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-free-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-free-toggle input:checked:after{left:16px;background:#151515}.bees-free-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-provider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;grid-column:1/-1}.bees-provider-card{display:grid;gap:3px;min-height:70px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;cursor:pointer}.bees-provider-card:hover,.bees-provider-card.active{border-color:#f2b84b;background:#f2b84b18}.bees-provider-card span{color:var(--dsw-alias-label-secondary);font-size:11px}@media(max-width:760px){.bees-free-add{grid-template-columns:1fr}}
     `;
 
-    function usePreference(scope) {
-      const [snapshot, setSnapshot] = useState(() => scope.getSnapshot());
-      useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope]);
-      return snapshot.value ?? {};
-    }
-
     async function responseValue(response, fallback) {
       const value = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(value.error || fallback);
@@ -75,21 +69,52 @@ window.__ModuleLoader__.load({
       }), "Free LLM setup failed");
     }
 
-    async function syncFreeRoute(modelSettings, config, state) {
+    async function testOmniRoute() {
+      return responseValue(await fetch("/bees-api/free-ai/omniroute/test", { method: "POST" }), "OmniRoute connection failed");
+    }
+
+    async function loadOmniRouteState() {
+      return responseValue(await fetch("/bees-api/free-ai/omniroute/state", { cache: "no-store" }), "Embedded OmniRoute could not start");
+    }
+
+    async function openOmniRouteManager() {
+      const { url } = await responseValue(await fetch("/bees-api/free-ai/omniroute/manage-session", { method: "POST" }),
+        "Could not open OmniRoute provider management");
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (invoke) return invoke("open_omniroute_manager", { url });
+      if (!window.open(url, "_blank", "noopener,noreferrer")) {
+        throw new Error("Your browser blocked the OmniRoute provider manager");
+      }
+    }
+
+    async function syncRoutes(modelSettings, { freeState, omniState }) {
+      const config = modelSettings.getSnapshot().value ?? {};
       const providers = { ...(config.providers ?? {}) };
-      const enabled = state.keys.some((row) => row.enabled);
-      const desired = {
-        displayName: "FreeLLMAPI (free tiers)",
-        api: "openai-completions",
-        baseURL: state.baseUrl,
-        apiKeyEnv: API_KEY_REF,
-        models: [{ id: "auto", name: "Automatic free model", contextWindow: 131072, maxTokens: 8192 }]
-      };
-      if (enabled && JSON.stringify(providers.freellmapi) !== JSON.stringify(desired)) {
-        providers.freellmapi = desired;
-        await modelSettings.set("providers", providers);
-      } else if (!enabled && providers.freellmapi) {
-        delete providers.freellmapi;
+      if (Array.isArray(freeState?.keys)) {
+        if (freeState.keys.some((row) => row.enabled)) {
+          providers.freellmapi = {
+            displayName: "FreeLLMAPI (free tiers)",
+            api: "openai-completions",
+            baseURL: freeState.baseUrl,
+            apiKeyEnv: API_KEY_REF,
+            models: [{ id: "auto", name: "Automatic free model", contextWindow: 131072, maxTokens: 8192 }]
+          };
+        } else delete providers.freellmapi;
+      }
+      if (omniState) {
+        const canRoute = !Array.isArray(omniState.providers) || omniState.providers.some(({ isActive }) => isActive);
+        if (omniState.running && canRoute) {
+          const models = [{ id: "auto", name: "Automatic routing", contextWindow: 131072, maxTokens: 8192 },
+            ...(Array.isArray(omniState.models) ? omniState.models : []).filter(({ id }) => id && id !== "auto")];
+          providers.omniroute = {
+            displayName: "OmniRoute",
+            api: "openai-completions",
+            baseURL: omniState.baseUrl,
+            models
+          };
+        } else if (!omniState.managementError) delete providers.omniroute;
+      }
+      if (JSON.stringify(config.providers ?? {}) !== JSON.stringify(providers)) {
         await modelSettings.set("providers", providers);
       }
     }
@@ -107,15 +132,20 @@ window.__ModuleLoader__.load({
     }
 
     function FreeAiController({ modelSettings, onError }) {
-      const config = usePreference(modelSettings);
       useEffect(() => {
-        void loadState().then((state) => syncFreeRoute(modelSettings, config, state)).catch((reason) => onError?.(reason.message));
+        void Promise.allSettled([loadState(), loadOmniRouteState()]).then(async ([free, omni]) => {
+          await syncRoutes(modelSettings, {
+            ...(free.status === "fulfilled" ? { freeState: free.value } : {}),
+            ...(omni.status === "fulfilled" ? { omniState: omni.value } : {})
+          });
+          const failure = [free, omni].find((result) => result.status === "rejected");
+          if (failure) onError?.(failure.reason?.message ?? String(failure.reason));
+        }).catch((reason) => onError?.(reason.message));
       }, []);
       return null;
     }
 
     function FreeAiSettings({ modelSettings, systemDefault, confirmAction, openExternal, Button }) {
-      const config = usePreference(modelSettings);
       const [state, setState] = useState(null);
       const [adding, setAdding] = useState(false);
       const [selected, setSelected] = useState("");
@@ -124,8 +154,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState("");
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
-
-      const acceptState = async (next) => { setState(next); await syncFreeRoute(modelSettings, config, next); };
+      const acceptState = async (next) => { setState(next); await syncRoutes(modelSettings, { freeState: next }); };
       const refresh = async () => acceptState(await loadState());
       useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
 
@@ -221,8 +250,59 @@ window.__ModuleLoader__.load({
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 
+    function OmniRouteSettings({ modelSettings, openExternal, Button }) {
+      const [state, setState] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState("");
+      const [notice, setNotice] = useState("");
+      const refresh = async () => {
+        const next = await loadOmniRouteState();
+        setState(next);
+        await syncRoutes(modelSettings, { omniState: next });
+        return next;
+      };
+      useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
+      const check = async () => {
+        setBusy(true); setError(""); setNotice("");
+        try {
+          const result = await testOmniRoute();
+          const next = await refresh();
+          setNotice(`${result.message}. ${next.models?.length ?? 0} provider model${next.models?.length === 1 ? "" : "s"} available.`);
+        }
+        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(false); }
+      };
+      const manage = async () => {
+        setBusy(true); setError(""); setNotice("");
+        try {
+          await openOmniRouteManager();
+          setNotice("OmniRoute provider management opened. Return here and refresh models after making changes.");
+        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setBusy(false); }
+      };
+
+      return h("section", { "data-bees-plugin": "@bees/dsh-omniroute", "data-provider-id": "omniroute" },
+        h("div", { className: "bees-free-head" }, h("div", null,
+          h("div", { className: "bees-free-title" }, h("h2", { className: "bees-section-title" }, "OmniRoute"),
+            h("span", { className: "bees-status" }, "Embedded")),
+          h("p", { className: "bees-muted" }, state?.running
+            ? state.providers?.length
+              ? `${state.providers.length} provider${state.providers.length === 1 ? "" : "s"} connected · ${state.models?.length ?? 0} provider model${state.models?.length === 1 ? "" : "s"} available · automatic routing ready.`
+              : "No providers connected yet. Add one to make automatic routing and its models available."
+            : state ? state.error : "Starting the embedded OmniRoute router…")),
+          h("div", { className: "bees-free-actions" },
+            h(Button, { className: "primary", disabled: busy || !state?.running, onClick: manage }, "Manage providers"),
+            h(Button, { disabled: busy, onClick: () => openExternal("https://github.com/diegosouzapw/OmniRoute") }, "Project website"),
+            h(Button, { disabled: busy || !state, onClick: check }, busy ? "Refreshing…" : state?.running ? "Refresh models" : "Retry"),
+            h("span", { className: `bees-status ${state?.running ? "bees-running" : ""}` }, state?.running ? "Running" : state ? "Unavailable" : "Starting…"))),
+        state?.managementError ? h("div", { className: "bees-error", role: "alert" }, state.managementError) : null,
+        notice ? h("div", { className: "bees-free-callout", role: "status" }, notice) : null,
+        error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    }
+
     exports.FreeAiController = FreeAiController;
     exports.FreeAiSettings = FreeAiSettings;
+    exports.OmniRouteSettings = OmniRouteSettings;
     exports.inject = [];
     exports.apply = (ctx) => {
       const style = document.createElement("style");

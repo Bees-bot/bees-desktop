@@ -1,20 +1,31 @@
 import {
-  CustomAiSettings, ExternalLocalAiSettings, FreeAiSettings, h, LocalAiSettings,
+  CustomAiSettings, ExternalLocalAiSettings, FreeAiSettings, h, LocalAiSettings, OmniRouteSettings,
   SubscriptionSettings, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, Button, collaboration, confirmAction, Empty, openExternal
+  ask, Button, collaboration, confirmAction, Empty, openExternal, request
 } from "./shared.js";
 import { SystemDefaultSettings } from "./agents.js";
 
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
+  const [features, setFeatures] = useState({ omniroute_enabled: false });
+  useEffect(() => { void request("/bees-api/config")
+    .then((value) => setFeatures({ omniroute_enabled: value.omniroute_enabled === true }))
+    .catch(() => undefined); }, []);
   return h("div", { className: "bees-stack" },
     h(SystemDefaultSettings, { ctx, systemDefault, reload }),
-    h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }),
-    h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
-    h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
-    h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }),
-    h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }));
+    h("div", { className: "bees-ai-section" },
+      h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button })),
+    h("div", { className: "bees-ai-section" },
+      h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })),
+    features.omniroute_enabled ? h("div", { className: "bees-ai-section" },
+      h(OmniRouteSettings, { modelSettings, openExternal, Button })) : null,
+    h("div", { className: "bees-ai-section" },
+      h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button })),
+    h("div", { className: "bees-ai-section" },
+      h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button })),
+    h("div", { className: "bees-ai-section" },
+      h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })));
 }
 
 function AppearanceSettings({ ctx }) {
@@ -175,5 +186,3 @@ export function SettingsPage({ ctx, data, route, workspaceId, teamId, organizati
   if (route === "organization-settings") return h(OrganizationSettings, { organization });
   return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
 }
-
-

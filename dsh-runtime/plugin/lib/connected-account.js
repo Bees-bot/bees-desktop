@@ -81,6 +81,10 @@ export class ConnectedAccount {
     return this.authenticate("/api/auth/sign-up/email", { name, email, password });
   }
 
+  configuration() {
+    return this.request("/api/config", { authenticated: false });
+  }
+
   async signOut() {
     const account = this.account();
     await this.credentials.unset(sessionCredential);

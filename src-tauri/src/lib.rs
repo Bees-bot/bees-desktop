@@ -99,6 +99,7 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
             .join("index.js")
             .is_file()
         || !runtime.join("freellmapi").join("server.mjs").is_file()
+        || !runtime.join("omniroute").join("server-ws.mjs").is_file()
         || [
             "dsh-local-ai",
             "dsh-free-ai",
@@ -476,6 +477,10 @@ fn validated_external_url(url: &str) -> Result<&str, String> {
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let url = validated_external_url(&url)?;
+    open_url(url)
+}
+
+fn open_url(url: &str) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
         #[cfg(target_os = "macos")]
@@ -499,6 +504,36 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     Err("Opening website links is not supported on this device.".to_string())
+}
+
+#[tauri::command]
+fn open_omniroute_manager(url: String) -> Result<(), String> {
+    open_url(validated_omniroute_manager_url(&url)?)
+}
+
+fn validated_omniroute_manager_url(url: &str) -> Result<&str, String> {
+    let value = url.trim();
+    let parsed: tauri::Url = value
+        .parse()
+        .map_err(|_| "Invalid OmniRoute management link".to_string())?;
+    let mut query = parsed.query_pairs();
+    let token = query
+        .next()
+        .filter(|(name, _)| name == "token")
+        .map(|(_, value)| value);
+    if parsed.scheme() != "http"
+        || parsed.host_str() != Some("127.0.0.1")
+        || parsed.port().is_none()
+        || parsed.path() != "/bees-omniroute-auth"
+        || parsed.fragment().is_some()
+        || query.next().is_some()
+        || !token.is_some_and(|value| {
+            value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return Err("Invalid OmniRoute management link".to_string());
+    }
+    Ok(value)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -536,6 +571,7 @@ pub fn run() {
             delete_local_model,
             local_model_base_url,
             local_model_connection,
+            open_omniroute_manager,
             open_external_url
         ])
         .run(tauri::generate_context!())
@@ -544,7 +580,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::validated_external_url;
+    use super::{validated_external_url, validated_omniroute_manager_url};
 
     #[test]
     fn external_links_must_be_secure_websites() {
@@ -555,5 +591,20 @@ mod tests {
         assert!(validated_external_url("http://example.com").is_err());
         assert!(validated_external_url("https://").is_err());
         assert!(validated_external_url("https://example.com\nmalicious").is_err());
+    }
+
+    #[test]
+    fn omniroute_management_links_are_scoped_to_the_local_handoff() {
+        let token = "a".repeat(64);
+        let valid = format!("http://127.0.0.1:12345/bees-omniroute-auth?token={token}");
+        assert_eq!(validated_omniroute_manager_url(&valid), Ok(valid.as_str()));
+        assert!(validated_omniroute_manager_url(&format!(
+            "http://localhost:12345/bees-omniroute-auth?token={token}"
+        ))
+        .is_err());
+        assert!(validated_omniroute_manager_url(&format!(
+            "http://127.0.0.1:12345/other?token={token}"
+        ))
+        .is_err());
     }
 }

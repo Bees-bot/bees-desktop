@@ -413,15 +413,17 @@ describe("Bees DSH product plugin", () => {
       });
       const body = url.endsWith("/api/auth/sign-in/email")
         ? { user: { id: "remote-user", email: "you@example.com", name: "You" } }
-        : url.endsWith("/api/organizations")
-          ? { organizations: [{ id: "remote-org", name: "Acme", role: "admin" }] }
-          : url.endsWith("/api/teams")
-            ? { teams: [{ id: "remote-team", name: "Design" }] }
-            : url.endsWith("/api/teams/remote-team/members")
-              ? { members: [{ id: "member-1", teamId: "remote-team", userId: "remote-user", role: "admin" }] }
-              : url.endsWith("/api/me/organization-invitations")
-                ? { invitations: [] }
-                : { candidates: [] };
+        : url.endsWith("/api/config")
+          ? { omniroute_enabled: true }
+          : url.endsWith("/api/organizations")
+            ? { organizations: [{ id: "remote-org", name: "Acme", role: "admin" }] }
+            : url.endsWith("/api/teams")
+              ? { teams: [{ id: "remote-team", name: "Design" }] }
+              : url.endsWith("/api/teams/remote-team/members")
+                ? { members: [{ id: "member-1", teamId: "remote-team", userId: "remote-user", role: "admin" }] }
+                : url.endsWith("/api/me/organization-invitations")
+                  ? { invitations: [] }
+                  : { candidates: [] };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: {
@@ -432,6 +434,8 @@ describe("Bees DSH product plugin", () => {
     }));
 
     const connected = new ConnectedAccount(database, credentials, "https://api.example");
+    await expect(connected.configuration()).resolves.toEqual({ omniroute_enabled: true });
+    expect(seen.at(-1)).toMatchObject({ authorization: null });
     await connected.signIn("you@example.com", "password123");
     expect(connected.publicAccount()).toEqual({
       userId: "remote-user", email: "you@example.com", name: "You"

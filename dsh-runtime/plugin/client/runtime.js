@@ -11,6 +11,7 @@ export let LocalAiSettings;
 export let ExternalLocalAiSettings;
 export let FreeAiController;
 export let FreeAiSettings;
+export let OmniRouteSettings;
 export let CustomAiSettings;
 export let SubscriptionSettings;
 
@@ -21,8 +22,7 @@ export function configureRuntime(require) {
   ({ MarkdownText } = require("@deepseek-ai/dsh-client-ui-primitives"));
   ({ PendingQuestion } = require("@deepseek-ai/dsh-client-ui-user-questions"));
   ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai"));
-  ({ FreeAiController, FreeAiSettings } = require("@bees/dsh-free-ai"));
+  ({ FreeAiController, FreeAiSettings, OmniRouteSettings } = require("@bees/dsh-free-ai"));
   ({ CustomAiSettings } = require("@bees/dsh-custom-ai"));
   ({ SubscriptionSettings } = require("@bees/dsh-subscriptions"));
 }
-

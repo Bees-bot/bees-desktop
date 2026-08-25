@@ -3,6 +3,7 @@ export class ConnectedAccount {
   publicAccount(): { userId: string; email: string; name: string } | null;
   signIn(email: string, password: string): Promise<any>;
   signUp(name: string, email: string, password: string): Promise<any>;
+  configuration(): Promise<{ omniroute_enabled: boolean }>;
   signOut(): Promise<void>;
   sync(): Promise<any[]>;
   summary(): Promise<any>;

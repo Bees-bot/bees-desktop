@@ -11,5 +11,6 @@ commands.allow = [
   "delete_local_model",
   "local_model_base_url",
   "local_model_connection",
+  "open_omniroute_manager",
   "open_external_url"
 ]

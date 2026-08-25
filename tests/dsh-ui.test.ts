@@ -1,5 +1,6 @@
 import { Script } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("Bees work cockpit UI", () => {
@@ -23,13 +24,54 @@ describe("Bees work cockpit UI", () => {
       "@bees/dsh-local-ai": {
         LocalAiController: noop, LocalAiSettings: noop, ExternalLocalAiSettings: noop
       },
-      "@bees/dsh-free-ai": { FreeAiController: noop, FreeAiSettings: noop },
+      "@bees/dsh-free-ai": { FreeAiController: noop, FreeAiSettings: noop, OmniRouteSettings: noop },
       "@bees/dsh-custom-ai": { CustomAiSettings: noop },
       "@bees/dsh-subscriptions": { SubscriptionSettings: noop }
     };
     const plugin = registration.factory((id: string) => modules[id]);
     expect(plugin.inject).toContain("slots");
     expect(plugin.apply).toBeTypeOf("function");
+  });
+
+  it("registers OmniRoute when the FreeLLM state is incomplete", async () => {
+    let registration: any;
+    const effects: Array<() => void> = [];
+    const fetch = vi.fn(async (path: string) => new Response(JSON.stringify(
+      path.endsWith("/omniroute/state")
+        ? { embedded: true, running: true, baseUrl: "http://127.0.0.1:22000/v1",
+            providers: [{ id: "provider", isActive: true }], models: [{ id: "gpt-test", name: "Test model" }] }
+        : {}
+    )));
+    new Script(readFileSync(new URL(
+      "../dsh-runtime/plugins/free-ai/lib/client.js", import.meta.url
+    ), "utf8")).runInNewContext({
+      fetch,
+      window: { __ModuleLoader__: { load: (value: any) => { registration = value; } } }
+    });
+    const React = {
+      createElement: () => undefined,
+      useEffect: (effect: () => void) => effects.push(effect),
+      useState: () => [undefined, () => undefined]
+    };
+    const plugin = registration.factory(() => React);
+    const modelSettings = {
+      getSnapshot: () => ({ value: { providers: {} } }),
+      set: vi.fn(async (_key: string, _value: any) => undefined)
+    };
+    const onError = vi.fn();
+
+    plugin.FreeAiController({ modelSettings, onError });
+    effects[0]!();
+
+    await vi.waitFor(() => expect(modelSettings.set).toHaveBeenCalled());
+    expect(modelSettings.set.mock.calls[0]![1].omniroute.baseURL).toBe("http://127.0.0.1:22000/v1");
+    expect(modelSettings.set.mock.calls[0]![1].omniroute.models.map(({ id }: { id: string }) => id)).toEqual(["auto", "gpt-test"]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("separates each AI connection type with the same bordered section", () => {
+    expect(client.match(/className: "bees-ai-section"/g)).toHaveLength(6);
+    expect(client).toContain(".bees-ai-section{padding:17px;border:1px solid");
   });
 
   it("routes terminal and archived work to Completed", () => {

@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+// @ts-expect-error The local DSH plugin is authored as runtime JavaScript.
+import { apply as applyFreeAi } from "../dsh-runtime/plugins/free-ai/lib/index.js";
 import {
   AgentRuntime,
   LATEST_SOL_MODEL,
@@ -30,6 +32,60 @@ function insertRun(database: NodeDatabase, status = "running", workItemId: strin
 }
 
 describe("DSH-owned desktop and recovery", () => {
+  it("reports OmniRoute as an embedded runtime instead of calling an external process", async () => {
+    const routes: any[] = [];
+    const originalRuntimeRoot = process.env.BEES_RUNTIME_ROOT;
+    const originalStateRoot = process.env.BEES_STATE_DIR;
+    delete process.env.BEES_RUNTIME_ROOT;
+    delete process.env.BEES_STATE_DIR;
+    const fetch = vi.spyOn(globalThis, "fetch");
+    try {
+      await applyFreeAi({
+        logger: { warn: () => undefined },
+        credentials: { set: async () => undefined },
+        effect(factory: () => unknown) { return factory(); },
+        webServer: { register: (route: any) => { routes.push(route); return () => undefined; } }
+      });
+      const response = () => ({
+        status: 0,
+        body: "",
+        writeHead(status: number) { this.status = status; },
+        end(body = "") { this.body = String(body); }
+      });
+      const stateResponse: any = response();
+      await routes.find(({ path }) => path === "/bees-api/free-ai/omniroute/state")
+        .handler({ method: "GET" }, stateResponse);
+      const testResponse: any = response();
+      await routes.find(({ path }) => path === "/bees-api/free-ai/omniroute/test")
+        .handler({ method: "POST" }, testResponse);
+      const sessionResponse: any = response();
+      await routes.find(({ path }) => path === "/bees-api/free-ai/omniroute/manage-session")
+        .handler({ method: "POST", socket: { localPort: 12345 } }, sessionResponse);
+      const sessionUrl = new URL(JSON.parse(sessionResponse.body).url);
+      const authRoute = routes.find(({ path }) => path === "/bees-omniroute-auth");
+      const manageResponse: any = response();
+      await authRoute.handler({ method: "GET", url: `${sessionUrl.pathname}${sessionUrl.search}` }, manageResponse);
+      const reusedResponse: any = response();
+      await authRoute.handler({ method: "GET", url: `${sessionUrl.pathname}${sessionUrl.search}` }, reusedResponse);
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(stateResponse.status).toBe(200);
+      expect(JSON.parse(stateResponse.body)).toMatchObject({ embedded: true, running: false });
+      expect(testResponse.status).toBe(409);
+      expect(JSON.parse(testResponse.body).error).toContain("embedded runtime directories");
+      expect(sessionResponse.status).toBe(200);
+      expect(sessionUrl.origin).toBe("http://127.0.0.1:12345");
+      expect(manageResponse.status).toBe(409);
+      expect(reusedResponse.status).toBe(401);
+    } finally {
+      fetch.mockRestore();
+      if (originalRuntimeRoot === undefined) delete process.env.BEES_RUNTIME_ROOT;
+      else process.env.BEES_RUNTIME_ROOT = originalRuntimeRoot;
+      if (originalStateRoot === undefined) delete process.env.BEES_STATE_DIR;
+      else process.env.BEES_STATE_DIR = originalStateRoot;
+    }
+  });
+
   it("resolves the newest configured Sol release numerically", () => {
     const models = [
       { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },
@@ -62,11 +118,13 @@ describe("DSH-owned desktop and recovery", () => {
     expect(permission).toContain('"start_local_model"');
     expect(permission).toContain('"local_model_connection"');
     expect(permission).toContain('"open_external_url"');
+    expect(permission).toContain('"open_omniroute_manager"');
     expect(capability).toContain('"http://127.0.0.1:*"');
     expect(permission).not.toContain("db_query");
     expect(entry).toContain('invoke("ensure_dsh_runtime")');
     expect(entry).not.toContain("/bees-auth?token=");
     expect(tauri).toContain('"{}/bees-auth?token={}"');
+    expect(tauri).toContain('parsed.path() != "/bees-omniroute-auth"');
     expect(tauri).toContain(".navigate(url)");
     expect(tauri).toContain('body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#');
     expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
@@ -79,6 +137,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(freeAiHost).toContain('const API_KEY_REF = "BEES_FREELLMAPI_API_KEY"');
     expect(freeAiHost).toContain('dbPath: join(dataRoot, "freeapi.db")');
     expect(tauri).toContain('.join("freellmapi").join("server.mjs").is_file()');
+    expect(tauri).toContain('.join("omniroute").join("server-ws.mjs").is_file()');
     expect(tauri).toContain('.env("BEES_RUNTIME_ROOT", &runtime)');
     expect(profile).toContain("provider: local-openai");
     expect(profile).toContain("model: active");
