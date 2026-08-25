@@ -43,7 +43,7 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
         },
           h("textarea", {
             className: "bees-composer-input",
-            placeholder: workspaceId ? "e.g., Audit our codebase for accessibility issues" : "Choose a workspace first",
+            placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a workspace first",
             disabled: !workspaceId || busy,
             value: outcome,
             onInput: (e) => setOutcome(e.target.value),
@@ -57,7 +57,7 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
           error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
           h("div", { className: "bees-composer-foot" },
             h("span", { className: "bees-composer-hint" }, "Press ⌘ + Enter to start"),
-            h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Bees, assemble")
+            h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Ask Bees")
           )
         )
       ),

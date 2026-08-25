@@ -148,7 +148,7 @@
   .bees-composer:focus-within { border-color: #f2b84b; box-shadow: 0 4px 20px #00000014; }
   .bees-composer-input { border: 0; background: transparent; font-size: 16px; min-height: 120px; outline: none; resize: vertical; font-family: inherit; color: inherit; line-height: 1.5; padding: 0; }
   .bees-composer-input::placeholder { color: var(--dsw-alias-label-secondary); }
-  .bees-composer-foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; }
+  .bees-composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
   .bees-composer-hint { font-size: 12px; color: var(--dsw-alias-label-secondary); }
   
   .bees-home-section { display: flex; flex-direction: column; gap: 12px; }
@@ -428,7 +428,7 @@
             },
             h("textarea", {
               className: "bees-composer-input",
-              placeholder: workspaceId ? "e.g., Audit our codebase for accessibility issues" : "Choose a workspace first",
+              placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a workspace first",
               disabled: !workspaceId || busy,
               value: outcome,
               onInput: (e) => setOutcome(e.target.value),
@@ -444,7 +444,7 @@
               "div",
               { className: "bees-composer-foot" },
               h("span", { className: "bees-composer-hint" }, "Press ⌘ + Enter to start"),
-              h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Bees, assemble")
+              h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Ask Bees")
             )
           )
         ),

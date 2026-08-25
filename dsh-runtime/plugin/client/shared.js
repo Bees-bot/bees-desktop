@@ -51,7 +51,7 @@ export const css = `
   .bees-composer:focus-within { border-color: #f2b84b; box-shadow: 0 4px 20px #00000014; }
   .bees-composer-input { border: 0; background: transparent; font-size: 16px; min-height: 120px; outline: none; resize: vertical; font-family: inherit; color: inherit; line-height: 1.5; padding: 0; }
   .bees-composer-input::placeholder { color: var(--dsw-alias-label-secondary); }
-  .bees-composer-foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; }
+  .bees-composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
   .bees-composer-hint { font-size: 12px; color: var(--dsw-alias-label-secondary); }
   
   .bees-home-section { display: flex; flex-direction: column; gap: 12px; }
