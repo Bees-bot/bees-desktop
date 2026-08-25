@@ -74,7 +74,7 @@ function SkillPack({ pack, act }) {
       ? h(Empty, null, "This collection publishes no skills right now") : null);
 }
 
-export function SkillsPage({ capabilities }) {
+export function SkillsPage({ capabilities, onAddTools }) {
   const { data, error, act } = capabilities;
   const [query, setQuery] = useState("");
   if (error && !data) return h(Empty, null, error);
@@ -91,6 +91,11 @@ export function SkillsPage({ capabilities }) {
         + "is something an agent can run. Both are live here: what this page lists is what a run can "
         + "reach right now. Add more tools by connecting an MCP server.")),
     h(Filter, { value: query, onChange: setQuery, placeholder: "Filter skills and tools" }),
+    h("section", { className: "bees-box" }, h("div", { className: "bees-row" },
+      h("div", { className: "bees-row-main" }, h("h3", null, "Give your agents a new tool"),
+        h("div", { className: "bees-muted" }, "Tools come from MCP servers. Pick one from the catalog, "
+          + "or point Bees at any REST API.")),
+      h(Button, { className: "primary", onClick: onAddTools }, "Add an MCP server"))),
     h("section", { className: "bees-box" },
       h("h3", null, `Skills (${skills.length})`),
       data.skillsComplete ? null : h("p", { className: "bees-muted" },
@@ -122,7 +127,10 @@ export function SkillsPage({ capabilities }) {
           h("div", { className: "bees-row-title" }, tool.name),
           h("div", { className: "bees-muted" }, tool.description || "No description")),
         h("span", { className: "bees-badge" }, tool.serverLabel)))
-        : [h(Empty, { key: "empty" }, "No MCP server is publishing tools yet")])),
+        : [h("div", { className: "bees-row", key: "empty" },
+            h("div", { className: "bees-row-main" },
+              h("div", { className: "bees-muted" }, "No MCP server is connected, so there are no extra tools yet.")),
+            h(Button, { onClick: onAddTools }, "Add one"))])),
     ...(data.presets ?? []).map((preset) => {
       const own = preset.tools.filter((tool) => matches(needle, tool.name, tool.description));
       return h("section", { className: "bees-box", key: preset.id },

@@ -2076,7 +2076,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       state.open && state.skills && !state.skills.length ? h(Empty, null, "This collection publishes no skills right now") : null
     );
   }
-  function SkillsPage({ capabilities }) {
+  function SkillsPage({ capabilities, onAddTools }) {
     const { data, error, act } = capabilities;
     const [query, setQuery] = useState("");
     if (error && !data) return h(Empty, null, error);
@@ -2096,6 +2096,17 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         h("div", null, "A skill is a written instruction sheet an agent can open when it needs one. A tool is something an agent can run. Both are live here: what this page lists is what a run can reach right now. Add more tools by connecting an MCP server.")
       ),
       h(Filter, { value: query, onChange: setQuery, placeholder: "Filter skills and tools" }),
+      h("section", { className: "bees-box" }, h(
+        "div",
+        { className: "bees-row" },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("h3", null, "Give your agents a new tool"),
+          h("div", { className: "bees-muted" }, "Tools come from MCP servers. Pick one from the catalog, or point Bees at any REST API.")
+        ),
+        h(Button, { className: "primary", onClick: onAddTools }, "Add an MCP server")
+      )),
       h(
         "section",
         { className: "bees-box" },
@@ -2141,7 +2152,16 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
             h("div", { className: "bees-muted" }, tool.description || "No description")
           ),
           h("span", { className: "bees-badge" }, tool.serverLabel)
-        )) : [h(Empty, { key: "empty" }, "No MCP server is publishing tools yet")]
+        )) : [h(
+          "div",
+          { className: "bees-row", key: "empty" },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-muted" }, "No MCP server is connected, so there are no extra tools yet.")
+          ),
+          h(Button, { onClick: onAddTools }, "Add one")
+        )]
       ),
       ...(data.presets ?? []).map((preset) => {
         const own = preset.tools.filter((tool) => matches(needle, tool.name, tool.description));
@@ -3291,7 +3311,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : route === "skills" ? h(SkillsPage, { capabilities }) : route === "mcp" ? h(McpPage, { ctx, capabilities }) : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") }) : route === "mcp" ? h(McpPage, { ctx, capabilities }) : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
     return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },

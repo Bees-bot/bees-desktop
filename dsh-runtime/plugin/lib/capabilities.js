@@ -142,7 +142,13 @@ export class Capabilities {
       await fiber;
       entry.ready = true;
     } catch (error) {
-      entry.error = error instanceof Error ? error.message : String(error);
+      const reason = error instanceof Error ? error.message : String(error);
+      // The client's own message names the server but never what it tried, which is the one thing
+      // needed to fix it.
+      const attempted = server.transport === "stdio"
+        ? `Bees tried to run: ${[server.command, ...server.args].join(" ")}`
+        : `Bees tried to reach ${server.url}`;
+      entry.error = `${reason}. ${attempted}`;
     }
     // A row removed while its fiber was starting must not leave the child process behind.
     if (!this.mounted.has(server.id) && entry.fiber) await entry.fiber.dispose().catch(() => {});
@@ -207,7 +213,7 @@ export class Capabilities {
     for (const preset of presets) {
       for (const skill of preset.skills) {
         const seen = merged.get(skill.name) ?? { ...skill, presets: [] };
-        seen.presets.push(preset.name);
+        seen.presets.push(preset.name === preset.id ? preset.name : `${preset.name} (${preset.id})`);
         merged.set(skill.name, seen);
       }
     }
@@ -418,15 +424,21 @@ export class Capabilities {
       if (String(value ?? "").trim()) secrets[name] = String(value).trim();
     }
     const names = Object.keys(secrets);
+    // Someone pasting "npx -y some-package" into Command meant all of it. Splitting it here is what
+    // they intended; leaving it whole spawns a program with that entire string as its name and fails
+    // with a message that explains nothing.
+    const typed = String(input.args ?? "").split("\n").map((part) => part.trim()).filter(Boolean);
+    const words = transport === "stdio"
+      ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))
+      : [];
+    const split = words.length > 1 && !typed.length;
     return this.insert({
       id: randomUUID(),
       serverName,
       label: String(input.label ?? "").trim() || serverName,
       transport,
-      command: transport === "stdio" ? required(input.command, "Command") : "",
-      args: transport === "stdio"
-        ? String(input.args ?? "").split("\n").map((part) => part.trim()).filter(Boolean)
-        : [],
+      command: transport === "stdio" ? (split ? words[0] : words.join(" ")) : "",
+      args: transport === "stdio" ? (split ? words.slice(1) : typed) : [],
       url: transport === "streamable-http" ? required(input.url, "Server URL") : "",
       envNames: transport === "stdio" ? names : [],
       headerNames: transport === "streamable-http" ? names : [],
