@@ -5,8 +5,8 @@ import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { iso, required, transaction } from "./product-database.js";
-import { catalogEntry, MCP_CATALOG, SKILL_CATALOG } from "./mcp-catalog.js";
-import { installSkill, listPack, removeSkill, skillsRoot } from "./skill-packs.js";
+import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
 import { specFromCurl } from "./spec-from-curl.js";
@@ -20,21 +20,14 @@ function secretRef(serverName, name) {
   return credentialRef(`BEES_MCP_${serverName}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
 
-function parseJson(text, fallback) {
-  try {
-    const value = JSON.parse(text);
-    return value ?? fallback;
-  } catch { return fallback; }
-}
-
 function rowToServer(row) {
   return {
     id: row.id, serverName: row.server_name, label: row.label, transport: row.transport,
     command: row.command, url: row.url, catalogId: row.catalog_id, source: row.source,
     createdAt: row.created_at, enabled: Boolean(row.enabled),
-    args: parseJson(row.args_json, []),
-    envNames: parseJson(row.env_names_json, []),
-    headerNames: parseJson(row.header_names_json, [])
+    args: JSON.parse(row.args_json),
+    envNames: JSON.parse(row.env_names_json),
+    headerNames: JSON.parse(row.header_names_json)
   };
 }
 
@@ -93,9 +86,9 @@ export class Capabilities {
     }
     const headers = {};
     for (const name of server.headerNames) {
-      const entry = catalogEntry(server.catalogId)?.headers.find((row) => row.name === name);
+      const prefix = catalogEntry(server.catalogId)?.headers.find((row) => row.name === name)?.prefix ?? "";
       const hit = await this.ctx.credentials.resolve(secretRef(server.serverName, name));
-      if (hit?.value) headers[name] = `${entry?.prefix ?? ""}${hit.value}`;
+      if (hit?.value) headers[name] = `${prefix}${hit.value}`;
     }
     return {
       transport: "streamable-http", serverName: server.serverName, url: server.url, headers,
@@ -334,15 +327,15 @@ export class Capabilities {
     }
     const given = { ...(input.inputs ?? {}) };
     // Nobody knows their spec URL. Ask the API, or read one working request.
-    if (entry.inputs?.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
+    if (entry.inputs.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
       const curl = String(given.curl ?? "").trim();
       const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
       if (!found.specUrl) throw new Error(`${found.how}. Paste its OpenAPI spec URL instead.`);
       given.openapiSpec = found.specUrl;
       if (found.apiBaseUrl && !String(given.apiBaseUrl ?? "").trim()) given.apiBaseUrl = found.apiBaseUrl;
     }
-    const args = [...(entry.args ?? [])];
-    for (const field of entry.inputs ?? []) {
+    const args = [...entry.args];
+    for (const field of entry.inputs) {
       const value = String(given[field.name] ?? "").trim();
       if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);
       // A field with no flag is consumed here rather than passed to the command.
@@ -354,9 +347,9 @@ export class Capabilities {
       serverName: this.freeServerName(entry.serverName),
       label: entry.label,
       transport: entry.transport,
-      command: entry.command ?? "",
+      command: entry.command,
       args,
-      url: entry.url ?? "",
+      url: entry.url,
       envNames: entry.env.map(({ name }) => name),
       headerNames: entry.headers.map(({ name }) => name),
       catalogId: entry.id,

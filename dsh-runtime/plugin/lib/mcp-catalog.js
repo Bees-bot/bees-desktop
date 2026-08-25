@@ -1,6 +1,6 @@
 /** Servers offered out of the box. Nothing installs without review, because each one is a program
  *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
-export const MCP_CATALOG = [
+const ENTRIES = [
   {
     id: "filesystem",
     serverName: "filesystem",
@@ -159,38 +159,37 @@ export const MCP_CATALOG = [
       help: "From firecrawl.dev → Dashboard → API Keys."
     }],
     headers: []
-  }
-];
-
-MCP_CATALOG.push({
-  id: "chrome-devtools",
-  serverName: "devtools",
-  label: "Chrome DevTools",
-  publisher: "Google Chrome",
-  homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
-  summary: "Inspect a live page: the console, the network log, performance traces and the DOM.",
-  access: "Drives a Chrome instance and reads everything on the pages it opens, including any "
+  },
+  {
+    id: "chrome-devtools",
+    serverName: "devtools",
+    label: "Chrome DevTools",
+    publisher: "Google Chrome",
+    homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+    summary: "Inspect a live page: the console, the network log, performance traces and the DOM.",
+    access: "Drives a Chrome instance and reads everything on the pages it opens, including any "
     + "session you are already signed into in that profile.",
-  transport: "stdio",
-  command: "npx",
-  args: ["-y", "chrome-devtools-mcp@latest"],
-  env: [],
-  headers: []
-}, {
-  id: "openapi-bridge",
-  serverName: "api",
-  label: "Any REST API (OpenAPI bridge)",
-  publisher: "Ivo Toby, openapi-mcp-server",
-  homepage: "https://github.com/ivo-toby/mcp-openapi-server",
-  summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "chrome-devtools-mcp@latest"],
+    env: [],
+    headers: []
+  },
+    {
+    id: "openapi-bridge",
+    serverName: "api",
+    label: "Any REST API (OpenAPI bridge)",
+    publisher: "Ivo Toby, openapi-mcp-server",
+    homepage: "https://github.com/ivo-toby/mcp-openapi-server",
+    summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
     + "MCP server of their own.",
-  access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
-  transport: "stdio",
-  command: "npx",
-  // --tools dynamic keeps three lookup tools in context instead of one per endpoint, which is what
-  // makes a large API usable at all.
-  args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
-  inputs: [
+    access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
+    transport: "stdio",
+    command: "npx",
+    // --tools dynamic keeps three lookup tools in context instead of one per endpoint, which is what
+    // makes a large API usable at all.
+    args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
+    inputs: [
     { name: "apiBaseUrl", flag: "--api-base-url", optional: true, label: "API base URL",
       help: "https://api.example.com. Taken from the curl command if you paste one instead." },
     { name: "openapiSpec", flag: "--openapi-spec", optional: true,
@@ -199,23 +198,23 @@ MCP_CATALOG.push({
     { name: "curl", flag: "", optional: true, textarea: true,
       label: "Or paste a curl command that already works",
       help: "For an API that publishes no document at all. One request describes one endpoint." }
-  ],
-  env: [{
+    ],
+    env: [{
     name: "API_HEADERS",
     optional: true,
     label: "Auth header, if the API needs one",
     help: "Authorization:Bearer YOUR_TOKEN. Goes in the environment, never in the arguments, so it "
       + "stays out of the process list."
-  }],
-  headers: []
-});
-
-/** Public collections of Agent Plugins. Each publishes a marketplace manifest naming its skills. */
-export const SKILL_CATALOG = [
-  { repo: "anthropics/skills", label: "Anthropic Skills", note: "Documents, artifacts and skill authoring" },
-  { repo: "wshobson/agents", label: "wshobson Plugins", note: "Engineering processes across 90+ plugins" },
-  { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" }
+    }],
+    headers: []
+  }
 ];
+
+/** Every entry carries the same keys, so nothing downstream has to guess at a missing one. */
+export const MCP_CATALOG = ENTRIES.map((entry) => ({
+  command: "", args: [], url: "", env: [], headers: [], inputs: [],
+  requiresDirectory: false, directoryLabel: "", prerequisite: "", ...entry
+}));
 
 export function catalogEntry(id) {
   return MCP_CATALOG.find((entry) => entry.id === id);

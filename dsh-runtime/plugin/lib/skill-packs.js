@@ -1,15 +1,20 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { SKILL_CATALOG } from "./mcp-catalog.js";
+
+/** Public collections of Agent Plugins. Each publishes a marketplace manifest naming its skills. */
+export const SKILL_CATALOG = [
+  { repo: "anthropics/skills", label: "Anthropic Skills", note: "Documents, artifacts and skill authoring" },
+  { repo: "wshobson/agents", label: "wshobson Plugins", note: "Engineering processes across 90+ plugins" },
+  { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" }
+];
 
 /** One skill bundle is small. These caps stop a hostile repo filling the disk. */
 const MAX_FILES = 40;
 const MAX_BYTES = 2_000_000;
 
 export function skillsRoot() {
-  return join(process.env.DSH_HOME || join(homedir(), ".dsh"), "skills");
+  return join(process.env.DSH_HOME, "skills");
 }
 
 async function json(url) {

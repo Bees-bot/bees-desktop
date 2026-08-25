@@ -45,8 +45,8 @@ export function validateRunData(value) {
   if (value.stagePurpose && !["worker", "reviewer"].includes(value.stagePurpose))
     throw new Error("Run data has an invalid stage purpose");
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
-  if (value.mcpAccess !== undefined && !["all", "none", "listed"].includes(value.mcpAccess))
-    throw new Error("Run data has an invalid MCP access policy");
+  if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
+    throw new Error("Run data needs an MCP access policy");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
   if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
@@ -591,9 +591,8 @@ export class AgentRuntime {
    * dispatch.
    */
   restrictMcp(agentCtx, data) {
-    const access = data.mcpAccess ?? "all";
-    if (access === "all") return;
-    const allowed = new Set(access === "listed" ? data.mcpServers ?? [] : []);
+    if (data.mcpAccess === "all") return;
+    const allowed = new Set(data.mcpServers);
     const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
       const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
       return match && !allowed.has(match[1]);
