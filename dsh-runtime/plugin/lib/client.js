@@ -2058,7 +2058,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         data.skillsComplete ? null : h(
           "p",
           { className: "bees-muted" },
-          "Some skill folders could not be read, so this list may be short."
+          "No preset could be read, so this list may be short."
         ),
         h("p", { className: "bees-muted" }, "Skills come from your skill folders. Drop a folder containing SKILL.md into one of them and it appears here without restarting Bees."),
         ...skills.length ? skills.map((skill) => h(
@@ -2069,7 +2069,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
             { className: "bees-row-main" },
             h("div", { className: "bees-row-title" }, skill.name),
             h("div", { className: "bees-muted" }, skill.description || "No description"),
-            skill.whenToUse ? h("div", { className: "bees-muted" }, `When to use: ${skill.whenToUse}`) : null
+            skill.whenToUse ? h("div", { className: "bees-muted" }, `When to use: ${skill.whenToUse}`) : null,
+            skill.presets?.length ? h("div", { className: "bees-muted" }, `Available to: ${skill.presets.join(", ")}`) : null
           ),
           skill.provider ? h("span", { className: "bees-badge" }, skill.provider) : null,
           skill.removable ? h(Button, {
@@ -2097,12 +2098,32 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           h("span", { className: "bees-badge" }, tool.serverLabel)
         )) : [h(Empty, { key: "empty" }, "No MCP server is publishing tools yet")]
       ),
-      h(
+      ...(data.presets ?? []).map((preset) => {
+        const own = preset.tools.filter((tool) => matches(needle, tool.name, tool.description));
+        return h(
+          "section",
+          { className: "bees-box", key: preset.id },
+          // DSH names its shipped presets in its own locale, so carry the id too or the rows are
+          // unreadable to an English-speaking user.
+          h("h3", null, `${preset.name === preset.id ? preset.name : `${preset.name} (${preset.id})`} preset · ${own.length} tools`),
+          preset.broken ? h("p", { className: "bees-muted" }, preset.broken) : h("p", { className: "bees-muted" }, "What an agent on this preset can run. Which preset an agent uses is set on the agent; what a preset contains is edited in DSH settings."),
+          ...own.length ? own.map((tool) => h(
+            "div",
+            { className: "bees-row", key: tool.name },
+            h(
+              "div",
+              { className: "bees-row-main" },
+              h("div", { className: "bees-row-title" }, tool.name),
+              h("div", { className: "bees-muted" }, tool.description || "No description")
+            )
+          )) : [h(Empty, { key: "empty" }, needle ? "No tool matches that" : "This preset gives an agent no tools")]
+        );
+      }),
+      builtIn.length ? h(
         "section",
         { className: "bees-box" },
-        h("h3", null, `Built-in tools (${builtIn.length})`),
-        h("p", { className: "bees-muted" }, "These ship with Bees. An agent preset decides which of them a given agent may use."),
-        ...builtIn.length ? builtIn.map((tool) => h(
+        h("h3", null, `Registered outside any preset (${builtIn.length})`),
+        ...builtIn.map((tool) => h(
           "div",
           { className: "bees-row", key: tool.name },
           h(
@@ -2111,8 +2132,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
             h("div", { className: "bees-row-title" }, tool.name),
             h("div", { className: "bees-muted" }, tool.description || "No description")
           )
-        )) : [h(Empty, { key: "empty" }, "No tools are registered")]
-      )
+        ))
+      ) : null
     );
   }
   function CatalogReview({ ctx, entry, onCancel, onInstall }) {
@@ -2199,7 +2220,6 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           type: "password",
           autoComplete: "off",
           value: secrets[secret.name] ?? "",
-          placeholder: secret.help ?? "",
           onChange: (event) => setSecrets({ ...secrets, [secret.name]: event.target.value })
         }),
         secret.help ? h("span", { className: "bees-muted" }, secret.help) : null

@@ -138,34 +138,66 @@ export class Capabilities {
     if (server.enabled) await this.mount(server);
   }
 
+  /**
+   * The tools each preset hands an agent.
+   *
+   * DSH keeps every model-facing tool on the agent plane, so the global registry holds only what
+   * Bees itself mounted (the MCP servers). Reading a preset's own scope is the only way to show
+   * what a run will actually be able to do.
+   */
+  async presetTools() {
+    let presets = [];
+    try { presets = await this.ctx.agentPresets.list(); } catch { return []; }
+    const rows = [];
+    for (const preset of presets) {
+      const row = { id: preset.id, name: preset.name ?? preset.id, broken: preset.broken ?? "", tools: [], skills: [] };
+      rows.push(row);
+      if (preset.broken) continue;
+      try {
+        const scope = await this.ctx.agentPresets.standingKeyFor(preset.id);
+        row.tools = this.ctx.tools.schemas(scope)
+          .map(({ name, description }) => ({ name, description: description ?? "" }))
+          .sort((left, right) => left.name.localeCompare(right.name));
+        row.skills = (await this.ctx.skills.list({ cwd: this.defaultWorkspace, scope })).map((skill) => ({
+          name: skill.name,
+          description: skill.description ?? "",
+          whenToUse: skill.whenToUse ?? "",
+          provider: skill.provider ?? "",
+          source: skill.source ?? "",
+          // user-dsh is <DSH_HOME>/skills, the one root Bees installs into and may delete from.
+          removable: skill.source === "user-dsh"
+        }));
+      } catch (error) {
+        row.broken = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return rows;
+  }
+
   async snapshot() {
     const servers = this.servers();
     let tools = [];
     try { tools = this.ctx.tools.schemas(); } catch { tools = []; }
-    let skills = [];
-    let skillsComplete = true;
-    try {
-      const found = await this.ctx.skills.list({ cwd: this.defaultWorkspace });
-      skills = found.map((skill) => ({
-        name: skill.name,
-        description: skill.description ?? "",
-        whenToUse: skill.whenToUse ?? "",
-        provider: skill.provider ?? "",
-        source: skill.source ?? "",
-        // user-dsh is <DSH_HOME>/skills, the one root Bees installs into and may delete from.
-        removable: skill.source === "user-dsh"
-      }));
-    } catch (error) {
-      skillsComplete = false;
-      skills = [];
-      this.ctx.logger?.warn?.(`bees: skill catalog unavailable: ${error}`);
+    const presets = await this.presetTools();
+    // Skills, like tools, are registered per preset. The page lists them once, and says which
+    // presets can reach each one.
+    const merged = new Map();
+    for (const preset of presets) {
+      for (const skill of preset.skills) {
+        const seen = merged.get(skill.name) ?? { ...skill, presets: [] };
+        seen.presets.push(preset.name);
+        merged.set(skill.name, seen);
+      }
     }
+    const skills = [...merged.values()].sort((left, right) => left.name.localeCompare(right.name));
+    const skillsComplete = presets.some(({ broken }) => !broken);
     const byServer = new Map(servers.map((server) => [server.serverName, server]));
     return {
       skills,
       skillsComplete,
       skillsRoot: skillsRoot(),
       skillPacks: SKILL_CATALOG,
+      presets,
       tools: tools.map(({ name, description }) => {
         const match = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/.exec(name);
         return {
