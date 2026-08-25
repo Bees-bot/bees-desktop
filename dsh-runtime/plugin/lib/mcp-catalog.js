@@ -168,6 +168,41 @@ export const MCP_CATALOG = [
   }
 ];
 
+MCP_CATALOG.push({
+  id: "openapi-bridge",
+  serverName: "api",
+  label: "Any REST API (OpenAPI bridge)",
+  publisher: "Ivo Toby, openapi-mcp-server",
+  homepage: "https://github.com/ivo-toby/mcp-openapi-server",
+  summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
+    + "MCP server of their own.",
+  access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
+  transport: "stdio",
+  command: "npx",
+  // --tools dynamic keeps three lookup tools in context instead of one per endpoint, which is what
+  // makes a large API usable at all.
+  args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
+  inputs: [
+    { name: "apiBaseUrl", flag: "--api-base-url", label: "API base URL", help: "https://api.example.com" },
+    { name: "openapiSpec", flag: "--openapi-spec", label: "OpenAPI spec URL", help: "https://api.example.com/openapi.json" }
+  ],
+  env: [{
+    name: "API_HEADERS",
+    optional: true,
+    label: "Auth header, if the API needs one",
+    help: "Authorization:Bearer YOUR_TOKEN. Goes in the environment, never in the arguments, so it "
+      + "stays out of the process list."
+  }],
+  headers: []
+});
+
+/** Public collections of Agent Plugins. Each publishes a marketplace manifest naming its skills. */
+export const SKILL_CATALOG = [
+  { repo: "anthropics/skills", label: "Anthropic Skills", note: "Documents, artifacts and skill authoring" },
+  { repo: "wshobson/agents", label: "wshobson Plugins", note: "Engineering processes across 90+ plugins" },
+  { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" }
+];
+
 export function catalogEntry(id) {
   return MCP_CATALOG.find((entry) => entry.id === id);
 }

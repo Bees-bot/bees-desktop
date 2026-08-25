@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { iso, required, transaction } from "./product-database.js";
-import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { catalogEntry, MCP_CATALOG, SKILL_CATALOG } from "./mcp-catalog.js";
+import { installSkill, listPack, removeSkill, skillsRoot } from "./skill-packs.js";
 
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -150,7 +151,9 @@ export class Capabilities {
         description: skill.description ?? "",
         whenToUse: skill.whenToUse ?? "",
         provider: skill.provider ?? "",
-        source: skill.source ?? skill.root ?? ""
+        source: skill.source ?? "",
+        // user-dsh is <DSH_HOME>/skills, the one root Bees installs into and may delete from.
+        removable: skill.source === "user-dsh"
       }));
     } catch (error) {
       skillsComplete = false;
@@ -161,6 +164,8 @@ export class Capabilities {
     return {
       skills,
       skillsComplete,
+      skillsRoot: skillsRoot(),
+      skillPacks: SKILL_CATALOG,
       tools: tools.map(({ name, description }) => {
         const match = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/.exec(name);
         return {
@@ -183,13 +188,42 @@ export class Capabilities {
       catalog: MCP_CATALOG.map(({ env, headers, ...entry }) => ({
         ...entry,
         installedAs: servers.find(({ catalogId }) => catalogId === entry.id)?.id ?? "",
-        secrets: [...env, ...headers].map(({ name, label, help }) => ({ name, label, help }))
+        secrets: [...env, ...headers].map(({ name, label, help, optional }) => ({ name, label, help, optional: Boolean(optional) }))
       }))
     };
   }
 
+  /** The public MCP registry, remote servers only: a stdio row would mean installing a package. */
+  async searchRegistry(query) {
+    const search = String(query ?? "").trim();
+    const response = await fetch(
+      `https://registry.modelcontextprotocol.io/v0/servers?limit=40${search ? `&search=${encodeURIComponent(search)}` : ""}`,
+      { signal: AbortSignal.timeout(10_000) }
+    );
+    if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
+    const { servers = [] } = await response.json();
+    const seen = new Set();
+    return servers.flatMap(({ server }) => {
+      const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
+      if (!remote || !server.name || seen.has(server.name)) return [];
+      seen.add(server.name);
+      return [{
+        name: server.name,
+        title: server.title || server.name,
+        description: server.description ?? "",
+        url: remote.url,
+        // Reverse-domain names carry dots and slashes the namespace pattern refuses.
+        serverName: server.name.split("/").pop().replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32)
+      }];
+    });
+  }
+
   async command(input) {
     const action = String(input.action ?? "");
+    if (action === "search_mcp_registry") return { results: await this.searchRegistry(input.query) };
+    if (action === "list_skill_pack") return { skills: await listPack(String(input.repo ?? "")) };
+    if (action === "install_skill") return installSkill(String(input.repo ?? ""), String(input.directory ?? ""));
+    if (action === "remove_skill") return removeSkill(String(input.name ?? ""));
     if (action === "install_mcp_server") return this.install(input);
     if (action === "add_mcp_server") return this.add(input);
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
@@ -237,16 +271,23 @@ export class Capabilities {
     const secrets = {};
     for (const secret of [...entry.env, ...entry.headers]) {
       const value = String(input.secrets?.[secret.name] ?? "").trim();
-      if (!value) throw new Error(`${entry.label} needs ${secret.label}`);
-      secrets[secret.name] = value;
+      if (!value && !secret.optional) throw new Error(`${entry.label} needs ${secret.label}`);
+      if (value) secrets[secret.name] = value;
     }
+    const args = [...(entry.args ?? [])];
+    for (const field of entry.inputs ?? []) {
+      const value = String(input.inputs?.[field.name] ?? "").trim();
+      if (!value) throw new Error(`${entry.label} needs ${field.label}`);
+      args.push(field.flag, value);
+    }
+    if (directory) args.push(directory);
     return this.insert({
       id: randomUUID(),
       serverName: this.freeServerName(entry.serverName),
       label: entry.label,
       transport: entry.transport,
       command: entry.command ?? "",
-      args: directory ? [...(entry.args ?? []), directory] : [...(entry.args ?? [])],
+      args,
       url: entry.url ?? "",
       envNames: entry.env.map(({ name }) => name),
       headerNames: entry.headers.map(({ name }) => name),

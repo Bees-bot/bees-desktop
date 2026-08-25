@@ -1989,8 +1989,50 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     if (!needle) return true;
     return fields.some((field) => String(field ?? "").toLocaleLowerCase().includes(needle));
   }
+  function SkillPack({ pack, act }) {
+    const [state, setState] = useState({ open: false, skills: null, note: "" });
+    const open = async () => {
+      setState({ open: true, skills: null, note: "Reading what this collection publishes…" });
+      const found = await act({ action: "list_skill_pack", repo: pack.repo });
+      setState({ open: true, skills: found?.skills ?? [], note: found ? "" : "Could not read that collection." });
+    };
+    return h(
+      "section",
+      { className: "bees-box" },
+      h(
+        "div",
+        { className: "bees-row" },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, pack.label),
+          h("div", { className: "bees-muted" }, `${pack.note} · github.com/${pack.repo}`)
+        ),
+        h(
+          Button,
+          { onClick: () => state.open ? setState({ open: false, skills: null, note: "" }) : open() },
+          state.open ? "Close" : "Browse"
+        )
+      ),
+      state.note ? h("p", { className: "bees-muted" }, state.note) : null,
+      ...(state.skills ?? []).map((skill) => h(
+        "div",
+        { className: "bees-row", key: skill.path },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, skill.name),
+          h("div", { className: "bees-muted" }, skill.directory)
+        ),
+        h(Button, {
+          onClick: async () => await confirmAction(`Install ${skill.name} from ${pack.repo}? It becomes instructions any agent can open.`) && act({ action: "install_skill", repo: pack.repo, directory: skill.directory })
+        }, skill.installed ? "Reinstall" : "Install")
+      )),
+      state.open && state.skills && !state.skills.length ? h(Empty, null, "This collection publishes no skills right now") : null
+    );
+  }
   function SkillsPage({ capabilities }) {
-    const { data, error } = capabilities;
+    const { data, error, act } = capabilities;
     const [query, setQuery] = useState("");
     if (error && !data) return h(Empty, null, error);
     if (!data) return h(Empty, null, "Reading the skill and tool catalog…");
@@ -2029,9 +2071,16 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
             h("div", { className: "bees-muted" }, skill.description || "No description"),
             skill.whenToUse ? h("div", { className: "bees-muted" }, `When to use: ${skill.whenToUse}`) : null
           ),
-          skill.provider ? h("span", { className: "bees-badge" }, skill.provider) : null
+          skill.provider ? h("span", { className: "bees-badge" }, skill.provider) : null,
+          skill.removable ? h(Button, {
+            className: "danger",
+            onClick: async () => await confirmAction(`Remove ${skill.name} from ${data.skillsRoot}?`) && act({ action: "remove_skill", name: skill.name })
+          }, "Remove") : null
         )) : [h(Empty, { key: "empty" }, needle ? "No skill matches that" : "No skills installed yet")]
       ),
+      h("h3", { className: "bees-section-title" }, "Install skills from a public collection"),
+      h("p", { className: "bees-muted" }, `Installed skills land in ${data.skillsRoot} and show up above straight away. A skill is written instructions, so read what it tells an agent to do before you install one.`),
+      ...(data.skillPacks ?? []).map((pack) => h(SkillPack, { pack, act, key: pack.repo })),
       h(
         "section",
         { className: "bees-box" },
@@ -2069,9 +2118,10 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
   function CatalogReview({ ctx, entry, onCancel, onInstall }) {
     const [directory, setDirectory] = useState("");
     const [secrets, setSecrets] = useState({});
+    const [inputs, setInputs] = useState({});
     const [busy, setBusy] = useState(false);
-    const missingSecret = entry.secrets.some(({ name }) => !String(secrets[name] ?? "").trim());
-    const ready = !busy && (!entry.requiresDirectory || directory) && !missingSecret;
+    const blank = (bag) => ({ name, optional }) => !optional && !String(bag[name] ?? "").trim();
+    const ready = !busy && (!entry.requiresDirectory || directory) && !entry.secrets.some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
     const pick = async () => {
       const path = await ctx.workspaces.pickDirectory();
       if (path) setDirectory(path);
@@ -2129,6 +2179,17 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         ),
         h(Button, { onClick: pick }, directory ? "Change" : "Choose folder")
       ) : null,
+      ...(entry.inputs ?? []).map((field) => h(
+        "label",
+        { className: "bees-form", key: field.name },
+        h("span", null, field.label),
+        h("input", {
+          className: "bees-input",
+          value: inputs[field.name] ?? "",
+          placeholder: field.help ?? "",
+          onChange: (event) => setInputs({ ...inputs, [field.name]: event.target.value })
+        })
+      )),
       ...entry.secrets.map((secret) => h(
         "label",
         { className: "bees-form", key: secret.name },
@@ -2157,7 +2218,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           onClick: async () => {
             setBusy(true);
             try {
-              await onInstall({ directory, secrets });
+              await onInstall({ directory, secrets, inputs });
             } finally {
               setBusy(false);
             }
@@ -2269,6 +2330,12 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [reviewing, setReviewing] = useState("");
     const [manual, setManual] = useState(false);
     const [query, setQuery] = useState("");
+    const [registry, setRegistry] = useState({ query: "", results: null, note: "" });
+    const searchRegistry = async (text) => {
+      setRegistry({ query: text, results: null, note: "Searching the public registry…" });
+      const found = await act({ action: "search_mcp_registry", query: text });
+      setRegistry({ query: text, results: found?.results ?? [], note: "" });
+    };
     if (error && !data) return h(Empty, null, error);
     if (!data) return h(Empty, null, "Reading connected servers…");
     const entry = data.catalog.find(({ id }) => id === reviewing);
@@ -2277,8 +2344,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       ctx,
       entry,
       onCancel: () => setReviewing(""),
-      onInstall: async ({ directory, secrets }) => {
-        const created = await act({ action: "install_mcp_server", catalogId: entry.id, directory, secrets });
+      onInstall: async ({ directory, secrets, inputs }) => {
+        const created = await act({ action: "install_mcp_server", catalogId: entry.id, directory, secrets, inputs });
         if (created?.id) setReviewing("");
       }
     });
@@ -2349,7 +2416,43 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           }, row.installedAs ? "Add another" : "Review and add")
         )
       ))),
-      catalog.length ? null : h(Empty, null, "No catalog entry matches that")
+      catalog.length ? null : h(Empty, null, "No catalog entry matches that"),
+      h("h3", { className: "bees-section-title" }, "Search the public MCP registry"),
+      h("p", { className: "bees-muted" }, "Everything the community has published. These are not reviewed by Bees, so read what a server does before you add it."),
+      h(
+        "form",
+        {
+          className: "bees-search",
+          onSubmit: (event) => {
+            event.preventDefault();
+            void searchRegistry(new FormData(event.currentTarget).get("q"));
+          }
+        },
+        h("input", { className: "bees-input", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the MCP registry" }),
+        h("button", { className: "bees-btn primary" }, "Search")
+      ),
+      registry.note ? h("p", { className: "bees-muted" }, registry.note) : null,
+      ...(registry.results ?? []).map((row) => h(
+        "div",
+        { className: "bees-row", key: row.name },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, row.title),
+          h("div", { className: "bees-muted" }, row.description || row.name),
+          h("div", { className: "bees-muted" }, row.url)
+        ),
+        h(Button, {
+          onClick: async () => await confirmAction(`Add ${row.title}? Bees will call ${row.url} and hand its tools to your agents.`) && act({
+            action: "add_mcp_server",
+            transport: "streamable-http",
+            serverName: row.serverName,
+            label: row.title,
+            url: row.url
+          })
+        }, "Add")
+      )),
+      registry.results && !registry.results.length ? h(Empty, null, "The registry returned no remote server for that") : null
     );
   }
 
