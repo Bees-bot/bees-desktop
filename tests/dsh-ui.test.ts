@@ -38,6 +38,7 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses the full content width and separates the detail views into tabs", () => {
+    expect(client).toContain('import { h, React } from "./runtime.js";');
     expect(client).toContain('"bees-panel-wide"');
     expect(client).toContain('["needs", "Questions & approvals"]');
     expect(client).toContain('["description", "Process description"]');
@@ -64,10 +65,11 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
   });
 
-  it("names work items precisely and opens standalone planning runs", () => {
+  it("names work items precisely and opens runs whose work item is unavailable", () => {
     expect(client).toContain('["all-work", "Work items"]');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
-    expect(client).toContain('openLabel: selected.run.workItemId ? "Open work" : "Open run"');
+    expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
+    expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
   });
 

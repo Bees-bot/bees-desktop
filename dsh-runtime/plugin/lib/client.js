@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   // dsh-runtime/plugin/client/runtime.js
-  var React2;
+  var React;
   var h;
   var useEffect;
   var useMemo;
@@ -17,9 +17,9 @@
   var CustomAiSettings;
   var SubscriptionSettings;
   function configureRuntime(require2) {
-    React2 = require2("react");
-    h = React2.createElement;
-    ({ useEffect, useMemo, useRef, useState } = React2);
+    React = require2("react");
+    h = React.createElement;
+    ({ useEffect, useMemo, useRef, useState } = React);
     ({ MarkdownText } = require2("@deepseek-ai/dsh-client-ui-primitives"));
     ({ PendingQuestion } = require2("@deepseek-ai/dsh-client-ui-user-questions"));
     ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require2("@bees/dsh-local-ai"));
@@ -548,7 +548,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           "div",
           { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
           activeTab === "needs" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             item.runtimeError ? h(
               "div",
@@ -566,7 +566,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               onAnswered: answered
             }) : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item")
           ) : activeTab === "description" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
             h("h2", null, item.title),
@@ -597,7 +597,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             ) : null,
             h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "Delegate work"))
           ) : activeTab === "runs" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h("h3", { className: "bees-section-title" }, "Runs"),
             itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h(
@@ -611,7 +611,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
             history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null
           ) : h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h("h3", null, "Audit"),
             ...events.length ? events.map((event) => h(AuditEvent, {
@@ -867,7 +867,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setDraft((current) => ({ ...current, custom: value, selected: question.multiSelect === true ? current.selected : [], skipped: false }));
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -964,7 +964,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1049,7 +1049,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       if (next) setSelectedId(next.run.id);
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1085,8 +1085,8 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           interaction,
           handled,
           onAnswered: answered,
-          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
-          openLabel: selected.run.workItemId ? "Open work" : "Open run"
+          onOpen: selected.item ? () => openWorkItem(selected.item.id) : () => openRun(selected.run.id),
+          openLabel: selected.item ? "Open work" : "Open run"
         })
       ) : h(Empty, null, "No live agent questions or approvals right now"),
       blocked.length ? h(
@@ -1104,7 +1104,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
               h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")
             ),
-            h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run")
+            h(Button, { onClick: item ? () => openWorkItem(item.id) : () => openRun(run.id) }, item ? "Open work" : "Open run")
           );
         })
       ) : null
@@ -1487,7 +1487,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
     const defaultEffortName = efforts.find(({ id }) => id === defaultEffort)?.name ?? defaultEffort;
     const systemDefaultLabel = systemDefault?.provider && systemDefault?.model ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}` : "System default (auto-updates)";
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "label",
@@ -2586,7 +2586,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
     const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
     const freeAi = h(FreeAiController, { modelSettings, onError: setError });
     if (!data) return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       localAi,
       freeAi,
@@ -2653,7 +2653,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       return [];
     };
     const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
-    return h(React2.Fragment, null, localAi, freeAi, h(
+    return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },
       h(
