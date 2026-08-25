@@ -11,7 +11,8 @@ export const NAVIGATION = [
     ["all-processes", "All processes"], ["templates", "Templates"]
   ] },
   { id: "agents", label: "Agents", icon: "◎", defaultChild: "all-agents", children: [
-    ["all-agents", "All agents"], ["pools", "Pools"], ["skills", "Skills & tools"]
+    ["all-agents", "All agents"], ["pools", "Pools"], ["presets", "Agent presets"],
+    ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
   { id: "files", label: "Files & Folders", icon: "$", defaultChild: "locations", children: [
     ["locations", "Locations"], ["mappings", "My mappings"], ["references", "References"]

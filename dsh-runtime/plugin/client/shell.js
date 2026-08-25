@@ -9,6 +9,7 @@ import { Home, GuidePage } from "./home.js";
 import { NeedsYouPage, WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
 import { AgentsPage } from "./agents.js";
+import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { SettingsPage } from "./settings.js";
 
@@ -139,6 +140,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
   };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
+  const capabilities = useCapabilities();
   const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
@@ -168,6 +170,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (target.id === "agents") {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
       if (targetRoute === "skills") return [];
+      if (targetRoute === "presets") return data.presets.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
+      if (targetRoute === "mcp") return (capabilities.data?.servers ?? [])
+        .map((row) => ({ id: row.id, label: row.label, open: openRoute }));
       if (targetRoute === "pools") return data.pools.filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -197,6 +202,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem })
       : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act })
       : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
+        : route === "skills" ? h(SkillsPage, { capabilities })
+        : route === "mcp" ? h(McpPage, { ctx, capabilities })
         : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
           : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess })

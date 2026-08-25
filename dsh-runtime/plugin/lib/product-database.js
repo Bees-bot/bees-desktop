@@ -451,6 +451,21 @@ export function initializeProductDatabase(database) {
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   database.exec(`
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      server_name TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      transport TEXT NOT NULL,
+      command TEXT NOT NULL DEFAULT '',
+      args_json TEXT NOT NULL DEFAULT '[]',
+      url TEXT NOT NULL DEFAULT '',
+      env_names_json TEXT NOT NULL DEFAULT '[]',
+      header_names_json TEXT NOT NULL DEFAULT '[]',
+      catalog_id TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'manual',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
     UPDATE stages SET driver = CASE
