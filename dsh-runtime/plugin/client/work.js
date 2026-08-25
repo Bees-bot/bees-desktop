@@ -91,6 +91,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
   const answered = (key) => setHandled((current) => new Set(current).add(key));
   const runAudit = new Set(itemRuns.map(({ id }) => id));
   const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
+  useEffect(() => {
+    if (convoRef.current) {
+      convoRef.current.scrollTop = convoRef.current.scrollHeight;
+    }
+  }, [history, pendingRun, item.runtimePhase]);
+  
   const assignAgent = (agentAssignmentId) => act({
     action: "edit_item", itemId: item.id, title: item.title, description: item.description,
     owner: item.owner, priority: item.priority, parentId: item.parentId,
@@ -99,24 +105,36 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
   
   // Collapse history messages
   const convoItems = [];
-  if (item.title) convoItems.push(h("div", { className: "bees-convo-msg user", key: "start" }, h("strong", null, item.kind === "goal" ? "Goal" : "Work item"), h("div", null, item.title)));
+  convoItems.push(h(GoalMessage, { item, key: "start" }));
+  
   if (history?.messages) {
-    let toolCount = 0;
     for (const msg of history.messages) {
-      if (msg.role === "user") convoItems.push(h("div", { className: "bees-convo-msg user", key: msg.id }, msg.parts.map(p => p.text).join(" ")));
+      if (msg.role === "user") convoItems.push(h("div", { className: "bees-convo-msg user", key: msg.id }, h("strong", null, "You"), h("div", null, msg.parts.map(p => p.text).join(" "))));
       else {
         const textParts = msg.parts.filter(p => p.text);
         const toolParts = msg.parts.filter(p => p.type === "tool");
         if (textParts.length) convoItems.push(h("div", { className: "bees-convo-msg agent", key: msg.id }, h("strong", null, "Agent"), h("div", null, textParts.map(p => p.text).join(" "))));
         if (toolParts.length) {
-          toolCount += toolParts.length;
-          convoItems.push(h("div", { className: "bees-convo-msg system", key: `tool-${msg.id}` }, `${toolParts.length} tasks/actions performed`));
+          convoItems.push(h("div", { className: "bees-convo-msg system", key: `tool-${msg.id}` }, `Agent performed ${toolParts.length} task${toolParts.length > 1 ? 's' : ''}`));
         }
       }
     }
   } else if (events.length) {
     convoItems.push(h("div", { className: "bees-convo-msg system", key: "audit-events" }, `${events.length} background events recorded`));
   }
+
+  // Inject subitems status
+  const subitems = data.items.filter(i => i.parentId === item.id && !i.archivedAt);
+  for (const sub of subitems) {
+    if (["running", "waiting", "paused"].includes(sub.runtimePhase)) {
+      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent doing"), `${sub.title}`));
+    } else if (sub.runtimePhase === "completed") {
+      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent done"), `${sub.title}`));
+    } else if (sub.runtimePhase === "failed") {
+      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent failed"), `${sub.title}`));
+    }
+  }
+
   
   return h("div", { className: "bees-workspace-layout" },
     h("div", { className: "bees-convo-panel" },
@@ -128,9 +146,16 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
         }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),
-      h("div", { className: "bees-convo-composer" },
-        h("div", { style: { display: "flex", gap: "8px" } },
-          h("input", { className: "bees-input", placeholder: pendingRun ? "Answer above..." : "Composer available when agent asks...", disabled: true, style: { flex: 1 } })
+      h("form", { className: "bees-composer", style: { margin: "16px", flexShrink: 0 } },
+        h("textarea", { 
+          className: "bees-composer-input", 
+          placeholder: pendingRun ? "Answer above..." : "Add a note or instruction...", 
+          disabled: !pendingRun,
+          style: { minHeight: "50px", fontSize: "14px" } 
+        }),
+        h("div", { className: "bees-composer-foot" },
+          h("span", { className: "bees-composer-hint" }, pendingRun ? "Agent is waiting for your answer" : "Conversation paused"),
+          h("button", { className: "bees-btn primary", disabled: true }, "Send message")
         )
       )
     ),
@@ -219,7 +244,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
   };
   const completed = items.filter(({ completed }) => completed).length;
   const total = items.length;
-  return h("div", null,
+  return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 } },
     h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
       h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`))),
     h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
