@@ -7,7 +7,13 @@
  */
 
 function parseCurl(command) {
-  const text = String(command ?? "").trim();
+  // A URL copied out of chat, a doc or a ticket usually arrives as a markdown link, and the bare
+  // fallback match below would swallow the whole `[label](target)` into the query string. The path
+  // survives that, so the damage is invisible: a tool that sends nonsense parameters forever.
+  // The label half can itself contain brackets (`project_types[]=hourly`), so the match runs to the
+  // first `](http` rather than to the first `]`.
+  const text = String(command ?? "").trim()
+    .replace(/\[[\s\S]*?\]\((https?:\/\/[^)\s]+)\)/g, "$1");
   if (!text) throw new Error("Paste a curl command.");
   const url = text.match(/--url\s+['"]?(https?:\/\/[^'"\s]+)/)?.[1]
     ?? text.match(/['"](https?:\/\/[^'"]+)['"]/)?.[1]
@@ -15,6 +21,10 @@ function parseCurl(command) {
   if (!url) throw new Error("No http address found. Paste a curl command that includes the full URL.");
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error(`"${url}" is not a valid address.`); }
+  // A second address inside the first means the paste was mangled. Refuse rather than describe an
+  // endpoint that is subtly wrong.
+  if (/https?:\/\//.test(parsed.search) || /https?:\/\//.test(parsed.pathname))
+    throw new Error("That address has another URL inside it. Paste the plain request URL, without any surrounding link markup.");
   if (/(^|\s)(-F|--form)\b/.test(text))
     throw new Error("Form uploads are not supported. Use an OpenAPI document for multipart endpoints.");
 

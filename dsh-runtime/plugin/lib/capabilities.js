@@ -265,7 +265,8 @@ export class Capabilities {
     const address = required(apiBaseUrl, "API base URL");
     const found = await discoverApi(address);
     if (found.kind !== "endpoint-list") return found;
-    return { ...found, specUrl: await this.writeSpec(new URL(address).hostname, found.spec) };
+    const { spec, ...rest } = found;
+    return { ...rest, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
   /** A written document needs somewhere to live; the bridge takes a path or a URL, not a blob. */
