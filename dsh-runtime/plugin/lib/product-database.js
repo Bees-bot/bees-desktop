@@ -223,6 +223,16 @@ export function processStageNames(value, label = "process") {
   return names;
 }
 
+/** An empty Templates screen gives a new user nowhere to start, so ship a few worth copying. */
+const STARTER_TEMPLATES = [
+  ["Research and report", "Gather sources, draft the findings, get them checked",
+    ["Research", "Draft", "Review", "Done"]],
+  ["Fix a bug", "Reproduce it before touching anything, then prove the fix",
+    ["Reproduce", "Fix", "Verify", "Done"]],
+  ["Write and publish", "Take a rough idea through to something shipped",
+    ["Outline", "Write", "Edit", "Publish"]]
+];
+
 export function insertWorkspaceDefaults(database, workspaceId) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     {
@@ -235,6 +245,10 @@ export function insertWorkspaceDefaults(database, workspaceId) {
     },
     { name: "Done", driver: "terminal" }
   ], "goals");
+  const at = iso();
+  for (const [name, description, stages] of STARTER_TEMPLATES)
+    database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
+      .run(randomUUID(), workspaceId, name, description, JSON.stringify(stages), at, at);
   ensureAgentDefaults(database, workspaceId);
 }
 
