@@ -458,8 +458,20 @@ export async function executeProductCommand(action, input) {
       if (!proposal) throw new Error("Proposal is no longer pending");
       workspaceContext(this.database, proposal.workspaceId, ["admin", "member"]);
       const results = [];
-      for (const change of JSON.parse(proposal.changes))
-        results.push(await this.execute(change.action, { ...change, workspaceId: proposal.workspaceId }));
+      const proposedProcessIds = new Map();
+      for (const change of JSON.parse(proposal.changes)) {
+        const processId = change.action === "create_item"
+          ? proposedProcessIds.get(String(change.process).toLocaleLowerCase())
+          : undefined;
+        if (change.action === "create_item" && !processId)
+          throw new Error("The proposed work item's process was not created earlier in this proposal");
+        const result = await this.execute(change.action, {
+          ...change, processId, workspaceId: proposal.workspaceId
+        });
+        results.push(result);
+        if (change.action === "create_process")
+          proposedProcessIds.set(String(change.name).toLocaleLowerCase(), result.id);
+      }
       this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ?")
         .run(iso(), proposalId);
       return { id: proposalId, results };
@@ -560,4 +572,3 @@ export async function executeProductCommand(action, input) {
     }
     throw new Error(`Unknown action: ${action}`);
 }
-

@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
+const GOALS_WORK_INSTRUCTIONS = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and delegate one self-contained subitem at a time when sequencing or approval matters. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
+const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
+
 export const iso = () => new Date().toISOString();
 export function stableUuid(value) {
   const hex = createHash("sha256").update(String(value)).digest("hex").slice(0, 32).split("");
@@ -70,7 +73,8 @@ export function workspaceContext(database, workspaceId, roles = ["admin", "membe
 export function itemContext(database, itemId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
-           w.kind, w.agent_assignment_id AS agentAssignmentId, p.workspace_id AS workspaceId
+           w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
+           p.workspace_id AS workspaceId
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -223,11 +227,11 @@ export function insertWorkspaceDefaults(database, workspaceId) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     {
       name: "Work", driver: "agent",
-      instructions: "Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review."
+      instructions: GOALS_WORK_INSTRUCTIONS
     },
     {
       name: "Review", driver: "review",
-      instructions: "Independently inspect the candidate deliverables and evidence. Pass only when the requested outcome is actually complete; otherwise return specific revision feedback."
+      instructions: GOALS_REVIEW_INSTRUCTIONS
     },
     { name: "Done", driver: "terminal" }
   ], "goals");
@@ -478,8 +482,18 @@ export function initializeProductDatabase(database) {
       WHEN lower(name) LIKE '%review%' THEN 'review'
       ELSE 'agent'
     END;
-    PRAGMA user_version = 7;
+    PRAGMA user_version = 8;
   `);
+  if (version < 8) {
+    database.prepare(`
+      UPDATE stages SET completion_rules = ? WHERE name = 'Work' AND archived_at IS NULL
+        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
+    `).run(GOALS_WORK_INSTRUCTIONS);
+    database.prepare(`
+      UPDATE stages SET completion_rules = ? WHERE name = 'Review' AND archived_at IS NULL
+        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
+    `).run(GOALS_REVIEW_INSTRUCTIONS);
+  }
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -519,26 +533,23 @@ export function initializeProductDatabase(database) {
     insertWorkspaceDefaults(database, workspaceId);
   });
 }
-
-
-
 /**
- * The MCP servers one agent may use, as server names for the `mcp__<name>__` tool prefix.
+ * The MCP servers one agent may use, as the names its tools are prefixed with.
  *
- * Resolved by agent id at run time rather than carried through routing, so a policy edited between
- * runs takes effect on the next one. A disabled server drops out here; its tools are gone anyway.
+ * Read by id at dispatch, not carried through routing: a rerun reuses its recorded agent config,
+ * which would pin a policy the owner has since changed.
  */
 export function mcpGrantFor(database, agentAssignmentId) {
-  const row = agentAssignmentId ? database.prepare(
-    "SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?"
-  ).get(agentAssignmentId) : null;
-  const access = row?.access ?? "all";
-  if (access !== "listed") return { mcpAccess: access === "none" ? "none" : "all", mcpServers: [] };
-  let ids = [];
-  try { ids = JSON.parse(row.servers || "[]"); } catch { ids = []; }
-  const names = ids.length ? database.prepare(`
-    SELECT server_name AS name FROM mcp_servers
-    WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
-  `).all(JSON.stringify(ids)).map(({ name }) => name) : [];
-  return { mcpAccess: "listed", mcpServers: names };
+  const row = database.prepare(`
+    SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
+  `).get(required(agentAssignmentId, "Agent"));
+  if (!row) throw new Error("Agent not found");
+  if (row.access !== "listed") return { mcpAccess: row.access, mcpServers: [] };
+  return {
+    mcpAccess: "listed",
+    mcpServers: database.prepare(`
+      SELECT server_name AS name FROM mcp_servers
+      WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
+    `).all(row.servers).map(({ name }) => name)
+  };
 }

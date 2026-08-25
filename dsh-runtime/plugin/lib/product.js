@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
-  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, required, workspaceContext
+  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, processStageNames,
+  required, workspaceContext
 } from "./product-database.js";
 import {
   indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
@@ -44,6 +45,34 @@ export class BeesProduct {
     }
   }
 
+  async recoverHumanWaits() {
+    const runs = this.database.prepare(`
+      SELECT execution_id AS executionId, work_item_id AS workItemId,
+             recovery_count AS recoveryCount, config_json AS configJson
+      FROM execution_links WHERE status = 'interrupted' ORDER BY updated_at
+    `).all();
+    const recoveries = runs.flatMap((run) => {
+      const pending = this.agents.pendingInteraction(run.executionId);
+      if (!pending) return [];
+      const data = JSON.parse(run.configJson);
+      let body;
+      if (!run.workItemId && data.mode === "planning") {
+        body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
+      } else if (run.workItemId) {
+        const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
+        if (this.processes?.isAutomatic(item.processId)) return [];
+        body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
+      } else return [];
+      if (pending.kind === "question")
+        body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
+      return [this.agents.admit("bees-run", run.executionId, {
+        idempotencyKey: `human-wait:${run.executionId}:${Number(run.recoveryCount) + 1}`,
+        body
+      })];
+    });
+    await Promise.allSettled(recoveries);
+  }
+
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
     const executionId = required(stage.executionId, "Execution");
@@ -57,7 +86,13 @@ export class BeesProduct {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
       throw error;
     }
-    const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+    const parentRun = item.parentId ? this.database.prepare(`
+      SELECT run_directory AS runDirectory FROM execution_links
+      WHERE work_item_id = ?
+        AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval', 'interrupted')
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(item.parentId) : null;
+    const runDirectory = parentRun?.runDirectory ?? resolve(this.defaultWorkspace, "runs", executionId);
     const locations = stageInputs(this.database, item.id, runDirectory);
     const reviewer = stage.purpose === "reviewer";
     let candidateSummary = "";
@@ -74,7 +109,9 @@ export class BeesProduct {
         ? resolve(runDirectory, "inputs", "candidate")
         : resolve(runDirectory, "outputs");
       mkdirSync(destination, { recursive: true });
-      stageLocation({ name: "candidate", kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
+      const source = resolve(candidate.runDirectory, "outputs");
+      if (source !== destination)
+        stageLocation({ name: "candidate", kind: "folder", localPath: source }, destination);
       if (reviewer) {
         const evidence = await this.agents.reviewEvidence(stage.candidateExecutionId);
         writeFileSync(resolve(runDirectory, "inputs", "execution-evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
@@ -85,8 +122,8 @@ export class BeesProduct {
       ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from DSH sessions and Bees audit records; use it to verify procedural requirements such as subagent ordering and human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
+      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do small, tightly coupled work yourself. Use bees_delegate_work for self-contained work that an independent peer can own. Treat legacy "subagent" wording as peer delegation: never role-play it in this run. Delegate exactly one peer at a time. The caller waits while that peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -214,7 +251,9 @@ export class BeesProduct {
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
-             e.status, e.run_directory AS runDirectory, e.updated_at AS updatedAt,
+             e.status, json_extract(e.config_json, '$.mode') AS mode,
+             json_extract(e.config_json, '$.purpose') AS purpose,
+             e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision
@@ -352,6 +391,7 @@ export class BeesProduct {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
+    const proposedProcesses = new Set();
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
       if (change.action === "create_goal") return {
@@ -359,11 +399,22 @@ export class BeesProduct {
         description: String(change.description ?? "")
       };
       if (change.action === "create_process") {
-        const stages = Array.isArray(change.stages) ? change.stages.map((stage) => required(stage, "Stage")) : [];
-        if (stages.length < 2 || stages.length > 12) throw new Error("A proposed process needs 2 to 12 stages");
+        const name = required(change.name, "Process name");
+        const key = name.toLocaleLowerCase();
+        if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
+        proposedProcesses.add(key);
         return {
-          action: "create_process", name: required(change.name, "Process name"),
-          description: String(change.description ?? ""), stages
+          action: "create_process", name, description: String(change.description ?? ""),
+          stages: processStageNames(change.stages, "proposed process")
+        };
+      }
+      if (change.action === "create_item") {
+        const process = required(change.process, "Work item process");
+        if (!proposedProcesses.has(process.toLocaleLowerCase()))
+          throw new Error("A proposed work item must target a process created earlier in the same proposal");
+        return {
+          action: "create_item", process, title: required(change.title, "Work item title"),
+          description: String(change.description ?? "")
         };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);
@@ -378,16 +429,26 @@ export class BeesProduct {
 
   async createSubitems({ parentId, items }) {
     const parent = itemContext(this.database, parentId, ["admin", "member"]);
-    if (!Array.isArray(items) || !items.length || items.length > 25)
-      throw new Error("A run can create between 1 and 25 sub-items at once");
+    if (!Array.isArray(items) || items.length !== 1)
+      throw new Error("A run can delegate exactly one work item at a time");
     const created = [];
-    for (const item of items) created.push(await this.command({ action: "create_item",
-      processId: parent.processId,
-      parentId: parent.id,
-      title: required(item?.title, "Sub-item title"),
-      description: String(item?.description ?? ""),
-      agentAssignmentId: parent.agentAssignmentId
-    }));
+    for (const item of items) {
+      const title = required(item?.title, "Delegated work title");
+      const description = String(item?.description ?? "");
+      const existing = this.database.prepare(`
+        SELECT id FROM work_items WHERE parent_id = ? AND title = ?
+          AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
+      `).get(parent.id, title);
+      const child = existing ?? await this.command({ action: "create_item",
+        processId: parent.processId, parentId: parent.id, title, description,
+        agentAssignmentId: parent.agentAssignmentId
+      });
+      this.database.prepare(`
+        INSERT OR IGNORE INTO work_item_locations
+        SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
+      `).run(child.id, parent.id);
+      created.push(child);
+    }
     return created;
   }
 

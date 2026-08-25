@@ -1,6 +1,6 @@
 import { h, useEffect, useState } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, request
+  ask, AuditEvent, Button, confirmAction, Empty, request, runTitle
 } from "./shared.js";
 
 export function FilesPage({ ctx, data, route, teamId, act }) {
@@ -42,20 +42,19 @@ export function FilesPage({ ctx, data, route, teamId, act }) {
   );
 }
 
-export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess }) {
+export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) {
   const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
   const [events, setEvents] = useState([]);
-  const [selected, setSelected] = useState("");
   const [history, setHistory] = useState(null);
   useEffect(() => { if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events)); }, [route]);
   useEffect(() => {
     let active = true;
-    if (!selected) { setHistory(null); return () => { active = false; }; }
-    request(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`)
+    if (!runId) { setHistory(null); return () => { active = false; }; }
+    request(`/bees-api/run-history?executionId=${encodeURIComponent(runId)}`)
       .then((value) => active && setHistory(value.history))
       .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
     return () => { active = false; };
-  }, [selected]);
+  }, [runId]);
   if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
   if (route === "audit") return h("div", null, ...(events.length ? events.map((event) => {
     const run = runs.find(({ id }) => id === event.executionId);
@@ -66,14 +65,14 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
       workspaceIds.includes(workspaceId) && [event.metadata?.processId, event.metadata?.resultId].includes(id));
     const runItem = run ? data.items.find(({ id }) => id === run.workItemId) : null;
     const detail = runItem?.title ?? item?.title ?? process?.name ?? event.metadata?.action ?? event.metadata?.outcome;
-    const onOpen = run ? () => { setSelected(run.id); setRoute("runs"); }
+    const onOpen = run ? () => { setRunId(run.id); setRoute("runs"); }
       : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
     return h(AuditEvent, { event, detail, onOpen, key: event.id,
       openLabel: run ? "Open run" : item ? "Open work item" : "Open process" });
   }) : [h(Empty, { key: "empty" }, "No audit events yet")]));
-  const run = runs.find(({ id }) => id === selected);
+  const run = runs.find(({ id }) => id === runId);
   if (run) return h("div", null,
-    h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelected("") }, "← Runs"), h("strong", null, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+    h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Runs"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
     run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
       h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
       h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
@@ -85,8 +84,8 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
       )) : [h(Empty, { key: "empty" }, "No transcript messages yet")])
     ) : h(Empty, null, "Loading transcript…")
   );
-  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setSelected(row.id) },
-    h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
+  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
+    h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
     h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No runs yet")]))
   ;
 }
@@ -107,5 +106,4 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
     ...results.map((result) => h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, result.title), h("div", { className: "bees-muted" }, result.excerpt)))),
     h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
 }
-
 
