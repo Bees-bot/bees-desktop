@@ -142,7 +142,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
         ...convoItems,
         pendingRun ? h(AgentInteractionPanel, {
           run: pendingRun, item, summary: pendingSummary, session: pendingSession,
-          interaction, handled, onAnswered: answered
+          interaction, handled, onAnswered: answered,
+          onOpen: () => ctx.sessions.open(pendingRun.sessionId),
+          openLabel: "Open DeepSeek screen"
         }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),
@@ -516,7 +518,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         h(AgentInteractionPanel, {
           run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled,
           onAnswered: answered,
-          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
+          onOpen: () => { if (selected.run.workItemId) openWorkItem(selected.run.workItemId); else openRun(selected.run.id); ctx.sessions.open(selected.run.sessionId); },
           openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
     ) : h(Empty, null, "No live agent questions or approvals right now"),
@@ -526,7 +528,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
           h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
-          h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run"));
+          h(Button, { onClick: () => { if (run.workItemId) openWorkItem(run.workItemId); else openRun(run.id); if (run.sessionId) ctx.sessions.open(run.sessionId); } }, run.workItemId ? "Open work" : "Open run"));
       })) : null
   );
 }

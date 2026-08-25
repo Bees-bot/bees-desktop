@@ -754,7 +754,9 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             session: pendingSession,
             interaction,
             handled,
-            onAnswered: answered
+            onAnswered: answered,
+            onOpen: () => ctx.sessions.open(pendingRun.sessionId),
+            openLabel: "Open DeepSeek screen"
           }) : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
           item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
         ),
@@ -1326,7 +1328,11 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           interaction,
           handled,
           onAnswered: answered,
-          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
+          onOpen: () => {
+            if (selected.run.workItemId) openWorkItem(selected.run.workItemId);
+            else openRun(selected.run.id);
+            ctx.sessions.open(selected.run.sessionId);
+          },
           openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
       ) : h(Empty, null, "No live agent questions or approvals right now"),
@@ -1345,7 +1351,11 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
               h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")
             ),
-            h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run")
+            h(Button, { onClick: () => {
+              if (run.workItemId) openWorkItem(run.workItemId);
+              else openRun(run.id);
+              if (run.sessionId) ctx.sessions.open(run.sessionId);
+            } }, run.workItemId ? "Open work" : "Open run")
           );
         })
       ) : null
