@@ -1719,22 +1719,34 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
         "div",
         { className: "bees-page-head" },
         h(Button, { onClick: onCancel }, "← Agents"),
-        h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Configure the agent's complete toolbox and routing identity before adding it."))
+        h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Give it a name, a toolbox, and a model. Everything here can be changed later."))
       ),
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
       h("label", null, "Description", h("input", { className: "bees-input", name: "description", placeholder: "What should this agent be used for?" })),
-      h("label", null, "Agent preset (skills and tools)", h(
-        "select",
-        {
-          className: "bees-select",
-          name: "presetId",
-          required: true,
-          defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id
-        },
-        ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))
-      )),
+      h(
+        "label",
+        null,
+        "Agent preset, its skills and tools",
+        h(
+          "select",
+          {
+            className: "bees-select",
+            name: "presetId",
+            required: true,
+            defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id
+          },
+          ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))
+        ),
+        h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run. Skills & tools lists what each one carries.")
+      ),
       h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
-      h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+      h(
+        "label",
+        null,
+        "Capabilities, comma separated",
+        h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" }),
+        h("span", { className: "bees-muted" }, "Optional labels. A process stage can ask for an agent that has one.")
+      ),
       h(McpAccess, { servers }),
       h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1e3, defaultValue: 0 })),
       h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
@@ -1961,14 +1973,30 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedId("") }, "← Agents"), h("strong", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
       h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description })),
-      h("label", null, "DSH preset", h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId }, ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+      h(
+        "label",
+        null,
+        "Agent preset, its skills and tools",
+        h(
+          "select",
+          { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
+          ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))
+        ),
+        h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run. Skills & tools lists what each one carries.")
+      ),
       h(AgentModelSelect, {
         ctx,
         value: selected.model ?? "",
         effort: selected.reasoningEffort ?? "",
         systemDefault: data.systemDefaultModel
       }),
-      h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
+      h(
+        "label",
+        null,
+        "Capabilities, comma separated",
+        h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" }),
+        h("span", { className: "bees-muted" }, "Optional labels. A process stage can ask for an agent that has one.")
+      ),
       h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
       h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1e3, defaultValue: selected.maxConcurrency })),
       h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
@@ -2168,9 +2196,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         return h(
           "section",
           { className: "bees-box", key: preset.id },
-          // DSH names its shipped presets in its own locale, so carry the id too or the rows are
-          // unreadable to an English-speaking user.
-          h("h3", null, `${preset.name === preset.id ? preset.name : `${preset.name} (${preset.id})`} preset · ${own.length} tools`),
+          h("h3", null, `${preset.name} preset · ${own.length} tools`),
           preset.broken ? h("p", { className: "bees-muted" }, preset.broken) : h("p", { className: "bees-muted" }, "What an agent on this preset can run. Which preset an agent uses is set on the agent; what a preset contains is edited in DSH settings."),
           ...own.length ? own.map((tool) => h(
             "div",

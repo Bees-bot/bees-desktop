@@ -9,6 +9,7 @@ import {
   TEXT_EXTENSIONS
 } from "./product-files.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
+import { namePreset } from "./preset-names.js";
 import { executeProductCommand } from "./product-commands.js";
 
 export { initializeProductDatabase };
@@ -234,9 +235,10 @@ export class BeesProduct {
     `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: JSON.parse(row.changes) })) : [];
     let presets = [];
     try {
-      presets = this.agentPresets ? (await this.agentPresets.list()).map(({ id, name, description, broken, trust }) => ({
-        id, name: name || id, description: description || "", broken: broken || null, trust
-      })) : [];
+      presets = this.agentPresets ? (await this.agentPresets.list()).map((preset) => {
+        const { id, name, description } = namePreset(preset);
+        return { id, name, description, broken: preset.broken || null, trust: preset.trust };
+      }) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,

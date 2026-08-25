@@ -134,9 +134,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
     ...(data.presets ?? []).map((preset) => {
       const own = preset.tools.filter((tool) => matches(needle, tool.name, tool.description));
       return h("section", { className: "bees-box", key: preset.id },
-        // DSH names its shipped presets in its own locale, so carry the id too or the rows are
-        // unreadable to an English-speaking user.
-        h("h3", null, `${preset.name === preset.id ? preset.name : `${preset.name} (${preset.id})`} preset · ${own.length} tools`),
+        h("h3", null, `${preset.name} preset · ${own.length} tools`),
         preset.broken
           ? h("p", { className: "bees-muted" }, preset.broken)
           : h("p", { className: "bees-muted" }, "What an agent on this preset can run. Which preset an "

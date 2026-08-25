@@ -8,6 +8,7 @@ import { iso, required, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG, SKILL_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
+import { namePreset } from "./preset-names.js";
 import { specFromCurl } from "./spec-from-curl.js";
 
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
@@ -177,10 +178,11 @@ export class Capabilities {
     let presets = [];
     try { presets = await this.ctx.agentPresets.list(); } catch { return []; }
     const rows = [];
-    for (const preset of presets) {
-      const row = { id: preset.id, name: preset.name ?? preset.id, broken: preset.broken ?? "", tools: [], skills: [] };
+    for (const raw of presets) {
+      const preset = namePreset(raw);
+      const row = { id: preset.id, name: preset.name, broken: raw.broken ?? "", tools: [], skills: [] };
       rows.push(row);
-      if (preset.broken) continue;
+      if (raw.broken) continue;
       try {
         const scope = await this.ctx.agentPresets.standingKeyFor(preset.id);
         row.tools = this.ctx.tools.schemas(scope)
@@ -213,7 +215,7 @@ export class Capabilities {
     for (const preset of presets) {
       for (const skill of preset.skills) {
         const seen = merged.get(skill.name) ?? { ...skill, presets: [] };
-        seen.presets.push(preset.name === preset.id ? preset.name : `${preset.name} (${preset.id})`);
+        seen.presets.push(preset.name);
         merged.set(skill.name, seen);
       }
     }
