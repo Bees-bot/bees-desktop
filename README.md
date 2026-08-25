@@ -24,8 +24,9 @@ DSH releases are upgraded as one pinned set through the
 ## Architecture
 
 - Tauri owns native lifecycle and launches DSH plus the bundled llama.cpp inference server.
-- DSH supplies models/providers, credentials, sessions, agents, tools, skills, MCP, and approvals as an internal runtime; Bees owns the visible UI and product settings.
+- DSH supplies models/providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals as an internal runtime; Bees owns the visible UI and product settings.
 - `dsh-runtime/plugin` is the Bees product/core plugin: board, schedules, run/recovery links, file boundaries, local document search, audit receipts, and the shared UI shell.
+- Bees owns which MCP servers exist and who may use them. Rows live in `bees-stage1.db`, each enabled one is mounted as its own `dsh-mcp-client` fiber, and every agent carries a policy of all, none, or a named few. Servers and skills are added under Agents, and secrets go to the DSH credential store.
 - `dsh-runtime/plugins/*` contains small optional integration plugins. Local AI, embedded FreeLLMAPI free-tier routing, and direct custom OpenAI-compatible connections each ship as a separate DSH Host + Web Client package.
 - Product data starts fresh in the app-owned `bees-stage1.db`. Old Bees workspaces and runs are not migrated.
 
