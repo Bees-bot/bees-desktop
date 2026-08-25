@@ -94,11 +94,10 @@
   .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
   .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-system-default{border:2px solid #f2b84b;background:linear-gradient(135deg,#f2b84b18,transparent 65%)}.bees-system-default form{display:grid;grid-template-columns:minmax(260px,2fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.bees-system-default label{display:grid;gap:5px}.bees-system-default .bees-btn{margin-bottom:1px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
   .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabs{display:flex;gap:4px;margin:-5px -5px 14px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-audit{border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-audit>summary{cursor:pointer;list-style-position:inside}.bees-audit>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-audit>summary span{display:block}.bees-audit-detail{padding:0 12px 12px 27px}.bees-audit-detail pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-agent-form textarea{min-height:180px}
-  .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
   .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
   @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
 `;
-  async function request2(path, options) {
+  async function request(path, options) {
     const response = await fetch(path, {
       ...options,
       headers: { "content-type": "application/json", ...options?.headers ?? {} }
@@ -112,7 +111,7 @@
     if (invoke) return invoke("open_external_url", { url });
     if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
   }
-  var collaboration = (action, values = {}) => request2("/bees-api/collaboration", action ? {
+  var collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
     method: "POST",
     body: JSON.stringify({ action, ...values })
   } : void 0);
@@ -436,14 +435,14 @@
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
     }, [run?.id]);
     useEffect(() => {
       let active = true;
-      request2("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
+      request("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
       return () => {
         active = false;
       };
@@ -471,7 +470,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
       if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
     };
     const addSubitem = async () => {
-      const title = await ask("Sub-item title", "");
+      const title = await ask("Delegated work title", "");
       if (!title) return;
       const description = await ask("What does success look like?", "") ?? "";
       const agentName = await ask(`Worker override (optional; blank uses stage routing):
@@ -579,7 +578,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
                 ))
               )
             ) : null,
-            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"))
+            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "Delegate work"))
           ) : activeTab === "runs" ? h(
             React2.Fragment,
             null,
@@ -623,53 +622,8 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       )
     );
   }
-  function descendantSessions(sessionIds, sessions) {
-    const summaries = new Map(Object.values(sessions.byId).map((summary) => [summary.id, summary]));
-    for (const [parentId, catalog] of Object.entries(sessions.subagentsByParent ?? {})) {
-      for (const entry of catalog.entries) if (entry.kind === "child") {
-        const summary = summaries.get(entry.id);
-        summaries.set(entry.id, {
-          ...summary,
-          id: entry.id,
-          displayTitle: entry.label ?? summary?.displayTitle ?? entry.id,
-          running: entry.activity === "running",
-          blank: summary?.blank ?? false,
-          updatedAt: summary?.updatedAt ?? 0,
-          parentId,
-          origin: "subagent"
-        });
-      }
-    }
-    const descendants = [];
-    const byParent = /* @__PURE__ */ new Map();
-    for (const summary of summaries.values()) if (summary.origin === "subagent" && summary.parentId) {
-      const children = byParent.get(summary.parentId) ?? [];
-      children.push(summary);
-      byParent.set(summary.parentId, children);
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const visit = (parentId, depth) => {
-      for (const summary of byParent.get(parentId) ?? []) {
-        if (seen.has(summary.id)) continue;
-        seen.add(summary.id);
-        descendants.push({ summary, depth });
-        visit(summary.id, depth + 1);
-      }
-    };
-    for (const sessionId of sessionIds) visit(sessionId, 0);
-    return descendants;
-  }
-  function runsForAttempt(item, data) {
-    const runs = data.runs.filter(({ workItemId }) => workItemId === item.id);
-    const attempt = Number(item.runtimeAttempt);
-    if (!attempt) return runs;
-    const suffix = new RegExp(`-(?:work-${attempt}|review-${attempt}-\\d+)$`);
-    const current = runs.filter(({ id }) => suffix.test(id));
-    return current.length ? current : runs;
-  }
   function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
     const root = data.items.find(({ id }) => id === rootId);
-    const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {}, subagentsByParent: {} });
     const [selectedId, setSelectedId] = useState(rootId);
     useEffect(() => setSelectedId(rootId), [rootId]);
     const visibleIds = /* @__PURE__ */ new Set([rootId]);
@@ -681,33 +635,12 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
     }
     const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-    const hierarchyRuns = items.flatMap((item) => runsForAttempt(item, data));
-    const runSessionIds = [...new Set(hierarchyRuns.flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-    const catalogParents = [.../* @__PURE__ */ new Set([
-      ...runSessionIds,
-      ...descendantSessions(runSessionIds, sessions).map(({ summary }) => summary.id)
-    ])];
-    const catalogKey = catalogParents.join("|");
-    useEffect(() => {
-      for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, true);
-      return () => {
-        for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, false);
-      };
-    }, [ctx, catalogKey]);
     if (!root) return h(Empty, null, "Work item not found");
     const process = data.processes.find(({ id }) => id === root.processId);
     const stages = data.stages.filter(({ processId }) => processId === root.processId);
     const selected = items.find(({ id }) => id === selectedId) ?? root;
     const latest = /* @__PURE__ */ new Map();
     for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
-    const subagents = items.flatMap((item) => {
-      const sessionIds = [...new Set(runsForAttempt(item, data).flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-      return descendantSessions(sessionIds, sessions).map(({ summary, depth }) => ({ summary, depth, item }));
-    });
-    const terminalStage = stages.find(({ isTerminal }) => isTerminal) ?? stages.at(-1);
-    const workStage = stages.find(({ name, isTerminal }) => !isTerminal && /^work$/i.test(name));
-    const waitingStage = stages.find(({ name }) => /^(waiting|blocked)$/i.test(name));
-    const subagentStageId = ({ summary, item }) => !summary.running ? terminalStage?.id : summary.pendingInteraction ? waitingStage?.id ?? item.stageId : workStage?.id ?? item.stageId;
     const lineage = (item) => {
       const names = [];
       let current = item;
@@ -717,8 +650,8 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
       return names.join(" → ");
     };
-    const completed = items.filter(({ completed: completed2 }) => completed2).length + subagents.filter(({ summary }) => !summary.running).length;
-    const total = items.length + subagents.length;
+    const completed = items.filter(({ completed: completed2 }) => completed2).length;
+    const total = items.length;
     return h(
       "div",
       null,
@@ -730,12 +663,11 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       ),
       h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
         const rows = items.filter(({ stageId }) => stageId === stage.id);
-        const childRows = subagents.filter((child) => subagentStageId(child) === stage.id);
         return h(
           "section",
           { className: "bees-column", key: stage.id },
-          h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length + childRows.length)),
-          h("div", { className: "bees-cards" }, ...rows.length || childRows.length ? [...rows.map((item) => {
+          h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
+          h("div", { className: "bees-cards" }, ...rows.length ? rows.map((item) => {
             const run = latest.get(item.id);
             const parentPath = lineage(item);
             const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
@@ -743,20 +675,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               "button",
               { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
               h("h3", null, item.title),
-              h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Sub-item"),
+              h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
               h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · "))
             );
-          }), ...childRows.map(({ summary, depth, item }) => {
-            const label = summary.projectionValues?.subagent?.label ?? summary.displayTitle;
-            const status = summary.pendingInteraction ? "waiting" : summary.running ? "running" : "done";
-            return h(
-              "article",
-              { className: "bees-hierarchy-card bees-subagent-card", key: summary.id },
-              h("h3", null, label),
-              h("div", { className: "bees-lineage bees-muted" }, `${item.title} → ${depth ? "Nested subagent" : "Subagent"}`),
-              h("div", { className: "bees-muted" }, status)
-            );
-          })] : [h(Empty, { key: "empty" }, "No work in this stage")])
+          }) : [h(Empty, { key: "empty" }, "No work in this stage")])
         );
       })),
       h(WorkItemDetails, { ctx, data, item: selected, teamId, act, onArchived: onBack })
@@ -871,7 +793,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setFile(null);
       setError("");
       const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
-      request2(`/bees-api/run-file?${query}`).then((value) => {
+      request(`/bees-api/run-file?${query}`).then((value) => {
         if (current) setFile(value);
       }).catch((reason) => {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -2001,7 +1923,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [selected, setSelected] = useState("");
     const [history, setHistory] = useState(null);
     useEffect(() => {
-      if (route === "audit") void request2("/bees-api/audit").then((value) => setEvents(value.events));
+      if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events));
     }, [route]);
     useEffect(() => {
       let active = true;
@@ -2011,7 +1933,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
@@ -2085,7 +2007,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         "form",
         { className: "bees-search", onSubmit: async (event) => {
           event.preventDefault();
-          setResults((await request2(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
+          setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
         } },
         h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }),
         h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")
@@ -2524,7 +2446,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [workProcessId, setWorkProcessId] = useState("");
     const load = async () => {
       try {
-        const value = await request2("/bees-api/snapshot");
+        const value = await request("/bees-api/snapshot");
         setData(value);
         setError("");
         return value;
@@ -2557,7 +2479,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const workspaceIds = data ? parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id) : [];
     const act = async (command) => {
       try {
-        const result = await request2("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
+        const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
         await load();
         return result;
       } catch (reason) {

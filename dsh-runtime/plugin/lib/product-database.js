@@ -70,7 +70,8 @@ export function workspaceContext(database, workspaceId, roles = ["admin", "membe
 export function itemContext(database, itemId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
-           w.kind, w.agent_assignment_id AS agentAssignmentId, p.workspace_id AS workspaceId
+           w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
+           p.workspace_id AS workspaceId
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -222,7 +223,7 @@ export function insertWorkspaceDefaults(database, workspaceId) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     {
       name: "Work", driver: "agent",
-      instructions: "Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review."
+      instructions: "Own the outcome, plan the work, use todos, and delegate self-contained work to peer agents one at a time when sequencing or approval matters. Continue until the deliverable is genuinely ready for review."
     },
     {
       name: "Review", driver: "review",
@@ -460,6 +461,10 @@ export function initializeProductDatabase(database) {
     END;
     PRAGMA user_version = 7;
   `);
+  database.prepare(`UPDATE stages SET completion_rules = ? WHERE completion_rules = ?`).run(
+    "Own the outcome, plan the work, use todos, and delegate self-contained work to peer agents one at a time when sequencing or approval matters. Continue until the deliverable is genuinely ready for review.",
+    "Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review."
+  );
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -499,5 +504,3 @@ export function initializeProductDatabase(database) {
     insertWorkspaceDefaults(database, workspaceId);
   });
 }
-
-

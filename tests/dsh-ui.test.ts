@@ -61,17 +61,11 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
   });
 
-  it("keeps live subagent catalogs open and projects their children immediately", () => {
-    expect(client).toContain("sessions.subagentsByParent");
-    expect(client).toContain("ctx.sessions.setSubagentCatalogOpen(sessionId, true)");
-    expect(client).toContain("Object.values(sessions.byId).map((summary) => [summary.id, summary])");
-    expect(client).toContain('entry.activity === "running"');
-  });
-
-  it("shows subagents from the current workflow attempt instead of merging retries", () => {
-    expect(client).toContain("function runsForAttempt(item, data)");
-    expect(client).toContain("item.runtimeAttempt");
-    expect(client).toContain("items.flatMap((item) => runsForAttempt(item, data))");
+  it("shows delegated peers only through their ordinary work-item lifecycle", () => {
+    expect(client).not.toContain("sessions.subagentsByParent");
+    expect(client).not.toContain("setSubagentCatalogOpen");
+    expect(client).toContain('parentPath || "Delegated work"');
+    expect(client).toContain("item.runtimePhase");
   });
 
   it("selects automatic or pinned agent models with a separate reasoning effort", () => {
@@ -96,6 +90,7 @@ describe("Bees work cockpit UI", () => {
 
   it("shows and saves a required, visually separate system default", () => {
     expect(client).toContain("function SystemDefaultSettings");
+    expect(client).toContain('import { ask, Button, Empty, request } from "./shared.js";');
     expect(client).toContain('className: "bees-box bees-system-default"');
     expect(client).toContain('allowSystemDefault: false');
     expect(client).toContain('required: !allowSystemDefault');

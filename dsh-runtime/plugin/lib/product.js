@@ -56,7 +56,13 @@ export class BeesProduct {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
       throw error;
     }
-    const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+    const parentRun = item.parentId ? this.database.prepare(`
+      SELECT run_directory AS runDirectory FROM execution_links
+      WHERE work_item_id = ?
+        AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval', 'interrupted')
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(item.parentId) : null;
+    const runDirectory = parentRun?.runDirectory ?? resolve(this.defaultWorkspace, "runs", executionId);
     const locations = stageInputs(this.database, item.id, runDirectory);
     const reviewer = stage.purpose === "reviewer";
     let candidateSummary = "";
@@ -73,7 +79,9 @@ export class BeesProduct {
         ? resolve(runDirectory, "inputs", "candidate")
         : resolve(runDirectory, "outputs");
       mkdirSync(destination, { recursive: true });
-      stageLocation({ name: "candidate", kind: "folder", localPath: resolve(candidate.runDirectory, "outputs") }, destination);
+      const source = resolve(candidate.runDirectory, "outputs");
+      if (source !== destination)
+        stageLocation({ name: "candidate", kind: "folder", localPath: source }, destination);
       if (reviewer) {
         const evidence = await this.agents.reviewEvidence(stage.candidateExecutionId);
         writeFileSync(resolve(runDirectory, "inputs", "execution-evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
@@ -84,8 +92,8 @@ export class BeesProduct {
       ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from DSH sessions and Bees audit records; use it to verify procedural requirements such as subagent ordering and human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Plan with DSH goals/todos and delegate independent subtasks to subagents when useful. Put every deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
+      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do small, tightly coupled work yourself. Use bees_delegate_work for self-contained work that an independent peer can own. Treat legacy "subagent" wording as peer delegation: never role-play it in this run. Delegate exactly one peer at a time. The caller waits while that peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -373,16 +381,26 @@ export class BeesProduct {
 
   async createSubitems({ parentId, items }) {
     const parent = itemContext(this.database, parentId, ["admin", "member"]);
-    if (!Array.isArray(items) || !items.length || items.length > 25)
-      throw new Error("A run can create between 1 and 25 sub-items at once");
+    if (!Array.isArray(items) || items.length !== 1)
+      throw new Error("A run can delegate exactly one work item at a time");
     const created = [];
-    for (const item of items) created.push(await this.command({ action: "create_item",
-      processId: parent.processId,
-      parentId: parent.id,
-      title: required(item?.title, "Sub-item title"),
-      description: String(item?.description ?? ""),
-      agentAssignmentId: parent.agentAssignmentId
-    }));
+    for (const item of items) {
+      const title = required(item?.title, "Delegated work title");
+      const description = String(item?.description ?? "");
+      const existing = this.database.prepare(`
+        SELECT id FROM work_items WHERE parent_id = ? AND title = ?
+          AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
+      `).get(parent.id, title);
+      const child = existing ?? await this.command({ action: "create_item",
+        processId: parent.processId, parentId: parent.id, title, description,
+        agentAssignmentId: parent.agentAssignmentId
+      });
+      this.database.prepare(`
+        INSERT OR IGNORE INTO work_item_locations
+        SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
+      `).run(child.id, parent.id);
+      created.push(child);
+    }
     return created;
   }
 

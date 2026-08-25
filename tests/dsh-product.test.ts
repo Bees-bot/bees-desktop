@@ -35,9 +35,12 @@ describe("Bees DSH product plugin", () => {
     expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 7 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
+    database.exec("UPDATE stages SET completion_rules = 'Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review.' WHERE name = 'Work'");
     initializeProductDatabase(database);
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
+    expect(database.prepare("SELECT completion_rules AS instructions FROM stages WHERE name = 'Work'").get())
+      .toEqual({ instructions: expect.stringContaining("peer agents one at a time") });
   });
 
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
@@ -302,11 +305,31 @@ describe("Bees DSH product plugin", () => {
     await product.command({ action: "archive_process", processId: oldProcess.id });
     expect((await product.snapshot()).processes).not.toContainEqual(expect.objectContaining({ id: oldProcess.id }));
 
+    await product.command({
+      action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"
+    });
     const [child] = await product.createSubitems({ parentId: automaticItem.id, items: [{ title: "Check links" }] });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
       id: child.id, parentId: automaticItem.id, agentAssignmentId: null,
       runtimePhase: "running"
     }));
+    expect((await product.snapshot()).attachments).toContainEqual(expect.objectContaining({
+      workItemId: child.id, locationId: location.id, relativePath: "brief.md"
+    }));
+    const [sameChild] = await product.createSubitems({
+      parentId: automaticItem.id, items: [{ title: "Check links", description: "Recovery retry" }]
+    });
+    expect(sameChild.id).toBe(child.id);
+    await expect(product.createSubitems({
+      parentId: automaticItem.id, items: [{ title: "One" }, { title: "Two" }]
+    })).rejects.toThrow("exactly one");
+    database.connection.prepare("UPDATE execution_links SET status = 'running' WHERE execution_id = ?")
+      .run(executionId);
+    await product.runProcessStage({
+      workItemId: child.id, stageId: draft.id, executionId: "child-shared",
+      purpose: "worker", instructions: "Use the shared workspace"
+    });
+    expect(stageRuns.at(-1)[1].workspace).toBe(join(runRoot, "runs", executionId));
 
     const proposal = product.storeProposal({
       workspaceId: workspace.id, sessionId: "planning-session", title: "Launch plan", summary: "Visible work",

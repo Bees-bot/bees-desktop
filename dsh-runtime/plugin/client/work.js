@@ -64,7 +64,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
     if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
   };
   const addSubitem = async () => {
-    const title = await ask("Sub-item title", ""); if (!title) return;
+    const title = await ask("Delegated work title", ""); if (!title) return;
     const description = await ask("What does success look like?", "") ?? "";
     const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
     if (agentName === null) return;
@@ -129,7 +129,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
                 h("option", { value: "" }, `Use stage route (${routeLabel})`),
                 ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled },
                   `${agent.name}${agent.enabled ? "" : " (unavailable)"}`)))) : null,
-            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item")))
+            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "Delegate work")))
             : activeTab === "runs" ? h(React.Fragment, null,
               h("div", { className: "bees-detail-actions" },
                 ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
@@ -153,47 +153,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived }) {
   );
 }
 
-function descendantSessions(sessionIds, sessions) {
-  const summaries = new Map(Object.values(sessions.byId).map((summary) => [summary.id, summary]));
-  for (const [parentId, catalog] of Object.entries(sessions.subagentsByParent ?? {})) {
-    for (const entry of catalog.entries) if (entry.kind === "child") {
-      const summary = summaries.get(entry.id);
-      summaries.set(entry.id, {
-        ...summary, id: entry.id, displayTitle: entry.label ?? summary?.displayTitle ?? entry.id,
-        running: entry.activity === "running", blank: summary?.blank ?? false,
-        updatedAt: summary?.updatedAt ?? 0, parentId, origin: "subagent"
-      });
-    }
-  }
-  const descendants = [];
-  const byParent = new Map();
-  for (const summary of summaries.values()) if (summary.origin === "subagent" && summary.parentId) {
-    const children = byParent.get(summary.parentId) ?? [];
-    children.push(summary); byParent.set(summary.parentId, children);
-  }
-  const seen = new Set();
-  const visit = (parentId, depth) => {
-    for (const summary of byParent.get(parentId) ?? []) {
-      if (seen.has(summary.id)) continue;
-      seen.add(summary.id); descendants.push({ summary, depth }); visit(summary.id, depth + 1);
-    }
-  };
-  for (const sessionId of sessionIds) visit(sessionId, 0);
-  return descendants;
-}
-
-function runsForAttempt(item, data) {
-  const runs = data.runs.filter(({ workItemId }) => workItemId === item.id);
-  const attempt = Number(item.runtimeAttempt);
-  if (!attempt) return runs;
-  const suffix = new RegExp(`-(?:work-${attempt}|review-${attempt}-\\d+)$`);
-  const current = runs.filter(({ id }) => suffix.test(id));
-  return current.length ? current : runs;
-}
-
 function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
   const root = data.items.find(({ id }) => id === rootId);
-  const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {}, subagentsByParent: {} });
   const [selectedId, setSelectedId] = useState(rootId);
   useEffect(() => setSelectedId(rootId), [rootId]);
   const visibleIds = new Set([rootId]);
@@ -204,33 +165,12 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
     }
   }
   const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-  const hierarchyRuns = items.flatMap((item) => runsForAttempt(item, data));
-  const runSessionIds = [...new Set(hierarchyRuns
-    .flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-  const catalogParents = [...new Set([...runSessionIds,
-    ...descendantSessions(runSessionIds, sessions).map(({ summary }) => summary.id)])];
-  const catalogKey = catalogParents.join("|");
-  useEffect(() => {
-    for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, true);
-    return () => { for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, false); };
-  }, [ctx, catalogKey]);
   if (!root) return h(Empty, null, "Work item not found");
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
   const selected = items.find(({ id }) => id === selectedId) ?? root;
   const latest = new Map();
   for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
-  const subagents = items.flatMap((item) => {
-    const sessionIds = [...new Set(runsForAttempt(item, data)
-      .flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-    return descendantSessions(sessionIds, sessions).map(({ summary, depth }) => ({ summary, depth, item }));
-  });
-  const terminalStage = stages.find(({ isTerminal }) => isTerminal) ?? stages.at(-1);
-  const workStage = stages.find(({ name, isTerminal }) => !isTerminal && /^work$/i.test(name));
-  const waitingStage = stages.find(({ name }) => /^(waiting|blocked)$/i.test(name));
-  const subagentStageId = ({ summary, item }) => !summary.running
-    ? terminalStage?.id
-    : summary.pendingInteraction ? waitingStage?.id ?? item.stageId : workStage?.id ?? item.stageId;
   const lineage = (item) => {
     const names = []; let current = item;
     while (current?.parentId && visibleIds.has(current.parentId)) {
@@ -239,30 +179,22 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
     }
     return names.join(" → ");
   };
-  const completed = items.filter(({ completed }) => completed).length + subagents.filter(({ summary }) => !summary.running).length;
-  const total = items.length + subagents.length;
+  const completed = items.filter(({ completed }) => completed).length;
+  const total = items.length;
   return h("div", null,
     h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
       h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`))),
     h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
       const rows = items.filter(({ stageId }) => stageId === stage.id);
-      const childRows = subagents.filter((child) => subagentStageId(child) === stage.id);
       return h("section", { className: "bees-column", key: stage.id },
-        h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length + childRows.length)),
-        h("div", { className: "bees-cards" }, ...(rows.length || childRows.length ? [...rows.map((item) => {
+        h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
+        h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
           const run = latest.get(item.id); const parentPath = lineage(item);
           const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
           return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
-            h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Sub-item"),
+            h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
             h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
-        }), ...childRows.map(({ summary, depth, item }) => {
-          const label = summary.projectionValues?.subagent?.label ?? summary.displayTitle;
-          const status = summary.pendingInteraction ? "waiting" : summary.running ? "running" : "done";
-          return h("article", { className: "bees-hierarchy-card bees-subagent-card", key: summary.id },
-            h("h3", null, label),
-            h("div", { className: "bees-lineage bees-muted" }, `${item.title} → ${depth ? "Nested subagent" : "Subagent"}`),
-            h("div", { className: "bees-muted" }, status));
-        })] : [h(Empty, { key: "empty" }, "No work in this stage")])));
+        }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
     })),
     h(WorkItemDetails, { ctx, data, item: selected, teamId, act, onArchived: onBack })
   );
@@ -560,5 +492,4 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : route === "waiting" ? "Nothing needs you right now" : "No work in this view")])
   );
 }
-
 

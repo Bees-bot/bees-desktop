@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, Empty } from "./shared.js";
+import { ask, Button, Empty, request } from "./shared.js";
 
 const CODEX_CHANNELS = [
   ["__bees_latest_sol__", "sol", "Sol"],
@@ -267,5 +267,3 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
     ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])
   );
 }
-
-
