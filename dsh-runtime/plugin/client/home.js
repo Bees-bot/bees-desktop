@@ -20,47 +20,84 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
       setBusy(false);
     }
   };
+
   const processes = data.processes.filter((row) => row.workspaceId === workspaceId && row.kind === "standard");
   const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
   const cards = [...templates.map(t => ({...t, isTemplate: true})), ...processes.map(p => ({...p, isTemplate: false}))];
-  return h("div", { className: "bees-panel" },
-    h("section", { className: "bees-hero bees-home-hero" }, 
-      h("div", { className: "bees-status" }, "START WITH THE OUTCOME"),
-      h("h1", null, "What do you want to accomplish?"),
-      h("p", { className: "bees-muted" }, "Describe your goal. Bees will plan the steps and perform the work."),
-      h("form", { onSubmit: (event) => { event.preventDefault(); void submit(); } },
-        h("textarea", { 
-          className: "bees-textarea bees-home-textarea", 
-          value: outcome, 
-          disabled: !workspaceId || busy, 
-          onChange: (event) => setOutcome(event.target.value), 
-          placeholder: workspaceId ? "Before every sales meeting, research the company, attendees, and competitors, then rank the best reasons they should adopt Bees." : "Choose a workspace first", 
-          "aria-label": "Goal outcome" 
-        }),
-        error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-        h("div", { className: "bees-prompt-actions" },
-          h("button", { type: "submit", className: "bees-btn primary bees-home-submit", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Ask Bees")
+  
+  // Calculate Needs Attention vs Recent Active
+  const activeWork = data.workItems ? data.workItems.filter(w => !["completed", "cancelled", "archived"].includes(w.runtimePhase)) : [];
+  const needsAttention = activeWork.filter(w => ["waiting", "failed"].includes(w.runtimePhase)).slice(0, 5);
+  const recentWork = activeWork.filter(w => !needsAttention.includes(w)).slice(0, 5);
+
+  return h("div", { className: "bees-panel bees-panel-wide bees-home-layout" },
+    h("div", { className: "bees-home-main" },
+      h("div", { className: "bees-hero" },
+        h("h1", null, "What would you like to achieve?"),
+        h("form", {
+          className: "bees-composer",
+          onSubmit: (event) => { event.preventDefault(); void submit(); }
+        },
+          h("textarea", {
+            className: "bees-composer-input",
+            placeholder: workspaceId ? "e.g., Audit our codebase for accessibility issues" : "Choose a workspace first",
+            disabled: !workspaceId || busy,
+            value: outcome,
+            onInput: (e) => setOutcome(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submit();
+              }
+            }
+          }),
+          error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+          h("div", { className: "bees-composer-foot" },
+            h("span", { className: "bees-composer-hint" }, "Press ⌘ + Enter to start"),
+            h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Bees, assemble")
+          )
+        )
+      ),
+      needsAttention.length > 0 && h("div", { className: "bees-home-section" },
+        h("h3", null, "Needs your attention"),
+        h("div", { className: "bees-work-list" },
+          needsAttention.map(w =>
+            h("button", { className: "bees-work-card", onClick: () => openWorkItem(w.id), key: w.id },
+              h("div", { className: "bees-work-card-title" }, w.title || w.id),
+              h("div", { className: "bees-work-card-meta" }, `Phase: ${w.runtimePhase || "unknown"}`)
+            )
+          )
+        )
+      ),
+      recentWork.length > 0 && h("div", { className: "bees-home-section" },
+        h("h3", null, "Recent work"),
+        h("div", { className: "bees-work-list" },
+          recentWork.map(w =>
+            h("button", { className: "bees-work-card", onClick: () => openWorkItem(w.id), key: w.id },
+              h("div", { className: "bees-work-card-title" }, w.title || w.id),
+              h("div", { className: "bees-work-card-meta" }, w.runtimePhase || "in progress")
+            )
+          )
         )
       )
     ),
-    h("div", { className: "bees-home-templates" }, 
-      h("h3", { className: "bees-section-title" }, "Or start from a Template"),
-      cards.length ? h("div", { className: "bees-grid" }, 
-        ...cards.map((card) => h("button", { 
-          className: "bees-hierarchy-card", key: card.id, 
-          onClick: async () => {
+    h("div", { className: "bees-home-side" },
+      h("h3", null, "Templates"),
+      h("div", { className: "bees-home-templates" },
+        cards.length > 0 ? cards.map(card =>
+          h("button", { className: "bees-template-card", onClick: async () => {
             if (card.isTemplate) {
               const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
               if (p?.id) openWorkItem(null, p.id);
             } else {
               openWorkItem(null, card.id);
             }
-          }
-        },
-          h("h3", null, card.name),
-          h("div", { className: "bees-muted" }, card.description || (card.isTemplate ? "Template" : "Process"))
-        ))
-      ) : h("p", { className: "bees-muted" }, "No templates or processes available.")
+          }, key: card.id },
+            h("div", { className: "bees-template-card-title" }, card.name),
+            h("div", { className: "bees-template-card-meta" }, card.description || (card.isTemplate ? "Template" : "Process"))
+          )
+        ) : h("p", { className: "bees-muted" }, "No templates available.")
+      )
     )
   );
 }
@@ -91,4 +128,3 @@ export function GuidePage() {
     )
   );
 }
-
