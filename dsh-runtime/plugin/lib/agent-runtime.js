@@ -566,23 +566,25 @@ export class AgentRuntime {
   /**
    * Hold this agent to the MCP servers it was granted.
    *
-   * The mask covers everything the agent inherits, preset tools included, so the allow list is
-   * "what it can see right now, minus the MCP tools it may not use". Called before any bees_* tool
-   * is registered: those land in the agent's own layer, which a mask may not name.
+   * Named as a deny list built from the global layer, which is the only place Bees mounts MCP
+   * servers. An allow list would have to enumerate what the agent may keep, and the preset's own
+   * tools are not all registered yet at setup time — the mask would freeze the agent to whatever
+   * existed at that instant and silently strip the rest.
+   *
+   * ponytail: a server connected mid-run is not in this list and stays visible to an agent already
+   * running. Re-resolve on connect if that ever matters; runs are short and the policy is read at
+   * dispatch.
    */
   restrictMcp(agentCtx, data) {
     const access = data.mcpAccess ?? "all";
     if (access === "all") return;
     const allowed = new Set(access === "listed" ? data.mcpServers ?? [] : []);
-    const visible = agentCtx.tools.schemas().map(({ name }) => name)
-      // The Code Mode transport is reserved and cannot be named in a mask.
-      .filter((name) => name !== "run_code");
-    const keep = visible.filter((name) => {
+    const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
       const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
-      return !match || allowed.has(match[1]);
+      return match && !allowed.has(match[1]);
     });
-    if (keep.length === visible.length) return;
-    agentCtx.tools.restrict({ allow: keep });
+    if (!deny.length) return;
+    agentCtx.tools.restrict({ deny });
   }
 
   async setup(agentCtx, data, executionId, workspace) {
