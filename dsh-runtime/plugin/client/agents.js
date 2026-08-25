@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, Empty } from "./shared.js";
+import { ask, Button, confirmAction, Empty, request } from "./shared.js";
 
 const CODEX_CHANNELS = [
   ["__bees_latest_sol__", "sol", "Sol"],
@@ -176,18 +176,17 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
   if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); } });
-  if (route === "skills") return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-callout" }, h("h3", null, "Skills are reusable instructions and tools"),
-      h("div", null, "An agent preset is its toolbox: prompt, skills, tools, and permissions. Choose a preset when you create or configure an agent; manage the preset's skill library in DSH settings.")),
+  if (route === "presets") return h("div", { className: "bees-stack" },
+    h("div", { className: "bees-callout" }, h("h3", null, "A preset is an agent's toolbox"),
+      h("div", null, "It bundles the prompt, the skills, the tools and the permissions an agent gets. "
+        + "Every agent picks one. What the presets themselves contain is edited in DSH settings.")),
     h("section", { className: "bees-box" }, h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
       h("h3", null, "Available agent presets"), h("div", { className: "bees-muted" }, "Agents select one of these libraries.")),
       h(Button, { className: "primary", onClick: openDshSettings }, "Manage presets & skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
-        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")])) ,
-    h("section", { className: "bees-box" }, h("h3", null, "Importing public libraries"),
-      h("p", { className: "bees-muted" }, "Public skill, tool, agent, and MCP repositories need a reviewed import flow because they can add instructions, code, network access, and permissions. Bees should show provenance and requested permissions before installation—not bulk-enable unknown repositories."))
+        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]))
   );
   if (route === "pools") {
     if (selectedPool) {

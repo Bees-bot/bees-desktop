@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   // dsh-runtime/plugin/client/runtime.js
-  var React2;
+  var React;
   var h;
   var useEffect;
   var useMemo;
@@ -17,9 +17,9 @@
   var CustomAiSettings;
   var SubscriptionSettings;
   function configureRuntime(require2) {
-    React2 = require2("react");
-    h = React2.createElement;
-    ({ useEffect, useMemo, useRef, useState } = React2);
+    React = require2("react");
+    h = React.createElement;
+    ({ useEffect, useMemo, useRef, useState } = React);
     ({ MarkdownText } = require2("@deepseek-ai/dsh-client-ui-primitives"));
     ({ PendingQuestion } = require2("@deepseek-ai/dsh-client-ui-user-questions"));
     ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require2("@bees/dsh-local-ai"));
@@ -46,7 +46,9 @@
     { id: "agents", label: "Agents", icon: "◎", defaultChild: "all-agents", children: [
       ["all-agents", "All agents"],
       ["pools", "Pools"],
-      ["skills", "Skills & tools"]
+      ["presets", "Agent presets"],
+      ["skills", "Skills & tools"],
+      ["mcp", "MCP servers"]
     ] },
     { id: "files", label: "Files & Folders", icon: "$", defaultChild: "locations", children: [
       ["locations", "Locations"],
@@ -98,7 +100,7 @@
   .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
   @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox{grid-template-columns:1fr}}
 `;
-  async function request2(path, options) {
+  async function request(path, options) {
     const response = await fetch(path, {
       ...options,
       headers: { "content-type": "application/json", ...options?.headers ?? {} }
@@ -112,7 +114,7 @@
     if (invoke) return invoke("open_external_url", { url });
     if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
   }
-  var collaboration = (action, values = {}) => request2("/bees-api/collaboration", action ? {
+  var collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
     method: "POST",
     body: JSON.stringify({ action, ...values })
   } : void 0);
@@ -160,7 +162,7 @@
     });
   }
   var ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
-  var confirmAction2 = (label) => dialogValue(label, "", true);
+  var confirmAction = (label) => dialogValue(label, "", true);
   var Button = ({ children, className = "", ...props }) => h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);
   function AuditEvent({ event, detail, onOpen, openLabel = "Open related item" }) {
     const title = String(event.type ?? "Audit event").replace(/^domain-/, "").replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase());
@@ -436,14 +438,14 @@
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
     }, [run?.id]);
     useEffect(() => {
       let active = true;
-      request2("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
+      request("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
       return () => {
         active = false;
       };
@@ -502,7 +504,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       agentAssignmentId: agentAssignmentId || null
     });
     const archive = async () => {
-      if (!await confirmAction2(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
+      if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
       if (await act({ action: "archive_item", itemId: item.id })) onArchived?.();
     };
     const answered = (key) => setHandled((current) => new Set(current).add(key));
@@ -532,7 +534,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           "div",
           { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
           activeTab === "needs" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             item.runtimeError ? h(
               "div",
@@ -550,7 +552,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               onAnswered: answered
             }) : item.runtimeError ? null : h(Empty, null, "No questions or approvals for this work item")
           ) : activeTab === "description" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
             h("h2", null, item.title),
@@ -581,7 +583,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             ) : null,
             h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addFile }, "Add inputs"), h(Button, { onClick: addSubitem }, "New sub-item"))
           ) : activeTab === "runs" ? h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h(
               "div",
@@ -605,7 +607,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             run?.outputs.length ? h("p", null, h("strong", null, "Outputs: "), run.outputs.join(", ")) : null,
             history?.error ? h("p", { className: "bees-error" }, history.error) : history?.messages?.length ? h("div", { className: "bees-transcript" }, ...history.messages.map((message) => h("div", { className: "bees-message", key: message.id }, h("strong", null, message.role), ...message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))))) : null
           ) : h(
-            React2.Fragment,
+            React.Fragment,
             null,
             h("h3", null, "Audit"),
             ...events.length ? events.map((event) => h(AuditEvent, {
@@ -871,7 +873,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setFile(null);
       setError("");
       const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
-      request2(`/bees-api/run-file?${query}`).then((value) => {
+      request(`/bees-api/run-file?${query}`).then((value) => {
         if (current) setFile(value);
       }).catch((reason) => {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -938,7 +940,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setDraft((current) => ({ ...current, custom: value, selected: question.multiSelect === true ? current.selected : [], skipped: false }));
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1035,7 +1037,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1120,7 +1122,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       if (next) setSelectedId(next.run.id);
     };
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "div",
@@ -1363,7 +1365,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
           await act({ action: "save_process_template", processId: process.id, name });
         };
         const archiveProcess = async () => {
-          if (!await confirmAction2(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
+          if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
           if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
         };
         return h(
@@ -1472,7 +1474,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
               setCreating("process");
             }
           }, "Use template"),
-          h(Button, { className: "danger", onClick: async () => await confirmAction2(`Archive template “${template.name}”?`) && act({ action: "archive_process_template", templateId: template.id }) }, "Archive")
+          h(Button, { className: "danger", onClick: async () => await confirmAction(`Archive template “${template.name}”?`) && act({ action: "archive_process_template", templateId: template.id }) }, "Archive")
         )) : [h(Empty, { key: "empty" }, "No templates yet. Create one here or save an existing process as a template.")]
       );
     }
@@ -1556,7 +1558,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
     const defaultEffortName = efforts.find(({ id }) => id === defaultEffort)?.name ?? defaultEffort;
     const systemDefaultLabel = systemDefault?.provider && systemDefault?.model ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}` : "System default (auto-updates)";
     return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       h(
         "label",
@@ -1757,14 +1759,14 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
         setSelectedPoolId(id);
       }
     });
-    if (route === "skills") return h(
+    if (route === "presets") return h(
       "div",
       { className: "bees-stack" },
       h(
         "div",
         { className: "bees-callout" },
-        h("h3", null, "Skills are reusable instructions and tools"),
-        h("div", null, "An agent preset is its toolbox: prompt, skills, tools, and permissions. Choose a preset when you create or configure an agent; manage the preset's skill library in DSH settings.")
+        h("h3", null, "A preset is an agent's toolbox"),
+        h("div", null, "It bundles the prompt, the skills, the tools and the permissions an agent gets. Every agent picks one. What the presets themselves contain is edited in DSH settings.")
       ),
       h(
         "section",
@@ -1791,12 +1793,6 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
           ),
           h("span", { className: "bees-badge" }, preset.trust ?? "preset")
         )) : [h(Empty, { key: "empty" }, "No agent presets are available")]
-      ),
-      h(
-        "section",
-        { className: "bees-box" },
-        h("h3", null, "Importing public libraries"),
-        h("p", { className: "bees-muted" }, "Public skill, tool, agent, and MCP repositories need a reviewed import flow because they can add instructions, code, network access, and permissions. Bees should show provenance and requested permissions before installation—not bulk-enable unknown repositories.")
       )
     );
     if (route === "pools") {
@@ -1943,6 +1939,420 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     );
   }
 
+  // dsh-runtime/plugin/client/skills.js
+  var STATUS_CLASS = { connected: "bees-running", failed: "bees-failed", starting: "", off: "" };
+  var STATUS_LABEL = {
+    connected: "Connected",
+    failed: "Not running",
+    starting: "Starting…",
+    off: "Turned off"
+  };
+  function useCapabilities() {
+    const [value, setValue] = useState(null);
+    const [error, setError] = useState("");
+    const load = async () => {
+      try {
+        setValue(await request("/bees-api/capabilities"));
+        setError("");
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    };
+    useEffect(() => {
+      void load();
+      const timer = setInterval(() => void load(), 4e3);
+      return () => clearInterval(timer);
+    }, []);
+    const act = async (command) => {
+      try {
+        const result = await request("/bees-api/capabilities", { method: "POST", body: JSON.stringify(command) });
+        setError("");
+        await load();
+        return result;
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        return null;
+      }
+    };
+    return { data: value, error, act, reload: load };
+  }
+  function Filter({ value, onChange, placeholder }) {
+    return h("div", { className: "bees-search" }, h("input", {
+      className: "bees-input",
+      value,
+      placeholder,
+      "aria-label": placeholder,
+      onChange: (event) => onChange(event.target.value)
+    }));
+  }
+  function matches(needle, ...fields) {
+    if (!needle) return true;
+    return fields.some((field) => String(field ?? "").toLocaleLowerCase().includes(needle));
+  }
+  function SkillsPage({ capabilities }) {
+    const { data, error } = capabilities;
+    const [query, setQuery] = useState("");
+    if (error && !data) return h(Empty, null, error);
+    if (!data) return h(Empty, null, "Reading the skill and tool catalog…");
+    const needle = query.trim().toLocaleLowerCase();
+    const skills = data.skills.filter((skill) => matches(needle, skill.name, skill.description, skill.whenToUse));
+    const tools = data.tools.filter((tool) => matches(needle, tool.name, tool.description, tool.serverLabel));
+    const builtIn = tools.filter(({ serverName }) => !serverName);
+    const fromServers = tools.filter(({ serverName }) => serverName);
+    return h(
+      "div",
+      { className: "bees-stack" },
+      h(
+        "div",
+        { className: "bees-callout" },
+        h("h3", null, "What your agents can actually do"),
+        h("div", null, "A skill is a written instruction sheet an agent can open when it needs one. A tool is something an agent can run. Both are live here: what this page lists is what a run can reach right now. Add more tools by connecting an MCP server.")
+      ),
+      h(Filter, { value: query, onChange: setQuery, placeholder: "Filter skills and tools" }),
+      h(
+        "section",
+        { className: "bees-box" },
+        h("h3", null, `Skills (${skills.length})`),
+        data.skillsComplete ? null : h(
+          "p",
+          { className: "bees-muted" },
+          "Some skill folders could not be read, so this list may be short."
+        ),
+        h("p", { className: "bees-muted" }, "Skills come from your skill folders. Drop a folder containing SKILL.md into one of them and it appears here without restarting Bees."),
+        ...skills.length ? skills.map((skill) => h(
+          "div",
+          { className: "bees-row", key: skill.name },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, skill.name),
+            h("div", { className: "bees-muted" }, skill.description || "No description"),
+            skill.whenToUse ? h("div", { className: "bees-muted" }, `When to use: ${skill.whenToUse}`) : null
+          ),
+          skill.provider ? h("span", { className: "bees-badge" }, skill.provider) : null
+        )) : [h(Empty, { key: "empty" }, needle ? "No skill matches that" : "No skills installed yet")]
+      ),
+      h(
+        "section",
+        { className: "bees-box" },
+        h("h3", null, `Tools from MCP servers (${fromServers.length})`),
+        ...fromServers.length ? fromServers.map((tool) => h(
+          "div",
+          { className: "bees-row", key: tool.name },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, tool.name),
+            h("div", { className: "bees-muted" }, tool.description || "No description")
+          ),
+          h("span", { className: "bees-badge" }, tool.serverLabel)
+        )) : [h(Empty, { key: "empty" }, "No MCP server is publishing tools yet")]
+      ),
+      h(
+        "section",
+        { className: "bees-box" },
+        h("h3", null, `Built-in tools (${builtIn.length})`),
+        h("p", { className: "bees-muted" }, "These ship with Bees. An agent preset decides which of them a given agent may use."),
+        ...builtIn.length ? builtIn.map((tool) => h(
+          "div",
+          { className: "bees-row", key: tool.name },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, tool.name),
+            h("div", { className: "bees-muted" }, tool.description || "No description")
+          )
+        )) : [h(Empty, { key: "empty" }, "No tools are registered")]
+      )
+    );
+  }
+  function CatalogReview({ ctx, entry, onCancel, onInstall }) {
+    const [directory, setDirectory] = useState("");
+    const [secrets, setSecrets] = useState({});
+    const [busy, setBusy] = useState(false);
+    const missingSecret = entry.secrets.some(({ name }) => !String(secrets[name] ?? "").trim());
+    const ready = !busy && (!entry.requiresDirectory || directory) && !missingSecret;
+    const pick = async () => {
+      const path = await ctx.workspaces.pickDirectory();
+      if (path) setDirectory(path);
+    };
+    return h(
+      "section",
+      { className: "bees-box" },
+      h(
+        "div",
+        { className: "bees-page-head" },
+        h(Button, { onClick: onCancel }, "← Catalog"),
+        h(
+          "div",
+          null,
+          h("h2", null, `Add ${entry.label}`),
+          h("div", { className: "bees-muted" }, entry.summary)
+        )
+      ),
+      h(
+        "div",
+        { className: "bees-callout" },
+        h("h3", null, "What this server can reach"),
+        h("div", null, entry.access)
+      ),
+      h(
+        "div",
+        { className: "bees-row" },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, "Published by"),
+          h("div", { className: "bees-muted" }, entry.publisher)
+        ),
+        h(Button, { onClick: () => openExternal(entry.homepage) }, "Open source page")
+      ),
+      h(
+        "div",
+        { className: "bees-row" },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, "How it runs"),
+          h("div", { className: "bees-muted" }, entry.transport === "stdio" ? `Bees starts \`${entry.command} ${(entry.args ?? []).join(" ")}\` on this machine.` : `Bees calls ${entry.url} over the internet.`),
+          entry.prerequisite ? h("div", { className: "bees-muted" }, entry.prerequisite) : null
+        )
+      ),
+      entry.requiresDirectory ? h(
+        "div",
+        { className: "bees-row" },
+        h(
+          "div",
+          { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, entry.directoryLabel ?? "Folder"),
+          h("div", { className: "bees-muted" }, directory || "No folder chosen yet")
+        ),
+        h(Button, { onClick: pick }, directory ? "Change" : "Choose folder")
+      ) : null,
+      ...entry.secrets.map((secret) => h(
+        "label",
+        { className: "bees-form", key: secret.name },
+        h("span", null, secret.label),
+        h("input", {
+          className: "bees-input",
+          type: "password",
+          autoComplete: "off",
+          value: secrets[secret.name] ?? "",
+          placeholder: secret.help ?? "",
+          onChange: (event) => setSecrets({ ...secrets, [secret.name]: event.target.value })
+        }),
+        secret.help ? h("span", { className: "bees-muted" }, secret.help) : null
+      )),
+      entry.secrets.length ? h(
+        "p",
+        { className: "bees-muted" },
+        "Secrets are kept in your DSH credential store, not in the Bees database."
+      ) : null,
+      h(
+        "div",
+        { className: "bees-detail-actions" },
+        h(Button, {
+          className: "primary",
+          disabled: !ready,
+          onClick: async () => {
+            setBusy(true);
+            try {
+              await onInstall({ directory, secrets });
+            } finally {
+              setBusy(false);
+            }
+          }
+        }, busy ? "Adding…" : "Add and turn on"),
+        h(Button, { onClick: onCancel }, "Cancel")
+      )
+    );
+  }
+  function ManualServerForm({ onCancel, act }) {
+    const [transport, setTransport] = useState("stdio");
+    return h(
+      "form",
+      {
+        className: "bees-box bees-form",
+        onSubmit: async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const secrets = {};
+          for (const line of String(form.get("secrets") ?? "").split("\n")) {
+            const at = line.indexOf("=");
+            if (at > 0) secrets[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+          }
+          const created = await act({
+            action: "add_mcp_server",
+            transport,
+            serverName: String(form.get("serverName") ?? ""),
+            label: String(form.get("label") ?? ""),
+            command: String(form.get("command") ?? ""),
+            args: String(form.get("args") ?? ""),
+            url: String(form.get("url") ?? ""),
+            secrets
+          });
+          if (created?.id) onCancel();
+        }
+      },
+      h(
+        "div",
+        { className: "bees-page-head" },
+        h(Button, { onClick: onCancel }, "← MCP servers"),
+        h(
+          "div",
+          null,
+          h("h2", null, "Add a server by hand"),
+          h("div", { className: "bees-muted" }, "Only add a server you trust. Its tools go straight to your agents.")
+        )
+      ),
+      h("label", null, "Short name", h("input", {
+        className: "bees-input",
+        name: "serverName",
+        required: true,
+        autoFocus: true,
+        placeholder: "linear",
+        pattern: "[A-Za-z0-9_-]{1,32}",
+        title: "Letters, digits, dash and underscore, up to 32 characters"
+      }), h("span", { className: "bees-muted" }, "Every tool this server publishes is prefixed with it.")),
+      h("label", null, "Display name", h("input", { className: "bees-input", name: "label", placeholder: "Linear" })),
+      h("label", null, "How it runs", h(
+        "select",
+        {
+          className: "bees-select",
+          value: transport,
+          onChange: (event) => setTransport(event.target.value)
+        },
+        h("option", { value: "stdio" }, "Run a command on this machine"),
+        h("option", { value: "streamable-http" }, "Call a URL over HTTP")
+      )),
+      transport === "stdio" ? h(
+        React.Fragment,
+        null,
+        h("label", null, "Command", h("input", { className: "bees-input", name: "command", required: true, placeholder: "npx" })),
+        h("label", null, "Arguments, one per line", h("textarea", {
+          className: "bees-textarea",
+          name: "args",
+          placeholder: "-y\n@modelcontextprotocol/server-memory"
+        })),
+        h("label", null, "Environment secrets, one NAME=value per line", h("textarea", {
+          className: "bees-textarea",
+          name: "secrets",
+          placeholder: "API_KEY=…"
+        }))
+      ) : h(
+        React.Fragment,
+        null,
+        h("label", null, "Server URL", h("input", {
+          className: "bees-input",
+          name: "url",
+          required: true,
+          type: "url",
+          placeholder: "https://example.com/mcp"
+        })),
+        h("label", null, "Headers, one Name=value per line", h("textarea", {
+          className: "bees-textarea",
+          name: "secrets",
+          placeholder: "Authorization=Bearer …"
+        }))
+      ),
+      h("p", { className: "bees-muted" }, "Values on those last lines are stored in your DSH credential store."),
+      h(
+        "div",
+        { className: "bees-detail-actions" },
+        h("button", { className: "bees-btn primary" }, "Add and turn on"),
+        h(Button, { onClick: onCancel }, "Cancel")
+      )
+    );
+  }
+  function McpPage({ ctx, capabilities }) {
+    const { data, error, act } = capabilities;
+    const [reviewing, setReviewing] = useState("");
+    const [manual, setManual] = useState(false);
+    const [query, setQuery] = useState("");
+    if (error && !data) return h(Empty, null, error);
+    if (!data) return h(Empty, null, "Reading connected servers…");
+    const entry = data.catalog.find(({ id }) => id === reviewing);
+    if (manual) return h(ManualServerForm, { onCancel: () => setManual(false), act });
+    if (entry) return h(CatalogReview, {
+      ctx,
+      entry,
+      onCancel: () => setReviewing(""),
+      onInstall: async ({ directory, secrets }) => {
+        const created = await act({ action: "install_mcp_server", catalogId: entry.id, directory, secrets });
+        if (created?.id) setReviewing("");
+      }
+    });
+    const needle = query.trim().toLocaleLowerCase();
+    const catalog = data.catalog.filter((row) => matches(needle, row.label, row.summary, row.publisher));
+    return h(
+      "div",
+      { className: "bees-stack" },
+      error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+      h(
+        "div",
+        { className: "bees-callout" },
+        h("h3", null, "MCP servers give your agents new tools"),
+        h("div", null, "An MCP server is a small program Bees runs, or a URL it calls, that publishes tools. Bees does not turn any on for you: pick one below, read what it can reach, and add it. Everything it publishes then shows up under Skills & tools.")
+      ),
+      h(
+        "section",
+        { className: "bees-box" },
+        h(
+          "div",
+          { className: "bees-row" },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("h3", null, "Connected servers"),
+            h("div", { className: "bees-muted" }, "Turning one off stops its program and removes its tools.")
+          ),
+          h(Button, { onClick: () => setManual(true) }, "Add by hand")
+        ),
+        ...data.servers.length ? data.servers.map((server) => h(
+          "div",
+          { className: "bees-row", key: server.id },
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, server.label),
+            h("div", { className: "bees-muted" }, [
+              `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+              server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url,
+              server.source === "catalog" ? "from the catalog" : "added by hand"
+            ].filter(Boolean).join(" · ")),
+            server.error ? h("div", { className: "bees-muted" }, server.error) : null
+          ),
+          h("span", { className: `bees-status ${STATUS_CLASS[server.status] ?? ""}` }, STATUS_LABEL[server.status] ?? server.status),
+          h(Button, {
+            onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })
+          }, server.enabled ? "Turn off" : "Turn on"),
+          h(Button, {
+            className: "danger",
+            onClick: async () => await confirmAction(`Remove ${server.label}? Its tools disappear from every agent.`) && act({ action: "remove_mcp_server", serverId: server.id })
+          }, "Remove")
+        )) : [h(Empty, { key: "empty" }, "No MCP servers connected yet")]
+      ),
+      h("h3", { className: "bees-section-title" }, "Add a popular server"),
+      h(Filter, { value: query, onChange: setQuery, placeholder: "Filter the catalog" }),
+      h("div", { className: "bees-grid" }, ...catalog.map((row) => h(
+        "section",
+        { className: "bees-box", key: row.id },
+        h("h3", null, row.label),
+        h("p", { className: "bees-muted" }, row.summary),
+        h("p", { className: "bees-muted" }, row.publisher),
+        h(
+          "div",
+          { className: "bees-detail-actions" },
+          h(Button, {
+            className: row.installedAs ? "" : "primary",
+            onClick: () => setReviewing(row.id)
+          }, row.installedAs ? "Add another" : "Review and add")
+        )
+      ))),
+      catalog.length ? null : h(Empty, null, "No catalog entry matches that")
+    );
+  }
+
   // dsh-runtime/plugin/client/resources.js
   function FilesPage({ ctx, data, route, teamId, act }) {
     const team = data.teams.find(({ id }) => id === teamId);
@@ -1991,7 +2401,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         "div",
         { className: "bees-row", key: location.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, location.name), h("div", { className: "bees-muted" }, `${location.kind} · ${location.mapped ? "mapped on this device" : "mapping needed"}`)),
-        h(Button, { className: "danger", disabled: team?.role !== "admin", onClick: async () => await confirmAction2(`Archive “${location.name}”? This will not delete the external folder.`) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
+        h(Button, { className: "danger", disabled: team?.role !== "admin", onClick: async () => await confirmAction(`Archive “${location.name}”? This will not delete the external folder.`) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
       )) : [h(Empty, { key: "empty" }, "No shared team locations yet")]
     );
   }
@@ -2001,7 +2411,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [selected, setSelected] = useState("");
     const [history, setHistory] = useState(null);
     useEffect(() => {
-      if (route === "audit") void request2("/bees-api/audit").then((value) => setEvents(value.events));
+      if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events));
     }, [route]);
     useEffect(() => {
       let active = true;
@@ -2011,7 +2421,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
@@ -2085,7 +2495,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         "form",
         { className: "bees-search", onSubmit: async (event) => {
           event.preventDefault();
-          setResults((await request2(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
+          setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
         } },
         h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }),
         h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")
@@ -2102,10 +2512,10 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       { className: "bees-stack" },
       h(SystemDefaultSettings, { ctx, systemDefault, reload }),
       h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }),
-      h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction: confirmAction2, openExternal, Button }),
-      h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction: confirmAction2, Button }),
+      h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
+      h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
       h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }),
-      h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction: confirmAction2, openExternal, Button })
+      h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })
     );
   }
   function AppearanceSettings({ ctx }) {
@@ -2450,7 +2860,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const team = data.teams.find(({ id }) => id === teamId);
     const workspace = data.workspaces.find(({ id }) => id === workspaceId);
     const needle = query.trim().toLocaleLowerCase();
-    const matches = ({ name }) => !needle || name.toLocaleLowerCase().includes(needle);
+    const matches2 = ({ name }) => !needle || name.toLocaleLowerCase().includes(needle);
     const close = (event) => event.currentTarget.closest("details")?.removeAttribute("open");
     const option = (row, active, select, closeAfter = false) => h("button", {
       className: `bees-context-option ${active ? "active" : ""}`,
@@ -2465,9 +2875,9 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       onClick: action,
       disabled
     }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, "+"), label);
-    const organizations = data.organizations.filter(matches);
-    const teams = data.teams.filter((row) => row.organizationId === organizationId && matches(row));
-    const workspaces = data.workspaces.filter((row) => row.teamId === teamId && matches(row));
+    const organizations = data.organizations.filter(matches2);
+    const teams = data.teams.filter((row) => row.organizationId === organizationId && matches2(row));
+    const workspaces = data.workspaces.filter((row) => row.teamId === teamId && matches2(row));
     return h(
       "details",
       { className: "bees-context-switcher", ref: root },
@@ -2524,7 +2934,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [workProcessId, setWorkProcessId] = useState("");
     const load = async () => {
       try {
-        const value = await request2("/bees-api/snapshot");
+        const value = await request("/bees-api/snapshot");
         setData(value);
         setError("");
         return value;
@@ -2557,7 +2967,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const workspaceIds = data ? parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id) : [];
     const act = async (command) => {
       try {
-        const result = await request2("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
+        const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
         await load();
         return result;
       } catch (reason) {
@@ -2647,10 +3057,11 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       setRoute("all-agents");
       setCreating("agent");
     };
+    const capabilities = useCapabilities();
     const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
     const freeAi = h(FreeAiController, { modelSettings, onError: setError });
     if (!data) return h(
-      React2.Fragment,
+      React.Fragment,
       null,
       localAi,
       freeAi,
@@ -2688,6 +3099,8 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       if (target.id === "agents") {
         const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
         if (targetRoute === "skills") return [];
+        if (targetRoute === "presets") return data.presets.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
+        if (targetRoute === "mcp") return (capabilities.data?.servers ?? []).map((row) => ({ id: row.id, label: row.label, open: openRoute }));
         if (targetRoute === "pools") return data.pools.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({ id: row.id, label: row.name, open: openRoute }));
         return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       }
@@ -2709,8 +3122,8 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
-    return h(React2.Fragment, null, localAi, freeAi, h(
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : route === "skills" ? h(SkillsPage, { capabilities }) : route === "mcp" ? h(McpPage, { ctx, capabilities }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },
       h(

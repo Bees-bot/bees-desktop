@@ -1,4 +1,4 @@
-import { h } from "./runtime.js";
+import { h, React } from "./runtime.js";
 import { ask, Button, confirmAction, Empty } from "./shared.js";
 
 function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
