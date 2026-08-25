@@ -317,7 +317,7 @@ describe("Bees DSH public contract", () => {
       expect(client).toContain('const NAVIGATION = [');
       expect(client).toContain('function WorkItemCockpit');
       expect(client).toContain('"Root work item"');
-      expect(client).toContain('"New sub-item"');
+      expect(client).toContain('"Delegate work"');
       expect(client).toContain('action: "edit_agent_assignment"');
       const pluginHost = readFileSync(new URL("../dsh-runtime/plugin/lib/index.js", import.meta.url), "utf8");
       expect(pluginHost).toContain("systemDefaultModel: ctx.agentDefaultModel.currentSelection()");

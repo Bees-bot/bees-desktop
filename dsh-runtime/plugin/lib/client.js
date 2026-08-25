@@ -86,9 +86,11 @@
 
   // dsh-runtime/plugin/client/shared.js
   var NAVIGATION = [
-    { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
+    { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [
+      ["guide", "How Bees works"]
+    ] },
     { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [
-      ["all-work", "All work"],
+      ["all-work", "Work items"],
       ["goals", "Goals"],
       ["waiting", "Needs you"],
       ["completed", "Completed"]
@@ -186,13 +188,12 @@
   .bees-prompt{width:min(540px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:0;box-shadow:0 18px 60px #0006}.bees-prompt::backdrop{background:#0008}.bees-prompt form{display:grid;gap:14px;padding:20px}.bees-prompt label{white-space:pre-wrap;font-weight:700}.bees-prompt-actions{display:flex;justify-content:flex-end;gap:8px}
   .bees-transcript{display:grid;gap:10px;margin-top:14px}.bees-message{padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-sidebar-fill);white-space:pre-wrap}.bees-message strong{display:block;margin-bottom:5px;text-transform:capitalize}.bees-loading{grid-column:1/-1;display:grid;place-items:center;height:100%;color:var(--dsw-alias-label-secondary)}
   .bees-stack{display:grid;gap:12px}.bees-form{display:grid;gap:10px}.bees-form>label{display:grid;gap:5px}.bees-form-row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.bees-form-row label{display:grid;gap:5px;min-width:160px;flex:1}.bees-form-row .bees-btn{flex:0 0 auto}.bees-badge{display:inline-flex;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:10px;text-transform:uppercase}.bees-segmented{display:flex;gap:7px;flex-wrap:wrap}.bees-segmented .active{border-color:#f2b84b;background:#f2b84b22}.bees-section-title{margin:20px 0 8px}.bees-section-title:first-child{margin-top:0}.bees-page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-page-head h2{margin:0}.bees-callout{margin-bottom:14px;padding:12px 14px;border-left:3px solid #f2b84b;border-radius:8px;background:#f2b84b12}.bees-callout h3{margin:0 0 4px}.bees-help-grid h3{margin-bottom:4px}.bees-system-default{border:2px solid #f2b84b;background:linear-gradient(135deg,#f2b84b18,transparent 65%)}.bees-system-default form{display:grid;grid-template-columns:minmax(260px,2fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.bees-system-default label{display:grid;gap:5px}.bees-system-default .bees-btn{margin-bottom:1px}.bees-danger-zone{margin-top:16px;border-color:#d1535355}
-  .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabs{display:flex;gap:4px;margin:-5px -5px 14px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-audit{border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-audit>summary{cursor:pointer;list-style-position:inside}.bees-audit>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-audit>summary span{display:block}.bees-audit-detail{padding:0 12px 12px 27px}.bees-audit-detail pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-agent-form textarea{min-height:180px}
-  .bees-subagent-card{cursor:default}.bees-subagent-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+  .bees-cockpit-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}.bees-cockpit-head h2{margin:0}.bees-cockpit-board{margin-bottom:16px}.bees-hierarchy-card{display:block;width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-hierarchy-card:hover,.bees-hierarchy-card.active{border-color:#f2b84b;background:#f2b84b12}.bees-hierarchy-card h3{margin:0 0 4px}.bees-lineage{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-cockpit-detail{display:block}.bees-tabbar{display:flex;align-items:center;gap:8px;margin:-5px -5px 14px;padding:5px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-tabs{display:flex;min-width:0;gap:4px;overflow-x:auto}.bees-tab-actions{display:flex;flex:none;gap:6px;margin-left:auto}.bees-tab-actions .bees-btn{padding:5px 8px;font-size:12px}.bees-tab{flex:none;padding:7px 10px;border:0;border-radius:8px;color:var(--dsw-alias-label-secondary);background:transparent;font:inherit;cursor:pointer}.bees-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-tab.active{color:var(--dsw-alias-label-primary);background:#f2b84b22;font-weight:750}.bees-tab:focus-visible{outline:2px solid #f2b84b;outline-offset:1px}.bees-tab-panel{min-height:220px}.bees-detail-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.bees-run-list{display:grid;gap:6px}.bees-run-row{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:transparent;text-align:left;cursor:pointer}.bees-run-row.active{border-color:#f2b84b}.bees-audit{border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-audit>summary{cursor:pointer;list-style-position:inside}.bees-audit>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-audit>summary span{display:block}.bees-audit-detail{padding:0 12px 12px 27px}.bees-audit-detail pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-agent-form textarea{min-height:180px}
   .bees-inbox{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(360px,1.28fr);gap:12px;align-items:start}.bees-inbox-list{display:grid;gap:7px}.bees-inbox-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;color:inherit;background:var(--dsw-specific-sidebar-fill);text-align:left;font:inherit;cursor:pointer}.bees-inbox-row:hover,.bees-inbox-row.active{border-color:#f2b84b;background:#f2b84b12}.bees-inbox-dot{width:8px;height:8px;border-radius:50%;background:#f2b84b}.bees-inbox-copy{min-width:0}.bees-inbox-copy strong,.bees-inbox-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-answer-card{display:grid;gap:14px;min-height:270px}.bees-answer-head{display:flex;align-items:flex-start;gap:10px}.bees-answer-head h2{margin:2px 0 0;font-size:20px}.bees-question-detail{padding:10px 12px;border-radius:9px;background:var(--dsw-alias-bg-base)}.bees-question-options{display:grid;gap:8px}.bees-choice{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;font:inherit;cursor:pointer}.bees-choice:hover,.bees-choice.selected{border-color:#f2b84b;background:#f2b84b16}.bees-choice-mark{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);font-size:11px}.bees-choice.selected .bees-choice-mark{background:#f2b84b;color:#21190b}.bees-choice-copy{display:grid;gap:2px}.bees-answer-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-file-list{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}.bees-file-chip{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-chip.active{border-color:#f2b84b;background:#f2b84b16}.bees-file-preview{min-height:130px;max-height:460px;overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base)}.bees-file-preview-head{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-file-preview pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.bees-blocked{margin-top:18px}
   .bees-workspace-layout{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}.bees-convo-panel{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill);height:600px;overflow:hidden}.bees-convo-history{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}.bees-convo-composer{padding:12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}.bees-convo-msg{padding:10px 14px;border-radius:12px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);max-width:85%}.bees-convo-msg.user{align-self:flex-end;background:#f2b84b22;border-color:#f2b84b}.bees-convo-msg.agent{align-self:flex-start}.bees-convo-msg.system{align-self:center;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);background:transparent;border:none}.bees-details-panel{display:flex;flex-direction:column;gap:12px}
   @media(max-width:780px){.bees-app{grid-template-columns:76px 1fr}.bees-brand span:last-child,.bees-nav-link span:last-child,.bees-nav-child,.bees-nav-pin{display:none}.bees-brand{justify-content:center;padding-inline:8px}.bees-context-switcher{margin-inline:8px}.bees-context-switcher summary{justify-content:center;padding-inline:6px}.bees-context-summary{display:none}.bees-context-panel{position:fixed;top:54px;left:82px;width:260px}.bees-nav-link{justify-content:center}.bees-content{padding:12px}.bees-hero{padding:20px}.bees-hero form,.bees-system-default form{grid-template-columns:1fr}.bees-cockpit-detail,.bees-inbox,.bees-workspace-layout{grid-template-columns:1fr}}
 `;
-  async function request2(path, options) {
+  async function request(path, options) {
     const response = await fetch(path, {
       ...options,
       headers: { "content-type": "application/json", ...options?.headers ?? {} }
@@ -206,7 +207,7 @@
     if (invoke) return invoke("open_external_url", { url });
     if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
   }
-  var collaboration = (action, values = {}) => request2("/bees-api/collaboration", action ? {
+  var collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
     method: "POST",
     body: JSON.stringify({ action, ...values })
   } : void 0);
@@ -372,6 +373,9 @@
     }, h(PinIcon, { active }));
   }
   var isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
+  function runTitle(data, run) {
+    return data.items.find(({ id }) => id === run.workItemId)?.title ?? (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
+  }
   function workItemsFor(data, route, workspaceIds) {
     let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
     if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
@@ -621,14 +625,14 @@
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
     }, [run?.id]);
     useEffect(() => {
       let active = true;
-      request2("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
+      request("/bees-api/audit").then(({ events: events2 }) => active && setAudit(events2));
       return () => {
         active = false;
       };
@@ -659,7 +663,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`);
       if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
     };
     const addSubitem = async () => {
-      const title = await ask("Sub-item title", "");
+      const title = await ask("Delegated work title", "");
       if (!title) return;
       const description = await ask("What does success look like?", "") ?? "";
       const agentName = await ask(`Worker override (optional; blank uses stage routing):
@@ -684,6 +688,16 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
     const answered = (key) => setHandled((current) => new Set(current).add(key));
     const runAudit = new Set(itemRuns.map(({ id }) => id));
     const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
+    const assignAgent = (agentAssignmentId) => act({
+      action: "edit_item",
+      itemId: item.id,
+      title: item.title,
+      description: item.description,
+      owner: item.owner,
+      priority: item.priority,
+      parentId: item.parentId,
+      agentAssignmentId: agentAssignmentId || null
+    });
     const convoItems = [];
     if (item.title) convoItems.push(h("div", { className: "bees-convo-msg user", key: "start" }, h("strong", null, item.kind === "goal" ? "Goal" : "Work item"), h("div", null, item.title)));
     if (history?.messages) {
@@ -730,10 +744,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           h(
             "div",
             { style: { display: "flex", gap: "8px" } },
-            h("input", { className: "bees-input", placeholder: pendingRun ? "Answer above..." : "Composer available when agent asks...", disabled: true, style: { flex: 1 } }),
-            ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
-            item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
-            item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null
+            h("input", { className: "bees-input", placeholder: pendingRun ? "Answer above..." : "Composer available when agent asks...", disabled: true, style: { flex: 1 } })
           )
         )
       ),
@@ -745,34 +756,67 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           { className: "bees-box" },
           h(
             "div",
-            { className: "bees-tabs", role: "tablist" },
-            h("button", { className: `bees-tab ${activeTab === "details" ? "active" : ""}`, onClick: () => setActiveTab("details") }, "Details"),
-            h("button", { className: `bees-tab ${activeTab === "files" ? "active" : ""}`, onClick: () => setActiveTab("files") }, "Files"),
-            h("button", { className: `bees-tab ${activeTab === "runs" ? "active" : ""}`, onClick: () => setActiveTab("runs") }, "Runs"),
-            h("button", { className: `bees-tab ${activeTab === "audit" ? "active" : ""}`, onClick: () => setActiveTab("audit") }, "Audit")
+            { className: "bees-tabbar" },
+            h(
+              "div",
+              { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" },
+              h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
+              h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
+              h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
+              h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Audit")
+            ),
+            h(
+              "div",
+              { className: "bees-tab-actions" },
+              ["running", "waiting"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
+              item.runtimePhase === "paused" ? h(Button, { className: "primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
+              item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
+              ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
+              h(Button, { className: "danger", onClick: archive }, "Archive"),
+              run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null
+            )
           ),
           h(
             "div",
-            { className: "bees-tab-panel" },
+            { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
             activeTab === "details" ? h(
               React.Fragment,
               null,
               h("div", { className: "bees-status" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`),
               h("h3", null, "Active Agent"),
               h("p", { className: "bees-muted" }, assignment ? `${assignment.name}${assignment.model ? ` · ${assignment.model}` : ""}` : `Stage route: ${routeLabel}`),
+              stage?.driver !== "terminal" ? h(
+                "label",
+                { className: "bees-form" },
+                "Agent for this item",
+                h(
+                  "select",
+                  {
+                    className: "bees-select",
+                    value: item.agentAssignmentId ?? "",
+                    "aria-label": "Agent for this work item",
+                    onChange: (event) => void assignAgent(event.target.value)
+                  },
+                  h("option", { value: "" }, `Use stage route (${routeLabel})`),
+                  ...assignments.map((agent) => h(
+                    "option",
+                    { value: agent.id, key: agent.id, disabled: !agent.enabled },
+                    `${agent.name}${agent.enabled ? "" : " (unavailable)"}`
+                  ))
+                )
+              ) : null,
               h("h3", null, "Process"),
               process?.description ? h(MarkdownText, { text: process.description }) : h("p", { className: "bees-muted" }, "No description"),
               h("h3", null, "Description"),
               item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted" }, "No description"),
-              h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addSubitem }, "New sub-item"), h(Button, { className: "danger", onClick: archive }, "Archive"))
+              h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addSubitem }, "Delegate work"))
             ) : activeTab === "files" ? h(
               React.Fragment,
               null,
               h("h3", null, "Inputs"),
               h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs")),
               h("h3", null, "Generated Files"),
-              run?.outputs.length ? h("p", null, run.outputs.join(", ")) : h("p", { className: "bees-muted" }, "No outputs generated yet."),
-              run?.status === "completed" && run.outputs.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null
+              run?.outputs.length ? h("p", null, run.outputs.join(", ")) : h("p", { className: "bees-muted" }, "No outputs generated yet.")
             ) : activeTab === "runs" ? h(
               React.Fragment,
               null,
@@ -805,53 +849,8 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       )
     );
   }
-  function descendantSessions(sessionIds, sessions) {
-    const summaries = new Map(Object.values(sessions.byId).map((summary) => [summary.id, summary]));
-    for (const [parentId, catalog] of Object.entries(sessions.subagentsByParent ?? {})) {
-      for (const entry of catalog.entries) if (entry.kind === "child") {
-        const summary = summaries.get(entry.id);
-        summaries.set(entry.id, {
-          ...summary,
-          id: entry.id,
-          displayTitle: entry.label ?? summary?.displayTitle ?? entry.id,
-          running: entry.activity === "running",
-          blank: summary?.blank ?? false,
-          updatedAt: summary?.updatedAt ?? 0,
-          parentId,
-          origin: "subagent"
-        });
-      }
-    }
-    const descendants = [];
-    const byParent = /* @__PURE__ */ new Map();
-    for (const summary of summaries.values()) if (summary.origin === "subagent" && summary.parentId) {
-      const children = byParent.get(summary.parentId) ?? [];
-      children.push(summary);
-      byParent.set(summary.parentId, children);
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const visit = (parentId, depth) => {
-      for (const summary of byParent.get(parentId) ?? []) {
-        if (seen.has(summary.id)) continue;
-        seen.add(summary.id);
-        descendants.push({ summary, depth });
-        visit(summary.id, depth + 1);
-      }
-    };
-    for (const sessionId of sessionIds) visit(sessionId, 0);
-    return descendants;
-  }
-  function runsForAttempt(item, data) {
-    const runs = data.runs.filter(({ workItemId }) => workItemId === item.id);
-    const attempt = Number(item.runtimeAttempt);
-    if (!attempt) return runs;
-    const suffix = new RegExp(`-(?:work-${attempt}|review-${attempt}-\\d+)$`);
-    const current = runs.filter(({ id }) => suffix.test(id));
-    return current.length ? current : runs;
-  }
   function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
     const root = data.items.find(({ id }) => id === rootId);
-    const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {}, subagentsByParent: {} });
     const [selectedId, setSelectedId] = useState(rootId);
     useEffect(() => setSelectedId(rootId), [rootId]);
     const visibleIds = /* @__PURE__ */ new Set([rootId]);
@@ -863,33 +862,12 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
     }
     const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-    const hierarchyRuns = items.flatMap((item) => runsForAttempt(item, data));
-    const runSessionIds = [...new Set(hierarchyRuns.flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-    const catalogParents = [.../* @__PURE__ */ new Set([
-      ...runSessionIds,
-      ...descendantSessions(runSessionIds, sessions).map(({ summary }) => summary.id)
-    ])];
-    const catalogKey = catalogParents.join("|");
-    useEffect(() => {
-      for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, true);
-      return () => {
-        for (const sessionId of catalogParents) ctx.sessions.setSubagentCatalogOpen(sessionId, false);
-      };
-    }, [ctx, catalogKey]);
     if (!root) return h(Empty, null, "Work item not found");
     const process = data.processes.find(({ id }) => id === root.processId);
     const stages = data.stages.filter(({ processId }) => processId === root.processId);
     const selected = items.find(({ id }) => id === selectedId) ?? root;
     const latest = /* @__PURE__ */ new Map();
     for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
-    const subagents = items.flatMap((item) => {
-      const sessionIds = [...new Set(runsForAttempt(item, data).flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId]).filter(Boolean))];
-      return descendantSessions(sessionIds, sessions).map(({ summary, depth }) => ({ summary, depth, item }));
-    });
-    const terminalStage = stages.find(({ isTerminal }) => isTerminal) ?? stages.at(-1);
-    const workStage = stages.find(({ name, isTerminal }) => !isTerminal && /^work$/i.test(name));
-    const waitingStage = stages.find(({ name }) => /^(waiting|blocked)$/i.test(name));
-    const subagentStageId = ({ summary, item }) => !summary.running ? terminalStage?.id : summary.pendingInteraction ? waitingStage?.id ?? item.stageId : workStage?.id ?? item.stageId;
     const lineage = (item) => {
       const names = [];
       let current = item;
@@ -899,8 +877,8 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       }
       return names.join(" → ");
     };
-    const completed = items.filter(({ completed: completed2 }) => completed2).length + subagents.filter(({ summary }) => !summary.running).length;
-    const total = items.length + subagents.length;
+    const completed = items.filter(({ completed: completed2 }) => completed2).length;
+    const total = items.length;
     return h(
       "div",
       null,
@@ -912,12 +890,11 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       ),
       h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
         const rows = items.filter(({ stageId }) => stageId === stage.id);
-        const childRows = subagents.filter((child) => subagentStageId(child) === stage.id);
         return h(
           "section",
           { className: "bees-column", key: stage.id },
-          h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length + childRows.length)),
-          h("div", { className: "bees-cards" }, ...rows.length || childRows.length ? [...rows.map((item) => {
+          h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
+          h("div", { className: "bees-cards" }, ...rows.length ? rows.map((item) => {
             const run = latest.get(item.id);
             const parentPath = lineage(item);
             const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
@@ -925,20 +902,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
               "button",
               { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
               h("h3", null, item.title),
-              h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Sub-item"),
+              h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
               h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · "))
             );
-          }), ...childRows.map(({ summary, depth, item }) => {
-            const label = summary.projectionValues?.subagent?.label ?? summary.displayTitle;
-            const status = summary.pendingInteraction ? "waiting" : summary.running ? "running" : "done";
-            return h(
-              "article",
-              { className: "bees-hierarchy-card bees-subagent-card", key: summary.id },
-              h("h3", null, label),
-              h("div", { className: "bees-lineage bees-muted" }, `${item.title} → ${depth ? "Nested subagent" : "Subagent"}`),
-              h("div", { className: "bees-muted" }, status)
-            );
-          })] : [h(Empty, { key: "empty" }, "No work in this stage")])
+          }) : [h(Empty, { key: "empty" }, "No work in this stage")])
         );
       })),
       h(WorkItemDetails, { ctx, data, item: selected, teamId, act, onArchived: onBack })
@@ -1053,7 +1020,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       setFile(null);
       setError("");
       const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
-      request2(`/bees-api/run-file?${query}`).then((value) => {
+      request(`/bees-api/run-file?${query}`).then((value) => {
         if (current) setFile(value);
       }).catch((reason) => {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -1236,7 +1203,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
     );
   }
   var interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
-  function AgentInteractionPanel({ run, item, summary, session, interaction, handled, onAnswered, onOpenWork }) {
+  function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel }) {
     const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
     const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
     const fileKey = files.join("|");
@@ -1251,10 +1218,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
           "div",
           null,
           h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
-          h("h2", null, item?.title ?? summary?.displayTitle ?? "Agent run")
+          h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")
         ),
         h("div", { className: "bees-grow" }),
-        onOpenWork ? h(Button, { onClick: onOpenWork }, "Open work") : null
+        onOpen ? h(Button, { onClick: onOpen }, openLabel) : null
       ),
       interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered }) : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered }) : h(Empty, null, run.status === "interrupted" ? "The prior request was interrupted. Retry the work to ask again." : session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
       files.length ? h(
@@ -1271,7 +1238,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
       viewer ? h(FilePreview, { target: viewer }) : null
     );
   }
-  function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem }) {
+  function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun }) {
     const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
     const [selectedId, setSelectedId] = useState("");
     const [handled, setHandled] = useState(() => /* @__PURE__ */ new Set());
@@ -1315,7 +1282,7 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
         { className: "bees-inbox" },
         h("div", { className: "bees-inbox-list", "aria-label": "Waiting agents" }, ...rows.map(({ run, session: summary, item }) => {
           const agent = data.assignments.find(({ id }) => id === run.resolvedAgentId);
-          const rowTitle = item?.title ?? summary?.displayTitle ?? "Agent run";
+          const rowTitle = item?.title ?? runTitle(data, run) ?? summary?.displayTitle;
           return h(
             "button",
             { type: "button", className: `bees-inbox-row ${run.id === selected?.run.id ? "active" : ""}`, key: run.id, onClick: () => setSelectedId(run.id) },
@@ -1332,12 +1299,14 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
         h(AgentInteractionPanel, {
           run: selected.run,
           item: selected.item,
+          title: runTitle(data, selected.run),
           summary: selected.session,
           session,
           interaction,
           handled,
           onAnswered: answered,
-          onOpenWork: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : null
+          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
+          openLabel: selected.run.workItemId ? "Open work" : "Open run"
         })
       ) : h(Empty, null, "No live agent questions or approvals right now"),
       blocked.length ? h(
@@ -1352,10 +1321,10 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
             h(
               "div",
               { className: "bees-row-main" },
-              h("div", { className: "bees-row-title" }, item?.title ?? "Agent run"),
+              h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
               h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")
             ),
-            run.workItemId ? h(Button, { onClick: () => openWorkItem(run.workItemId) }, "Open work") : null
+            h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run")
           );
         })
       ) : null
@@ -2177,27 +2146,26 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       )) : [h(Empty, { key: "empty" }, "No shared team locations yet")]
     );
   }
-  function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess }) {
+  function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) {
     const runs = data.runs.filter((run2) => workspaceIds.includes(run2.workspaceId));
     const [events, setEvents] = useState([]);
-    const [selected, setSelected] = useState("");
     const [history, setHistory] = useState(null);
     useEffect(() => {
-      if (route === "audit") void request2("/bees-api/audit").then((value) => setEvents(value.events));
+      if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events));
     }, [route]);
     useEffect(() => {
       let active = true;
-      if (!selected) {
+      if (!runId) {
         setHistory(null);
         return () => {
           active = false;
         };
       }
-      request2(`/bees-api/run-history?executionId=${encodeURIComponent(selected)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
+      request(`/bees-api/run-history?executionId=${encodeURIComponent(runId)}`).then((value) => active && setHistory(value.history)).catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
       return () => {
         active = false;
       };
-    }, [selected]);
+    }, [runId]);
     if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
     if (route === "audit") return h("div", null, ...events.length ? events.map((event) => {
       const run2 = runs.find(({ id }) => id === event.executionId);
@@ -2207,7 +2175,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       const runItem = run2 ? data.items.find(({ id }) => id === run2.workItemId) : null;
       const detail = runItem?.title ?? item?.title ?? process?.name ?? event.metadata?.action ?? event.metadata?.outcome;
       const onOpen = run2 ? () => {
-        setSelected(run2.id);
+        setRunId(run2.id);
         setRoute("runs");
       } : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
       return h(AuditEvent, {
@@ -2218,11 +2186,11 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         openLabel: run2 ? "Open run" : item ? "Open work item" : "Open process"
       });
     }) : [h(Empty, { key: "empty" }, "No audit events yet")]);
-    const run = runs.find(({ id }) => id === selected);
+    const run = runs.find(({ id }) => id === runId);
     if (run) return h(
       "div",
       null,
-      h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelected("") }, "← Runs"), h("strong", null, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+      h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Runs"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
       run.resolvedAgentId ? h(
         "section",
         { className: "bees-box" },
@@ -2244,8 +2212,8 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     );
     return h("div", null, ...runs.length ? runs.map((row) => h(
       "button",
-      { className: "bees-row bees-nav-link", key: row.id, onClick: () => setSelected(row.id) },
-      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees"), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
+      { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
+      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
       h("span", { className: `bees-status bees-${row.status}` }, row.status)
     )) : [h(Empty, { key: "empty" }, "No runs yet")]);
   }
@@ -2267,7 +2235,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
         "form",
         { className: "bees-search", onSubmit: async (event) => {
           event.preventDefault();
-          setResults((await request2(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
+          setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results);
         } },
         h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }),
         h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")
@@ -2704,9 +2672,10 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const [creating, setCreating] = useState("");
     const [processDraft, setProcessDraft] = useState(null);
     const [workProcessId, setWorkProcessId] = useState("");
+    const [runId, setRunId] = useState("");
     const load = async () => {
       try {
-        const value = await request2("/bees-api/snapshot");
+        const value = await request("/bees-api/snapshot");
         setData(value);
         setError("");
         return value;
@@ -2733,13 +2702,14 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       setCreating("");
       setProcessDraft(null);
       setWorkProcessId("");
+      setRunId("");
       void preferences.set("lastScope", next);
     };
     const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
     const workspaceIds = data ? parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id) : [];
     const act = async (command) => {
       try {
-        const result = await request2("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
+        const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
         await load();
         return result;
       } catch (reason) {
@@ -2750,7 +2720,10 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
     const askBees = async (outcome) => {
       if (!parts.workspaceId) return null;
       const result = await act({ action: "ask_bees", workspaceId: parts.workspaceId, outcome });
-      if (result?.sessionId) setRoute("runs");
+      if (result?.executionId) {
+        setRunId(result.executionId);
+        setRoute("runs");
+      }
       return result;
     };
     const navigate = (id) => {
@@ -2765,6 +2738,7 @@ ${available.map(({ name: name2 }) => name2).join("\n")}`, available[0]?.name ?? 
       setCreating("");
       setProcessDraft(null);
       setWorkProcessId("");
+      setRunId("");
     };
     const createOrganization = async () => {
       const name = await ask("Organization name", "");
@@ -2848,6 +2822,13 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       setWorkItemId("");
       setCreating("");
     };
+    const openRun = (id) => {
+      setRoute("runs");
+      setRunId(id);
+      setProcessId("");
+      setWorkItemId("");
+      setCreating("");
+    };
     const openWorkItem = (id, processForWork = "") => {
       setRoute("all-work");
       setProcessId("");
@@ -2876,8 +2857,8 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt).map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       if (targetRoute === "runs") return data.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
         id: row.id,
-        label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees",
-        open: openRoute
+        label: runTitle(data, row),
+        open: () => openRun(row.id)
       }));
       if (targetRoute === "artifacts") return data.runs.filter((row) => row.workspaceId === parts.workspaceId && row.outputs.length).map((row) => ({ id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
       if (targetRoute === "workspace-settings" && parts.workspace) return [{ id: parts.workspace.id, label: parts.workspace.name, open: openRoute }];
@@ -2891,7 +2872,7 @@ ${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
       }
       return [];
     };
-    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+    const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem }) : route === "guide" ? h(GuidePage) : section.id === "work" ? route === "waiting" ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun }) : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act }) : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") }) : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act }) : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId }) : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
     return h(React.Fragment, null, localAi, freeAi, h(
       "div",
       { className: "bees-app" },

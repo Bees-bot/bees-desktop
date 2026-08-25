@@ -108,10 +108,9 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('document.createElement("dialog")');
     expect(client).toContain('item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }');
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
-    expect(client).toContain('summary.origin === "subagent"');
-    expect(client).toContain('className: "bees-hierarchy-card bees-subagent-card"');
-    expect(client).toContain('!summary.running');
-    expect(client).toContain('.flatMap(({ sessionId, previousSessionId }) => [sessionId, previousSessionId])');
+    expect(client).not.toContain('summary.origin === "subagent"');
+    expect(client).not.toContain('bees-subagent-card');
+    expect(client).toContain('parentPath || "Delegated work"');
     expect(client).not.toContain('function AgentActivity');
     expect(client).toContain('"New work"');
     expect(client).not.toContain("<iframe");
@@ -143,7 +142,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(history.messages.map(({ id }: { id: string }) => id)).toEqual(["task", "answer"]);
   });
 
-  it("provides reviewers with durable subagent and approval evidence", async () => {
+  it("provides reviewers with durable approval evidence", async () => {
     const database = new NodeDatabase();
     const stage = database.connection.prepare(`
       SELECT s.id AS stageId, s.process_id AS processId FROM stages s
@@ -154,15 +153,12 @@ describe("DSH-owned desktop and recovery", () => {
       VALUES ('goal', ?, ?, 'goal', 'Goal', '2026-01-01', '2026-01-01')
     `).run(stage.processId, stage.stageId);
     const events = [
-      { type: "tool/call", seq: 1, time: 1_000, data: { name: "subagent", callId: "child-call", arguments: "first" } },
-      { type: "tool/result", seq: 2, time: 2_000, data: { message: { source: { callId: "child-call" }, content: [{ type: "text", text: "done" }] } } },
       { type: "tool/call", seq: 3, time: 3_000, data: { name: "ask_user_question", callId: "approval-call", arguments: "Approve?" } },
       { type: "tool/result", seq: 4, time: 4_000, data: { message: { source: { callId: "approval-call" }, content: [{ type: "text", text: "approved" }] } } }
     ];
     const runtime = new AgentRuntime({
       on: () => () => undefined,
-      sessionPersistence: { inspect: async () => ({ events }) },
-      subagents: { listChildren: async () => [{ kind: "child", id: "child-1", activity: "inactive", mode: "one-shot", label: "Append first" }] }
+      sessionPersistence: { inspect: async () => ({ events }) }
     }, database.connection);
     insertRun(database, "completed", "goal");
     const workspace = database.connection.prepare("SELECT id FROM workspaces ORDER BY created_at LIMIT 1").get() as { id: string };
@@ -177,11 +173,9 @@ describe("DSH-owned desktop and recovery", () => {
     const evidence = await runtime.reviewEvidence("candidate") as any;
     expect(evidence.executions.map(({ executionId }: any) => executionId)).toEqual(["run", "candidate"]);
     expect(evidence.executions[0].sessions[0]).toMatchObject({
-      sessionId: "session",
-      subagents: [{ id: "child-1", kind: "child", activity: "inactive", mode: "one-shot", label: "Append first" }]
+      sessionId: "session"
     });
     expect(evidence.executions[0].sessions[0].timeline).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "tool/call", tool: "subagent", callId: "child-call" }),
       expect.objectContaining({ type: "tool/call", tool: "ask_user_question", callId: "approval-call" }),
       expect.objectContaining({ type: "tool/result", callId: "approval-call", error: false })
     ]));

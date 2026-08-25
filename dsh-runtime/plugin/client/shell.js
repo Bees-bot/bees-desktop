@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import {
   ask, Button, NAVIGATION, navigationItem, PinButton, request, scopeParts,
-  sectionFor, ThemeToggle, usePreference, workItemsFor
+  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
@@ -72,6 +72,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [creating, setCreating] = useState("");
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
+  const [runId, setRunId] = useState("");
   const load = async () => {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -85,7 +86,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     setScopeState((current) => valid.has(current) ? current : preferred);
   }, [data, preference.lastScope]);
   const setScope = (next) => {
-    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
+    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
     void preferences.set("lastScope", next);
   };
   const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
@@ -97,7 +98,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const askBees = async (outcome) => {
     if (!parts.workspaceId) return null;
     const result = await act({ action: "ask_bees", workspaceId: parts.workspaceId, outcome });
-    if (result?.sessionId) setRoute("runs");
+    if (result?.executionId) { setRunId(result.executionId); setRoute("runs"); }
     return result;
   };
   const navigate = (id) => {
@@ -106,7 +107,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       return;
     }
     const section = NAVIGATION.find((row) => row.id === id);
-    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
+    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
   };
   const createOrganization = async () => {
     const name = await ask("Organization name", ""); if (!name) return;
@@ -149,6 +150,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
   const setPins = (next) => preferences.set("pins", next);
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
+  const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : "work");
@@ -176,8 +178,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt)
       .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
     if (targetRoute === "runs") return data.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
-      id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Ask Bees",
-      open: openRoute
+      id: row.id, label: runTitle(data, row), open: () => openRun(row.id)
     }));
     if (targetRoute === "artifacts") return data.runs.filter((row) => row.workspaceId === parts.workspaceId && row.outputs.length)
       .map((row) => ({ id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
@@ -195,12 +196,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
-      ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem })
+      ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun })
       : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act })
       : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
         : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
           : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
-            : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess })
+            : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
                 : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
   return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
@@ -249,5 +250,4 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     )
   ));
 }
-
 

@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
+const GOALS_WORK_INSTRUCTIONS = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and delegate one self-contained subitem at a time when sequencing or approval matters. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
+const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
+
 export const iso = () => new Date().toISOString();
 export function stableUuid(value) {
   const hex = createHash("sha256").update(String(value)).digest("hex").slice(0, 32).split("");
@@ -70,7 +73,8 @@ export function workspaceContext(database, workspaceId, roles = ["admin", "membe
 export function itemContext(database, itemId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
-           w.kind, w.agent_assignment_id AS agentAssignmentId, p.workspace_id AS workspaceId
+           w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
+           p.workspace_id AS workspaceId
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -222,11 +226,11 @@ export function insertWorkspaceDefaults(database, workspaceId) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     {
       name: "Work", driver: "agent",
-      instructions: "Own the outcome, plan the work, use todos, and delegate independent subtasks to DSH subagents. Continue until the deliverable is genuinely ready for review."
+      instructions: GOALS_WORK_INSTRUCTIONS
     },
     {
       name: "Review", driver: "review",
-      instructions: "Independently inspect the candidate deliverables and evidence. Pass only when the requested outcome is actually complete; otherwise return specific revision feedback."
+      instructions: GOALS_REVIEW_INSTRUCTIONS
     },
     { name: "Done", driver: "terminal" }
   ], "goals");
@@ -458,8 +462,18 @@ export function initializeProductDatabase(database) {
       WHEN lower(name) LIKE '%review%' THEN 'review'
       ELSE 'agent'
     END;
-    PRAGMA user_version = 7;
+    PRAGMA user_version = 8;
   `);
+  if (version < 8) {
+    database.prepare(`
+      UPDATE stages SET completion_rules = ? WHERE name = 'Work' AND archived_at IS NULL
+        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
+    `).run(GOALS_WORK_INSTRUCTIONS);
+    database.prepare(`
+      UPDATE stages SET completion_rules = ? WHERE name = 'Review' AND archived_at IS NULL
+        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
+    `).run(GOALS_REVIEW_INSTRUCTIONS);
+  }
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -499,5 +513,3 @@ export function initializeProductDatabase(database) {
     insertWorkspaceDefaults(database, workspaceId);
   });
 }
-
-

@@ -9,9 +9,9 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation and stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation and stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. Treat legacy requests for a subagent as peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
-const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
+const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
 
@@ -20,6 +20,11 @@ const RUN_DATA_KEYS = new Set([
   "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
   "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
 ]);
+
+const DSH_DELEGATION_TOOLS = [
+  "subagent", "subagent_fork", "subagent_codex", "subagent_claude_code",
+  "send_message", "interrupt_agent", "list_agents", "workflow", "ralph"
+];
 
 export const LATEST_SOL_MODEL = "__bees_latest_sol__";
 export const LATEST_LUNA_MODEL = "__bees_latest_luna__";
@@ -116,7 +121,7 @@ function excerpt(value, limit = 1_200) {
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
-    if (event.type === "tool/call" && ["subagent", "ask_user_question"].includes(event.data.name)) {
+    if (event.type === "tool/call" && event.data.name === "ask_user_question") {
       calls.add(String(event.data.callId));
       return [{ seq: event.seq, time: event.time, type: event.type,
         tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
@@ -130,6 +135,16 @@ function reviewTimeline(events) {
       ? [{ seq: event.seq, time: event.time, type: event.type, detail: excerpt(event.data) }]
       : [];
   }).slice(-256);
+}
+
+function removeDshDelegationTools(agentCtx) {
+  if (!agentCtx.tools.restrict) return;
+  try { agentCtx.tools.restrict({ deny: DSH_DELEGATION_TOOLS }); }
+  catch (error) {
+    if (!String(error).includes("unknown global tool")) throw error;
+    for (const name of DSH_DELEGATION_TOOLS) try { agentCtx.tools.restrict({ deny: [name] }); }
+    catch (nested) { if (!String(nested).includes("unknown global tool")) throw nested; }
+  }
 }
 
 function messageParts(content) {
@@ -562,6 +577,7 @@ export class AgentRuntime {
 
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
+    removeDshDelegationTools(agentCtx);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
@@ -574,7 +590,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array. Each object is either {action:'create_goal',title,description} or {action:'create_process',name,description,stages:[...]}."
+          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:[...]}, or {action:'create_item',process,title,description}. A create_item must name a process created earlier in the same array."
         }
       },
       output: {
@@ -597,18 +613,20 @@ export class AgentRuntime {
       }
     }));
     if (data.mode === "work" && data.workItemId) agentCtx.tools.register(defineTool({
-      name: "bees_create_subitems",
-      description: "Create visible child work items under this work item when the outcome genuinely needs independently tracked work. Each child starts its process automatically.",
+      name: "bees_delegate_work",
+      description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same capabilities and lifecycle, and works exclusively in this run's shared workspace while the caller waits.",
+      timeoutMs: 2_147_483_647,
       parameters: {
         items_json: {
           type: "string", required: true,
-          description: "JSON array of 1-25 objects shaped {title:string,description?:string}."
+          description: "JSON array containing exactly one object shaped {title:string,description?:string}."
         }
       },
       output: {
         schema: {
           type: "object", additionalProperties: false, properties: {
-            count: { type: "integer", required: true }, ids: { type: "string", required: true }
+            count: { type: "integer", required: true }, ids: { type: "string", required: true },
+            results_json: { type: "string", required: true }
           }
         },
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
@@ -618,12 +636,13 @@ export class AgentRuntime {
         let items;
         try { items = JSON.parse(args.items_json); }
         catch { throw new Error("items_json must be valid JSON"); }
-        if (!Array.isArray(items) || !items.length || items.length > 25)
-          throw new Error("items_json must contain between 1 and 25 sub-items");
+        if (!Array.isArray(items) || items.length !== 1)
+          throw new Error("items_json must contain exactly one delegated work item");
         const created = await this.subitemStore({ parentId: data.workItemId, items });
         const ids = created.map(({ id }) => id);
-        this.audit("subitems-created", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
-        return { count: ids.length, ids: ids.join(",") };
+        this.audit("peer-work-delegated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
+        const results = await this.waitForPeers(ids, exec.signal);
+        return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
       }
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
@@ -717,6 +736,24 @@ export class AgentRuntime {
         }
       }));
     }
+  }
+
+  async waitForPeers(ids, signal) {
+    const read = this.database.prepare(`
+      SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error
+      FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
+    `);
+    let rows;
+    do {
+      rows = ids.map((id) => read.get(id));
+      if (rows.some((row) => !row)) throw new Error("Delegated work disappeared");
+      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) break;
+      await delay(1_000, undefined, signal ? { signal } : undefined);
+    } while (true);
+    return rows.map((row) => ({
+      id: row.id, title: row.title, status: row.status,
+      ...(row.error ? { error: row.error } : {})
+    }));
   }
 
   async newHandle(run, data, workspace, mode) {
@@ -1066,15 +1103,8 @@ export class AgentRuntime {
             ? this.live.get(run.executionId).handle.agent.session.events
             : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
         } catch {}
-        let subagents = [];
-        try { subagents = await this.ctx.subagents?.listChildren?.(SessionId(sessionId)) ?? []; }
-        catch {}
         sessions.push({
           sessionId,
-          subagents: subagents.map((child) => ({
-            id: String(child.id), kind: child.kind,
-            ...(child.kind === "child" ? { activity: child.activity, mode: child.mode, label: child.label ?? null } : { reason: child.reason })
-          })),
           timeline: reviewTimeline(events)
         });
       }

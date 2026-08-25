@@ -2,6 +2,7 @@ export function initializeProductDatabase(database: any): void;
 export class BeesProduct {
   constructor(database: any, agents: any, processes: any, defaultWorkspace: string, services?: Record<string, any>);
   initialize(): Promise<void>;
+  recoverHumanWaits(): Promise<void>;
   createSubitems(input: { parentId: string; items: Array<{ title: string; description?: string }> }): Promise<any[]>;
   runProcessStage(stage: Record<string, any>, signal?: AbortSignal): Promise<any>;
   snapshot(): Promise<any>;

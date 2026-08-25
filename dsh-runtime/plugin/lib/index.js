@@ -109,6 +109,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   });
   const connected = new ConnectedAccount(database, ctx.credentials);
   await product.initialize();
+  await product.recoverHumanWaits();
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
   ctx.effect(() => () => processes.close(), "bees Temporal worker");
 
