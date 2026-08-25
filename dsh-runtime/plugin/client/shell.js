@@ -5,6 +5,7 @@ import {
   ask, Button, NAVIGATION, navigationItem, PinButton, request, scopeParts,
   runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
+import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
 import { NeedsYouPage, WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
@@ -197,7 +198,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     return [];
   };
-  const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, askBees })
+  const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
       ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun })
@@ -219,21 +220,29 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         ...pins.map((id) => {
           const pinned = navigationItem(id);
           return h("div", { className: "bees-nav-group", key: `pin:${id}` },
-            h("div", { className: "bees-nav-group-head" },
-              h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, onClick: () => navigate(pinned.route) }, h("span", null, pinned.icon), h("span", null, pinned.label)),
+            h("div", { className: `bees-nav-group-head ${route === pinned.route ? "active" : ""}` },
+              h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, onClick: () => navigate(pinned.route) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(pinned.icon)), h("span", null, pinned.label)),
               h(PinButton, { id: pinned.id, label: pinned.label, pins, setPins })),
             ...pinnedRows(pinned.route).map((row) => h("button", { className: "bees-nav-link bees-nav-record", title: row.label, key: `${pinned.id}:${row.id}`, onClick: row.open }, row.label))
           );
         }),
-        h("div", { className: "bees-nav-standard" }, ...NAVIGATION.flatMap((item) => [
-          h("div", { className: "bees-nav-menu", key: item.id },
-            h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", null, item.icon), h("span", null, item.label)),
-            h(PinButton, { id: item.id, label: item.label, pins, setPins })),
-          ...(section.id === item.id ? item.children.map(([child, label]) =>
-            h("div", { className: "bees-nav-menu", key: `${item.id}:${child}` },
-              h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
-              h(PinButton, { id: child, label, pins, setPins }))) : [])
-        ]))
+        h("div", { className: "bees-nav-standard" }, ...NAVIGATION.map((item, idx) => h(React.Fragment, { key: item.id },
+          idx === 4 ? h("div", { className: "bees-nav-separator" }) : null,
+          h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
+            h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
+            h(PinButton, { id: item.id, label: item.label, pins, setPins }),
+            item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
+              ...item.children.map(([child, label]) =>
+                h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
+                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
+                  h(PinButton, { id: child, label, pins, setPins }))
+              )
+            ) : null
+          )
+        )))
+      ),
+      h("div", { className: "bees-sidebar-foot" },
+        h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works"))
       )
     ),
     h("section", { className: "bees-main" },
@@ -241,16 +250,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
         route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null,
         h("div", { className: "bees-grow" }),
-        h("details", { className: "bees-create" }, h("summary", { className: "bees-btn", title: "Create", role: "button", "aria-label": "Create" }, "+"), h("div", { className: "bees-menu" },
-          h("button", { className: "bees-nav-link", onClick: createOrganization }, "New organization"),
-          h("button", { className: "bees-nav-link", disabled: !parts.teamId && !data.teams.some(({ organizationId }) => organizationId === parts.organizationId), onClick: createWorkspace }, "New workspace"),
-          h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createWork }, "New work"),
-          h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createGoal }, "New goal"),
-          h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createProcess }, "New process"),
-          h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createRun }, "New one-off run"),
-          h("button", { className: "bees-nav-link", disabled: !parts.workspaceId, onClick: createAgent }, "New agent"),
-          h("button", { className: "bees-nav-link", disabled: !parts.organizationId, onClick: createTeam }, "New team")
-        )),
+
         h(ThemeToggle, { ctx })),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide" : ""}` }, page))
