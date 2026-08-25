@@ -10,6 +10,7 @@ await build({
   bundle: true,
   format: "iife",
   platform: "browser",
+  loader: { ".css": "text" },
   target: "es2022",
   charset: "utf8",
   legalComments: "none"
