@@ -44,6 +44,7 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses the full content width and separates the detail views into tabs", () => {
+    expect(client).toContain('import { h, React } from "./runtime.js";');
     expect(client).toContain('"bees-panel-wide"');
     expect(client).toContain('setActiveTab("details")');
     expect(client).toContain('setActiveTab("files")');
@@ -70,10 +71,11 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
   });
 
-  it("names work items precisely and opens standalone planning runs", () => {
+  it("names work items precisely and opens runs whose work item is unavailable", () => {
     expect(client).toContain('["all-work", "Work items"]');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
-    expect(client).toContain('openLabel: selected.run.workItemId ? "Open work" : "Open run"');
+    expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
+    expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
   });
 
@@ -106,7 +108,7 @@ describe("Bees work cockpit UI", () => {
 
   it("shows and saves a required, visually separate system default", () => {
     expect(client).toContain("function SystemDefaultSettings");
-    expect(client).toContain('import { ask, Button, Empty, request } from "./shared.js";');
+    expect(client).toContain('import { ask, Button, confirmAction, Empty, request } from "./shared.js";');
     expect(client).toContain('className: "bees-box bees-system-default"');
     expect(client).toContain('allowSystemDefault: false');
     expect(client).toContain('required: !allowSystemDefault');

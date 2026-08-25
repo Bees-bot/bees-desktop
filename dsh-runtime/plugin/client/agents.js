@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, Empty, request } from "./shared.js";
+import { ask, Button, confirmAction, Empty, request } from "./shared.js";
 
 const CODEX_CHANNELS = [
   ["__bees_latest_sol__", "sol", "Sol"],
@@ -117,7 +117,29 @@ export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
 }
 
-function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
+
+/** Which MCP servers this agent may use. Shared by the create and edit forms. */
+function McpAccess({ servers, access, chosen }) {
+  const [mode, setMode] = useState(access ?? "all");
+  const picked = new Set(chosen ?? []);
+  return h(React.Fragment, null,
+    h("label", null, "MCP servers this agent may use",
+      h("select", { className: "bees-select", name: "mcpAccess", value: mode,
+        onChange: (event) => setMode(event.target.value) },
+        h("option", { value: "all" }, "Every connected server"),
+        h("option", { value: "none" }, "None"),
+        h("option", { value: "listed" }, "Only the ones I pick")),
+      h("span", { className: "bees-muted" }, servers.length
+        ? "A server's tools reach an agent only if it is allowed here."
+        : "No MCP servers are connected yet; add one under Agents, MCP servers.")),
+    mode === "listed" ? h("div", { className: "bees-form" }, h("span", null, "Allowed servers"),
+      ...servers.map((server) => h("label", { key: server.id, className: "bees-muted" },
+        h("input", { type: "checkbox", name: "mcpServers", value: server.id, defaultChecked: picked.has(server.id) }),
+        ` ${server.label} (${server.toolCount} tool${server.toolCount === 1 ? "" : "s"})`)),
+      servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")) : null);
+}
+
+function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated }) {
   const presets = data.presets.filter(({ broken }) => !broken);
   if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
   return h("form", { className: "bees-box bees-form bees-agent-form", onSubmit: async (event) => {
@@ -128,19 +150,26 @@ function AgentCreateForm({ ctx, data, workspaceId, act, onCancel, onCreated }) {
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
     if (created?.id) onCreated(created.id);
   } },
     h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Agents"),
-      h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Configure the agent's complete toolbox and routing identity before adding it."))),
+      h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Give it a name, a toolbox, and a model. Everything here can be changed later."))),
     h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
     h("label", null, "Description", h("input", { className: "bees-input", name: "description", placeholder: "What should this agent be used for?" })),
-    h("label", null, "Agent preset (skills and tools)", h("select", { className: "bees-select", name: "presetId", required: true,
-      defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
-      ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+    h("label", null, "Agent preset, its skills and tools",
+      h("select", { className: "bees-select", name: "presetId", required: true,
+        defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
+        ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))),
+      h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run. "
+        + "Skills & tools lists what each one carries.")),
     h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
-    h("label", null, "Capabilities (comma separated)", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+    h("label", null, "Capabilities, comma separated",
+      h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" }),
+      h("span", { className: "bees-muted" }, "Optional labels. A process stage can ask for an agent that has one.")),
+    h(McpAccess, { servers }),
     h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
     h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
@@ -165,29 +194,28 @@ function PoolCreateForm({ workspaceId, act, onCancel, onCreated }) {
   );
 }
 
-export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
+export function AgentsPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
   const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
   const [selectedId, setSelectedId] = useState("");
   const [selectedPoolId, setSelectedPoolId] = useState("");
   const selected = assignments.find(({ id }) => id === selectedId);
   const selectedPool = pools.find(({ id }) => id === selectedPoolId);
-  if (creating === "agent") return h(AgentCreateForm, { ctx, data, workspaceId, act,
+  if (creating === "agent") return h(AgentCreateForm, { ctx, data, servers, workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
   if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); } });
-  if (route === "skills") return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-callout" }, h("h3", null, "Skills are reusable instructions and tools"),
-      h("div", null, "An agent preset is its toolbox: prompt, skills, tools, and permissions. Choose a preset when you create or configure an agent; manage the preset's skill library in DSH settings.")),
+  if (route === "presets") return h("div", { className: "bees-stack" },
+    h("div", { className: "bees-callout" }, h("h3", null, "A preset is an agent's toolbox"),
+      h("div", null, "It bundles the prompt, the skills, the tools and the permissions an agent gets. "
+        + "Every agent picks one. What the presets themselves contain is edited in DSH settings.")),
     h("section", { className: "bees-box" }, h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
       h("h3", null, "Available agent presets"), h("div", { className: "bees-muted" }, "Agents select one of these libraries.")),
       h(Button, { className: "primary", onClick: openDshSettings }, "Manage presets & skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
-        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")])) ,
-    h("section", { className: "bees-box" }, h("h3", null, "Importing public libraries"),
-      h("p", { className: "bees-muted" }, "Public skill, tool, agent, and MCP repositories need a reviewed import flow because they can add instructions, code, network access, and permissions. Bees should show provenance and requested permissions before installation—not bulk-enable unknown repositories."))
+        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]))
   );
   if (route === "pools") {
     if (selectedPool) {
@@ -246,6 +274,7 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
     if (saved) setSelectedId("");
@@ -253,10 +282,17 @@ export function AgentsPage({ ctx, data, route, workspaceIds, workspaceId, creati
     h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedId("") }, "← Agents"), h("strong", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
     h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
     h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description })),
-    h("label", null, "DSH preset", h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId }, ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+    h("label", null, "Agent preset, its skills and tools",
+      h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
+        ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))),
+      h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run. "
+        + "Skills & tools lists what each one carries.")),
     h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "",
       systemDefault: data.systemDefaultModel }),
-    h("label", null, "Capabilities, comma separated", h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" })),
+    h("label", null, "Capabilities, comma separated",
+      h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" }),
+      h("span", { className: "bees-muted" }, "Optional labels. A process stage can ask for an agent that has one.")),
+    h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
     h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
     h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),

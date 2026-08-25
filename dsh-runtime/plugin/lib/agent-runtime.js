@@ -18,7 +18,8 @@ const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
   "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
-  "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose"
+  "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose",
+  "mcpAccess", "mcpServers"
 ]);
 
 const DSH_DELEGATION_TOOLS = [
@@ -44,6 +45,8 @@ export function validateRunData(value) {
   if (value.stagePurpose && !["worker", "reviewer"].includes(value.stagePurpose))
     throw new Error("Run data has an invalid stage purpose");
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
+  if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
+    throw new Error("Run data needs an MCP access policy");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
   if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
@@ -575,9 +578,28 @@ export class AgentRuntime {
     `).get(executionId);
   }
 
+  /**
+   * Hold this agent to the MCP servers it was granted. A deny list, not an allow list: the preset's
+   * tools are still registering at setup, so an allow mask would freeze the agent to whatever
+   * happened to exist at that instant.
+   *
+   * ponytail: a server connected mid-run stays visible to a run already going. Runs are short.
+   */
+  restrictMcp(agentCtx, data) {
+    if (data.mcpAccess === "all") return;
+    const allowed = new Set(data.mcpServers);
+    const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
+      const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
+      return match && !allowed.has(match[1]);
+    });
+    if (!deny.length) return;
+    agentCtx.tools.restrict({ deny });
+  }
+
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshDelegationTools(agentCtx);
+    this.restrictMcp(agentCtx, data);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true

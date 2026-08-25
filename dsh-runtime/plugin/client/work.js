@@ -494,8 +494,8 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         h(AgentInteractionPanel, {
           run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled,
           onAnswered: answered,
-          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
-          openLabel: selected.run.workItemId ? "Open work" : "Open run"
+          onOpen: selected.item ? () => openWorkItem(selected.item.id) : () => openRun(selected.run.id),
+          openLabel: selected.item ? "Open work" : "Open run"
         })
     ) : h(Empty, null, "No live agent questions or approvals right now"),
     blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
@@ -504,7 +504,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
           h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
-          h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run"));
+          h(Button, { onClick: item ? () => openWorkItem(item.id) : () => openRun(run.id) }, item ? "Open work" : "Open run"));
       })) : null
   );
 }

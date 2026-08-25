@@ -10,7 +10,8 @@ export const NAVIGATION = [
     ["all-work", "Work items"], ["goals", "Goals"], ["waiting", "Needs you"], ["completed", "Completed"]
   ] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
-    ["all-agents", "All agents"], ["pools", "Pools"], ["skills", "Skills & tools"]
+    ["all-agents", "All agents"], ["pools", "Pools"], ["presets", "Agent presets"],
+    ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
   { id: "processes", label: "Processes", icon: ProcessesIcon, defaultChild: "all-processes", children: [
     ["all-processes", "All processes"], ["templates", "Templates"]
