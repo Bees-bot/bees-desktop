@@ -136,9 +136,9 @@
   ];
   var css = `
 
-  .bees-home-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; min-height: 100%; align-items: start; padding: 24px 0; }
+  .bees-home-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 40px; min-height: 100%; align-items: start; padding: 24px 0; }
   .bees-home-main { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
-  .bees-home-side { display: flex; flex-direction: column; gap: 16px; padding: 24px; background: var(--dsw-specific-sidebar-fill); border: 1px solid var(--dsw-alias-border-l1); border-radius: 16px; min-height: calc(100vh - 106px); min-width: 0; }
+  .bees-home-side { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 106px); min-width: 0; }
   .bees-home-side h3 { margin: 0; font-size: 16px; font-weight: 700; }
   
   .bees-hero { display: flex; flex-direction: column; gap: 20px; }
@@ -383,6 +383,7 @@
     const [outcome, setOutcome] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
+    const [showAllTemplates, setShowAllTemplates] = useState(false);
     const submit = async () => {
       if (!workspaceId || !outcome.trim()) return;
       setBusy(true);
@@ -402,6 +403,7 @@
     const processes = data.processes.filter((row) => row.workspaceId === workspaceId && row.kind === "standard");
     const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
     const cards = [...templates.map((t) => ({ ...t, isTemplate: true })), ...processes.map((p) => ({ ...p, isTemplate: false }))];
+    const visibleCards = showAllTemplates ? cards : cards.slice(0, 10);
     const activeWork = data.workItems ? data.workItems.filter((w) => !["completed", "cancelled", "archived"].includes(w.runtimePhase)) : [];
     const needsAttention = activeWork.filter((w) => ["waiting", "failed"].includes(w.runtimePhase)).slice(0, 5);
     const recentWork = activeWork.filter((w) => !needsAttention.includes(w)).slice(0, 5);
@@ -488,7 +490,7 @@
         h(
           "div",
           { className: "bees-home-templates" },
-          cards.length > 0 ? cards.map(
+          cards.length > 0 ? visibleCards.map(
             (card) => h(
               "button",
               { className: "bees-template-card", onClick: async () => {
@@ -502,7 +504,12 @@
               h("div", { className: "bees-template-card-title" }, card.name),
               h("div", { className: "bees-template-card-meta" }, card.description || (card.isTemplate ? "Template" : "Process"))
             )
-          ) : h("p", { className: "bees-muted" }, "No templates available.")
+          ) : h("p", { className: "bees-muted" }, "No templates available."),
+          cards.length > 10 && !showAllTemplates ? h("button", {
+            className: "bees-btn",
+            style: { width: "100%", marginTop: "4px" },
+            onClick: () => setShowAllTemplates(true)
+          }, `Show all ${cards.length} templates`) : null
         )
       )
     );

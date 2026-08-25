@@ -5,6 +5,8 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showAllTemplates, setShowAllTemplates] = useState(false);
+  
   const submit = async () => {
     if (!workspaceId || !outcome.trim()) return;
     setBusy(true); setError("");
@@ -24,6 +26,7 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
   const processes = data.processes.filter((row) => row.workspaceId === workspaceId && row.kind === "standard");
   const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
   const cards = [...templates.map(t => ({...t, isTemplate: true})), ...processes.map(p => ({...p, isTemplate: false}))];
+  const visibleCards = showAllTemplates ? cards : cards.slice(0, 10);
   
   // Calculate Needs Attention vs Recent Active
   const activeWork = data.workItems ? data.workItems.filter(w => !["completed", "cancelled", "archived"].includes(w.runtimePhase)) : [];
@@ -84,7 +87,7 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
     h("div", { className: "bees-home-side" },
       h("h3", null, "Templates"),
       h("div", { className: "bees-home-templates" },
-        cards.length > 0 ? cards.map(card =>
+        cards.length > 0 ? visibleCards.map(card =>
           h("button", { className: "bees-template-card", onClick: async () => {
             if (card.isTemplate) {
               const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
@@ -96,7 +99,12 @@ export function Home({ data, workspaceId, act, openWorkItem }) {
             h("div", { className: "bees-template-card-title" }, card.name),
             h("div", { className: "bees-template-card-meta" }, card.description || (card.isTemplate ? "Template" : "Process"))
           )
-        ) : h("p", { className: "bees-muted" }, "No templates available.")
+        ) : h("p", { className: "bees-muted" }, "No templates available."),
+        cards.length > 10 && !showAllTemplates ? h("button", { 
+          className: "bees-btn", 
+          style: { width: "100%", marginTop: "4px" }, 
+          onClick: () => setShowAllTemplates(true) 
+        }, `Show all ${cards.length} templates`) : null
       )
     )
   );
