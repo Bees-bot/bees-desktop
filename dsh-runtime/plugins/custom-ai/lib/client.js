@@ -127,7 +127,7 @@ window.__ModuleLoader__.load({
         setKey(""); setModel(""); setSelected(""); setAdding(false);
       });
       const addModel = (id) => perform(`model:${id}`, async () => {
-        const value = (await ask(`${BY_ID[id].name} model ID`, "")).trim();
+        const value = (await ask(`${BY_ID[id].name} model ID`, ""))?.trim();
         if (!value) return;
         const models = modelsFor(id);
         if (models.some((entry) => entry.id === value)) throw new Error(`${value} is already connected`);
@@ -160,7 +160,7 @@ window.__ModuleLoader__.load({
         if (!baseURL) return;
         let models = custom.models ?? [];
         if (!models.length) {
-          const id = (await ask("Model ID", "default")).trim(); if (!id) return;
+          const id = (await ask("Model ID", "default"))?.trim(); if (!id) return;
           models = [{ id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         }
         const value = await ask("API key (leave blank to keep the stored key)", "", "password");
@@ -172,7 +172,7 @@ window.__ModuleLoader__.load({
         } });
       });
       const addCustomModel = () => perform("custom-model", async () => {
-        const id = (await ask("Model ID", "")).trim(); if (!id) return;
+        const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
         if (custom.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
         const models = [...(custom.models ?? []), { id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         await modelSettings.set("providers", { ...(config.providers ?? {}), "custom-openai": { ...custom, models } });

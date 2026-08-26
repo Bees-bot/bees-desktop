@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
         await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile(models) });
       };
       const addCodexModel = () => perform("codex-model", async () => {
-        const id = (await ask("Codex model ID", "")).trim(); if (!id) return;
+        const id = (await ask("Codex model ID", ""))?.trim(); if (!id) return;
         if (codexModels.some((model) => model.id === id)) throw new Error(`${id} is already connected`);
         await saveCodexModels([...codexModels, { id }]);
       });
@@ -91,7 +91,7 @@ window.__ModuleLoader__.load({
       const toggleClaude = (enabled) => perform("claude", () => command("claude_toggle", { enabled }));
       const saveClaudeModels = (models) => perform("claude-model", () => command("claude_models", { models }));
       const addClaudeModel = () => perform("claude-model", async () => {
-        const id = (await ask("Claude Code model ID", "")).trim(); if (!id) return;
+        const id = (await ask("Claude Code model ID", ""))?.trim(); if (!id) return;
         if (status.claude.models.includes(id)) throw new Error(`${id} is already connected`);
         await command("claude_models", { models: [...status.claude.models, id] });
       });

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 const sourceFiles = [
-  "runtime.js", "shared.js", "home.js", "work.js", "processes.js",
+  "runtime.js", "shared.js", "dashboard-model.js", "home.js", "work.js", "processes.js",
   "agents.js", "resources.js", "settings.js", "shell.js", "index.js"
 ];
 
