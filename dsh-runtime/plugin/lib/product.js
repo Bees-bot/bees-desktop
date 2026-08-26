@@ -45,28 +45,33 @@ export class BeesProduct {
     }
   }
 
-  async recoverHumanWaits() {
+  async recoverRuns() {
     const runs = this.database.prepare(`
       SELECT execution_id AS executionId, work_item_id AS workItemId,
              recovery_count AS recoveryCount, config_json AS configJson
-      FROM execution_links WHERE status = 'interrupted' ORDER BY updated_at
-    `).all();
+      FROM execution_links ORDER BY updated_at
+    `).all().filter((run) => this.agents.needsRecovery(run.executionId));
     const recoveries = runs.flatMap((run) => {
       const pending = this.agents.pendingInteraction(run.executionId);
-      if (!pending) return [];
       const data = JSON.parse(run.configJson);
       let body;
       if (!run.workItemId && data.mode === "planning") {
         body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
       } else if (run.workItemId) {
+        const lifecycle = this.database.prepare(`
+          SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt
+          FROM work_items WHERE id = ?
+        `).get(run.workItemId);
+        if (!lifecycle || lifecycle.archivedAt || lifecycle.deletedAt ||
+          ["completed", "cancelled"].includes(lifecycle.runtimePhase)) return [];
         const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
         if (this.processes?.isAutomatic(item.processId)) return [];
         body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
       } else return [];
-      if (pending.kind === "question")
+      if (pending?.kind === "question")
         body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
       return [this.agents.admit("bees-run", run.executionId, {
-        idempotencyKey: `human-wait:${run.executionId}:${Number(run.recoveryCount) + 1}`,
+        idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
         body
       })];
     });
@@ -89,7 +94,7 @@ export class BeesProduct {
     const parentRun = item.parentId ? this.database.prepare(`
       SELECT run_directory AS runDirectory FROM execution_links
       WHERE work_item_id = ?
-        AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval', 'interrupted')
+        AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
       ORDER BY updated_at DESC LIMIT 1
     `).get(item.parentId) : null;
     const runDirectory = parentRun?.runDirectory ?? resolve(this.defaultWorkspace, "runs", executionId);
@@ -262,7 +267,7 @@ export class BeesProduct {
       ORDER BY updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
       ...run, outputs: outputFiles(runDirectory),
-      files: ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status)
+      files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
         ? previewFiles(runDirectory) : []
     })) : [];
     const schedules = [];
