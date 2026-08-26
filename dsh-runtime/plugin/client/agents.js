@@ -134,8 +134,9 @@ function McpAccess({ servers, access, chosen }) {
         : "No MCP servers are connected yet; add one under Agents, MCP servers.")),
     mode === "listed" ? h("div", { className: "bees-form" }, h("span", null, "Allowed servers"),
       ...servers.map((server) => h("label", { key: server.id, className: "bees-muted" },
-        h("input", { type: "checkbox", name: "mcpServers", value: server.id, defaultChecked: picked.has(server.id) }),
-        ` ${server.label} (${server.toolCount} tool${server.toolCount === 1 ? "" : "s"})`)),
+        h("span", null,
+          h("input", { type: "checkbox", name: "mcpServers", value: server.id, defaultChecked: picked.has(server.id) }),
+          ` ${server.label} (${server.toolCount} tool${server.toolCount === 1 ? "" : "s"})`))),
       servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")) : null);
 }
 
@@ -268,7 +269,7 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
       h("span", { className: "bees-muted" }, "Optional labels. A process stage can ask for an agent that has one.")),
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
     h("label", null, "Maximum concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
-    h("label", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"),
+    h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing")),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
