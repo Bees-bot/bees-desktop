@@ -40,6 +40,9 @@
         displayName: Local OpenAI-compatible
         api: openai-completions
         baseURL: http://127.0.0.1:1234/v1
+        # llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
+        headers:
+          authorization: Bearer local
         models:
           - id: active
             name: Nanbeige 4.2 3B (Q6_K)
