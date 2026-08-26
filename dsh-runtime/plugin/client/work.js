@@ -5,6 +5,10 @@ import {
   ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, workItemsFor
 } from "./shared.js";
 
+/** The goal opens the conversation, so a run reads from the ask down. */
+const GoalMessage = ({ item }) => h("div", { className: "bees-convo-msg user" },
+  h("strong", null, "Goal"), h("div", null, item.description || item.title));
+
 function WorkItemDetails({ data, item, teamId, act, onArchived }) {
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
