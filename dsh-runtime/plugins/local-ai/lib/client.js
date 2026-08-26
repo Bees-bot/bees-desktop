@@ -13,8 +13,7 @@ window.__ModuleLoader__.load({
         fileName: "Nanbeige4.2-3B-Q6_K.gguf",
         url: "https://huggingface.co/owao/Nanbeige4.2-3B-GGUF/resolve/main/Nanbeige4.2-3B-Q6_K.gguf?download=true",
         bytes: 3424947040,
-        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df",
-        contextSize: 8192
+        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df"
       },
       {
         id: "gemma-4-e2b-it-qat-q4-0", name: "Gemma 4 E2B (Q4_0)",
