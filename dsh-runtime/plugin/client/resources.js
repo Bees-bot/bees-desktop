@@ -38,6 +38,47 @@ export function FilesPage({ ctx, data, teamId, act }) {
   );
 }
 
+function HarnessEvent({ event }) {
+  const type = event.type ?? "Unknown event";
+  let detail = "";
+  try {
+    const d = event.data;
+    if (d) {
+      let parts = [];
+      if (typeof d === "string") parts.push(d);
+      else {
+        if (d.name) parts.push(d.name);
+        if (d.id && !d.name) parts.push(`id: ${d.id}`);
+        if (d.mode) parts.push(`mode: ${d.mode}`);
+        if (d.policy) parts.push(`policy: ${d.policy}`);
+        if (d.seq) parts.push(`seq: ${d.seq}`);
+        if (d.step) parts.push(`step: ${d.step}`);
+        if (d.action) parts.push(`action: ${d.action}`);
+        const c = Array.isArray(d.content) ? d.content : Array.isArray(d.message?.content) ? d.message.content : null;
+        if (c?.[0]?.text) {
+          let t = c[0].text.replace(/\s+/g, " ");
+          parts.push(t.length > 80 ? t.slice(0, 80) + "…" : t);
+        }
+      }
+      if (parts.length > 0) detail = parts.join(" · ");
+      else {
+        const str = JSON.stringify(d);
+        detail = str.length > 80 ? str.slice(0, 80) + "…" : str;
+      }
+    }
+  } catch (e) {}
+
+  return h("details", { className: "bees-audit" },
+    h("summary", { className: "bees-row" }, h("div", { className: "bees-row-main", style: { minWidth: 0, overflow: "hidden" } },
+      h("div", { className: "bees-row-title" }, type),
+      h("div", { className: "bees-muted", style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: "2px 0 4px 0", fontSize: "13px" } }, detail),
+      h("div", { className: "bees-muted", style: { fontSize: "11px" } }, new Date(event.time || Date.now()).toLocaleString()))
+    ),
+    h("div", { className: "bees-audit-detail" },
+      h("pre", null, JSON.stringify(event.data ?? event, null, 2)))
+  );
+}
+
 export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) {
   const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
   const [events, setEvents] = useState([]);
@@ -74,10 +115,32 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
       h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
     run.outputs.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
     history?.error ? h(Empty, null, history.error) : history ? h("div", { className: "bees-transcript" },
-      ...(history.messages?.length ? history.messages.map((message) => h("div", { className: "bees-message", key: message.id },
-        h("strong", null, message.role),
-        message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? ""))
-      )) : [h(Empty, { key: "empty" }, "No transcript messages yet")])
+      ...(history.messages?.length ? history.messages.map((message) => {
+        if (message.role === "error") {
+          return h("div", { className: "bees-message bees-error-msg", key: message.id, style: { color: "#cf5b5b", display: "flex", gap: "8px", alignItems: "flex-start", padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
+            h("span", { style: { fontSize: "14px", marginTop: "2px" } }, "●"),
+            h("div", null, h("strong", null, "This turn failed "), h("span", null, message.parts.map(p => p.text).join(" ")))
+          );
+        }
+        if (message.role === "context") {
+          return h("div", { className: "bees-message bees-context-msg", key: message.id, style: { color: "var(--dsw-alias-label-secondary)", display: "flex", gap: "8px", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
+            h("span", { style: { fontSize: "16px" } }, "☑"),
+            h("span", null, message.parts.map(p => p.text).join(" "))
+          );
+        }
+        return h("div", { className: "bees-message", key: message.id, style: { padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
+          h("div", { style: { marginBottom: "6px" } },
+            h("strong", { className: `bees-status`, style: { background: "var(--dsw-alias-border-l1)", padding: "2px 6px", borderRadius: "4px" } }, message.role)
+          ),
+          h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? "")))
+        );
+      }) : [h(Empty, { key: "empty" }, "No transcript messages yet")]),
+      ...(history.events?.length ? [
+        h("section", { className: "bees-box", style: { marginTop: "20px" }, key: "harness-logs" },
+          h("h3", null, "DeepSeek Harness Logs"),
+          ...history.events.map((event, index) => h(HarnessEvent, { event, key: `event-${index}` }))
+        )
+      ] : [])
     ) : h(Empty, null, "Loading transcript…")
   );
   return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
