@@ -46,6 +46,7 @@ describe("Bees work cockpit UI", () => {
   it("uses the full content width and separates the detail views into tabs", () => {
     expect(client).toContain('import { h, React } from "./runtime.js";');
     expect(client).toContain('"bees-panel-wide"');
+    expect(client).toContain('"bees-panel-full-height"');
     expect(client).toContain('setActiveTab("details")');
     expect(client).toContain('setActiveTab("files")');
     expect(client).toContain('setActiveTab("runs")');
@@ -65,9 +66,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
   });
 
-  it("uses one agent interaction card in Needs you, the dashboard, and the Kanban detail tab", () => {
+  it("uses one agent interaction card in Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(3);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
     expect(client).toContain('"aria-expanded": live.run.id === selected?.run.id');
     expect(client).toContain('className: "bees-dashboard-launch"');
@@ -79,11 +80,29 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("names work items precisely and opens runs whose work item is unavailable", () => {
-    expect(client).toContain('["all-work", "Work items"]');
+    expect(client).toContain('{ id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [] }');
+    expect(client).toContain('placeholder: "Search by task name"');
+    expect(client).toContain('"Filter by status"');
+    expect(client).toContain('"Filter by type"');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
     expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
     expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
+  });
+
+  it("merges the requested navigation screens", () => {
+    expect(client).toContain('["all-agents", "Agents, pools & presets"]');
+    expect(client).toContain('h("h3", null, "Agents")');
+    expect(client).toContain('h("h3", null, "Agent pools")');
+    expect(client).toContain('h("h3", null, "Agent presets")');
+    expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
+    expect(client).toContain('label: "Knowledge Base"');
+    expect(client).toContain('["search", "Search & sources"]');
+  });
+
+  it("keeps work-item navigation inside the Bees task screen", () => {
+    expect(client).toContain("onClick: () => setWorkItemId(item.id)");
+    expect(client).not.toContain("ctx.sessions.open(");
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {
