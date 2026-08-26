@@ -2,6 +2,7 @@ import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
+import { NeedsYouWidget } from "./work.js";
 
 function OutcomeWidget({ workspaceId, act, openWorkItem }) {
   const [outcome, setOutcome] = useState("");
@@ -108,7 +109,7 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 const WIDGETS = [
   { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget },
   { kind: "metrics", label: "Metrics", description: "Key workspace counts", w: 12, h: 3, component: MetricsWidget },
-  { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: ListWidget },
+  { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget },
   { kind: "recent-work", label: "Recent work", description: "Latest active work items", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget },
   { kind: "all-work", label: "All work", description: "Active work items", route: "all-work", w: 6, h: 5, component: ListWidget },
   { kind: "goals", label: "Goals", description: "Current goals", route: "goals", w: 6, h: 5, component: ListWidget },
@@ -182,7 +183,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ data, workspaceId, workspaceIds, act, openWorkItem, navigate, rowsForRoute, preference, preferences }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences }) {
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
@@ -213,7 +214,7 @@ export function Home({ data, workspaceId, workspaceIds, act, openWorkItem, navig
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { data, workspaceId, workspaceIds, act, openWorkItem, navigate, rowsForRoute };
+  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute };
 
   return h("div", { className: "bees-dashboard" },
     h("div", { className: "bees-dashboard-toolbar" },

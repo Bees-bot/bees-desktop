@@ -65,10 +65,17 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
   });
 
-  it("uses one agent interaction card in Needs you and the Kanban detail tab", () => {
+  it("uses one agent interaction card in Needs you, the dashboard, and the Kanban detail tab", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(3);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
+    expect(client).toContain('"aria-expanded": live.run.id === selected?.run.id');
+    expect(client).toContain('className: "bees-dashboard-launch"');
+    expect(client).toContain("function NeedsYouControls");
+    expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
+    expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
+    expect(client).toContain('busy === "cancel_item" ? "Stopping…" : "Stop"');
+    expect(client).toContain('busy === "archive_item" ? "Archiving…" : "Archive"');
   });
 
   it("names work items precisely and opens runs whose work item is unavailable", () => {
