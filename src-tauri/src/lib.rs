@@ -505,7 +505,7 @@ fn open_external_url(url: String) -> Result<(), String> {
 pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
-    #[cfg(all(desktop, not(debug_assertions)))]
+    #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {

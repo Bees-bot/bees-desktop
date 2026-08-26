@@ -23,6 +23,17 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   return { access, servers };
 }
 
+/** A server id that resolves to nothing would silently grant the agent nothing at all. */
+function checkMcpServers(database, policy) {
+  if (policy.access !== "listed") return policy;
+  const known = database.prepare(`
+    SELECT id FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+  `).all(JSON.stringify(policy.servers)).map(({ id }) => id);
+  const missing = policy.servers.filter((id) => !known.includes(id));
+  if (missing.length) throw new Error(`No MCP server matches ${missing.join(", ")}`);
+  return policy;
+}
+
 export async function executeProductCommand(action, input) {
     const at = iso();
     if (action === "create_organization") return transaction(this.database, () => {
@@ -319,7 +330,7 @@ export async function executeProductCommand(action, input) {
         const preset = presets.find(({ id }) => id === presetId);
         if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
       }
-      const policy = mcpPolicy(input);
+      const policy = checkMcpServers(this.database, mcpPolicy(input));
       return transaction(this.database, () => {
         const id = randomUUID();
         const maxConcurrency = Number(input.maxConcurrency ?? 0);
@@ -363,9 +374,9 @@ export async function executeProductCommand(action, input) {
         ? optionalReasoningEffort(input.reasoningEffort) : assignment.reasoningEffort;
       if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
         throw new Error("Agent concurrency must be an integer from 0 to 1000");
-      const policy = mcpPolicy(input, {
+      const policy = checkMcpServers(this.database, mcpPolicy(input, {
         access: assignment.mcpAccess ?? "all", servers: JSON.parse(assignment.mcpServers || "[]")
-      });
+      }));
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,

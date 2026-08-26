@@ -1,4 +1,5 @@
 import { configureRuntime } from "./runtime.js";
+import gridstackCss from "gridstack/dist/gridstack.min.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
 
@@ -12,7 +13,7 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
-      style.textContent = css;
+      style.textContent = `${gridstackCss}\n${css}`;
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
       const preferences = ctx.settingsScope.bind({ namespace: "bees-ui" });
@@ -25,4 +26,3 @@ window.__ModuleLoader__.load({
     return module.exports;
   }
 });
-

@@ -9,6 +9,8 @@ llama-runtime/*
 !llama-runtime/.gitkeep
 dsh-runtime/freellmapi/*
 !dsh-runtime/freellmapi/.gitkeep
+dsh-runtime/omniroute/*
+!dsh-runtime/omniroute/.gitkeep
 dsh-runtime/plugin/lib/client.js
 runtime/
 .env
