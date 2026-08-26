@@ -44,7 +44,9 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses the full content width and separates the detail views into tabs", () => {
-    expect(client).toContain('"bees-panel-wide bees-panel-full-height"');
+    expect(client).toContain('import { h, React } from "./runtime.js";');
+    expect(client).toContain('"bees-panel-wide"');
+    expect(client).toContain('"bees-panel-full-height"');
     expect(client).toContain('setActiveTab("details")');
     expect(client).toContain('setActiveTab("files")');
     expect(client).toContain('setActiveTab("runs")');
@@ -64,16 +66,24 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
   });
 
-  it("uses one agent interaction card in Needs you (detail tab removed to avoid harness hijack)", () => {
+  it("uses one agent interaction card in Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(1);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
+    expect(client).toContain('"aria-expanded": live.run.id === selected?.run.id');
+    expect(client).toContain('className: "bees-dashboard-launch"');
+    expect(client).toContain("function NeedsYouControls");
+    expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
+    expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
+    expect(client).toContain('busy === "cancel_item" ? "Stopping…" : "Stop"');
+    expect(client).toContain('busy === "archive_item" ? "Archiving…" : "Archive"');
   });
 
-  it("names work items precisely and opens standalone planning runs", () => {
+  it("names work items precisely and opens runs whose work item is unavailable", () => {
     expect(client).toContain('["all-work", "Work items"]');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
-    expect(client).toContain('openLabel: selected.run.workItemId ? "Open work" : "Open run"');
+    expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
+    expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
   });
 
@@ -111,7 +121,7 @@ describe("Bees work cockpit UI", () => {
 
   it("shows and saves a required, visually separate system default", () => {
     expect(client).toContain("function SystemDefaultSettings");
-    expect(client).toContain('import { ask, Button, Empty, request } from "./shared.js";');
+    expect(client).toContain('import { ask, Button, confirmAction, Empty, request } from "./shared.js";');
     expect(client).toContain('className: "bees-box bees-system-default"');
     expect(client).toContain('allowSystemDefault: false');
     expect(client).toContain('required: !allowSystemDefault');

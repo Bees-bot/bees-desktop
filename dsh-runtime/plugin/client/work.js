@@ -434,7 +434,31 @@ function ApprovalPanel({ wait, onAnswered }) {
 
 const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
 
-function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel }) {
+function NeedsYouControls({ item, act, onDone }) {
+  const [busy, setBusy] = useState("");
+  if (!item || !act) return null;
+  const invoke = async (action) => {
+    setBusy(action);
+    const result = await act({ action, itemId: item.id });
+    setBusy("");
+    if (result) onDone?.();
+  };
+  const archive = async () => {
+    if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
+    await invoke("archive_item");
+  };
+  return h(React.Fragment, null,
+    item.runtimePhase === "failed" ? h(Button, {
+      className: "primary", disabled: Boolean(busy), onClick: () => void invoke("retry_item")
+    }, busy === "retry_item" ? "Retrying…" : "Retry") : null,
+    ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, {
+      disabled: Boolean(busy), onClick: () => void invoke("cancel_item")
+    }, busy === "cancel_item" ? "Stopping…" : "Stop") : null,
+    h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => void archive() },
+      busy === "archive_item" ? "Archiving…" : "Archive"));
+}
+
+function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled }) {
   const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -446,7 +470,9 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     h("div", { className: "bees-answer-head" }, h("div", null,
       h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
-    h("div", { className: "bees-grow" }), onOpen ? h(Button, { onClick: onOpen }, openLabel) : null),
+    h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
+      onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
+      h(NeedsYouControls, { item, act, onDone: onControlled }))),
     interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, run.status === "interrupted"
@@ -459,9 +485,9 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
   );
 }
 
-export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun }) {
+function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialSelectedId);
   const [handled, setHandled] = useState(() => new Set());
   const [handledRuns, setHandledRuns] = useState(() => new Set());
   const seen = new Set();
@@ -469,7 +495,8 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
     .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
     .filter(({ run }) => ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
   const rowKey = rows.map(({ run, session }) => `${run.id}:${session?.pendingInteraction ?? "none"}`).join("|");
-  useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current) ? current : rows[0]?.run.id ?? ""), [rowKey]);
+  useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current)
+    ? current : autoSelect ? rows[0]?.run.id ?? "" : ""), [rowKey, autoSelect]);
   useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
   const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
@@ -480,14 +507,64 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
   const actionableRunIds = new Set(rows.map(({ run }) => run.id));
   const blocked = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
     ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !actionableRunIds.has(run.id));
-  const answered = (key) => {
+  const answered = (key, candidates = rows) => {
     setHandled((current) => new Set(current).add(key));
     const completed = new Set(handledRuns);
     if (selected) completed.add(selected.run.id);
     setHandledRuns(completed);
-    const next = rows.find(({ run }) => !completed.has(run.id));
+    const next = candidates.find(({ run }) => !completed.has(run.id));
     if (next) setSelectedId(next.run.id);
   };
+  return { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered };
+}
+
+export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, rowsForRoute, limit = 8 }) {
+  const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
+  const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
+  const listedItemIds = new Set();
+  const records = rowsForRoute("waiting").map((row) => {
+    listedItemIds.add(row.id);
+    return { id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) };
+  });
+  for (const live of queue.rows) if (!live.item || !listedItemIds.has(live.item.id)) {
+    records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
+  }
+  const visibleRecords = records.slice(0, limit);
+  const visibleLiveRows = visibleRecords.flatMap(({ live }) => live ? [live] : []);
+  const selected = visibleLiveRows.find(({ run }) => run.id === queue.selectedId);
+  const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);
+  return h("div", { className: "bees-dashboard-needs" },
+    visibleRecords.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
+      const { live } = record;
+      const panelId = live ? `bees-dashboard-need-${live.run.id}` : undefined;
+      return h("div", { className: "bees-dashboard-need-row", key: record.id },
+        h("button", {
+          type: "button", className: `bees-dashboard-row ${live?.run.id === selected?.run.id ? "active" : ""}`,
+          title: record.label, ...(live ? {
+            "aria-expanded": live.run.id === selected?.run.id, "aria-controls": panelId,
+            onClick: () => select(live.run.id)
+          } : { onClick: record.open })
+        }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
+          h("span", { className: "bees-badge" }, live ? interactionName(live.session?.pendingInteraction) : "Blocked")),
+        h("button", {
+          type: "button", className: "bees-dashboard-launch", title: `Open ${record.label} in Needs you`,
+          "aria-label": `Open ${record.label} in Needs you`, onClick: () => openNeedsYou(live?.run.id ?? "")
+        }, "↗"));
+    })) : h(Empty, null, "Nothing needs you right now."),
+    selected ? h("div", { className: "bees-dashboard-needs-answer", id: `bees-dashboard-need-${selected.run.id}` },
+      h(AgentInteractionPanel, {
+        run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session,
+        session: queue.session, interaction: queue.interaction, handled: queue.handled,
+        onAnswered: (key) => queue.answered(key, visibleLiveRows), act,
+        onControlled: () => queue.answered(`control:${selected.run.id}`, visibleLiveRows)
+      })) : null,
+    h(Button, { className: "bees-dashboard-view-all", onClick: () => openNeedsYou("") }, "View all")
+  );
+}
+
+export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId = "" }) {
+  const { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered } =
+    useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId);
   return h(React.Fragment, null,
     h("div", { className: "bees-callout" }, h("h3", null, "Answer agents without leaving the queue"),
       h("div", null, "Questions and approvals update live. After you answer, Bees moves to the next waiting agent.")),
@@ -503,9 +580,9 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         })),
         h(AgentInteractionPanel, {
           run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled,
-          onAnswered: answered,
-          onOpen: selected.run.workItemId ? () => openWorkItem(selected.run.workItemId) : () => openRun(selected.run.id),
-          openLabel: selected.run.workItemId ? "Open work" : "Open run"
+          onAnswered: answered, act, onControlled: () => answered(`control:${selected.run.id}`),
+          onOpen: selected.item ? () => openWorkItem(selected.item.id) : () => openRun(selected.run.id),
+          openLabel: selected.item ? "Open work" : "Open run"
         })
     ) : h(Empty, null, "No live agent questions or approvals right now"),
     blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
@@ -514,7 +591,8 @@ export function NeedsYouPage({ ctx, data, workspaceIds, openWorkItem, openRun })
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
           h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
-          h(Button, { onClick: run.workItemId ? () => openWorkItem(run.workItemId) : () => openRun(run.id) }, run.workItemId ? "Open work" : "Open run"));
+          h(NeedsYouControls, { item, act }),
+          h(Button, { onClick: item ? () => openWorkItem(item.id) : () => openRun(run.id) }, item ? "Open work" : "Open run"));
       })) : null
   );
 }

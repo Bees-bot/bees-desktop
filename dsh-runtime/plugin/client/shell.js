@@ -7,9 +7,11 @@ import {
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
+import { dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouPage, WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
 import { AgentsPage } from "./agents.js";
+import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { SettingsPage } from "./settings.js";
 
@@ -73,6 +75,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
   const [runId, setRunId] = useState("");
+  const [needsYouRunId, setNeedsYouRunId] = useState("");
   const load = async () => {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -86,7 +89,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     setScopeState((current) => valid.has(current) ? current : preferred);
   }, [data, preference.lastScope]);
   const setScope = (next) => {
-    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
     void preferences.set("lastScope", next);
   };
   const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
@@ -106,8 +109,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       document.querySelector('button[aria-haspopup="dialog"][aria-expanded]')?.click();
       return;
     }
+    if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
-    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
   };
   const createOrganization = async () => {
     const name = await ask("Organization name", ""); if (!name) return;
@@ -141,16 +145,22 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
   };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
+  const capabilities = useCapabilities();
   const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
+  const dashboards = dashboardsFrom(preference.dashboards);
+  const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
   const section = sectionFor(route);
-  const routeLabel = section.children.find(([id]) => id === route)?.[1] ?? section.label;
+  const routeLabel = route === "home" ? activeDashboard.name : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
   const setPins = (next) => preferences.set("pins", next);
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
+  const openNeedsYou = (id) => {
+    setRoute("waiting"); setNeedsYouRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+  };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : "work");
@@ -171,6 +181,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (target.id === "agents") {
       const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
       if (targetRoute === "skills") return [];
+      if (targetRoute === "presets") return data.presets.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
+      if (targetRoute === "mcp") return (capabilities.data?.servers ?? [])
+        .map((row) => ({ id: row.id, label: row.label, open: openRoute }));
       if (targetRoute === "pools") return data.pools.filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -193,13 +206,18 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     return [];
   };
-  const page = route === "home" ? h(Home, { data, workspaceId: parts.workspaceId, act, openWorkItem })
+  const page = route === "home" ? h(Home, {
+    ctx, data, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
+    rowsForRoute: pinnedRows, preference, preferences
+  })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
-      ? h(NeedsYouPage, { ctx, data, workspaceIds, openWorkItem, openRun })
+      ? h(NeedsYouPage, { ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId: needsYouRunId })
       : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act })
       : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
+        : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
+        : route === "mcp" ? h(McpPage, { ctx, capabilities })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
           : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
@@ -224,7 +242,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
             h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
             h(PinButton, { id: item.id, label: item.label, pins, setPins }),
-            item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
+            item.children.length > 0 || item.id === "home" ? h("div", { className: "bees-nav-flyout" },
+              ...(item.id === "home" ? dashboards.map((dashboard) =>
+                h("div", { className: `bees-nav-flyout-item ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`, key: `dashboard:${dashboard.id}` },
+                  h("button", {
+                    className: `bees-nav-link bees-nav-child ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
+                    onClick: () => { void preferences.set("activeDashboardId", dashboard.id); setRoute("home"); }
+                  }, dashboard.name))) : []),
               ...item.children.map(([child, label]) =>
                 h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
                   h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
@@ -246,8 +270,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
 
         h(ThemeToggle, { ctx })),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${section.id === "work" && workItemId ? "bees-panel-wide bees-panel-full-height" : ""}` }, page))
+      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));
 }
-

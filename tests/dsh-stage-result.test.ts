@@ -40,6 +40,7 @@ describe("DSH stage results", () => {
       {
         mode: "work",
         agentPresetId: "standard",
+        mcpAccess: "all", mcpServers: [],
         stagePurpose: "worker",
         workItemId: "item",
         grants: [],

@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 import { AgentRuntime } from "./agent-runtime.js";
+import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
 import { ProcessRuntime } from "./process-runtime.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
@@ -10,7 +11,8 @@ import { BeesProduct, initializeProductDatabase } from "./product.js";
 export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
-  "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm"
+  "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
+  "skills", "tools"
 ];
 
 const ModelPreference = z.object({
@@ -20,9 +22,25 @@ const ModelPreference = z.object({
   maxTokens: z.number()
 });
 
+const DashboardWidget = z.object({
+  kind: z.string(),
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number()
+});
+
+const DashboardPreference = z.object({
+  id: z.string(),
+  name: z.string(),
+  widgets: z.array(DashboardWidget).default([])
+});
+
 const BeesUiSettings = z.object({
   pins: z.array(z.string()).default([]),
   lastScope: z.string().default(""),
+  activeDashboardId: z.string().default("home"),
+  dashboards: z.array(DashboardPreference).default([]),
   localModelWantedId: z.string().default(""),
   freeAiProviders: z.array(z.string()).default([]),
   generalAiProviders: z.array(z.string()).default([]),
@@ -108,8 +126,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
     agentPresets: ctx.agentPresets
   });
   const connected = new ConnectedAccount(database, ctx.credentials);
+  const capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
   await product.recoverHumanWaits();
+  await capabilities.initialize();
+  ctx.effect(() => () => capabilities.close(), "bees MCP servers");
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
   ctx.effect(() => () => processes.close(), "bees Temporal worker");
 
@@ -153,6 +174,13 @@ export async function apply(ctx, _config = {}, internals = {}) {
       if (!provider || !model) throw new Error("Choose a provider and model");
       await ctx.agentDefaultModel.saveSelection({ provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) });
       reply(res, 200, { systemDefaultModel: ctx.agentDefaultModel.currentSelection() });
+    } catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
+  register(ctx, { kind: "exact", path: "/bees-api/capabilities", handler: async (req, res) => {
+    try {
+      if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
+      if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+      reply(res, 200, await capabilities.command(await body(req)));
     } catch (error) { reply(res, 409, { error: message(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/references", handler: async (req, res) => {
