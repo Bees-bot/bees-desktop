@@ -9,12 +9,18 @@ window.__ModuleLoader__.load({
 
     const LOCAL_MODELS = [
       {
+        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
+        fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
+        bytes: 2497281120,
+        sha256: "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
+      },
+      {
         id: "nanbeige-4-2-3b-q6-k", name: "Nanbeige 4.2 3B (Q6_K)",
         fileName: "Nanbeige4.2-3B-Q6_K.gguf",
         url: "https://huggingface.co/owao/Nanbeige4.2-3B-GGUF/resolve/main/Nanbeige4.2-3B-Q6_K.gguf?download=true",
         bytes: 3424947040,
-        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df",
-        contextSize: 8192
+        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df"
       },
       {
         id: "gemma-4-e2b-it-qat-q4-0", name: "Gemma 4 E2B (Q4_0)",
@@ -70,6 +76,8 @@ window.__ModuleLoader__.load({
       await modelSettings.set("providers", { ...config.providers, "local-openai": {
         ...(config.providers?.["local-openai"] ?? {}), displayName: "Local AI",
         api: "openai-completions", baseURL: connection.baseUrl,
+        // llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
+        headers: { authorization: "Bearer local" },
         models: [{ id: "active", name: model.name, contextWindow: connection.contextWindow,
           maxTokens: Math.min(4096, Math.floor(connection.contextWindow / 2)) }]
       } });
