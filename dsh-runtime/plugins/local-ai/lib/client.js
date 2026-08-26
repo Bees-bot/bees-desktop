@@ -70,6 +70,8 @@ window.__ModuleLoader__.load({
       await modelSettings.set("providers", { ...config.providers, "local-openai": {
         ...(config.providers?.["local-openai"] ?? {}), displayName: "Local AI",
         api: "openai-completions", baseURL: connection.baseUrl,
+        // llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
+        headers: { authorization: "Bearer local" },
         models: [{ id: "active", name: model.name, contextWindow: connection.contextWindow,
           maxTokens: Math.min(4096, Math.floor(connection.contextWindow / 2)) }]
       } });
