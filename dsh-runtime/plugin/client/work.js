@@ -1,15 +1,78 @@
+import { GridStack } from "gridstack";
 import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, workItemsFor
 } from "./shared.js";
+import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 
 /** The goal opens the conversation, so a run reads from the ask down. */
 const GoalMessage = ({ item }) => h("div", { className: "bees-convo-msg user" },
   h("strong", null, "Goal"), h("div", null, item.description || item.title));
 
-function WorkItemDetails({ data, item, teamId, act, onArchived }) {
+const WORK_ITEM_WIDGETS = {
+  kanban: { label: "Kanban", minW: 6, minH: 3 },
+  conversation: { label: "Conversation", minW: 3, minH: 4 },
+  details: { label: "Details", minW: 3, minH: 4 }
+};
+
+function WorkItemGrid({ layout, editing, onLayout, panels }) {
+  const root = React.useRef(null);
+  const gridRef = React.useRef(null);
+  const onLayoutRef = React.useRef(onLayout);
+  onLayoutRef.current = onLayout;
+  const layoutKey = layout.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
+  useEffect(() => {
+    const grid = GridStack.init({
+      column: 12,
+      columnOpts: { breakpoints: [{ w: 780, c: 1 }] },
+      cellHeight: 72,
+      margin: 6,
+      animate: true,
+      disableDrag: !editing,
+      disableResize: !editing,
+      draggable: { handle: ".bees-work-item-widget-handle" },
+      resizable: { handles: "e,se,s,sw,w" }
+    }, root.current);
+    if (!grid) return undefined;
+    const save = () => {
+      const value = grid.save(false);
+      if (Array.isArray(value)) onLayoutRef.current(value);
+    };
+    grid.on("dragstop resizestop", save);
+    gridRef.current = grid;
+    return () => { gridRef.current = null; grid.offAll().destroy(false); };
+  }, []);
+  useEffect(() => {
+    gridRef.current?.enableMove(editing);
+    gridRef.current?.enableResize(editing);
+  }, [editing]);
+  useEffect(() => {
+    gridRef.current?.load(layout.map(({ kind, ...position }) => ({ id: kind, ...position })));
+  }, [layoutKey]);
+
+  return h("div", { className: `grid-stack bees-work-item-grid ${editing ? "editing" : ""}`, ref: root },
+    ...layout.map((widget) => {
+      const definition = WORK_ITEM_WIDGETS[widget.kind];
+      return h("section", {
+        className: "grid-stack-item",
+        key: widget.kind,
+        "gs-id": widget.kind,
+        "gs-x": widget.x,
+        "gs-y": widget.y,
+        "gs-w": widget.w,
+        "gs-h": widget.h,
+        "gs-min-w": definition.minW,
+        "gs-min-h": definition.minH
+      }, h("div", { className: "grid-stack-item-content bees-work-item-widget" },
+        h("header", { className: "bees-work-item-widget-handle" }, h("strong", null, definition.label)),
+        h("div", { className: "bees-work-item-widget-body" }, panels[widget.kind])));
+    })
+  );
+}
+
+function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, editing, onLayout }) {
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -134,8 +197,7 @@ function WorkItemDetails({ data, item, teamId, act, onArchived }) {
   }
 
   
-  return h("div", { className: "bees-workspace-layout" },
-    h("div", { className: "bees-convo-panel" },
+  const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
         pendingRun ? h("div", { className: "bees-convo-msg system" }, "⚡ Agent is waiting for your input — go to Needs You to respond.") : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
@@ -152,9 +214,8 @@ function WorkItemDetails({ data, item, teamId, act, onArchived }) {
           h("span", { className: "bees-composer-hint" }, pendingRun ? "Agent is waiting for your answer" : "Conversation paused"),
           h("button", { className: "bees-btn primary", disabled: true }, "Send message")
         )
-      )
-    ),
-    h("div", { className: "bees-details-panel" },
+      ));
+  const details = h("div", { className: "bees-details-panel" },
       h("div", { className: "bees-box" },
         h("div", { className: "bees-tabbar" },
           h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" },
@@ -206,15 +267,19 @@ function WorkItemDetails({ data, item, teamId, act, onArchived }) {
             })) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")])
           )
         )
-      )
-    )
-  );
+      ));
+  return h(WorkItemGrid, {
+    layout, editing, onLayout,
+    panels: { kanban: board, conversation, details }
+  });
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
+function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, preferences }) {
   const root = data.items.find(({ id }) => id === rootId);
   const [selectedId, setSelectedId] = useState(rootId);
+  const [editing, setEditing] = useState(false);
   useEffect(() => setSelectedId(rootId), [rootId]);
+  useEffect(() => setEditing(false), [rootId]);
   const visibleIds = new Set([rootId]);
   for (let added = true; added;) {
     added = false;
@@ -239,22 +304,29 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack }) {
   };
   const completed = items.filter(({ completed }) => completed).length;
   const total = items.length;
+  const layout = workItemLayoutFrom(preference.workItemLayout);
+  const board = h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
+    const rows = items.filter(({ stageId }) => stageId === stage.id);
+    return h("section", { className: "bees-column", key: stage.id },
+      h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
+      h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
+        const run = latest.get(item.id); const parentPath = lineage(item);
+        const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
+        return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
+          h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
+          h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
+      }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
+  }));
   return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 } },
     h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
-      h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`))),
-    h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
-      const rows = items.filter(({ stageId }) => stageId === stage.id);
-      return h("section", { className: "bees-column", key: stage.id },
-        h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
-        h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
-          const run = latest.get(item.id); const parentPath = lineage(item);
-          const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
-          return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
-            h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
-            h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
-        }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
-    })),
-    h(WorkItemDetails, { data, item: selected, teamId, act, onArchived: onBack })
+      h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)),
+      h("div", { className: "bees-grow" }),
+      editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
+      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")),
+    h(WorkItemDetails, {
+      data, item: selected, teamId, act, onArchived: onBack, board, layout, editing,
+      onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value))
+    })
   );
 }
 
@@ -602,11 +674,13 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
   );
 }
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [type, setType] = useState(route === "goals" ? "goal" : "all");
-  if (workItemId) return h(WorkItemCockpit, { ctx, data, rootId: workItemId, teamId, act, onBack: () => setWorkItemId("") });
+  if (workItemId) return h(WorkItemCockpit, {
+    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId("")
+  });
   if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
     data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }

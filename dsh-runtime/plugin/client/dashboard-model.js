@@ -7,6 +7,12 @@ const DEFAULT_WIDGETS = [
   { kind: "recent-work", x: 6, y: 5, w: 6, h: 4 }
 ];
 
+const DEFAULT_WORK_ITEM_WIDGETS = [
+  { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
+  { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
+  { kind: "details", x: 6, y: 4, w: 6, h: 8 }
+];
+
 const number = (value, fallback, min, max) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.round(parsed))) : fallback;
@@ -69,4 +75,24 @@ export function applyDashboardLayout(dashboard, layout) {
     ...dashboard,
     widgets: dashboard.widgets.map((widget) => normalizeWidget({ ...widget, ...positions.get(widget.kind), kind: widget.kind }) ?? widget)
   };
+}
+
+export function workItemLayoutFrom(value) {
+  const saved = new Map();
+  for (const candidate of Array.isArray(value) ? value : []) {
+    const widget = normalizeWidget(candidate);
+    if (widget && DEFAULT_WORK_ITEM_WIDGETS.some(({ kind }) => kind === widget.kind) && !saved.has(widget.kind)) {
+      saved.set(widget.kind, widget);
+    }
+  }
+  return DEFAULT_WORK_ITEM_WIDGETS.map((widget) => normalizeWidget({
+    ...widget, ...saved.get(widget.kind), kind: widget.kind
+  }) ?? { ...widget });
+}
+
+export function applyWorkItemLayout(layout) {
+  const positions = new Map((Array.isArray(layout) ? layout : []).map((item) => [String(item.id ?? ""), item]));
+  return workItemLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS.map((widget) => ({
+    ...widget, ...positions.get(widget.kind), kind: widget.kind
+  })));
 }

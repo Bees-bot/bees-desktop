@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The DSH browser client is intentionally plain JavaScript.
-import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
+import { addDashboardWidget, applyDashboardLayout, applyWorkItemLayout, dashboardsFrom, workItemLayoutFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
@@ -37,5 +37,35 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("dashboards"');
     expect(client).toContain('preferences.set("activeDashboardId"');
     expect(client).toContain('draggable: { handle: ".bees-dashboard-widget-handle" }');
+  });
+
+  it("provides and sanitizes the fixed work-item layout", () => {
+    expect(workItemLayoutFrom(undefined)).toEqual([
+      { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
+      { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
+      { kind: "details", x: 6, y: 4, w: 6, h: 8 }
+    ]);
+    expect(workItemLayoutFrom([
+      { kind: "details", x: 50, y: -1, w: 50, h: 1 },
+      { kind: "unknown", x: 0, y: 0, w: 2, h: 2 }
+    ])).toEqual([
+      { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
+      { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
+      { kind: "details", x: 0, y: 0, w: 12, h: 2 }
+    ]);
+  });
+
+  it("applies and exposes the resizable work-item GridStack layout", () => {
+    expect(applyWorkItemLayout([
+      { id: "conversation", x: 0, y: 4, w: 7, h: 8 },
+      { id: "details", x: 7, y: 4, w: 5, h: 8 }
+    ])).toEqual([
+      { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
+      { kind: "conversation", x: 0, y: 4, w: 7, h: 8 },
+      { kind: "details", x: 7, y: 4, w: 5, h: 8 }
+    ]);
+    expect(client).toContain('draggable: { handle: ".bees-work-item-widget-handle" }');
+    expect(client).toContain('preferences.set("workItemLayout"');
+    expect(client).toContain('editing ? "Done" : "Edit layout"');
   });
 });
