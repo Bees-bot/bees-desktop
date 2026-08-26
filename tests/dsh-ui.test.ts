@@ -93,9 +93,9 @@ describe("Bees work cockpit UI", () => {
 
   it("merges the requested navigation screens", () => {
     expect(client).toContain('["all-agents", "Agents, pools & presets"]');
-    expect(client).toContain('h("h3", null, "Agents")');
-    expect(client).toContain('h("h3", null, "Agent pools")');
-    expect(client).toContain('h("h3", null, "Agent presets")');
+    expect(client).toContain('agents: { label: "Agents"');
+    expect(client).toContain('pools: { label: "Agent pools"');
+    expect(client).toContain('presets: { label: "Agent presets"');
     expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
     expect(client).toContain('label: "Knowledge Base"');
     expect(client).toContain('["search", "Search & sources"]');

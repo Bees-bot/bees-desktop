@@ -1,0 +1,81 @@
+import { GridStack } from "gridstack";
+import { h, useEffect, useRef, useState } from "./runtime.js";
+import { Button } from "./shared.js";
+import { applyFixedLayout, fixedLayoutFrom } from "./dashboard-model.js";
+
+const EMPTY_PAGE_LAYOUTS = Object.freeze({});
+
+export function FlexibleGrid({ layout, editing, onLayout, panels, className = "" }) {
+  const root = useRef(null);
+  const gridRef = useRef(null);
+  const onLayoutRef = useRef(onLayout);
+  onLayoutRef.current = onLayout;
+  const visibleLayout = layout.filter(({ kind }) => panels[kind]);
+  const layoutKey = visibleLayout.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
+  useEffect(() => {
+    const grid = GridStack.init({
+      column: 12,
+      columnOpts: { breakpoints: [{ w: 780, c: 1 }] },
+      cellHeight: 72,
+      margin: 6,
+      animate: true,
+      disableDrag: !editing,
+      disableResize: !editing,
+      draggable: { handle: ".bees-flex-widget-handle" },
+      resizable: { handles: "e,se,s,sw,w" }
+    }, root.current);
+    if (!grid) return undefined;
+    const save = () => {
+      const value = grid.save(false);
+      if (Array.isArray(value)) onLayoutRef.current(value);
+    };
+    grid.on("dragstop resizestop", save);
+    gridRef.current = grid;
+    return () => { gridRef.current = null; grid.offAll().destroy(false); };
+  }, []);
+  useEffect(() => {
+    gridRef.current?.enableMove(editing);
+    gridRef.current?.enableResize(editing);
+  }, [editing]);
+  useEffect(() => {
+    gridRef.current?.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })));
+  }, [layoutKey]);
+
+  return h("div", { className: `grid-stack bees-flex-grid ${editing ? "editing" : ""} ${className}`.trim(), ref: root },
+    ...visibleLayout.map((widget) => {
+      const panel = panels[widget.kind];
+      return h("section", {
+        className: "grid-stack-item",
+        key: widget.kind,
+        "gs-id": widget.kind,
+        "gs-x": widget.x,
+        "gs-y": widget.y,
+        "gs-w": widget.w,
+        "gs-h": widget.h,
+        "gs-min-w": panel.minW ?? 3,
+        "gs-min-h": panel.minH ?? 2
+      }, h("div", { className: "grid-stack-item-content bees-flex-widget" },
+        h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label)),
+        h("div", { className: "bees-flex-widget-body" }, panel.content)));
+    })
+  );
+}
+
+export function GridStackPage({ layoutId, defaults, panels, preference, preferences, setPageActions, className = "" }) {
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setEditing(false), [layoutId]);
+  const layouts = preference.pageLayouts ?? EMPTY_PAGE_LAYOUTS;
+  const layout = fixedLayoutFrom(defaults, layouts[layoutId]);
+  const save = (value) => void preferences.set("pageLayouts", {
+    ...layouts, [layoutId]: applyFixedLayout(defaults, value)
+  });
+  useEffect(() => {
+    setPageActions(h("div", { className: "bees-page-actions" },
+      editing ? h(Button, { onClick: () => preferences.set("pageLayouts", { ...layouts, [layoutId]: [] }) }, "Reset") : null,
+      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")));
+    return () => setPageActions(null);
+  }, [editing, layoutId, layouts, preferences, setPageActions]);
+  return h("div", { className: "bees-flex-page" },
+    h(FlexibleGrid, { layout, editing, onLayout: save, panels, className: `bees-page-grid ${className}`.trim() })
+  );
+}

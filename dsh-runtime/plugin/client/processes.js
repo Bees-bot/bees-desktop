@@ -1,5 +1,17 @@
 import { h, React } from "./runtime.js";
 import { ask, Button, confirmAction, Empty } from "./shared.js";
+import { GridStackPage } from "./flexible-grid.js";
+
+const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 8 }];
+const TEMPLATES_LAYOUT = [
+  { kind: "about", x: 0, y: 0, w: 12, h: 2 },
+  { kind: "templates", x: 0, y: 2, w: 12, h: 8 }
+];
+const PROCESS_DETAIL_LAYOUT = [
+  { kind: "routing", x: 0, y: 0, w: 7, h: 7 },
+  { kind: "work", x: 7, y: 0, w: 5, h: 7 },
+  { kind: "archive", x: 0, y: 7, w: 12, h: 3 }
+];
 
 function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
   const template = kind === "template";
@@ -33,7 +45,7 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
   );
 }
 
-export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act }) {
+export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions }) {
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
     kind: creating, draft: processDraft, workspaceId, act,
@@ -96,6 +108,32 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
         if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
         if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
       };
+      const routing = h("div", null,
+        h("p", { className: "bees-muted" }, "Assign an agent or pool to each stage here—including a stage named Waiting. “Needs you” is a separate queue for blocked work, not an assignable stage. Workspace defaults remain the fallback."),
+        ...processStages.map((stage) => h("div", { className: "bees-row", key: stage.id },
+          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, stage.name),
+            h("div", { className: "bees-muted" }, stage.requiredCapabilities.length
+              ? `Requires: ${stage.requiredCapabilities.join(", ")}` : stage.driver)),
+          stage.driver === "terminal" ? h("span", { className: "bees-badge" }, "Terminal") : h(React.Fragment, null,
+            h("select", {
+              className: "bees-select", value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+              "aria-label": `${stage.name} agent route`, onChange: (event) => void setStageRoute(stage, event.target.value)
+            },
+              h("option", { value: "" }, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`),
+              h("optgroup", { label: "Agents" }, ...processAgents.map((agent) =>
+                h("option", { value: `agent:${agent.id}`, key: agent.id, disabled: !agent.enabled }, agent.name))),
+              h("optgroup", { label: "Pools" }, ...processPools.map((pool) =>
+                h("option", { value: `pool:${pool.id}`, key: pool.id }, pool.name)))),
+            h(Button, { onClick: () => setRequirements(stage) }, "Requirements")))));
+      const work = h("div", null, ...(roots.length ? roots.map((item) => {
+        const stage = data.stages.find(({ id }) => id === item.stageId);
+        return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openWorkItem(item.id) },
+          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${stage?.name ?? "Stage"} · ${item.runtimePhase}`)),
+          h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase));
+      }) : [h(Empty, { key: "empty" }, "No root work items in this process")]));
+      const archive = process.kind === "standard" ? h("div", null,
+        h("p", { className: "bees-muted" }, "Archive hides this process without breaking work history or database links."),
+        h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
       return h("div", null,
         h("div", { className: "bees-row" }, h(Button, { onClick: () => setProcessId("") }, "← All processes"), h("strong", null, process.name), h("div", { className: "bees-grow" }),
           ...attached.map(({ locationId, relativePath }) => {
@@ -105,40 +143,21 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
           h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
           process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
           h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")),
-        h("section", { className: "bees-box" }, h("h3", null, "Stage routing"),
-          h("p", { className: "bees-muted" }, "Assign an agent or pool to each stage here—including a stage named Waiting. “Needs you” is a separate queue for blocked work, not an assignable stage. Workspace defaults remain the fallback."),
-          ...processStages.map((stage) => h("div", { className: "bees-row", key: stage.id },
-            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, stage.name),
-              h("div", { className: "bees-muted" }, stage.requiredCapabilities.length
-                ? `Requires: ${stage.requiredCapabilities.join(", ")}` : stage.driver)),
-            stage.driver === "terminal" ? h("span", { className: "bees-badge" }, "Terminal") : h(React.Fragment, null,
-              h("select", {
-                className: "bees-select", value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
-                "aria-label": `${stage.name} agent route`, onChange: (event) => void setStageRoute(stage, event.target.value)
-              },
-                h("option", { value: "" }, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`),
-                h("optgroup", { label: "Agents" }, ...processAgents.map((agent) =>
-                  h("option", { value: `agent:${agent.id}`, key: agent.id, disabled: !agent.enabled }, agent.name))),
-                h("optgroup", { label: "Pools" }, ...processPools.map((pool) =>
-                  h("option", { value: `pool:${pool.id}`, key: pool.id }, pool.name)))),
-              h(Button, { onClick: () => setRequirements(stage) }, "Requirements"))))),
-        ...(roots.length ? roots.map((item) => {
-          const stage = data.stages.find(({ id }) => id === item.stageId);
-          return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openWorkItem(item.id) },
-            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${stage?.name ?? "Stage"} · ${item.runtimePhase}`)),
-            h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase));
-        }) : [h(Empty, { key: "empty" }, "No root work items in this process")]),
-        process.kind === "standard" ? h("section", { className: "bees-box bees-danger-zone" },
-          h("h3", null, "Archive process"), h("p", { className: "bees-muted" }, "Archive hides this process without breaking work history or database links."),
-          h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null
+        h(GridStackPage, {
+          layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions,
+          panels: {
+            routing: { label: "Stage routing", minW: 5, minH: 4, content: routing },
+            work: { label: "Work items", minW: 4, minH: 4, content: work },
+            ...(archive ? { archive: { label: "Archive process", minW: 4, minH: 2, content: archive } } : {})
+          }
+        })
       );
     }
   }
   if (route === "templates") {
     const templates = (data.templates ?? []).filter((template) => workspaceIds.includes(template.workspaceId));
-    return h("div", null,
-      h("div", { className: "bees-callout" }, h("h3", null, "A template is a reusable process blueprint"),
-        h("div", null, "A process runs real work. A template only remembers the name, explanation, and stages so you can create similar processes quickly.")),
+    const about = h("div", null, "A process runs real work. A template only remembers the name, explanation, and stages so you can create similar processes quickly.");
+    const templateList = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => { setProcessDraft(null); setCreating("template"); } }, "New template")),
       ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
@@ -148,10 +167,16 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
           onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
         h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&
           act({ action: "archive_process_template", templateId: template.id }) }, "Archive")))
-        : [h(Empty, { key: "empty" }, "No templates yet. Create one here or save an existing process as a template.")])
-    );
+        : [h(Empty, { key: "empty" }, "No templates yet. Create one here or save an existing process as a template.")]));
+    return h(GridStackPage, {
+      layoutId: "process-templates", defaults: TEMPLATES_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        about: { label: "About templates", minW: 6, minH: 2, content: about },
+        templates: { label: "Templates", minW: 6, minH: 4, content: templateList }
+      }
+    });
   }
-  return h("div", null,
+  const processList = h("div", null,
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId,
       onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process")),
     ...(processes.length ? processes.map((process) => {
@@ -160,7 +185,9 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))),
         h(Button, { onClick: () => setProcessId(process.id) }, "Open"),
         h(Button, { onClick: () => edit(process) }, "Edit"));
-    }) : [h(Empty, { key: "empty" }, "No processes yet")])
-  );
+    }) : [h(Empty, { key: "empty" }, "No processes yet")]));
+  return h(GridStackPage, {
+    layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
+    panels: { processes: { label: "Processes", minW: 6, minH: 4, content: processList } }
+  });
 }
-

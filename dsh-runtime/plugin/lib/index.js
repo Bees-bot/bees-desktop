@@ -42,6 +42,7 @@ const BeesUiSettings = z.object({
   activeDashboardId: z.string().default("home"),
   dashboards: z.array(DashboardPreference).default([]),
   workItemLayout: z.array(DashboardWidget).default([]),
+  pageLayouts: z.dict(z.array(DashboardWidget)).default({}),
   localModelWantedId: z.string().default(""),
   freeAiProviders: z.array(z.string()).default([]),
   generalAiProviders: z.array(z.string()).default([]),

@@ -1,5 +1,17 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, request } from "./shared.js";
+import { GridStackPage } from "./flexible-grid.js";
+
+const AGENTS_LAYOUT = [
+  { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
+  { kind: "pools", x: 7, y: 0, w: 5, h: 7 },
+  { kind: "presets", x: 0, y: 7, w: 12, h: 5 }
+];
+
+const AGENT_POOL_LAYOUT = [
+  { kind: "settings", x: 0, y: 0, w: 5, h: 6 },
+  { kind: "members", x: 5, y: 0, w: 7, h: 6 }
+];
 
 const CODEX_CHANNELS = [
   ["__bees_latest_sol__", "sol", "Sol"],
@@ -195,7 +207,7 @@ function PoolCreateForm({ workspaceId, act, onCancel, onCreated }) {
   );
 }
 
-export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId, creating, setCreating, act, openDshSettings }) {
+export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions }) {
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
   const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
   const [selectedId, setSelectedId] = useState("");
@@ -219,8 +231,7 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
         const priority = await ask("Priority (1 runs first)", "100", "number"); if (priority === null) return;
         await act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: agent.id, priority: Number(priority) });
       };
-      return h("div", { className: "bees-stack" },
-        h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
+      const settings = h("form", { className: "bees-form", onSubmit: async (event) => {
           event.preventDefault(); const form = new FormData(event.currentTarget);
           await act({ action: "edit_agent_pool", agentPoolId: selectedPool.id,
             name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
@@ -228,9 +239,9 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
           h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedPoolId("") }, "← Pools"), h("strong", null, selectedPool.name)),
           h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selectedPool.name })),
           h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selectedPool.description })),
-          h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save pool"))),
-        h("section", { className: "bees-box" },
-          h("div", { className: "bees-row" }, h("h3", null, "Members"), h("div", { className: "bees-grow" }),
+          h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save pool")));
+      const memberList = h("div", null,
+          h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
             h(Button, { className: "primary", disabled: !available.length, onClick: addMember }, "Add agent")),
           ...(memberAgents.length ? memberAgents.map((member) => h("div", { className: "bees-row", key: member.agentAssignmentId },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.agent.name),
@@ -239,7 +250,14 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
               agentAssignmentId: member.agentAssignmentId, priority: member.priority, enabled: !member.enabled }) }, member.enabled ? "Pause" : "Enable"),
             h(Button, { className: "danger", onClick: async () => (await confirmAction(`Remove ${member.agent.name} from ${selectedPool.name}?`)) &&
               act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: member.agentAssignmentId, remove: true }) }, "Remove")))
-            : [h(Empty, { key: "empty" }, "No agents in this pool yet")])));
+            : [h(Empty, { key: "empty" }, "No agents in this pool yet")]));
+      return h(GridStackPage, {
+        layoutId: "agent-pool", defaults: AGENT_POOL_LAYOUT, preference, preferences, setPageActions,
+        panels: {
+          settings: { label: "Pool settings", minW: 4, minH: 4, content: settings },
+          members: { label: "Pool members", minW: 4, minH: 4, content: memberList }
+        }
+      });
   }
   if (selected) return h("form", { className: "bees-box bees-form bees-agent-form", key: selected.id, onSubmit: async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -274,14 +292,12 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
   );
-  return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" },
-      h("div", { className: "bees-row" }, h("h3", null, "Agents"), h("div", { className: "bees-grow" }),
+  const agents = h("div", null,
+      h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")),
-      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope")])),
-    h("section", { className: "bees-box" },
-      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" }, h("h3", null, "Agent pools"),
-        h("div", { className: "bees-muted" }, "Interchangeable agents for the same work.")),
+      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
+  const agentPools = h("div", null,
+      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Interchangeable agents for the same work."),
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("pool") }, "New pool")),
       ...(pools.length ? pools.map((pool) => {
         const members = data.poolMembers.filter(({ poolId }) => poolId === pool.id);
@@ -289,14 +305,20 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
           h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, pool.name),
             h("div", { className: "bees-muted" }, `${members.filter(({ enabled }) => enabled).length} enabled agents · ${pool.description || "Deterministic agent pool"}`)),
           h(Button, { onClick: () => setSelectedPoolId(pool.id) }, "Configure"));
-      }) : [h(Empty, { key: "empty" }, "No agent pools yet")])),
-    h("section", { className: "bees-box" },
-      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" }, h("h3", null, "Agent presets"),
-        h("div", { className: "bees-muted" }, "Toolboxes available to agents.")),
+      }) : [h(Empty, { key: "empty" }, "No agent pools yet")]));
+  const presets = h("div", null,
+      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
-        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]))
-  );
+        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
+  return h(GridStackPage, {
+    layoutId: "agents", defaults: AGENTS_LAYOUT, preference, preferences, setPageActions,
+    panels: {
+      agents: { label: "Agents", minW: 4, minH: 4, content: agents },
+      pools: { label: "Agent pools", minW: 4, minH: 4, content: agentPools },
+      presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
+    }
+  });
 }

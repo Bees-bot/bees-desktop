@@ -77,22 +77,25 @@ export function applyDashboardLayout(dashboard, layout) {
   };
 }
 
-export function workItemLayoutFrom(value) {
+export function fixedLayoutFrom(defaults, value) {
   const saved = new Map();
   for (const candidate of Array.isArray(value) ? value : []) {
     const widget = normalizeWidget(candidate);
-    if (widget && DEFAULT_WORK_ITEM_WIDGETS.some(({ kind }) => kind === widget.kind) && !saved.has(widget.kind)) {
+    if (widget && defaults.some(({ kind }) => kind === widget.kind) && !saved.has(widget.kind)) {
       saved.set(widget.kind, widget);
     }
   }
-  return DEFAULT_WORK_ITEM_WIDGETS.map((widget) => normalizeWidget({
+  return defaults.map((widget) => normalizeWidget({
     ...widget, ...saved.get(widget.kind), kind: widget.kind
   }) ?? { ...widget });
 }
 
-export function applyWorkItemLayout(layout) {
+export function applyFixedLayout(defaults, layout) {
   const positions = new Map((Array.isArray(layout) ? layout : []).map((item) => [String(item.id ?? ""), item]));
-  return workItemLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS.map((widget) => ({
+  return fixedLayoutFrom(defaults, defaults.map((widget) => ({
     ...widget, ...positions.get(widget.kind), kind: widget.kind
   })));
 }
+
+export const workItemLayoutFrom = (value) => fixedLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS, value);
+export const applyWorkItemLayout = (layout) => applyFixedLayout(DEFAULT_WORK_ITEM_WIDGETS, layout);
