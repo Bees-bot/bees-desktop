@@ -122,7 +122,7 @@ export const Button = ({ children, className = "", ...props }) =>
   h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);
 
 export function AuditEvent({ event, detail, onOpen, openLabel = "Open related item" }) {
-  const title = String(event.type ?? "Audit event").replace(/^domain-/, "").replaceAll("-", " ")
+  const title = String(event.type ?? "Audit event").replace(/^domain-/, "").replace(/[-_]/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
   return h("details", { className: "bees-audit" },
     h("summary", { className: "bees-row" }, h("span", { className: "bees-row-main" },

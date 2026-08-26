@@ -164,7 +164,7 @@
   var confirmAction = (label) => dialogValue(label, "", true);
   var Button = ({ children, className = "", ...props }) => h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);
   function AuditEvent({ event, detail, onOpen, openLabel = "Open related item" }) {
-    const title = String(event.type ?? "Audit event").replace(/^domain-/, "").replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+    const title = String(event.type ?? "Audit event").replace(/^domain-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
     return h(
       "details",
       { className: "bees-audit" },
