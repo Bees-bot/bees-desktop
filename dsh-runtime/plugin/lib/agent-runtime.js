@@ -121,6 +121,13 @@ function excerpt(value, limit = 1_200) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+/** Tool names and counts, so a reviewer can tell a tool ran without the timeline carrying every call. */
+function toolCallCounts(events) {
+  const counts = {};
+  for (const event of events) if (event.type === "tool/call") counts[event.data.name] = (counts[event.data.name] ?? 0) + 1;
+  return counts;
+}
+
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
@@ -1127,6 +1134,7 @@ export class AgentRuntime {
         } catch {}
         sessions.push({
           sessionId,
+          toolCalls: toolCallCounts(events),
           timeline: reviewTimeline(events)
         });
       }
@@ -1147,7 +1155,7 @@ export class AgentRuntime {
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence.",
+      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran.",
       executions
     };
   }
