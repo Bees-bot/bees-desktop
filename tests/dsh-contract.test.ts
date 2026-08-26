@@ -344,7 +344,7 @@ describe("Bees DSH public contract", () => {
       expect(localAiClient).toContain('invokeLocal("ensure_local_model"');
       expect(localAiClient).toContain('invokeLocal("start_local_model"');
       expect(localAiClient).toContain('DEFAULT_LOCAL_MODEL.id');
-      expect(localAiClient).toContain('contextSize: 8192');
+      expect(localAiClient).not.toContain('contextSize:');
       expect(localAiClient).toContain('const wanted = config.localModelWantedId;');
       expect(localAiClient).not.toContain('? DEFAULT_LOCAL_MODEL.id : config.localModelWantedId');
       expect(localAiClient).toContain('"data-model-toggle": "download"');
