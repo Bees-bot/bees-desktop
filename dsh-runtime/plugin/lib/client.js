@@ -1152,8 +1152,13 @@ ${choices.map(({ name: name2 }) => name2).join("\n")}`);
         return h(
           "button",
           { className: "bees-row bees-nav-link", key: item.id, onClick: () => setWorkItemId(item.id) },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
-          h("span", { className: "bees-status" }, item.kind)
+          h(
+            "div",
+            { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, item.title),
+            h("div", { className: "bees-muted" }, [process?.name ?? "Process", stage?.name ?? "Stage", item.kind].join(" · "))
+          ),
+          h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase ?? item.kind)
         );
       }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : route === "waiting" ? "Nothing needs you right now" : "No work in this view")]
     );
