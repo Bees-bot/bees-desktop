@@ -127,7 +127,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(safeRecoverySeed(events)).toEqual(events.slice(0, 3));
   });
 
-  it("keeps internal prompt context out of the user-facing run transcript", async () => {
+  it("includes internal prompt context in the user-facing run transcript", async () => {
     const events = [
       { type: "user/message", time: 1, data: { id: "runtime", content: [{ type: "text", text: "Current runtime context" }], source: { kind: "plugin", plugin: "@deepseek-ai/dsh-system-prompt" } } },
       { type: "user/message", time: 2, data: { id: "skills", content: [{ type: "text", text: "<available_skills>" }], source: { kind: "skill-catalog" } } },
@@ -139,7 +139,7 @@ describe("DSH-owned desktop and recovery", () => {
     runtime.live = new Map([["run", { handle: { agent: { session: { events } } } }]]);
     runtime.database = { prepare: () => ({ all: () => [] }) };
     const history = await runtime.history("run");
-    expect(history.messages.map(({ id }: { id: string }) => id)).toEqual(["task", "answer"]);
+    expect(history.messages.map(({ id }: { id: string }) => id)).toEqual(["runtime", "skills", "task", "answer"]);
   });
 
   it("provides reviewers with durable approval evidence", async () => {

@@ -102,6 +102,8 @@ function WorkItemDetails({ data, item, teamId, act, onArchived }) {
   if (history?.messages) {
     for (const msg of history.messages) {
       if (msg.role === "user") convoItems.push(h("div", { className: "bees-convo-msg user", key: msg.id }, h("strong", null, "You"), h("div", null, msg.parts.map(p => p.text).join(" "))));
+      else if (msg.role === "context") convoItems.push(h("div", { className: "bees-convo-msg system", key: msg.id }, h("div", null, msg.parts.map(p => p.text).join(" "))));
+      else if (msg.role === "error") convoItems.push(h("div", { className: "bees-convo-msg system", key: msg.id, style: { color: "#cf5b5b" } }, h("strong", null, "Error: "), h("span", null, msg.parts.map(p => p.text).join(" "))));
       else {
         const textParts = msg.parts.filter(p => p.text);
         const toolParts = msg.parts.filter(p => p.type === "tool");
@@ -628,9 +630,10 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     ...(rows.length ? rows.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
-      return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => setWorkItemId(item.id) },
+      return h("div", { className: "bees-row bees-work-item-row", key: item.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
-        h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)));
+        h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)),
+        h(Button, { className: "primary bees-work-item-open", onClick: () => setWorkItemId(item.id) }, "Open"));
     }) : [h(Empty, { key: "empty" }, "No work items match these filters")])
   );
 }

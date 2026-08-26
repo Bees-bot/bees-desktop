@@ -170,7 +170,15 @@ function eventsToConversation(events, settlements) {
   const calls = new Map();
   for (const event of events) {
     if (event.type === "user/message") {
-      if (isInternalPromptMessage(event.data)) continue;
+      if (isInternalPromptMessage(event.data)) {
+        messages.push({
+          id: event.data.id,
+          role: "context",
+          parts: [{ type: "context", text: `Context injection · ${event.data.source?.plugin || event.data.source?.kind}` }],
+          metadata: { timestamp: event.time }
+        });
+        continue;
+      }
       messages.push({
         id: event.data.id,
         role: "user",
@@ -209,7 +217,7 @@ function eventsToConversation(events, settlements) {
       }
     }
   }
-  return { v: 1, messages, settlements };
+  return { v: 1, messages, settlements, events };
 }
 
 function lastTurn(events, afterSeq = -1) {
