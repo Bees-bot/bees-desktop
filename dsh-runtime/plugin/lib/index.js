@@ -128,7 +128,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const connected = new ConnectedAccount(database, ctx.credentials);
   const capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
-  await product.recoverHumanWaits();
+  await product.recoverRuns();
   await capabilities.initialize();
   ctx.effect(() => () => capabilities.close(), "bees MCP servers");
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));

@@ -154,7 +154,7 @@ export function activeAgentRuns(database, agentId) {
     SELECT count(*) AS count FROM agent_dispatches d
     LEFT JOIN execution_links e ON e.execution_id = d.execution_id
     WHERE d.agent_assignment_id = ? AND (
-      e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval', 'interrupted')
+      e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
       OR (e.execution_id IS NULL AND d.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
     )
   `).get(agentId)?.count ?? 0);

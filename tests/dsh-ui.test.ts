@@ -77,6 +77,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
     expect(client).toContain('busy === "cancel_item" ? "Stopping…" : "Stop"');
     expect(client).toContain('busy === "archive_item" ? "Archiving…" : "Archive"');
+    expect(client).not.toContain("The prior request was interrupted");
   });
 
   it("names work items precisely and opens runs whose work item is unavailable", () => {

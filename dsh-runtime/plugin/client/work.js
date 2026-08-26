@@ -25,7 +25,7 @@ function WorkItemDetails({ data, item, teamId, act, onArchived }) {
   const [audit, setAudit] = useState([]);
   const convoRef = React.useRef(null);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
-  const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(status));
+  const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
   const interaction = null;
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
@@ -481,9 +481,8 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       h(NeedsYouControls, { item, act, onDone: onControlled }))),
     interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
-        : h(Empty, null, run.status === "interrupted"
-          ? "The prior request was interrupted. Retry the work to ask again."
-          : session?.pending?.some(({ key }) => handled.has(key)) ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
+        : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key))
+          ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
     files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
       ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
         onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
@@ -499,7 +498,7 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   const seen = new Set();
   const rows = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) && run.sessionId)
     .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
-    .filter(({ run }) => ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
+    .filter(({ run }) => ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
   const rowKey = rows.map(({ run, session }) => `${run.id}:${session?.pendingInteraction ?? "none"}`).join("|");
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current)
     ? current : autoSelect ? rows[0]?.run.id ?? "" : ""), [rowKey, autoSelect]);
@@ -512,7 +511,7 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
     ?? session?.pending?.find((pending) => !handled.has(pending.key));
   const actionableRunIds = new Set(rows.map(({ run }) => run.id));
   const blocked = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
-    ["waiting_for_input", "waiting_for_approval", "interrupted"].includes(run.status) && !actionableRunIds.has(run.id));
+    ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !actionableRunIds.has(run.id));
   const answered = (key, candidates = rows) => {
     setHandled((current) => new Set(current).add(key));
     const completed = new Set(handledRuns);
@@ -596,7 +595,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
         const item = data.items.find(({ id }) => id === run.workItemId);
         return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
-          h("div", { className: "bees-muted" }, run.status === "interrupted" ? "The prior wait was interrupted; retry the work to ask again." : "Reconnect to the agent or open the work item to recover.")),
+          h("div", { className: "bees-muted" }, "Reconnect to the agent or open the work item to recover.")),
           h(NeedsYouControls, { item, act }),
           h(Button, { onClick: item ? () => openWorkItem(item.id) : () => openRun(run.id) }, item ? "Open work" : "Open run"));
       })) : null

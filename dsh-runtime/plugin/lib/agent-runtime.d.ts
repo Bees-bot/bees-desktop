@@ -25,6 +25,7 @@ export declare class AgentRuntime {
   onSessionEvent(session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }): void;
   pendingInteraction(executionId: string): Record<string, unknown> | null;
   pendingApproval(executionId: string): Record<string, unknown> | null;
+  needsRecovery(executionId: string): boolean;
   admit(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;

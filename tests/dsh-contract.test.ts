@@ -263,11 +263,7 @@ describe("Bees DSH public contract", () => {
         headers: { cookie: String(secondCookie) }
       })).json() as any;
       expect(restarted.items).toContainEqual(expect.objectContaining({ id: created.id, title: "Contract goal" }));
-      expect(restarted.runs).toContainEqual(expect.objectContaining({ id: firstRun.id, status: "interrupted" }));
-      await request(server, routes, "/bees-api/command", {
-        method: "POST", headers: { cookie: String(secondCookie), "content-type": "application/json" },
-        body: { action: "recover_run", executionId: firstRun.id }
-      });
+      expect(restarted.runs.find((run: any) => run.id === firstRun.id)?.status).not.toBe("interrupted");
       await waitFor(async () => {
         const snapshot = (await request(server, routes, "/bees-api/snapshot", {
           headers: { cookie: String(secondCookie) }

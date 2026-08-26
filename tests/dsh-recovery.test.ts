@@ -205,7 +205,7 @@ describe("DSH-owned desktop and recovery", () => {
     rmSync(location, { recursive: true });
   });
 
-  it("checkpoints approval details and detects the interrupted wait at startup", () => {
+  it("checkpoints approval details without changing the wait at startup", () => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
     insertRun(database);
@@ -227,11 +227,12 @@ describe("DSH-owned desktop and recovery", () => {
     const replacement = new AgentRuntime(context(), database.connection);
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
-    ).get()).toEqual({ status: "interrupted" });
+    ).get()).toEqual({ status: "waiting_for_approval" });
+    expect(replacement.needsRecovery("run")).toBe(true);
     expect(replacement.pendingApproval("run")).toMatchObject({ approvalId: "approval-1" });
   });
 
-  it("projects a DSH question as human input and recovers it as agent work", () => {
+  it("keeps a checkpointed DSH question waiting while its session is replaced", async () => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
     insertRun(database);
@@ -249,8 +250,68 @@ describe("DSH-owned desktop and recovery", () => {
     const replacement = new AgentRuntime(context(), database.connection);
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
-    ).get()).toEqual({ status: "interrupted" });
+    ).get()).toEqual({ status: "waiting_for_input" });
+    expect(replacement.needsRecovery("run")).toBe(true);
     expect(replacement.pendingApproval("run")).toBeNull();
+    (replacement as any).newHandle = async () => ({
+      sessionId: "replacement-session",
+      handle: {
+        agent: {
+          session: { seq: 0 }, followup: () => undefined,
+          whenIdle: () => new Promise(() => undefined)
+        },
+        dispose: async () => undefined
+      }
+    });
+
+    await replacement.admit("bees-run", "run", {
+      idempotencyKey: "recover-question", body: "Re-present Which market?"
+    });
+
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "waiting_for_input" });
+  });
+
+  it("keeps active processing in its durable state across startup", () => {
+    const database = new NodeDatabase();
+    new AgentRuntime(context(), database.connection);
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    database.connection.prepare(`
+      INSERT INTO work_items
+        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
+      VALUES ('goal', ?, ?, 'goal', 'Goal', 'running', '2026-01-01', '2026-01-01')
+    `).run(stage.processId, stage.stageId);
+    insertRun(database, "running", "goal");
+
+    const replacement = new AgentRuntime(context(), database.connection);
+
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "running" });
+    expect(database.connection.prepare(`
+      SELECT stage_id AS stageId, runtime_phase AS runtimePhase FROM work_items WHERE id = 'goal'
+    `).get()).toEqual({ stageId: stage.stageId, runtimePhase: "running" });
+    expect(replacement.needsRecovery("run")).toBe(true);
+    expect(database.connection.prepare(`
+      SELECT count(*) AS count FROM dsh_audit_events WHERE event_type = 'run-interrupted'
+    `).get()).toEqual({ count: 0 });
+  });
+
+  it("does not migrate legacy interrupted runs", () => {
+    const database = new NodeDatabase();
+    new AgentRuntime(context(), database.connection);
+    insertRun(database, "interrupted");
+
+    const replacement = new AgentRuntime(context(), database.connection);
+
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "interrupted" });
+    expect(replacement.needsRecovery("run")).toBe(false);
   });
 
   it("revives a cancelled human wait after an orchestration heartbeat failure", () => {
@@ -278,7 +339,8 @@ describe("DSH-owned desktop and recovery", () => {
     const replacement = new AgentRuntime(context(), database.connection);
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
-    ).get()).toEqual({ status: "interrupted" });
+    ).get()).toEqual({ status: "cancelled" });
+    expect(replacement.needsRecovery("run")).toBe(true);
     expect(replacement.pendingInteraction("run")).toMatchObject({ kind: "question", callId: "question-1" });
   });
 

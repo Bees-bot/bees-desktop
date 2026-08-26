@@ -334,6 +334,7 @@ export class AgentRuntime {
     this.ctx = ctx;
     this.database = database;
     this.live = new Map();
+    this.recovery = new Set();
     database.exec(`
       CREATE TABLE IF NOT EXISTS execution_links (
         execution_id TEXT PRIMARY KEY,
@@ -391,31 +392,31 @@ export class AgentRuntime {
         created_at TEXT NOT NULL
       ) STRICT;
     `);
-    const at = new Date().toISOString();
-    const interrupted = database.prepare(`
-      SELECT execution_id, current_session_id FROM execution_links
+    const active = database.prepare(`
+      SELECT execution_id, current_session_id, status FROM execution_links
       WHERE status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all();
-    const cancelledWaits = database.prepare(`
-      SELECT e.execution_id, e.current_session_id,
-        (SELECT c.pending_interaction_json FROM bees_run_checkpoints c
-         WHERE c.execution_id = e.execution_id
-           AND (c.pending_interaction_json IS NOT NULL OR c.transition IN ('input_received', 'approved', 'rejected'))
-         ORDER BY c.rowid DESC LIMIT 1) AS pending_interaction_json
+    const heartbeatWaits = database.prepare(`
+      SELECT e.execution_id, e.current_session_id, e.status
       FROM execution_links e JOIN work_items w ON w.id = e.work_item_id
       WHERE e.status = 'cancelled' AND w.runtime_phase = 'failed'
         AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
-    `).all().filter((run) => run.pending_interaction_json);
-    for (const run of [...interrupted, ...cancelledWaits]) {
-      database.prepare("UPDATE execution_links SET status = 'interrupted', updated_at = ? WHERE execution_id = ?")
-        .run(at, run.execution_id);
-      this.checkpoint(String(run.execution_id), String(run.current_session_id), "interrupted", {
-        ...(run.pending_interaction_json
-          ? { pendingInteraction: JSON.parse(run.pending_interaction_json) }
-          : {}),
-        idempotencyKey: `startup-interrupted:${run.current_session_id}`
+    `).all();
+    const recoveryRuns = new Map([...active, ...heartbeatWaits]
+      .map((row) => [row.execution_id, row]));
+    for (const run of recoveryRuns.values()) {
+      const executionId = String(run.execution_id);
+      const sessionId = String(run.current_session_id);
+      const pending = this.pendingInteraction(executionId);
+      if (run.status === "cancelled" && !pending) continue;
+      const status = String(run.status);
+      this.recovery.add(executionId);
+      this.checkpoint(executionId, sessionId, "recovery_needed", {
+        idempotencyKey: `runtime-recovery-needed:${sessionId}`
       });
-      this.audit("run-interrupted", String(run.execution_id), String(run.current_session_id), { detectedAt: at });
+      this.audit("session-recovery-needed", executionId, sessionId, {
+        detectedAt: new Date().toISOString(), status
+      });
     }
     ctx.on("session/event", (session, event) => this.onSessionEvent(session, event), { global: true });
   }
@@ -475,6 +476,10 @@ export class AgentRuntime {
   pendingApproval(executionId) {
     const pending = this.pendingInteraction(executionId);
     return pending?.kind === "approval" ? pending : null;
+  }
+
+  needsRecovery(executionId) {
+    return this.recovery.has(executionId);
   }
 
   onSessionEvent(session, event) {
@@ -843,6 +848,7 @@ export class AgentRuntime {
     const existed = Boolean(run);
     const previousStatus = run?.status;
     const continuation = payload.uid !== null && payload.uid !== undefined;
+    const recovery = Boolean(run && this.needsRecovery(executionId));
     if (!run) {
       if (continuation) throw new Error("A new run cannot be a continuation");
       const initialData = payload.initialData;
@@ -869,7 +875,7 @@ export class AgentRuntime {
       });
     } else if (continuation && payload.uid !== run.instanceUid) {
       throw new Error("The conversation incarnation does not match this run");
-    } else if (!continuation && run.status !== "interrupted") {
+    } else if (!continuation && !recovery) {
       throw new Error("This conversation already exists; send a continuation with its uid");
     }
 
@@ -877,8 +883,7 @@ export class AgentRuntime {
     const references = typedReferences(payload.body);
     authorizeReferences(this.database, data.workspaceId, references);
     const workspace = run.runDirectory;
-    const recovery = run.status === "interrupted";
-    const interruptedApproval = recovery ? this.pendingApproval(executionId) : null;
+    const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
     const mode = recovery ? "recovery" : existed ? "resume" : "create";
     let opened;
     try {
@@ -901,8 +906,10 @@ export class AgentRuntime {
       INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
       VALUES (?, ?, ?, ?)
     `).run(payload.idempotencyKey, executionId, submissionId, at);
-    this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-      .run(at, executionId);
+    const activeStatus = recovery && ["waiting_for_input", "waiting_for_approval"].includes(previousStatus)
+      ? previousStatus : "running";
+    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
+      .run(activeStatus, at, executionId);
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,
@@ -913,18 +920,19 @@ export class AgentRuntime {
     });
     const approvalAbort = new AbortController();
     this.live.set(executionId, { handle, approvalAbort });
-    this.checkpoint(executionId, sessionId, "running", {
+    this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
     });
     const recoveryNotice = recovery
-      ? "\n\nRecovery note: this is a replacement DSH session seeded through the interrupted session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
+      ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
       : "";
-    if (interruptedApproval) {
+    if (recoveryApproval) {
       void this.recoverApproval(
         executionId, submissionId, sessionId, handle, approvalAbort,
-        interruptedApproval, `${payload.body}${recoveryNotice}`
+        recoveryApproval, `${payload.body}${recoveryNotice}`
       );
+      this.recovery.delete(executionId);
     } else {
       const before = handle.agent.session.seq;
       try {
@@ -941,6 +949,7 @@ export class AgentRuntime {
           .run(previousStatus, new Date().toISOString(), executionId);
         throw error;
       }
+      this.recovery.delete(executionId);
       void this.settle(executionId, submissionId, sessionId, handle, before);
     }
     return { submissionId, uid: run.instanceUid };
@@ -960,7 +969,7 @@ export class AgentRuntime {
         void this.ctx.approval.request({
           agent: handle.agent,
           toolName: pending.toolName,
-          reason: pending.reason ?? "Resume the interrupted action from its last safe checkpoint?",
+          reason: pending.reason ?? "Resume the action from its last safe checkpoint?",
           signal
         }).then(resolve, reject);
       }, { global: true });
@@ -973,7 +982,7 @@ export class AgentRuntime {
       handle.agent.followup(createUserMessage({
         content: [{
           type: "text",
-          text: "Recovery checkpoint validation. Do not call tools or repeat the interrupted action in this turn. The prior DSH approval is being re-presented to the user."
+          text: "Recovery checkpoint validation. Do not call tools or repeat the prior action in this turn. The prior DSH approval is being re-presented to the user."
         }],
         source: { kind: "user" }
       }));
@@ -1067,7 +1076,7 @@ export class AgentRuntime {
     `).get(executionId) : null;
     if (!run) {
       submission = await this.admit("bees-run", executionId, payload);
-    } else if (run.status === "interrupted") {
+    } else if (this.needsRecovery(executionId)) {
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
