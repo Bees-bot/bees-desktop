@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The DSH browser client is intentionally plain JavaScript.
-import { addDashboardWidget, applyDashboardLayout, applyWorkItemLayout, dashboardsFrom, workItemLayoutFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
+import { addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkItemLayout, dashboardsFrom, fixedLayoutFrom, workItemLayoutFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
@@ -64,8 +64,37 @@ describe("personal dashboards", () => {
       { kind: "conversation", x: 0, y: 4, w: 7, h: 8 },
       { kind: "details", x: 7, y: 4, w: 5, h: 8 }
     ]);
-    expect(client).toContain('draggable: { handle: ".bees-work-item-widget-handle" }');
+    expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle" }');
     expect(client).toContain('preferences.set("workItemLayout"');
     expect(client).toContain('editing ? "Done" : "Edit layout"');
+  });
+
+  it("sanitizes reusable fixed page layouts", () => {
+    const defaults = [
+      { kind: "top", x: 0, y: 0, w: 12, h: 4 },
+      { kind: "bottom", x: 0, y: 4, w: 12, h: 4 }
+    ];
+    expect(fixedLayoutFrom(defaults, [{ kind: "top", x: 7, y: 2, w: 5, h: 6 }])).toEqual([
+      { kind: "top", x: 7, y: 2, w: 5, h: 6 },
+      { kind: "bottom", x: 0, y: 4, w: 12, h: 4 }
+    ]);
+    expect(applyFixedLayout(defaults, [{ id: "bottom", x: 0, y: 6, w: 8, h: 5 }])[1])
+      .toEqual({ kind: "bottom", x: 0, y: 6, w: 8, h: 5 });
+  });
+
+  it("uses persisted GridStack pages for work, agents, and processes", () => {
+    expect(client).toContain('layoutId: "work"');
+    expect(client).toContain('{ kind: "active-work", x: 0, y: 0, w: 12, h: 6 }');
+    expect(client).toContain('{ kind: "finished-work", x: 0, y: 6, w: 12, h: 6 }');
+    expect(client).toContain('label: "Completed, archived & stopped"');
+    expect(client).toContain('layoutId: "agents"');
+    expect(client).toContain('layoutId: "agent-pool"');
+    expect(client).toContain('layoutId: "processes"');
+    expect(client).toContain('layoutId: "process-templates"');
+    expect(client).toContain('layoutId: "process-detail"');
+    expect(client).toContain('preferences.set("pageLayouts"');
+    expect(client).toContain('className: "bees-page-actions"');
+    expect(client).not.toContain('className: "bees-flex-toolbar"');
+    expect(client).toContain('h("div", { className: "bees-grow" }),\n        pageActions,\n        h(ThemeToggle');
   });
 });

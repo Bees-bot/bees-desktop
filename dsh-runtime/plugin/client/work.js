@@ -1,4 +1,3 @@
-import { GridStack } from "gridstack";
 import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
@@ -6,71 +5,16 @@ import {
   ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, workItemsFor
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
+import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 
 /** The goal opens the conversation, so a run reads from the ask down. */
 const GoalMessage = ({ item }) => h("div", { className: "bees-convo-msg user" },
   h("strong", null, "Goal"), h("div", null, item.description || item.title));
 
-const WORK_ITEM_WIDGETS = {
-  kanban: { label: "Kanban", minW: 6, minH: 3 },
-  conversation: { label: "Conversation", minW: 3, minH: 4 },
-  details: { label: "Details", minW: 3, minH: 4 }
-};
-
-function WorkItemGrid({ layout, editing, onLayout, panels }) {
-  const root = React.useRef(null);
-  const gridRef = React.useRef(null);
-  const onLayoutRef = React.useRef(onLayout);
-  onLayoutRef.current = onLayout;
-  const layoutKey = layout.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
-  useEffect(() => {
-    const grid = GridStack.init({
-      column: 12,
-      columnOpts: { breakpoints: [{ w: 780, c: 1 }] },
-      cellHeight: 72,
-      margin: 6,
-      animate: true,
-      disableDrag: !editing,
-      disableResize: !editing,
-      draggable: { handle: ".bees-work-item-widget-handle" },
-      resizable: { handles: "e,se,s,sw,w" }
-    }, root.current);
-    if (!grid) return undefined;
-    const save = () => {
-      const value = grid.save(false);
-      if (Array.isArray(value)) onLayoutRef.current(value);
-    };
-    grid.on("dragstop resizestop", save);
-    gridRef.current = grid;
-    return () => { gridRef.current = null; grid.offAll().destroy(false); };
-  }, []);
-  useEffect(() => {
-    gridRef.current?.enableMove(editing);
-    gridRef.current?.enableResize(editing);
-  }, [editing]);
-  useEffect(() => {
-    gridRef.current?.load(layout.map(({ kind, ...position }) => ({ id: kind, ...position })));
-  }, [layoutKey]);
-
-  return h("div", { className: `grid-stack bees-work-item-grid ${editing ? "editing" : ""}`, ref: root },
-    ...layout.map((widget) => {
-      const definition = WORK_ITEM_WIDGETS[widget.kind];
-      return h("section", {
-        className: "grid-stack-item",
-        key: widget.kind,
-        "gs-id": widget.kind,
-        "gs-x": widget.x,
-        "gs-y": widget.y,
-        "gs-w": widget.w,
-        "gs-h": widget.h,
-        "gs-min-w": definition.minW,
-        "gs-min-h": definition.minH
-      }, h("div", { className: "grid-stack-item-content bees-work-item-widget" },
-        h("header", { className: "bees-work-item-widget-handle" }, h("strong", null, definition.label)),
-        h("div", { className: "bees-work-item-widget-body" }, panels[widget.kind])));
-    })
-  );
-}
+const WORK_PAGE_LAYOUT = [
+  { kind: "active-work", x: 0, y: 0, w: 12, h: 6 },
+  { kind: "finished-work", x: 0, y: 6, w: 12, h: 6 }
+];
 
 function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, editing, onLayout }) {
   const process = data.processes.find(({ id }) => id === item.processId);
@@ -268,9 +212,14 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
           )
         )
       ));
-  return h(WorkItemGrid, {
+  return h(FlexibleGrid, {
     layout, editing, onLayout,
-    panels: { kanban: board, conversation, details }
+    className: "bees-work-item-grid",
+    panels: {
+      kanban: { label: "Kanban", minW: 6, minH: 3, content: board },
+      conversation: { label: "Conversation", minW: 3, minH: 4, content: conversation },
+      details: { label: "Details", minW: 3, minH: 4, content: details }
+    }
   });
 }
 
@@ -674,7 +623,7 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
   );
 }
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences, setPageActions }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [type, setType] = useState(route === "goals" ? "goal" : "all");
@@ -692,6 +641,14 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const needle = query.trim().toLocaleLowerCase();
   const rows = items.filter((item) => (!needle || item.title.toLocaleLowerCase().includes(needle)) &&
     (status === "all" || itemStatus(item) === status) && (type === "all" || item.kind === type));
+  const renderRows = (records, empty) => records.length ? records.map((item) => {
+    const process = data.processes.find(({ id }) => id === item.processId);
+    const stage = data.stages.find(({ id }) => id === item.stageId);
+    return h("div", { className: "bees-row bees-work-item-row", key: item.id },
+      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
+      h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)),
+      h(Button, { className: "primary bees-work-item-open", onClick: () => setWorkItemId(item.id) }, "Open"));
+  }) : h(Empty, null, empty);
   return h("div", null,
     h("div", { className: "bees-row" },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
@@ -704,13 +661,12 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         ...types.map((value) => h("option", { value, key: value }, value === "goal" ? "Goals" : value === "work" ? "Work items" : value))),
       h(Button, { disabled: !workspaceId, onClick: () => setCreating("goal") }, "New goal"),
       h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("work") }, "New work")),
-    ...(rows.length ? rows.map((item) => {
-      const process = data.processes.find(({ id }) => id === item.processId);
-      const stage = data.stages.find(({ id }) => id === item.stageId);
-      return h("div", { className: "bees-row bees-work-item-row", key: item.id },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
-        h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)),
-        h(Button, { className: "primary bees-work-item-open", onClick: () => setWorkItemId(item.id) }, "Open"));
-    }) : [h(Empty, { key: "empty" }, "No work items match these filters")])
+    h(GridStackPage, {
+      layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        "active-work": { label: "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), "No active work matches these filters") },
+        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters") }
+      }
+    })
   );
 }
