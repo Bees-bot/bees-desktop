@@ -80,11 +80,24 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("names work items precisely and opens runs whose work item is unavailable", () => {
-    expect(client).toContain('["all-work", "Work items"]');
+    expect(client).toContain('{ id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [] }');
+    expect(client).toContain('placeholder: "Search by task name"');
+    expect(client).toContain('"Filter by status"');
+    expect(client).toContain('"Filter by type"');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
     expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
     expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
+  });
+
+  it("merges the requested navigation screens", () => {
+    expect(client).toContain('["all-agents", "Agents, pools & presets"]');
+    expect(client).toContain('h("h3", null, "Agents")');
+    expect(client).toContain('h("h3", null, "Agent pools")');
+    expect(client).toContain('h("h3", null, "Agent presets")');
+    expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
+    expect(client).toContain('label: "Knowledge Base"');
+    expect(client).toContain('["search", "Search & sources"]');
   });
 
   it("keeps work-item navigation inside the Bees task screen", () => {

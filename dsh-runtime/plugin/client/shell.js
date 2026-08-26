@@ -217,8 +217,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
-          : section.id === "files" ? h(FilesPage, { ctx, data, route, teamId: parts.teamId, act })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings") })
+          : section.id === "files" ? h(FilesPage, { ctx, data, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
                 : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
@@ -242,13 +242,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
             h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
             h(PinButton, { id: item.id, label: item.label, pins, setPins }),
-            item.children.length > 0 || item.id === "home" ? h("div", { className: "bees-nav-flyout" },
-              ...(item.id === "home" ? dashboards.map((dashboard) =>
-                h("div", { className: `bees-nav-flyout-item ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`, key: `dashboard:${dashboard.id}` },
-                  h("button", {
-                    className: `bees-nav-link bees-nav-child ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
-                    onClick: () => { void preferences.set("activeDashboardId", dashboard.id); setRoute("home"); }
-                  }, dashboard.name))) : []),
+            item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
               ...item.children.map(([child, label]) =>
                 h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
                   h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),

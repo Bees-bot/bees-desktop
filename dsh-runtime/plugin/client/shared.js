@@ -3,27 +3,21 @@ import { h, useEffect, useRef, useState } from "./runtime.js";
 import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon, KnowledgeIcon, SettingsIcon, PinIcon } from "./icons.js";
 
 export const NAVIGATION = [
-  { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [
-    ["guide", "How Bees works"]
-  ] },
-  { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [
-    ["all-work", "Work items"], ["goals", "Goals"], ["waiting", "Needs you"], ["completed", "Completed"]
-  ] },
+  { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
+  { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
-    ["all-agents", "All agents"], ["pools", "Pools"], ["presets", "Agent presets"],
+    ["all-agents", "Agents, pools & presets"],
     ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
   { id: "processes", label: "Processes", icon: ProcessesIcon, defaultChild: "all-processes", children: [
     ["all-processes", "All processes"], ["templates", "Templates"]
   ] },
-  { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [
-    ["locations", "Locations"], ["mappings", "My mappings"], ["references", "References"]
-  ] },
+  { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
     ["runs", "Runs"], ["evaluations", "Evaluations"], ["audit", "Audit"]
   ] },
-  { id: "knowledge", label: "Knowledge", icon: KnowledgeIcon, defaultChild: "search", children: [
-    ["search", "Search"], ["sources", "Sources"], ["artifacts", "Artifacts"]
+  { id: "knowledge", label: "Knowledge Base", icon: KnowledgeIcon, defaultChild: "search", children: [
+    ["search", "Search & sources"], ["artifacts", "Artifacts"]
   ] },
   { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai", children: [
     ["personal-ai", "AI connections"], ["appearance", "Appearance"],
@@ -229,11 +223,12 @@ export function useSnapshot(source, fallback = null) {
 }
 
 export function sectionFor(child) {
-  return NAVIGATION.find((section) => section.id === child || section.children.some(([id]) => id === child)) ?? NAVIGATION[0];
+  const legacySection = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", mappings: "files", references: "files", sources: "knowledge" }[child];
+  return NAVIGATION.find((section) => section.id === (legacySection ?? child) || section.defaultChild === child || section.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
 export function navigationItem(id) {
-  const section = NAVIGATION.find((item) => item.id === id || item.children.some(([child]) => child === id));
+  const section = NAVIGATION.find((item) => item.id === id || item.defaultChild === id || item.children.some(([child]) => child === id));
   if (!section) return null;
   const child = section.children.find(([child]) => child === id);
   return { id, label: child?.[1] ?? section.label, icon: section.icon, route: child?.[0] ?? section.defaultChild };

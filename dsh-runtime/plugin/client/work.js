@@ -2,7 +2,7 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useSnapshot, workItemsFor
+  ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, workItemsFor
 } from "./shared.js";
 
 function WorkItemDetails({ data, item, teamId, act, onArchived }) {
@@ -598,25 +598,39 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
 }
 
 export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act }) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
+  const [type, setType] = useState(route === "goals" ? "goal" : "all");
   if (workItemId) return h(WorkItemCockpit, { ctx, data, rootId: workItemId, teamId, act, onBack: () => setWorkItemId("") });
   if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
     data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }
   });
-  const rows = workItemsFor(data, route, workspaceIds);
+  const items = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
+  const itemStatus = (item) => isDone(item) ? "completed" : item.runtimePhase || "pending";
+  const statuses = [...new Set(items.map(itemStatus))].sort();
+  const types = [...new Set(items.map(({ kind }) => kind))].sort();
+  const needle = query.trim().toLocaleLowerCase();
+  const rows = items.filter((item) => (!needle || item.title.toLocaleLowerCase().includes(needle)) &&
+    (status === "all" || itemStatus(item) === status) && (type === "all" || item.kind === type));
   return h("div", null,
-    route === "waiting" ? h("div", { className: "bees-callout" }, h("h3", null, "Needs you is a queue, not a process stage"),
-      h("div", null, "Items appear here when an agent asks a question, needs approval, or cannot continue. Open one to change its agent, retry it, stop it, or archive it.")) : null,
     h("div", { className: "bees-row" },
-      route === "goals" ? h("div", { className: "bees-muted bees-grow" }, "A goal is an outcome Bees owns; it can contain many work items.") : h("div", { className: "bees-grow" }),
-      ["all-work", "goals"].includes(route) ? h(Button, { className: "primary", disabled: !workspaceId,
-        onClick: () => setCreating(route === "goals" ? "goal" : "work") }, route === "goals" ? "New goal" : "New work") : null),
+      h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
+        placeholder: "Search by task name", "aria-label": "Search work items by task name" }),
+      h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },
+        h("option", { value: "all" }, "All statuses"),
+        ...statuses.map((value) => h("option", { value, key: value }, value))),
+      h("select", { className: "bees-select", value: type, onChange: (event) => setType(event.target.value), "aria-label": "Filter by type" },
+        h("option", { value: "all" }, "All types"),
+        ...types.map((value) => h("option", { value, key: value }, value === "goal" ? "Goals" : value === "work" ? "Work items" : value))),
+      h(Button, { disabled: !workspaceId, onClick: () => setCreating("goal") }, "New goal"),
+      h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("work") }, "New work")),
     ...(rows.length ? rows.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
       return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => setWorkItemId(item.id) },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
-        h("span", { className: "bees-status" }, item.kind));
-    }) : [h(Empty, { key: "empty" }, route === "goals" ? "No goals yet" : route === "waiting" ? "Nothing needs you right now" : "No work in this view")])
+        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
+        h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)));
+    }) : [h(Empty, { key: "empty" }, "No work items match these filters")])
   );
 }
