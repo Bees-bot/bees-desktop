@@ -22,7 +22,23 @@ function selfLinks(value, origin) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   return Object.entries(value)
     .filter(([, href]) => typeof href === "string" && href.startsWith(origin))
-    .map(([name, href]) => [name, href.replace(/\{.*?\}/g, "")]);
+    .map(([name, href]) => [name, href]);
+}
+
+/** The single-item read an href template advertises, so a lookup by id or name is possible. */
+function itemRead(name, path, origin) {
+  const key = (path.match(/\{(.*?)\}/) ?? [, "id"])[1];
+  const slug = name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource";
+  return {
+    get: {
+      operationId: `${slug}-read`,
+      summary: `Read one ${name.replace(/[-_]/g, " ")} by ${key}`,
+      description: `Offered by ${origin} at its own root.`,
+      parameters: [{ name: key, in: "path", required: true, description: `Which one to read`,
+        schema: { type: "string" } }],
+      responses: { 200: { description: "Success", content: { "application/json": { schema: { type: "object" } } } } }
+    }
+  };
 }
 
 /** One read per resource the API lists for itself. */
@@ -30,7 +46,12 @@ function specFromLinks(origin, links, title) {
   const paths = {};
   for (const [name, href] of links) {
     let path;
-    try { path = new URL(href).pathname; } catch { continue; }
+    // URL() percent-encodes the braces, so decode before looking for a template.
+    try { path = decodeURIComponent(new URL(href).pathname); } catch { continue; }
+    // An href like /pokemon/{id}/ is the API telling us it takes a lookup. Keep both.
+    const item = /\{.*?\}/.test(path) ? path : "";
+    path = path.replace(/\{.*?\}/g, "").replace(/\/{2,}/g, "/");
+    if (item) paths[item] = itemRead(name, item, origin);
     paths[path] = {
       get: {
         operationId: name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource",
