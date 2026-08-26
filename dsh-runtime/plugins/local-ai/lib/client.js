@@ -257,7 +257,7 @@ window.__ModuleLoader__.load({
           if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http:// or https:// URL");
           let models = local.models ?? [];
           if (!models.length) {
-            const id = (await ask("Model ID", "active")).trim(); if (!id) return;
+            const id = (await ask("Model ID", "active"))?.trim(); if (!id) return;
             models = [{ id, name: id, contextWindow: 32768, maxTokens: 8192 }];
           }
           const profile = {
@@ -271,7 +271,7 @@ window.__ModuleLoader__.load({
       };
       const addModel = async () => {
         try {
-          const id = (await ask("Model ID", "")).trim(); if (!id) return;
+          const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
           if (local.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
           await saveProfile({ ...local, models: [...(local.models ?? []), { id, name: id, contextWindow: 32768, maxTokens: 8192 }] });
           setError("");

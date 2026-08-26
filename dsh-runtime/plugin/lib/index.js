@@ -22,9 +22,25 @@ const ModelPreference = z.object({
   maxTokens: z.number()
 });
 
+const DashboardWidget = z.object({
+  kind: z.string(),
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number()
+});
+
+const DashboardPreference = z.object({
+  id: z.string(),
+  name: z.string(),
+  widgets: z.array(DashboardWidget).default([])
+});
+
 const BeesUiSettings = z.object({
   pins: z.array(z.string()).default([]),
   lastScope: z.string().default(""),
+  activeDashboardId: z.string().default("home"),
+  dashboards: z.array(DashboardPreference).default([]),
   localModelWantedId: z.string().default(""),
   freeAiProviders: z.array(z.string()).default([]),
   generalAiProviders: z.array(z.string()).default([]),
