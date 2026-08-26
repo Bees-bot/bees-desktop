@@ -1088,7 +1088,8 @@ export class AgentRuntime {
       throw new Error(detail || `DSH stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
-    if (!result) throw new Error("DSH completed without calling bees_submit_stage_result");
+    // A model that ends its turn without submitting is having a bad turn, not failing the stage.
+    if (!result) throw Object.assign(new Error("DSH completed without calling bees_submit_stage_result"), { retryable: true });
     return result;
   }
 

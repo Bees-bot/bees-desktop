@@ -66,9 +66,9 @@ export class ProcessRuntime {
           return await runStage(stage, context.cancellationSignal);
         } catch (error) {
           if (context.cancellationSignal.aborted) throw error;
-          throw ApplicationFailure.nonRetryable(
-            error instanceof Error ? error.message : String(error), "DshStageFailure"
-          );
+          const message = error instanceof Error ? error.message : String(error);
+          if (error?.retryable) throw ApplicationFailure.retryable(message, "DshStageFailure");
+          throw ApplicationFailure.nonRetryable(message, "DshStageFailure");
         } finally {
           clearInterval(heartbeat);
         }

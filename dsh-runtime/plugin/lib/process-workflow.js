@@ -20,7 +20,9 @@ const legacyDshActivities = proxyActivities({
 const durableDshActivities = proxyActivities({
   // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
   startToCloseTimeout: "36500 days",
-  heartbeatTimeout: "30 seconds"
+  heartbeatTimeout: "30 seconds",
+  // Only the retryable failures get here; nonRetryable still stops on the first one.
+  retry: { maximumAttempts: 3 }
 });
 
 function failureMessage(error) {
