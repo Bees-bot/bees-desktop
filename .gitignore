@@ -16,3 +16,4 @@ dsh-runtime/plugin/lib/client.js
 coverage/
 .DS_Store
 .playwright-cli/
+graphify-out/
