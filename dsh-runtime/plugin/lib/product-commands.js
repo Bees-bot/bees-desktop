@@ -519,7 +519,7 @@ export async function executeProductCommand(action, input) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       if (this.processes.isAutomatic(item.processId))
         throw new Error("Temporal runs this process automatically");
-      const executionId = input.scheduleOccurrenceId ? stableUuid(input.scheduleOccurrenceId) : randomUUID();
+      const executionId = randomUUID();
       if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
         return { executionId };
       const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)

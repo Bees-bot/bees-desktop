@@ -218,7 +218,6 @@ describe("Bees DSH product plugin", () => {
     expect(secondGoals).toBeTruthy();
 
     const after = await product.snapshot();
-    expect(after.schedules).toEqual([]);
     expect(after.locations).toContainEqual(expect.objectContaining({
       teamId: team.id, name: "Work", localPath: realpathSync(files), mapped: true
     }));

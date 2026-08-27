@@ -270,7 +270,6 @@ export class BeesProduct {
       files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
         ? previewFiles(runDirectory) : []
     })) : [];
-    const schedules = [];
     const proposals = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, dsh_session_id AS sessionId, title, summary,
              changes_json AS changes, status, created_at AS createdAt
@@ -287,7 +286,7 @@ export class BeesProduct {
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments,
-      assignments, pools, poolMembers, presets, runs, schedules, proposals
+      assignments, pools, poolMembers, presets, runs, proposals
     };
   }
 
@@ -471,7 +470,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "scheduleId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;

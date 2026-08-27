@@ -172,8 +172,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (target.id === "work") return workItemsFor(data, targetRoute, workspaceIds)
       .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
     if (target.id === "processes") {
-      if (targetRoute === "schedules") return data.schedules.filter((row) => workspaceIds.includes(row.workspaceId))
-        .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       return data.processes.filter((row) => workspaceIds.includes(row.workspaceId))
