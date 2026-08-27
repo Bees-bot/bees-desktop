@@ -131,7 +131,7 @@ function toolCallCounts(events) {
   return counts;
 }
 
-const MAX_DELEGATION_DEPTH = 3;
+const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
@@ -818,7 +818,7 @@ export class AgentRuntime {
     }
   }
 
-  /** A peer may delegate in turn, but the chain has to end somewhere. */
+  /** A peer does the work itself. Letting it delegate again spirals into a chain that never starts. */
   peerDepth(workItemId) {
     return this.database.prepare(`
       WITH RECURSIVE up(id, parent) AS (
