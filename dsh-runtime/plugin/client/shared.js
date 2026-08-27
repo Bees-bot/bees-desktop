@@ -105,6 +105,19 @@ export async function request(path, options) {
   return value;
 }
 
+/** One submit at a time; a second click while the first is in flight creates a duplicate. */
+export function useSubmit(handler) {
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
+  return [busy, async (event) => {
+    event.preventDefault();
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
+    try { await handler(event); } finally { running.current = false; setBusy(false); }
+  }];
+}
+
 export async function openExternal(url) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (invoke) return invoke("open_external_url", { url });

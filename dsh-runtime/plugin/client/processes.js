@@ -1,5 +1,5 @@
 import { h, React } from "./runtime.js";
-import { ask, Button, confirmAction, Empty } from "./shared.js";
+import { ask, Button, confirmAction, Empty, useSubmit } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 8 }];
@@ -16,18 +16,19 @@ const PROCESS_DETAIL_LAYOUT = [
 function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
   const template = kind === "template";
   const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"), h("h2", null, template ? "New template" : "New process")),
-    h(Empty, null, "Choose one workspace before creating a process."));
-  return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+  const [busy, onSubmit] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
     const created = await act({
       action: template ? "create_process_template" : "create_process", workspaceId,
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages
     });
     if (created?.id) onCreated(created.id);
-  } },
+  });
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"), h("h2", null, template ? "New template" : "New process")),
+    h(Empty, null, "Choose one workspace before creating a process."));
+  return h("form", { className: "bees-box bees-form", onSubmit },
     h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"),
       h("div", null, h("h2", null, template ? "New process template" : draft ? "Create process from template" : "New process"),
         h("div", { className: "bees-muted" }, template
@@ -40,7 +41,7 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
     h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. A stage named Review gets an independent reviewer; the last stage completes the work."),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, template ? "Create template" : "Create process"),
+    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
@@ -60,7 +61,8 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
     const name = await ask("Process name", process.name); if (!name) return;
     const description = await ask("Description", process.description) ?? process.description;
     const current = data.stages.filter(({ processId }) => processId === process.id).map(({ name }) => name);
-    const stages = ((await ask("Stages, comma separated", current.join(", "))) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+    const listed = await ask("Stages, comma separated", current.join(", ")); if (listed === null) return;
+    const stages = listed.split(",").map((value) => value.trim()).filter(Boolean);
     await act({ action: "edit_process", processId: process.id, name, description, stages });
   };
   if (processId) {

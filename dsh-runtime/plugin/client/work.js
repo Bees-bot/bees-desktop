@@ -2,7 +2,7 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, workItemsFor
+  ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, useSubmit, workItemsFor
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -46,17 +46,19 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
       .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
     return () => { active = false; };
   }, [run?.id]);
-  useEffect(() => { let active = true; request("/bees-api/audit").then(({ events }) => active && setAudit(events)); return () => { active = false; }; }, [item.id, data.runs.length]);
-  
-  // Auto-scroll conversation
+  // The audit strip is supplementary, so a failed refresh leaves it empty rather than taking the page down.
   useEffect(() => {
-    if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight;
-  }, [history, pendingRun, interaction]);
+    let active = true;
+    request("/bees-api/audit")
+      .then(({ events }) => active && setAudit(events ?? []))
+      .catch(() => active && setAudit([]));
+    return () => { active = false; };
+  }, [item.id, data.runs.length]);
 
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
     const description = await ask("Description", item.description) ?? item.description;
-    const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? "";
+    const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? item.owner ?? "";
     const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
     if (agentName === null) return;
     const nextAgent = assignments.find(({ name }) => name === agentName);
@@ -283,14 +285,8 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const goal = kind === "goal";
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
-    h(Empty, null, "Choose one workspace before creating work."));
-  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
-    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
-  return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+  const [busy, onSubmit] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
     const command = goal ? {
       action: "create_goal", workspaceId, title: String(form.get("title") ?? ""),
       description: String(form.get("description") ?? ""), priority: String(form.get("priority") ?? "normal")
@@ -300,7 +296,14 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
       priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null
     };
     const created = await act(command); if (created?.id) onCreated(created.id);
-  } },
+  });
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
+    h(Empty, null, "Choose one workspace before creating work."));
+  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
+    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
+    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
+  return h("form", { className: "bees-box bees-form", onSubmit },
     h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"),
       h("div", null, h("h2", null, goal ? "New goal" : "New work"),
         h("div", { className: "bees-muted" }, goal
@@ -319,7 +322,7 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
       !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", defaultValue: "" },
         h("option", { value: "" }, "Use each stage's assigned agent"),
         ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled }, agent.name)))) : null),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, goal ? "Create goal" : "Create work"),
+    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : goal ? "Create goal" : "Create work"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
