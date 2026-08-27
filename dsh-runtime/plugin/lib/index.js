@@ -6,6 +6,7 @@ import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
 import { ProcessRuntime } from "./process-runtime.js";
+import { message } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 
 export const name = "bees";
@@ -102,10 +103,6 @@ async function body(req) {
   return value ? JSON.parse(value) : {};
 }
 
-function message(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function register(ctx, route) {
   ctx.effect(() => ctx.webServer.register(route), `bees route ${route.path}`);
 }
@@ -118,23 +115,28 @@ export async function apply(ctx, _config = {}, internals = {}) {
 
   const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
-  ctx.effect(() => () => database.close(), "bees database");
+  // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
+  let agents, processes, capabilities;
+  ctx.effect(() => async () => {
+    agents?.close();
+    await processes?.close();
+    await capabilities?.close();
+    database.close();
+  }, "bees shutdown");
   ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
-  const agents = new AgentRuntime(ctx, database);
-  const processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
+  agents = new AgentRuntime(ctx, database);
+  processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets
   });
   const connected = new ConnectedAccount(database, ctx.credentials);
-  const capabilities = new Capabilities(ctx, database, workspace);
+  capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
   await product.recoverRuns();
   await capabilities.initialize();
-  ctx.effect(() => () => capabilities.close(), "bees MCP servers");
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
-  ctx.effect(() => () => processes.close(), "bees Temporal worker");
 
   const server = ctx.webServer.server;
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
@@ -143,11 +145,15 @@ export async function apply(ctx, _config = {}, internals = {}) {
     if (["/bees-auth", "/healthz", "/_bees_unauthorized"].includes(path)) return;
     if (!equalSecret(tokenFrom(req), token)) req.url = "/_bees_unauthorized";
   };
+  // An upgrade has no response to redirect, so an unauthorized socket is dropped instead.
+  const guardUpgrade = (req, socket) => {
+    if (!equalSecret(tokenFrom(req), token)) socket.destroy();
+  };
   server.prependListener("request", guard);
-  server.prependListener("upgrade", guard);
+  server.prependListener("upgrade", guardUpgrade);
   ctx.effect(() => () => {
     server.off("request", guard);
-    server.off("upgrade", guard);
+    server.off("upgrade", guardUpgrade);
   }, "bees loopback auth");
 
   register(ctx, { kind: "exact", path: "/_bees_unauthorized", handler: (_req, res) =>
@@ -164,8 +170,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
     });
     res.end();
   } });
-  register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) =>
-    reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
+    try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
+    catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {

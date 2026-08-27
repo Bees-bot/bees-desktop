@@ -83,7 +83,12 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
   const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
   const [events, setEvents] = useState([]);
   const [history, setHistory] = useState(null);
-  useEffect(() => { if (route === "audit") void request("/bees-api/audit").then((value) => setEvents(value.events)); }, [route]);
+  useEffect(() => {
+    let active = true;
+    if (route === "audit") request("/bees-api/audit")
+      .then((value) => active && setEvents(value.events ?? []), () => active && setEvents([]));
+    return () => { active = false; };
+  }, [route]);
   useEffect(() => {
     let active = true;
     if (!runId) { setHistory(null); return () => { active = false; }; }
@@ -152,13 +157,20 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
 export function KnowledgePage({ data, route, workspaceId, teamId }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
   if (route === "artifacts") {
     const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs.length);
     return rows.length ? rows.map((run) => h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Run"), h("div", { className: "bees-muted" }, run.outputs.join(", "))))) : h(Empty, null, "No run artifacts yet");
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
-  return h("div", { className: "bees-stack" }, h("form", { className: "bees-search", onSubmit: async (event) => { event.preventDefault(); setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results); } },
+  return h("div", { className: "bees-stack" }, h("form", { className: "bees-search", onSubmit: async (event) => {
+    event.preventDefault();
+    setSearchError("");
+    try { setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results ?? []); }
+    catch (error) { setResults([]); setSearchError(error instanceof Error ? error.message : String(error)); }
+  } },
     h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")),
+    searchError ? h("p", { className: "bees-error" }, searchError) : null,
     ...results.map((result) => h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, result.title), h("div", { className: "bees-muted" }, result.excerpt)))),
     h("section", { className: "bees-box" }, h("h3", null, "Approved sources"),
       ...(locations.length ? locations.map((row) => h("div", { className: "bees-row", key: row.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, row.name), h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")))) : [h(Empty, { key: "empty" }, "No approved sources in this team")])),

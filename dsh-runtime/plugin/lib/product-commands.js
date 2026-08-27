@@ -4,12 +4,19 @@ import { resolve } from "node:path";
 import {
   assignment, capabilities, currentIdentity, insertProcess, insertWorkspaceDefaults, iso,
   itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStageNames,
-  requireTeam, required, stableUuid, transaction, workspaceContext
+  message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
   canonicalMapping, logicalRelativePath, mappedLocation, stageInputs
 } from "./product-files.js";
 import { resolveStageAgent } from "./product-routing.js";
+
+/** The three the UI offers. Anything else is a typo or a client that has drifted. */
+function priorityOf(value) {
+  const priority = String(value ?? "normal");
+  if (!["low", "normal", "high"].includes(priority)) throw new Error("Priority must be low, normal or high");
+  return priority;
+}
 
 /** An agent's MCP policy: every connected server, none of them, or a named few. */
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
@@ -27,11 +34,24 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
 function checkMcpServers(database, policy) {
   if (policy.access !== "listed") return policy;
   const known = database.prepare(`
-    SELECT id FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+    SELECT id FROM mcp_servers WHERE enabled = 1 AND id IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(policy.servers)).map(({ id }) => id);
   const missing = policy.servers.filter((id) => !known.includes(id));
   if (missing.length) throw new Error(`No MCP server matches ${missing.join(", ")}`);
   return policy;
+}
+
+/** A run is only reachable through the work item or workspace that owns it. */
+function runContext(database, executionId, roles = ["admin", "member"]) {
+  const run = database.prepare(`
+    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson
+    FROM execution_links WHERE execution_id = ?
+  `).get(executionId);
+  if (!run) throw new Error("Execution not found");
+  const item = run.workItemId ? itemContext(database, run.workItemId, roles) : null;
+  const data = JSON.parse(run.configJson);
+  if (!item) workspaceContext(database, data.workspaceId, roles);
+  return { ...run, data, item };
 }
 
 export async function executeProductCommand(action, input) {
@@ -106,11 +126,11 @@ export async function executeProductCommand(action, input) {
           agent_assignment_id, priority, archived_at, deleted_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
-        input.owner ? String(input.owner) : null, assignmentId, String(input.priority ?? "normal"), at, at);
+        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), at, at);
         return { id };
       });
-      await this.processes.startItem(created.id);
-      return created;
+      // The row is already committed; throwing here would have the caller retry and create a second item.
+      return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
@@ -125,7 +145,7 @@ export async function executeProductCommand(action, input) {
         UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
       `).run(required(input.title, "Title"), String(input.description ?? ""), input.owner ? String(input.owner) : null,
-        assignmentId, String(input.priority ?? "normal"), parentId, at, item.id);
+        assignmentId, priorityOf(input.priority), parentId, at, item.id);
       return {};
     });
     if (action === "move_item") {
@@ -192,9 +212,7 @@ export async function executeProductCommand(action, input) {
     });
     if (action === "edit_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
-      const process = this.database.prepare(`SELECT workspace_id AS workspaceId FROM processes WHERE id = ?`).get(processId);
-      if (!process) throw new Error("Process not found");
-      workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      processContext(this.database, processId, ["admin", "member"]);
       if (this.processes.isAutomatic(processId) && this.database.prepare(`
         SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
           AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
@@ -220,9 +238,10 @@ export async function executeProductCommand(action, input) {
       }
       this.database.prepare("UPDATE stages SET position = -position - 1 WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
-        this.database.prepare("DELETE FROM stages WHERE id = ?").run(id));
+        this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
       names.forEach((name, position) => {
-        const driver = position === names.length - 1 ? "terminal" : /review/i.test(name) ? "review" : "agent";
+        const driver = position === names.length - 1 ? "terminal"
+          : position > 0 && /review/i.test(name) ? "review" : "agent";
         if (assigned[position]) this.database.prepare(`
           UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
         `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
@@ -407,7 +426,7 @@ export async function executeProductCommand(action, input) {
     if (action === "map_location") {
       const location = mappedLocation(this.database, required(input.locationId, "Location"));
       if (!location) throw new Error("Location not found");
-      requireTeam(this.database, location.teamId);
+      requireTeam(this.database, location.teamId, ["admin", "member"]);
       const path = canonicalMapping(input.path, location.kind);
       const { deviceId } = currentIdentity(this.database);
       this.database.prepare(`
@@ -420,7 +439,7 @@ export async function executeProductCommand(action, input) {
     if (action === "unmap_location") {
       const location = mappedLocation(this.database, required(input.locationId, "Location"));
       if (!location) throw new Error("Location not found");
-      requireTeam(this.database, location.teamId);
+      requireTeam(this.database, location.teamId, ["admin", "member"]);
       const { deviceId } = currentIdentity(this.database);
       this.database.prepare("DELETE FROM device_location_mappings WHERE location_id = ? AND device_id = ?")
         .run(location.id, deviceId);
@@ -477,7 +496,7 @@ export async function executeProductCommand(action, input) {
         if (change.action === "create_item" && !processId)
           throw new Error("The proposed work item's process was not created earlier in this proposal");
         const result = await this.execute(change.action, {
-          ...change, processId, workspaceId: proposal.workspaceId
+          ...change, processId: processId ?? change.processId, workspaceId: proposal.workspaceId
         });
         results.push(result);
         if (change.action === "create_process")
@@ -519,14 +538,19 @@ export async function executeProductCommand(action, input) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       if (this.processes.isAutomatic(item.processId))
         throw new Error("Temporal runs this process automatically");
-      const executionId = input.scheduleOccurrenceId ? stableUuid(input.scheduleOccurrenceId) : randomUUID();
+      const executionId = randomUUID();
       if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
         return { executionId };
       const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)
         .get(item.stageId, item.processId);
       const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
       const assignment = resolveStageAgent(this.database, {
-        executionId, item, stageId: item.stageId, purpose: stagePurpose
+        executionId, item, stageId: item.stageId, purpose: stagePurpose,
+        // Without this the reviewer could be the same agent that produced the work.
+        candidateExecutionId: stagePurpose === "reviewer" ? this.database.prepare(`
+          SELECT execution_id AS executionId FROM agent_dispatches
+          WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
+        `).get(item.id)?.executionId : null
       });
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
@@ -546,38 +570,28 @@ export async function executeProductCommand(action, input) {
       });
       return { executionId };
     }
-    if (action === "stop_run") return { stopped: this.agents.abort(required(input.executionId, "Execution")) };
+    if (action === "stop_run") {
+      const executionId = required(input.executionId, "Execution");
+      runContext(this.database, executionId);
+      return { stopped: this.agents.abort(executionId) };
+    }
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");
-      const run = this.database.prepare(`
-        SELECT work_item_id AS workItemId, config_json AS configJson FROM execution_links WHERE execution_id = ?
-      `).get(executionId);
-      if (!run) throw new Error("Execution not found");
-      if (!run.workItemId) {
-        const data = JSON.parse(run.configJson);
-        workspaceContext(this.database, data.workspaceId, ["admin", "member"]);
-        return this.agents.admit("bees-run", executionId, {
-          idempotencyKey: `recover:${executionId}:${Date.now()}`,
-          body: `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
-        });
-      }
-      const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
+      const { data, item } = runContext(this.database, executionId);
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `recover:${executionId}:${Date.now()}`,
-        body: `Resume this work item from the last safe checkpoint.\n\nTitle: ${item.title}\n\n${item.description}`
+        body: item
+          ? `Resume this work item from the last safe checkpoint.\n\nTitle: ${item.title}\n\n${item.description}`
+          : `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
       });
     }
     if (action === "publish_run") {
       const executionId = required(input.executionId, "Execution");
-      const run = this.database.prepare(`
-        SELECT instance_uid AS uid, config_json AS configJson FROM execution_links WHERE execution_id = ?
-      `).get(executionId);
-      if (!run) throw new Error("Execution not found");
-      const data = JSON.parse(run.configJson);
+      const { uid, data } = runContext(this.database, executionId);
       const locationId = required(input.locationId, "Location");
       if (!data.grants.includes(locationId)) throw new Error("That location was not granted to this run");
       return this.agents.admit("bees-run", executionId, {
-        idempotencyKey: `publish:${executionId}:${locationId}:${randomUUID()}`, uid: run.uid,
+        idempotencyKey: `publish:${executionId}:${locationId}:${randomUUID()}`, uid,
         body: `Publish the finished files under outputs/ to the granted location ${locationId}. Use bees_publish_outputs and do not modify the deliverables.`
       });
     }

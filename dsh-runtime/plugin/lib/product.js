@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
-  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, processStageNames,
-  required, workspaceContext
+  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
+  processStageNames, required, workspaceContext
 } from "./product-database.js";
 import {
   indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
@@ -12,6 +12,9 @@ import {
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { executeProductCommand } from "./product-commands.js";
+
+/** A search used to rewalk every mapped folder; a minute-old index beats freezing the runtime. */
+const INDEX_INTERVAL = 60_000;
 
 export { initializeProductDatabase };
 
@@ -22,10 +25,15 @@ export class BeesProduct {
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
     this.workspaceRegistry = services.workspaceRegistry;
+    /** locationId -> when its folder was last walked, so a burst of searches does not redo it. */
+    this.indexedAt = new Map();
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
-    this.agents?.setSubitemStore?.((input) => this.createSubitems(input));
+    this.agents?.setSubitemStore?.({
+      create: (input) => this.createSubitems(input),
+      cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
+    });
   }
 
   async initialize() {
@@ -52,30 +60,41 @@ export class BeesProduct {
       FROM execution_links ORDER BY updated_at
     `).all().filter((run) => this.agents.needsRecovery(run.executionId));
     const recoveries = runs.flatMap((run) => {
-      const pending = this.agents.pendingInteraction(run.executionId);
-      const data = JSON.parse(run.configJson);
-      let body;
-      if (!run.workItemId && data.mode === "planning") {
-        body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
-      } else if (run.workItemId) {
-        const lifecycle = this.database.prepare(`
-          SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt
-          FROM work_items WHERE id = ?
-        `).get(run.workItemId);
-        if (!lifecycle || lifecycle.archivedAt || lifecycle.deletedAt ||
-          ["completed", "cancelled"].includes(lifecycle.runtimePhase)) return [];
-        const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
-        if (this.processes?.isAutomatic(item.processId)) return [];
-        body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
-      } else return [];
-      if (pending?.kind === "question")
-        body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
-      return [this.agents.admit("bees-run", run.executionId, {
-        idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
-        body
-      })];
+      try { return this.recovery(run); }
+      catch (error) {
+        this.agents.ctx.logger.warn(`bees: could not recover ${run.executionId}: ${message(error)}`);
+        return [];
+      }
     });
-    await Promise.allSettled(recoveries);
+    for (const settled of await Promise.allSettled(recoveries))
+      if (settled.status === "rejected")
+        this.agents.ctx.logger.warn(`bees: a run failed to resume: ${message(settled.reason)}`);
+  }
+
+  /** One unreadable row must not abort the whole recovery pass. */
+  recovery(run) {
+    const pending = this.agents.pendingInteraction(run.executionId);
+    const data = JSON.parse(run.configJson);
+    let body;
+    if (!run.workItemId && data.mode === "planning") {
+      body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
+    } else if (run.workItemId) {
+      const lifecycle = this.database.prepare(`
+        SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt
+        FROM work_items WHERE id = ?
+      `).get(run.workItemId);
+      if (!lifecycle || lifecycle.archivedAt || lifecycle.deletedAt ||
+        ["completed", "cancelled"].includes(lifecycle.runtimePhase)) return [];
+      const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
+      if (this.processes?.isAutomatic(item.processId)) return [];
+      body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
+    } else return [];
+    if (pending?.kind === "question")
+      body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
+    return [this.agents.admit("bees-run", run.executionId, {
+      idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
+      body
+    })];
   }
 
   async runProcessStage(stage, signal) {
@@ -221,14 +240,16 @@ export class BeesProduct {
       LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
       WHERE l.team_id IN (SELECT value FROM json_each(?)) ORDER BY l.name
     `).all(deviceId, JSON.stringify(allowedTeams)).map((row) => ({ ...row, mapped: Boolean(row.localPath) })) : [];
-    const attachments = this.database.prepare(`
-      SELECT work_item_id AS workItemId, location_id AS locationId, relative_path AS relativePath
-      FROM work_item_locations ORDER BY work_item_id, location_id
-    `).all();
-    const processAttachments = this.database.prepare(`
+    const attachments = processIds.length ? this.database.prepare(`
+      SELECT a.work_item_id AS workItemId, a.location_id AS locationId, a.relative_path AS relativePath
+      FROM work_item_locations a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.process_id IN (SELECT value FROM json_each(?)) ORDER BY a.work_item_id, a.location_id
+    `).all(JSON.stringify(processIds)) : [];
+    const processAttachments = processIds.length ? this.database.prepare(`
       SELECT process_id AS processId, location_id AS locationId, relative_path AS relativePath
-      FROM process_locations ORDER BY process_id, location_id
-    `).all();
+      FROM process_locations WHERE process_id IN (SELECT value FROM json_each(?))
+      ORDER BY process_id, location_id
+    `).all(JSON.stringify(processIds)) : [];
     const assignments = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
              instructions, model, reasoning_effort AS reasoningEffort,
@@ -270,7 +291,6 @@ export class BeesProduct {
       files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
         ? previewFiles(runDirectory) : []
     })) : [];
-    const schedules = [];
     const proposals = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, dsh_session_id AS sessionId, title, summary,
              changes_json AS changes, status, created_at AS createdAt
@@ -287,7 +307,7 @@ export class BeesProduct {
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments,
-      assignments, pools, poolMembers, presets, runs, schedules, proposals
+      assignments, pools, poolMembers, presets, runs, proposals
     };
   }
 
@@ -328,7 +348,11 @@ export class BeesProduct {
       FROM team_locations l JOIN device_location_mappings m ON m.location_id = l.id
       WHERE l.team_id = ? AND l.archived_at IS NULL AND m.device_id = ?
     `).all(workspace.teamId, deviceId)) {
-      try { indexLocation(this.database, location); } catch { /* unavailable mappings stay out of results */ }
+      if (Date.now() - (this.indexedAt.get(location.id) ?? 0) < INDEX_INTERVAL) continue;
+      try {
+        indexLocation(this.database, location);
+        this.indexedAt.set(location.id, Date.now());
+      } catch { /* unavailable mappings stay out of results */ }
     }
     const allowedItems = this.database.prepare(`
       SELECT w.id FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -471,7 +495,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "scheduleId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;

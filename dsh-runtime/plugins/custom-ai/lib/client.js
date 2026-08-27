@@ -23,6 +23,7 @@ window.__ModuleLoader__.load({
     const BY_ID = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]));
     // Preserve credentials saved by the earlier combined AI APIs screen.
     const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
+    const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
     const css = `
       .bees-general-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-general-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}.bees-general-table table{width:100%;min-width:940px;border-collapse:collapse}.bees-general-table th,.bees-general-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-general-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase}.bees-general-table tbody tr:last-child td{border-bottom:0}.bees-general-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-general-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.bees-general-models .bees-badge{gap:4px;text-transform:none}.bees-general-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-general-add{display:grid;grid-template-columns:minmax(160px,1fr) minmax(190px,1.5fr) minmax(190px,1.5fr);gap:10px;align-items:end}.bees-general-add label{display:grid;gap:5px}.bees-general-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;grid-column:1/-1}.bees-general-card{display:grid;gap:3px;min-height:70px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;cursor:pointer}.bees-general-card:hover,.bees-general-card.active{border-color:#f2b84b;background:#f2b84b18}.bees-general-card span{color:var(--dsw-alias-label-secondary);font-size:11px}.bees-general-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-general-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative}.bees-general-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.bees-general-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-general-toggle input:checked:after{left:16px;background:#151515}@media(max-width:760px){.bees-general-add{grid-template-columns:1fr}}
     `;
@@ -164,10 +165,13 @@ window.__ModuleLoader__.load({
           models = [{ id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         }
         const value = await ask("API key (leave blank to keep the stored key)", "", "password");
-        if (value) unwrap(await credentials.set({ ref: "BEES_CUSTOM_OPENAI_API_KEY", value }));
+        if (value) unwrap(await credentials.set({ ref: CUSTOM_KEY_REF, value }));
+        // Registering the provider without a stored key only fails later, at the first call.
+        else if (!unwrap(await credentials.describe({ refs: [CUSTOM_KEY_REF] })).credentials[CUSTOM_KEY_REF]?.configured)
+          throw new Error("An API key is needed the first time you connect this server");
         await modelSettings.set("providers", { ...(config.providers ?? {}), "custom-openai": {
           ...custom, displayName: "Custom OpenAI-compatible API", api: custom.api ?? "openai-completions", baseURL,
-          apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY",
+          apiKeyEnv: CUSTOM_KEY_REF,
           models
         } });
       });

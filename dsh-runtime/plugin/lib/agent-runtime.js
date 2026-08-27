@@ -6,6 +6,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { MCP_CATALOG } from "./mcp-catalog.js";
+import { currentIdentity } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
@@ -127,6 +129,11 @@ function toolCallCounts(events) {
   for (const event of events) if (event.type === "tool/call") counts[event.data.name] = (counts[event.data.name] ?? 0) + 1;
   return counts;
 }
+
+const MAX_DELEGATION_DEPTH = 3;
+
+/** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
+const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 
 function reviewTimeline(events) {
   const calls = new Set();
@@ -335,6 +342,7 @@ export class AgentRuntime {
     this.database = database;
     this.live = new Map();
     this.recovery = new Set();
+    this.closing = false;
     database.exec(`
       CREATE TABLE IF NOT EXISTS execution_links (
         execution_id TEXT PRIMARY KEY,
@@ -483,6 +491,7 @@ export class AgentRuntime {
   }
 
   onSessionEvent(session, event) {
+    if (this.closing) return;
     const run = this.database.prepare(`
       SELECT execution_id AS executionId FROM execution_links WHERE current_session_id = ?
     `).get(String(session.id));
@@ -590,7 +599,7 @@ export class AgentRuntime {
 
   run(executionId) {
     return this.database.prepare(`
-      SELECT execution_id AS executionId, agent_name AS agentName,
+      SELECT execution_id AS executionId, work_item_id AS workItemId, agent_name AS agentName,
              current_session_id AS currentSessionId, previous_session_id AS previousSessionId,
              instance_uid AS instanceUid, run_directory AS runDirectory, config_json AS configJson,
              status, recovery_count AS recoveryCount
@@ -603,17 +612,28 @@ export class AgentRuntime {
    * tools are still registering at setup, so an allow mask would freeze the agent to whatever
    * happened to exist at that instant.
    *
-   * ponytail: a server connected mid-run stays visible to a run already going. Runs are short.
+   * ponytail: a server connected mid-run stays visible to a run already going. An allow mask would
+   * close that, at the cost of hiding every tool that registers late, and DSH is explicit that
+   * restrict() is tool visibility rather than an authority boundary either way.
    */
   restrictMcp(agentCtx, data) {
     if (data.mcpAccess === "all") return;
     const allowed = new Set(data.mcpServers);
     const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
-      const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
+      const match = /^mcp__([A-Za-z0-9_-]{1,32}?)__/.exec(name);
       return match && !allowed.has(match[1]);
     });
     if (!deny.length) return;
     agentCtx.tools.restrict({ deny });
+  }
+
+  /** A folder-bound server takes its folder as its last argument; nothing else tells the model which. */
+  boundFolders() {
+    const bound = new Set(MCP_CATALOG.filter(({ requiresDirectory }) => requiresDirectory).map(({ id }) => id));
+    return this.database.prepare("SELECT server_name AS name, args_json AS args, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
+      .all()
+      .filter(({ catalogId }) => bound.has(catalogId))
+      .map(({ name, args }) => `Every mcp__${name}__ tool takes a path argument. Always pass ${JSON.parse(args).at(-1)}, never your working directory.`);
   }
 
   async setup(agentCtx, data, executionId, workspace) {
@@ -622,7 +642,10 @@ export class AgentRuntime {
     this.restrictMcp(agentCtx, data);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
-      text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
+      text: [
+        data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
+        String(data.instructions ?? ""), ...this.boundFolders()
+      ].filter(Boolean).join("\n\n"), complete: true
     });
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
@@ -680,11 +703,19 @@ export class AgentRuntime {
         catch { throw new Error("items_json must be valid JSON"); }
         if (!Array.isArray(items) || items.length !== 1)
           throw new Error("items_json must contain exactly one delegated work item");
-        const created = await this.subitemStore({ parentId: data.workItemId, items });
+        if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
+          throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
+        const created = await this.subitemStore.create({ parentId: data.workItemId, items });
         const ids = created.map(({ id }) => id);
         this.audit("peer-work-delegated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
-        const results = await this.waitForPeers(ids, exec.signal);
-        return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+        try {
+          const results = await this.waitForPeers(ids, exec.signal);
+          return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+        } catch (error) {
+          // The caller has gone; a peer left running has nobody to report back to.
+          await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
+          throw error;
+        }
       }
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
@@ -727,14 +758,16 @@ export class AgentRuntime {
         return result;
       }
     }));
-    const grants = this.database.prepare(`
+    // Read again at publish time: a location archived mid-run must stop being a target.
+    const granted = () => this.database.prepare(`
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
       JOIN workspaces w ON w.team_id = l.team_id
       JOIN device_location_mappings m ON m.location_id = l.id
-        AND m.device_id = (SELECT id FROM devices ORDER BY created_at LIMIT 1)
+        AND m.device_id = ?
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
-    `).all(JSON.stringify(data.grants ?? []), data.workspaceId);
+    `).all(currentIdentity(this.database).deviceId, JSON.stringify(data.grants ?? []), data.workspaceId);
+    const grants = granted();
     if (grants.length) {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
@@ -759,7 +792,7 @@ export class AgentRuntime {
           render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
         },
         execute: async (args, exec) => {
-          const location = grants.find((grant) => grant.id === args.location_id);
+          const location = granted().find((grant) => grant.id === args.location_id);
           if (!location) throw new Error("That publication target was not granted to this run");
           if (!exec.agent) throw new Error("Publication requires an active DSH agent turn");
           const outcome = await this.ctx.approval.request({
@@ -778,6 +811,16 @@ export class AgentRuntime {
         }
       }));
     }
+  }
+
+  /** A peer may delegate in turn, but the chain has to end somewhere. */
+  peerDepth(workItemId) {
+    return this.database.prepare(`
+      WITH RECURSIVE up(id, parent) AS (
+        SELECT id, parent_id FROM work_items WHERE id = ?
+        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent)
+      SELECT COUNT(*) - 1 AS depth FROM up
+    `).get(workItemId).depth;
   }
 
   async waitForPeers(ids, signal) {
@@ -928,10 +971,10 @@ export class AgentRuntime {
       ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
       : "";
     if (recoveryApproval) {
-      void this.recoverApproval(
+      this.track(this.recoverApproval(
         executionId, submissionId, sessionId, handle, approvalAbort,
         recoveryApproval, `${payload.body}${recoveryNotice}`
-      );
+      ));
       this.recovery.delete(executionId);
     } else {
       const before = handle.agent.session.seq;
@@ -950,7 +993,7 @@ export class AgentRuntime {
         throw error;
       }
       this.recovery.delete(executionId);
-      void this.settle(executionId, submissionId, sessionId, handle, before);
+      this.track(this.settle(executionId, submissionId, sessionId, handle, before));
     }
     return { submissionId, uid: run.instanceUid };
   }
@@ -1004,7 +1047,7 @@ export class AgentRuntime {
     } catch (error) {
       await this.finish(executionId, submissionId, sessionId, handle, {
         outcome: "failed",
-        error: { message: error instanceof Error ? error.message : String(error) }
+        error: { message: message(error) }
       });
     }
   }
@@ -1015,12 +1058,13 @@ export class AgentRuntime {
       await handle.agent.whenIdle();
       result = outcomeFor(lastTurn(handle.agent.session.events, before));
     } catch (error) {
-      result = { outcome: "failed", error: { message: error instanceof Error ? error.message : String(error) } };
+      result = { outcome: "failed", error: { message: message(error) } };
     }
     await this.finish(executionId, submissionId, sessionId, handle, result);
   }
 
   async finish(executionId, submissionId, sessionId, handle, result) {
+    if (this.closing) return;
     const at = new Date().toISOString();
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
@@ -1044,6 +1088,13 @@ export class AgentRuntime {
     `).get(executionId);
   }
 
+  /** A new attempt replaces the last one, whose session would otherwise sit live for good. */
+  supersede(executionId, workItemId) {
+    if (!workItemId) return;
+    for (const id of [...this.live.keys()])
+      if (id !== executionId && this.run(id)?.workItemId === workItemId) this.abort(id);
+  }
+
   async waitForDelivery(executionId, submissionId, signal) {
     while (true) {
       const delivery = this.database.prepare(`
@@ -1065,6 +1116,7 @@ export class AgentRuntime {
   }
 
   async executeStage(executionId, payload, signal) {
+    this.supersede(executionId, payload.initialData?.workItemId);
     let run = this.run(executionId);
     const completed = this.stageResult(executionId);
     if (completed && run?.status === "completed") return completed;
@@ -1088,7 +1140,13 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
       if (detail) throw new Error(detail);
-      throw new Error(`DSH stage ended ${run.status} without submitting a stage result`);
+      const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
+      submission = await this.admit("bees-run", executionId, {
+        ...payload,
+        initialData: undefined,
+        idempotencyKey: `process:${executionId}:resubmit:${asked}`,
+        body: `Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done.\n\n${payload.body}`
+      });
     }
 
     const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
@@ -1097,8 +1155,7 @@ export class AgentRuntime {
       throw new Error(detail || `DSH stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
-    // A model that ends its turn without submitting is having a bad turn, not failing the stage.
-    if (!result) throw Object.assign(new Error("DSH completed without calling bees_submit_stage_result"), { retryable: true });
+    if (!result) throw badTurn("DSH completed without calling bees_submit_stage_result");
     return result;
   }
 
@@ -1178,7 +1235,15 @@ export class AgentRuntime {
     };
   }
 
+  /** Settling outlives the reply that started it, and an unhandled rejection here takes the runtime down. */
+  track(promise) { promise.catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`)); }
+
+  /** Shutdown leaves a working run alone; it resumes from its DSH checkpoint on the next start. */
+  close() { this.closing = true; }
+
   abort(executionId) {
+    // Draining the worker cancels the activity too, and that is a restart, not a person pressing stop.
+    if (this.closing) return false;
     const live = this.live.get(executionId);
     if (!live) return false;
     live.approvalAbort.abort();

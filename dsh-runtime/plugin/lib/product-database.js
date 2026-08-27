@@ -4,6 +4,7 @@ const GOALS_WORK_INSTRUCTIONS = "Decide first whether the outcome needs a plan. 
 const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
 
 export const iso = () => new Date().toISOString();
+export const message = (error) => error instanceof Error ? error.message : String(error);
 export function stableUuid(value) {
   const hex = createHash("sha256").update(String(value)).digest("hex").slice(0, 32).split("");
   hex[12] = "5";
@@ -204,7 +205,8 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     const stageName = typeof stage === "string" ? stage : stage.name;
     const definition = typeof stage === "string" ? {
       name: stageName,
-      driver: position === stages.length - 1 ? "terminal" : /review/i.test(stageName) ? "review" : "agent"
+      driver: position === stages.length - 1 ? "terminal"
+        : position > 0 && /review/i.test(stageName) ? "review" : "agent"
     } : stage;
     insert.run(
       randomUUID(), id, required(definition.name, "Stage"), position,

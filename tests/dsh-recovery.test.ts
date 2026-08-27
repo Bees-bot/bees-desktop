@@ -68,7 +68,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(entry).not.toContain("/bees-auth?token=");
     expect(tauri).toContain('"{}/bees-auth?token={}"');
     expect(tauri).toContain(".navigate(url)");
-    expect(tauri).toContain('body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#');
+    expect(tauri).toContain('body.contains(r#""product":"bees""#)');
     expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
     expect(profile).toContain("local-openai:");
     expect(profile).not.toContain("freellmapi:");

@@ -197,6 +197,7 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     ...(effort ? ["--effort", effort] : [])
   ];
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
     const child = spawn(command, args, {
       cwd: process.env.BEES_DEFAULT_WORKSPACE,
       env: safeEnvironment(),
@@ -216,12 +217,13 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
     const abort = () => stop();
     signal?.addEventListener("abort", abort, { once: true });
+    // "close" may never arrive after "error", so the timer and listener are cleared on both.
+    const settled = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
     child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); if (overflow) stop(); });
     child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); if (overflow) stop(); });
-    child.on("error", reject);
+    child.on("error", (error) => { settled(); reject(error); });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
+      settled();
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
@@ -377,7 +379,12 @@ export async function apply(ctx) {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       const input = await requestBody(req);
       if (input.action === "codex_start") {
-        pending ??= beginCodexLogin();
+        if (!pending) {
+          const started = beginCodexLogin();
+          // An abandoned sign-in must not park a dead url here until the app restarts.
+          void started.result.catch(() => {}).finally(() => { if (pending === started) pending = null; });
+          pending = started;
+        }
         return json(res, 200, await pending.ready);
       }
       if (input.action === "codex_await") {

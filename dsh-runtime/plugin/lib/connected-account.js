@@ -1,3 +1,5 @@
+import { transaction } from "./product-database.js";
+
 const defaultServer = "https://app.bees.bot";
 const sessionCredential = "BEES_ACCOUNT_SESSION";
 
@@ -38,7 +40,8 @@ export class ConnectedAccount {
           ...(token?.value ? { authorization: `Bearer ${token.value}` } : {}),
           ...(organizationId ? { "x-organization-id": organizationId } : {})
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(20_000)
       });
     } catch {
       throw new Error("Can't reach the Bees server");
@@ -54,13 +57,14 @@ export class ConnectedAccount {
       response = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20_000)
       });
     } catch {
       throw new Error("Can't reach the Bees server");
     }
     const value = await response.json().catch(() => ({}));
-    if (!response.ok || !value.user) throw new Error(message(value, response.status));
+    if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));
     const token = response.headers.get("set-auth-token");
     if (!token) throw new Error("Server did not return a session token");
     await this.credentials.set(sessionCredential, token);
@@ -99,49 +103,54 @@ export class ConnectedAccount {
     const account = this.account();
     if (!account) return [];
     const { organizations = [] } = await this.request("/api/organizations");
+    // Read the whole remote picture first: a half-applied sync leaves memberships no later pass repairs.
+    const remote = await Promise.all(organizations.map(async (organization) => {
+      const { teams = [] } = await this.request("/api/teams", { organizationId: organization.id });
+      return { organization, teams: await Promise.all(teams.map(async (team) => ({
+        team,
+        members: await this.request(`/api/teams/${team.id}/members`, { organizationId: organization.id })
+          .then(({ members }) => members).catch(() => [])
+      }))) };
+    }));
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
     const at = new Date().toISOString();
-    const seen = [];
-    for (const organization of organizations) {
-      seen.push(organization.id);
-      this.database.prepare(`
-        INSERT INTO organizations(id, name, personal, created_by, status, created_at, updated_at)
-        VALUES (?, ?, 0, ?, 'active', ?, ?)
-        ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
-      `).run(organization.id, organization.name, localUser.id, at, at);
-      this.database.prepare(`
-        INSERT INTO organization_memberships(user_id, organization_id, role, status, created_at)
-        VALUES (?, ?, ?, 'active', ?)
-        ON CONFLICT(user_id, organization_id) DO UPDATE SET role = excluded.role, status = 'active'
-      `).run(localUser.id, organization.id, organization.role ?? "member", at);
-      this.database.prepare(`
-        INSERT INTO bees_connected_organizations(organization_id, account_user_id)
-        VALUES (?, ?) ON CONFLICT(organization_id) DO UPDATE SET account_user_id = excluded.account_user_id
-      `).run(organization.id, account.userId);
-      const { teams = [] } = await this.request("/api/teams", { organizationId: organization.id });
-      for (const team of teams) {
+    transaction(this.database, () => {
+      for (const { organization, teams } of remote) {
         this.database.prepare(`
-          INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
-          VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
+          INSERT INTO organizations(id, name, personal, created_by, status, created_at, updated_at)
+          VALUES (?, ?, 0, ?, 'active', ?, ?)
           ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
-        `).run(team.id, organization.id, team.name, localUser.id, at, at);
-        const remoteMembers = await this.request(`/api/teams/${team.id}/members`, {
-          organizationId: organization.id
-        }).then(({ members }) => members).catch(() => []);
-        const own = remoteMembers.find(({ userId }) => userId === account.userId);
-        if (own) this.database.prepare(`
-          INSERT INTO team_memberships(user_id, team_id, role, status, created_at)
+        `).run(organization.id, organization.name, localUser.id, at, at);
+        this.database.prepare(`
+          INSERT INTO organization_memberships(user_id, organization_id, role, status, created_at)
           VALUES (?, ?, ?, 'active', ?)
-          ON CONFLICT(user_id, team_id) DO UPDATE SET role = excluded.role, status = 'active'
-        `).run(localUser.id, team.id, own.role, at);
+          ON CONFLICT(user_id, organization_id) DO UPDATE SET role = excluded.role, status = 'active'
+        `).run(localUser.id, organization.id, organization.role ?? "member", at);
+        this.database.prepare(`
+          INSERT INTO bees_connected_organizations(organization_id, account_user_id)
+          VALUES (?, ?) ON CONFLICT(organization_id) DO UPDATE SET account_user_id = excluded.account_user_id
+        `).run(organization.id, account.userId);
+        for (const { team, members } of teams) {
+          this.database.prepare(`
+            INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
+            VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
+          `).run(team.id, organization.id, team.name, localUser.id, at, at);
+          const own = members.find(({ userId }) => userId === account.userId);
+          if (own) this.database.prepare(`
+            INSERT INTO team_memberships(user_id, team_id, role, status, created_at)
+            VALUES (?, ?, ?, 'active', ?)
+            ON CONFLICT(user_id, team_id) DO UPDATE SET role = excluded.role, status = 'active'
+          `).run(localUser.id, team.id, own.role, at);
+        }
       }
-    }
-    this.database.prepare(`
-      UPDATE organization_memberships SET status = 'suspended'
-      WHERE user_id = ? AND organization_id IN (
-        SELECT organization_id FROM bees_connected_organizations WHERE account_user_id = ?
-      ) AND organization_id NOT IN (SELECT value FROM json_each(?))
-    `).run(localUser.id, account.userId, JSON.stringify(seen));
+      this.database.prepare(`
+        UPDATE organization_memberships SET status = 'suspended'
+        WHERE user_id = ? AND organization_id IN (
+          SELECT organization_id FROM bees_connected_organizations WHERE account_user_id = ?
+        ) AND organization_id NOT IN (SELECT value FROM json_each(?))
+      `).run(localUser.id, account.userId, JSON.stringify(organizations.map(({ id }) => id)));
+    });
     return organizations;
   }
 

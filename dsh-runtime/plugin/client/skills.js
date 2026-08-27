@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { Button, confirmAction, Empty, openExternal, request } from "./shared.js";
+import { Button, confirmAction, Empty, openExternal, request, useSubmit } from "./shared.js";
 
 const STATUS_CLASS = { connected: "bees-running", failed: "bees-failed", starting: "", off: "" };
 const STATUS_LABEL = {
@@ -225,9 +225,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall }) {
 
 function ManualServerForm({ onCancel, act }) {
   const [transport, setTransport] = useState("stdio");
-  return h("form", {
-    className: "bees-box bees-form", onSubmit: async (event) => {
-      event.preventDefault();
+  const [busy, onSubmit] = useSubmit(async (event) => {
       const form = new FormData(event.currentTarget);
       const secrets = {};
       for (const line of String(form.get("secrets") ?? "").split("\n")) {
@@ -241,8 +239,8 @@ function ManualServerForm({ onCancel, act }) {
         url: String(form.get("url") ?? ""), secrets
       });
       if (created?.id) onCancel();
-    }
-  },
+  });
+  return h("form", { className: "bees-box bees-form", onSubmit },
     h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← MCP servers"),
       h("div", null, h("h2", null, "Add a server by hand"),
         h("div", { className: "bees-muted" }, "Only add a server you trust. Its tools go straight to your agents."))),
@@ -272,7 +270,7 @@ function ManualServerForm({ onCancel, act }) {
         }))),
     h("p", { className: "bees-muted" }, "Values on those last lines are stored in your DSH credential store."),
     h("div", { className: "bees-detail-actions" },
-      h("button", { className: "bees-btn primary" }, "Add and turn on"),
+      h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Adding…" : "Add and turn on"),
       h(Button, { onClick: onCancel }, "Cancel")));
 }
 

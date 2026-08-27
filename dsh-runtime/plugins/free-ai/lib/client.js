@@ -75,8 +75,9 @@ window.__ModuleLoader__.load({
       }), "Free LLM setup failed");
     }
 
-    async function syncFreeRoute(modelSettings, config, state) {
-      const providers = { ...(config.providers ?? {}) };
+    async function syncFreeRoute(modelSettings, state) {
+      // Read the live map: other plugins write providers too, and this ran after a fetch.
+      const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
       const enabled = state.keys.some((row) => row.enabled);
       const desired = {
         displayName: "FreeLLMAPI (free tiers)",
@@ -107,15 +108,13 @@ window.__ModuleLoader__.load({
     }
 
     function FreeAiController({ modelSettings, onError }) {
-      const config = usePreference(modelSettings);
       useEffect(() => {
-        void loadState().then((state) => syncFreeRoute(modelSettings, config, state)).catch((reason) => onError?.(reason.message));
+        void loadState().then((state) => syncFreeRoute(modelSettings, state)).catch((reason) => onError?.(reason.message));
       }, []);
       return null;
     }
 
     function FreeAiSettings({ modelSettings, systemDefault, confirmAction, openExternal, Button }) {
-      const config = usePreference(modelSettings);
       const [state, setState] = useState(null);
       const [adding, setAdding] = useState(false);
       const [selected, setSelected] = useState("");
@@ -125,7 +124,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
 
-      const acceptState = async (next) => { setState(next); await syncFreeRoute(modelSettings, config, next); };
+      const acceptState = async (next) => { setState(next); await syncFreeRoute(modelSettings, next); };
       const refresh = async () => acceptState(await loadState());
       useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
 

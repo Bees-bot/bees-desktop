@@ -105,6 +105,18 @@ export async function request(path, options) {
   return value;
 }
 
+/** One submit at a time; a second click while the first is in flight creates a duplicate. */
+export function useSubmit(handler) {
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
+  return [busy, async (event) => {
+    event.preventDefault();
+    if (running.current) return;
+    running.current = true; setBusy(true);
+    try { await handler(event); } finally { running.current = false; setBusy(false); }
+  }];
+}
+
 export async function openExternal(url) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (invoke) return invoke("open_external_url", { url });
@@ -223,8 +235,9 @@ export function useSnapshot(source, fallback = null) {
 }
 
 export function sectionFor(child) {
-  const legacySection = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", mappings: "files", references: "files", sources: "knowledge" }[child];
-  return NAVIGATION.find((section) => section.id === (legacySection ?? child) || section.defaultChild === child || section.children.some(([id]) => id === child)) ?? NAVIGATION[0];
+  // Routes a page owns without listing in the nav tree, so they still light up their section.
+  const section = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", sources: "knowledge" }[child];
+  return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
 export function navigationItem(id) {

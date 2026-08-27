@@ -128,6 +128,9 @@ const widgetByKind = new Map(WIDGETS.map((widget) => [widget.kind, widget]));
 function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) {
   const root = useRef(null);
   const gridRef = useRef(null);
+  // The grid outlives the render that set it up, so the save has to read the current handler.
+  const onLayoutRef = useRef(onLayout);
+  onLayoutRef.current = onLayout;
   const widgetKey = dashboard.widgets.map(({ kind }) => kind).join("|");
   useEffect(() => {
     const grid = GridStack.init({
@@ -144,7 +147,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
     if (!grid) return undefined;
     const save = () => {
       const layout = grid.save(false);
-      if (Array.isArray(layout)) onLayout(layout);
+      if (Array.isArray(layout)) onLayoutRef.current(layout);
     };
     grid.on("dragstop resizestop", save);
     gridRef.current = grid;

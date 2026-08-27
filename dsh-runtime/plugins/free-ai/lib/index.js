@@ -65,14 +65,17 @@ function keyId(value) {
   return id;
 }
 
+/** The banner lands on either stream and can be split across writes, so match the key itself. */
 async function hideBootstrapKey(work) {
-  const write = process.stdout.write;
-  process.stdout.write = function (chunk, ...args) {
-    if (/Your unified API key:\s+freellmapi-/i.test(String(chunk))) return true;
+  const original = { out: process.stdout.write, err: process.stderr.write };
+  const hide = (write) => function (chunk, ...args) {
+    if (/freellmapi-[A-Za-z0-9_-]{8,}/.test(String(chunk))) return true;
     return write.call(this, chunk, ...args);
   };
+  process.stdout.write = hide(original.out);
+  process.stderr.write = hide(original.err);
   try { return await work(); }
-  finally { process.stdout.write = write; }
+  finally { process.stdout.write = original.out; process.stderr.write = original.err; }
 }
 
 async function runCommand(runtime, input) {
@@ -83,7 +86,8 @@ async function runCommand(runtime, input) {
       method: "POST",
       body: { platform, key: String(input.key ?? "").trim(), label: String(input.label ?? "").trim() }
     });
-    const test = await freeRequest(runtime, `/api/health/check/${keyId(added.id)}`, { method: "POST" });
+    const test = await freeRequest(runtime, `/api/health/check/${keyId(added.id)}`, { method: "POST" })
+      .catch((error) => ({ ok: false, message: error instanceof Error ? error.message : String(error) }));
     return { ...(await snapshot(runtime)), test, notice: added.notice };
   }
   if (input.action === "test") {
@@ -125,12 +129,13 @@ export async function apply(ctx) {
       });
       return { embedded, handle };
     });
+    // Registered before anything else that can throw, or a failure leaks a listening server.
+    ctx.effect(() => () => new Promise((resolve) => handle.server.close(resolve)), "bees free AI: embedded server");
     runtime = {
       ...handle,
       origin: `http://127.0.0.1:${handle.port}`,
       sessionToken: embedded.ensureSessionToken()
     };
-    ctx.effect(() => () => new Promise((resolve) => runtime.server.close(resolve)), "bees free AI: embedded server");
     await ctx.credentials.set(API_KEY_REF, embedded.getUnifiedApiKey());
   } catch (error) {
     startupError = error instanceof Error ? error : new Error(String(error));

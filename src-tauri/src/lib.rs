@@ -235,7 +235,7 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path) -> Result<(), String> 
             .ok()
             .filter(|response| response.status().is_success())
             .and_then(|response| response.text().ok())
-            .is_some_and(|body| body == r#"{"status":"ok","runtime":"dsh","product":"bees"}"#)
+            .is_some_and(|body| body.contains(r#""product":"bees""#))
         {
             return Ok(());
         }
@@ -270,30 +270,37 @@ fn wait_temporal(child: &mut Sidecar, address: &str, log: &Path) -> Result<(), S
     ))
 }
 
-fn inherit_environment(command: &mut Command) {
-    for key in [
-        "PATH",
-        "HOME",
-        "USER",
-        "USERNAME",
-        "SHELL",
-        "TEMP",
-        "TMP",
-        "TMPDIR",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "XDG_CONFIG_HOME",
-        "XDG_DATA_HOME",
-        "XDG_CACHE_HOME",
-        "SSL_CERT_FILE",
-        "SSL_CERT_DIR",
-        "NODE_EXTRA_CA_CERTS",
-        "DEEPSEEK_API_KEY",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "BEES_API_URL",
-    ] {
+/// What any sidecar needs to find its files and trust a certificate.
+const BASE_ENVIRONMENT: [&str; 16] = [
+    "PATH",
+    "HOME",
+    "USER",
+    "USERNAME",
+    "SHELL",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+];
+
+/// Model credentials. Only the runtime that talks to a model gets these; Temporal has no use for them.
+const RUNTIME_ENVIRONMENT: [&str; 5] = [
+    "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "BEES_API_URL",
+];
+
+fn inherit_environment(command: &mut Command, keys: &[&str]) {
+    for key in keys {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
@@ -353,7 +360,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     fs::create_dir_all(&temporal_root).map_err(|error| error.to_string())?;
     let mut temporal_command = Command::new(&temporal_binary);
     temporal_command.env_clear();
-    inherit_environment(&mut temporal_command);
+    inherit_environment(&mut temporal_command, &BASE_ENVIRONMENT);
     temporal_command
         .args([
             "server",
@@ -387,7 +394,8 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     wait_temporal(&mut temporal, &temporal_address, &log_path)?;
     let mut command = Command::new(&node);
     command.env_clear();
-    inherit_environment(&mut command);
+    inherit_environment(&mut command, &BASE_ENVIRONMENT);
+    inherit_environment(&mut command, &RUNTIME_ENVIRONMENT);
     command
         .current_dir(&workspace)
         .arg(entry)
@@ -538,8 +546,21 @@ pub fn run() {
             local_model_connection,
             open_external_url
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Bees");
+        .build(tauri::generate_context!())
+        .expect("error while running Bees")
+        .run(|handle, event| {
+            // Tauri exits the process directly on quit, so the children are dropped by hand here.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(dsh) = handle.try_state::<DshManager>() {
+                    if let Ok(mut managed) = dsh.0.lock() {
+                        managed.take();
+                    }
+                }
+                if let Some(models) = handle.try_state::<LocalModelManager>() {
+                    models.shutdown();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
