@@ -110,8 +110,9 @@ export function specFromCurl(command) {
           operationId: operationId(request.method, request.path),
           summary: `${request.method.toUpperCase()} ${request.path}`,
           description: `Taken from a working request. Only this endpoint is described.`,
+          // No example: a key pasted in the query string would otherwise land in the spec file.
           parameters: request.query.map(([name, value]) => ({
-            name, in: "query", required: false, example: value, schema: schemaFor(value)
+            name, in: "query", required: false, schema: schemaFor(value)
           })),
           ...(body ? { requestBody: body } : {}),
           responses: { 200: { description: "Success", content: { "application/json": { schema: { type: "object" } } } } }

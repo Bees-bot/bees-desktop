@@ -140,7 +140,10 @@ export async function processWorkflow(input) {
       }
       if (purpose === "reviewer" && result.outcome === "revise") {
         feedback = result.summary;
-        index = Math.max(0, input.stages.slice(0, index).findLastIndex(({ driver }) => driver === "agent"));
+        const worker = input.stages.slice(0, index).findLastIndex(({ driver }) => driver === "agent");
+        // With no worker stage behind it there is nothing to revise, so a human has to look.
+        if (worker < 0) { await waitForRetry(feedback || "Review asked for a revision with no worker stage before it"); continue; }
+        index = worker;
         if (state.attempt >= input.maxAttempts) await waitForRetry(feedback || "Review requested another revision");
         else state.attempt += 1;
         continue;

@@ -15,6 +15,17 @@ import { specFromCurl } from "./spec-from-curl.js";
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** A server that hangs instead of failing would never let the app finish loading. */
+function started(fiber, what) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(fiber).finally(() => clearTimeout(timer)),
+    new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} timed out while starting`)), 30_000).unref();
+    })
+  ]);
+}
+
 /** Stopping can fail when the child is already gone, which must not pass unnoticed. */
 async function stop(ctx, fiber, what) {
   try { await fiber.dispose(); }
@@ -22,8 +33,8 @@ async function stop(ctx, fiber, what) {
 }
 
 /** Secrets live in the DSH credential store, never in the product database. */
-function secretRef(serverName, name) {
-  return credentialRef(`BEES_MCP_${serverName}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
+function secretRef(server, name) {
+  return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
 
 function rowToServer(row) {
@@ -50,7 +61,7 @@ export class Capabilities {
   }
 
   async initialize() {
-    for (const row of this.servers().filter(({ enabled }) => enabled)) await this.mount(row);
+    await Promise.all(this.servers().filter(({ enabled }) => enabled).map((row) => this.mount(row)));
   }
 
   async close() {
@@ -77,7 +88,7 @@ export class Capabilities {
     if (server.transport === "stdio") {
       const env = {};
       for (const name of server.envNames) {
-        const hit = await this.ctx.credentials.resolve(secretRef(server.serverName, name));
+        const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
       return {
@@ -93,7 +104,7 @@ export class Capabilities {
     const headers = {};
     for (const name of server.headerNames) {
       const prefix = catalogEntry(server.catalogId)?.headers.find((row) => row.name === name)?.prefix ?? "";
-      const hit = await this.ctx.credentials.resolve(secretRef(server.serverName, name));
+      const hit = await this.ctx.credentials.resolve(secretRef(server, name));
       if (hit?.value) headers[name] = `${prefix}${hit.value}`;
     }
     return {
@@ -111,7 +122,7 @@ export class Capabilities {
     try {
       const fiber = this.ctx.plugin(mcpClient, await this.configFor(server));
       entry.fiber = fiber;
-      await fiber;
+      await started(fiber, server.serverName);
       entry.ready = true;
     } catch (error) {
       const reason = message(error);
@@ -134,7 +145,7 @@ export class Capabilities {
 
   async remount(server) {
     await this.unmount(server.id);
-    if (server.enabled) await this.mount(server);
+    if (server.enabled && this.servers().some(({ id }) => id === server.id)) await this.mount(server);
   }
 
   /** DSH keeps tools on the agent plane, so only a preset's own scope knows what a run gets. */
@@ -313,7 +324,7 @@ export class Capabilities {
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     for (const [name, value] of Object.entries(secrets)) {
-      if (value) await this.ctx.credentials.set(secretRef(server.serverName, name), value);
+      if (value) await this.ctx.credentials.set(secretRef(server, name), value);
     }
     await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
     return { id: server.id };
@@ -380,14 +391,13 @@ export class Capabilities {
     const words = transport === "stdio"
       ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))
       : [];
-    const split = words.length > 1 && !typed.length;
     return this.insert({
       id: randomUUID(),
       serverName,
       label: String(input.label ?? "").trim() || serverName,
       transport,
-      command: transport === "stdio" ? (split ? words[0] : words.join(" ")) : "",
-      args: transport === "stdio" ? (split ? words.slice(1) : typed) : [],
+      command: transport === "stdio" ? (words[0] ?? "") : "",
+      args: transport === "stdio" ? [...words.slice(1), ...typed] : [],
       url: transport === "streamable-http" ? required(input.url, "Server URL") : "",
       envNames: transport === "stdio" ? names : [],
       headerNames: transport === "streamable-http" ? names : [],
@@ -417,7 +427,7 @@ export class Capabilities {
       throw new Error(`${server.label} has no ${name || "such"} setting`);
     const value = String(input.value ?? "").trim();
     if (!value) throw new Error(`${name} cannot be blank`);
-    await this.ctx.credentials.set(secretRef(server.serverName, name), value);
+    await this.ctx.credentials.set(secretRef(server, name), value);
     await this.serialize(server.id, () => this.remount(server));
     return { id: server.id };
   }
@@ -426,7 +436,7 @@ export class Capabilities {
     const server = this.row(input.serverId);
     await this.serialize(server.id, () => this.unmount(server.id));
     for (const name of [...server.envNames, ...server.headerNames]) {
-      await this.ctx.credentials.unset(secretRef(server.serverName, name));
+      await this.ctx.credentials.unset(secretRef(server, name));
     }
     this.database.prepare("DELETE FROM mcp_servers WHERE id = ?").run(server.id);
     return { id: server.id, removed: true };

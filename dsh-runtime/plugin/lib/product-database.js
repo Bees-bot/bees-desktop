@@ -205,7 +205,8 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     const stageName = typeof stage === "string" ? stage : stage.name;
     const definition = typeof stage === "string" ? {
       name: stageName,
-      driver: position === stages.length - 1 ? "terminal" : /review/i.test(stageName) ? "review" : "agent"
+      driver: position === stages.length - 1 ? "terminal"
+        : position > 0 && /review/i.test(stageName) ? "review" : "agent"
     } : stage;
     insert.run(
       randomUUID(), id, required(definition.name, "Stage"), position,
