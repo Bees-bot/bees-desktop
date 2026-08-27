@@ -18,7 +18,7 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPa
   const template = kind === "template";
   const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
   if (!workspaceId) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("h2", null, template ? "New template" : "New process")),
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
     h(Empty, null, "Choose one workspace before creating a process."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
@@ -30,11 +30,14 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPa
     if (created?.id) onCreated(created.id);
   });
   return h("form", { className: "bees-box bees-form", onSubmit },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"),
-      h("div", null, h("h2", null, template ? "New process template" : draft ? "Create process from template" : "New process"),
-        h("div", { className: "bees-muted" }, template
+    h(PageHead, { setPageHeader }, 
+      h(Button, { onClick: onCancel }, "← Processes"),
+      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process from template" : "New process"),
+      h("div", { className: "bees-grow" })
+    ),
+    h("div", { className: "bees-muted", style: { marginBottom: "16px" } }, template
           ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."))),
+          : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."),
     h("label", null, template ? "Template name" : "Process name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
     h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
@@ -126,22 +129,28 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
               onClick: () => { setCreatingStageId(""); setSelectedAgentId(agent.id); } },
               h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")))
               : pool ? h("div", { className: "bees-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"))
-                : h(Empty, null, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`);
-          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form bees-routing-controls" },
-            h("label", null, "Agent route", h("select", {
-              className: "bees-select", value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
-              "aria-label": `${stage.name} agent route`, onChange: (event) => void setStageRoute(stage, event.target.value)
-            },
-              h("option", { value: "" }, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`),
-              h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
-                h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
-              h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
-                h("option", { value: `pool:${row.id}`, key: row.id }, row.name))))),
+                : h(Empty, null, `No agent assigned`);
+          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form bees-routing-controls", style: { marginTop: "12px" } },
             h("div", { className: "bees-card-actions" },
-              h(Button, { className: creatingStageId === stage.id ? "primary" : "", onClick: () => {
-                setSelectedAgentId(""); setCreatingStageId(stage.id);
-              } }, "New agent"),
-              h(Button, { onClick: () => setRequirements(stage) }, "Requirements")),
+              h("select", {
+                className: "bees-select", style: { flex: 1 }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+                "aria-label": `${stage.name} agent route`, onChange: (event) => {
+                  if (event.target.value === "create_new") {
+                    event.target.value = "";
+                    setSelectedAgentId(""); setCreatingStageId(stage.id);
+                  } else {
+                    void setStageRoute(stage, event.target.value);
+                  }
+                }
+              },
+                h("option", { value: "" }, agent || pool ? "Change agent..." : "+ Pick agent"),
+                h("option", { value: "create_new" }, "+ Create new agent"),
+                h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
+                  h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
+                h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
+                  h("option", { value: `pool:${row.id}`, key: row.id }, row.name)))),
+              h(Button, { onClick: () => setRequirements(stage) }, "Requirements")
+            ),
             stage.requiredCapabilities.length ? h("div", { className: "bees-muted" }, `Requires: ${stage.requiredCapabilities.join(", ")}`) : null);
           return h("section", { className: "bees-column", key: stage.id },
             h("header", { className: "bees-column-head" }, stage.name,

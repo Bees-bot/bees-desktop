@@ -38,7 +38,12 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
     gridRef.current?.enableResize(editing || resizeAlways);
   }, [editing, resizeAlways]);
   useEffect(() => {
-    gridRef.current?.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })));
+    const grid = gridRef.current;
+    if (!grid) return;
+    [...root.current.children].forEach((element) => {
+      if (!element.gridstackNode) grid.makeWidget(element);
+    });
+    grid.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })));
   }, [layoutKey]);
 
   return h("div", { className: `grid-stack bees-flex-grid ${editing ? "editing" : ""} ${className}`.trim(), ref: root },

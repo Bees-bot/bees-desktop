@@ -4,6 +4,13 @@ import { addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkIt
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
+  it("keeps page header setters callable", () => {
+    expect(client).toContain("const setPageActions = (actions) => headerEmitter.setActions(actions)");
+    expect(client).toContain("const setPageHeader = (header) => headerEmitter.setHeader(header)");
+    expect(client).toContain('import { h, React, useEffect, useRef, useState } from "./runtime.js"');
+    expect(client).not.toContain('const setPageActions = "actions"');
+  });
+
   it("provides the default Home layout without writing settings", () => {
     const dashboards = dashboardsFrom(undefined);
     expect(dashboards).toHaveLength(1);
@@ -72,6 +79,7 @@ describe("personal dashboards", () => {
       { kind: "details", x: 7, y: 4, w: 5, h: 8 }
     ]);
     expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle" }');
+    expect(client).toContain("if (!element.gridstackNode) grid.makeWidget(element)");
     expect(client).toContain('preferences.set("workItemLayout"');
     expect(client).toContain('editing ? "Done" : "Edit layout"');
   });

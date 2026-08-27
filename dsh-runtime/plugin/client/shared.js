@@ -1,4 +1,4 @@
-import { h, useEffect, useRef, useState } from "./runtime.js";
+import { h, React, useEffect, useRef, useState } from "./runtime.js";
 
 import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon, KnowledgeIcon, SettingsIcon, PinIcon } from "./icons.js";
 
