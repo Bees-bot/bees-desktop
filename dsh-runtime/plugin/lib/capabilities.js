@@ -258,7 +258,8 @@ export class Capabilities {
     const found = await discoverApi(address);
     if (found.kind !== "endpoint-list") return found;
     const { spec, ...rest } = found;
-    return { ...rest, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
+    // The spec's paths are whole pathnames, so the bridge has to call the origin or it doubles the prefix.
+    return { ...rest, apiBaseUrl: new URL(address).origin, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
   /** Hashed name, or a second endpoint on one host would overwrite the first server's spec. */
@@ -286,15 +287,12 @@ export class Capabilities {
   async command(input) {
     const action = String(input.action ?? "");
     if (action === "search_mcp_registry") return { results: await this.searchRegistry(input.query) };
-    if (action === "discover_api_spec") return this.discoverSpec(input.apiBaseUrl);
-    if (action === "spec_from_curl") return this.specFromRequest(input.curl);
     if (action === "list_skill_pack") return { skills: await listPack(String(input.repo ?? "")) };
     if (action === "install_skill") return installSkill(String(input.repo ?? ""), String(input.directory ?? ""));
     if (action === "remove_skill") return removeSkill(String(input.name ?? ""));
     if (action === "install_mcp_server") return this.install(input);
     if (action === "add_mcp_server") return this.add(input);
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
-    if (action === "set_mcp_server_secret") return this.setSecret(input);
     if (action === "remove_mcp_server") return this.remove(input);
     throw new Error(`Unknown capability action ${action || "(none)"}`);
   }
@@ -347,9 +345,10 @@ export class Capabilities {
       const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
       if (!found.specUrl) throw new Error(`${found.how}. Paste its OpenAPI spec URL instead.`);
       given.openapiSpec = found.specUrl;
-      if (found.apiBaseUrl && !String(given.apiBaseUrl ?? "").trim()) given.apiBaseUrl = found.apiBaseUrl;
+      if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
     }
-    const args = [...entry.args];
+    const stateDir = process.env.BEES_STATE_DIR || tmpdir();
+    const args = entry.args.map((arg) => arg.replace("{stateDir}", stateDir));
     for (const field of entry.inputs) {
       const value = String(given[field.name] ?? "").trim();
       if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);

@@ -2,17 +2,11 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/binaries/
-flue-runtime/node_modules/
-flue-runtime/project/dist/
-flue-runtime/project/.flue-vite/
 llama-runtime/*
 !llama-runtime/.gitkeep
 dsh-runtime/freellmapi/*
 !dsh-runtime/freellmapi/.gitkeep
-dsh-runtime/omniroute/*
-!dsh-runtime/omniroute/.gitkeep
 dsh-runtime/plugin/lib/client.js
-runtime/
 .env
 .env.*
 !.env.production
@@ -20,6 +14,5 @@ runtime/
 *.db-shm
 *.db-wal
 coverage/
-graphify-out/
 .DS_Store
-services/api-bridge/bridge.mjs
+.playwright-cli/

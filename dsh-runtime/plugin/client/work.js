@@ -25,6 +25,8 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
   const routePool = data.pools.find(({ id }) => id === stage?.routeTargetId);
   const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
+  const itemFiles = itemRuns.flatMap((row) => (row.outputs ?? []).map((name) => ({ executionId: row.id, path: `outputs/${name}` })));
+  const [viewer, setViewer] = useState(null);
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
   const [handled, setHandled] = useState(() => new Set());
@@ -198,7 +200,13 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
             h("h3", null, "Inputs"),
             h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs")),
             h("h3", null, "Generated Files"),
-            run?.outputs.length ? h("p", null, run.outputs.join(", ")) : h("p", { className: "bees-muted" }, "No outputs generated yet.")
+            // Every run of this item, not just the one showing: a review stage produces nothing of its own.
+            itemFiles.length ? h("div", { className: "bees-file-list" }, ...itemFiles.map(({ executionId, path }) => h(Button, {
+              key: `${executionId}:${path}`,
+              className: viewer?.executionId === executionId && viewer?.path === path ? "bees-file-chip active" : "bees-file-chip",
+              onClick: () => setViewer({ executionId, path })
+            }, path.replace("outputs/", "")))) : h("p", { className: "bees-muted" }, "No outputs generated yet."),
+            viewer ? h(FilePreview, { target: viewer }) : null
           ) : activeTab === "runs" ? h(React.Fragment, null,
             h("h3", { className: "bees-section-title" }, "Runs"),
             itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
@@ -333,7 +341,7 @@ function displayOption(label) {
   return { label: text.replace(/\s*\(recommended\)\s*$/i, ""), recommended };
 }
 
-function FilePreview({ target }) {
+export function FilePreview({ target }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {

@@ -57,8 +57,6 @@ describe("Temporal process projection", () => {
     ), "utf8");
     expect(workflow).toContain('startToCloseTimeout: "36500 days"');
     expect(workflow).not.toContain('startToCloseTimeout: "36500 days",\n  heartbeatTimeout: "30 seconds",\n  retry:');
-    expect(workflow).toContain('patched("bees-durable-human-waits-v1")');
-    expect(workflow).toContain("durableHumanWaits ? durableDshActivities : legacyDshActivities");
     expect(workflow).toContain('message === "Stopped by user"');
     expect(workflow).toContain('project("cancelled", message)');
   });

@@ -1,23 +1,17 @@
 import {
-  CancellationScope, condition, defineQuery, defineSignal, isCancellation, patched,
+  CancellationScope, condition, defineSignal, isCancellation,
   proxyActivities, setHandler, sleep
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
-export const processStateQuery = defineQuery("processState");
 
 const { projectWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
   retry: { maximumAttempts: 5 }
 });
-const legacyDshActivities = proxyActivities({
-  startToCloseTimeout: "24 hours",
-  heartbeatTimeout: "30 seconds",
-  retry: { maximumAttempts: 3 }
-});
-const durableDshActivities = proxyActivities({
+const dshActivities = proxyActivities({
   // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
   startToCloseTimeout: "36500 days",
   heartbeatTimeout: "30 seconds",
@@ -41,7 +35,6 @@ export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
-  let durableHumanWaits = patched("bees-durable-human-waits-v1");
   let candidateExecutionId = null;
   let feedback = "";
   const state = {
@@ -58,7 +51,6 @@ export async function processWorkflow(input) {
   setHandler(pauseSignal, () => { paused = true; });
   setHandler(resumeSignal, () => { paused = false; });
   setHandler(retrySignal, () => { retryRequested = true; paused = false; });
-  setHandler(processStateQuery, () => state);
 
   const project = async (phase = state.phase, error = state.error) => {
     state.phase = phase;
@@ -71,8 +63,6 @@ export async function processWorkflow(input) {
     await project("failed", error);
     await condition(() => retryRequested);
     retryRequested = false;
-    if (!durableHumanWaits && patched(`bees-durable-human-waits-retry-${state.attempt}`))
-      durableHumanWaits = true;
     if (!recoverInterruptedWait) state.attempt += 1;
     state.error = null;
   };
@@ -104,7 +94,7 @@ export async function processWorkflow(input) {
 
       let result;
       try {
-        result = await (durableHumanWaits ? durableDshActivities : legacyDshActivities).runDshStage({
+        result = await dshActivities.runDshStage({
           ...state,
           purpose,
           stageName: stage.name,
@@ -114,7 +104,7 @@ export async function processWorkflow(input) {
         });
       } catch (error) {
         const message = failureMessage(error);
-        if (durableHumanWaits && message === "Stopped by user") {
+        if (message === "Stopped by user") {
           await project("cancelled", message);
           return state;
         }

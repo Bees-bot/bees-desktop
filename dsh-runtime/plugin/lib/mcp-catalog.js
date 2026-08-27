@@ -104,7 +104,8 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@playwright/mcp@latest"],
+    // Without a profile of its own the browser gets a throwaway one, so no sign-in ever survives.
+    args: ["-y", "@playwright/mcp@latest", "--user-data-dir", "{stateDir}/browser-profile"],
     env: [],
     headers: []
   },
@@ -190,7 +191,8 @@ const ENTRIES = [
     // makes a large API usable at all.
     args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
     inputs: [
-    { name: "apiBaseUrl", flag: "--api-base-url", optional: true, label: "API base URL",
+    // The bridge will not start without it, so a spec URL alone is not enough.
+    { name: "apiBaseUrl", flag: "--api-base-url", label: "API base URL",
       help: "https://api.example.com. Taken from the curl command if you paste one instead." },
     { name: "openapiSpec", flag: "--openapi-spec", optional: true,
       label: "OpenAPI spec URL, if you know it",

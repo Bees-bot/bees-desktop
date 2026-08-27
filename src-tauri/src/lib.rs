@@ -451,14 +451,6 @@ async fn ensure_dsh_runtime(
 }
 
 #[tauri::command]
-fn local_model_base_url(app: tauri::AppHandle) -> Result<String, String> {
-    local_models::local_model_routes(&app)?
-        .get("active")
-        .map(|route| route.url.clone())
-        .ok_or_else(|| "No local model is running.".to_string())
-}
-
-#[tauri::command]
 fn local_model_connection(app: tauri::AppHandle) -> Result<LocalModelConnection, String> {
     local_models::local_model_routes(&app)?
         .get("active")
@@ -542,7 +534,6 @@ pub fn run() {
             stop_local_model,
             cancel_local_model_download,
             delete_local_model,
-            local_model_base_url,
             local_model_connection,
             open_external_url
         ])

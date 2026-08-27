@@ -6,12 +6,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { showAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation and stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. Treat legacy requests for a subagent as peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation and stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
@@ -130,7 +131,7 @@ function toolCallCounts(events) {
   return counts;
 }
 
-const MAX_DELEGATION_DEPTH = 3;
+const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
@@ -517,6 +518,7 @@ export class AgentRuntime {
         idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
       });
       this.audit("question-requested", executionId, sessionId, pending);
+      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/asked") {
@@ -539,6 +541,7 @@ export class AgentRuntime {
         idempotencyKey: `approval-asked:${sessionId}:${pending.approvalId}`
       });
       this.audit("approval-requested", executionId, sessionId, pending);
+      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/decided") {
@@ -557,6 +560,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
+      showAgentBrowser(false);
       return;
     }
     if (event.type === "tool/result") {
@@ -577,6 +581,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
+        showAgentBrowser(false);
       }
       const output = {
         sessionId,
@@ -813,7 +818,7 @@ export class AgentRuntime {
     }
   }
 
-  /** A peer may delegate in turn, but the chain has to end somewhere. */
+  /** A peer does the work itself. Letting it delegate again spirals into a chain that never starts. */
   peerDepth(workItemId) {
     return this.database.prepare(`
       WITH RECURSIVE up(id, parent) AS (
@@ -1144,6 +1149,7 @@ export class AgentRuntime {
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
+        uid: run.instanceUid,
         idempotencyKey: `process:${executionId}:resubmit:${asked}`,
         body: `Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done.\n\n${payload.body}`
       });
@@ -1225,12 +1231,13 @@ export class AgentRuntime {
       executions.push({
         executionId: run.executionId, agentName: run.agentName, status: run.status,
         mode: config.mode ?? null, stagePurpose: config.stagePurpose ?? null,
+        mcpAccess: config.mcpAccess ?? "all", mcpServers: config.mcpServers ?? [],
         createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit
       });
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran.",
+      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
       executions
     };
   }

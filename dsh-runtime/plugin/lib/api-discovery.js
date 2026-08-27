@@ -44,10 +44,10 @@ function specFromLinks(origin, links, title) {
     let path;
     // URL() percent-encodes the braces, so decode before looking for a template.
     try { path = decodeURIComponent(new URL(href).pathname); } catch { continue; }
-    // An href like /pokemon/{id}/ is the API telling us it takes a lookup. Keep both.
-    const item = /\{.*?\}/.test(path) ? path : "";
+    // An href like /pokemon/{id}/ names its lookup. A plain collection still reads one by convention.
+    const item = /\{.*?\}/.test(path) ? path : `${path.replace(/\/$/, "")}/{name}`;
     path = path.replace(/\{.*?\}/g, "").replace(/\/{2,}/g, "/");
-    if (item) paths[item] = itemRead(name, item, origin);
+    paths[item] = itemRead(name, item, origin);
     paths[path] = {
       get: {
         operationId: name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource",

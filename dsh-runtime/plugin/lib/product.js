@@ -145,9 +145,13 @@ export class BeesProduct {
     const handoff = stage.candidateExecutionId && !reviewer
       ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
+    // A delegated peer runs in its caller's workspace, so files it never wrote are sitting next to its own.
+    const shared = item.parentId
+      ? " This work was delegated by another agent and ran in that caller's workspace, so files it did not write are present. Judge only what this stage was asked to produce, and never fail it for a file the caller left there."
+      : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do small, tightly coupled work yourself. Use bees_delegate_work for self-contained work that an independent peer can own. Treat legacy "subagent" wording as peer delegation: never role-play it in this run. Delegate exactly one peer at a time. The caller waits while that peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
+      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do the work yourself. Only use bees_delegate_work when the stage genuinely splits into a large separate piece a peer could own end to end; a tool call, a lookup or a single file is never that. Delegate at most one peer, once. The caller waits while that peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -340,8 +344,9 @@ export class BeesProduct {
 
   search(query, workspaceId) {
     const workspace = workspaceContext(this.database, workspaceId);
-    const normalized = String(query ?? "").trim().replace(/["*]/g, "");
-    if (!normalized) return [];
+    // FTS5 reads bare punctuation as query syntax, so each word goes in as a quoted prefix term.
+    const terms = String(query ?? "").replace(/"/g, "").trim().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
     const { deviceId } = currentIdentity(this.database);
     for (const location of this.database.prepare(`
       SELECT l.id, l.name, l.kind, m.absolute_path AS localPath
@@ -364,7 +369,7 @@ export class BeesProduct {
     return this.database.prepare(`
       SELECT kind, ref_id AS id, title, snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
       FROM bees_search WHERE bees_search MATCH ? ORDER BY bm25(bees_search) LIMIT 100
-    `).all(`${normalized}*`).filter((row) => row.kind === "item"
+    `).all(terms.map((term) => `"${term}"*`).join(" ")).filter((row) => row.kind === "item"
       ? allowedItems.includes(row.id)
       : allowedLocations.some((id) => row.id.startsWith(`${id}:`))).slice(0, 50);
   }
