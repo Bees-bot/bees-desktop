@@ -25,7 +25,10 @@ export class BeesProduct {
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
-    this.agents?.setSubitemStore?.((input) => this.createSubitems(input));
+    this.agents?.setSubitemStore?.({
+      create: (input) => this.createSubitems(input),
+      cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
+    });
   }
 
   async initialize() {

@@ -131,6 +131,8 @@ function toolCallCounts(events) {
 }
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
+const MAX_DELEGATION_DEPTH = 3;
+
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 
 function reviewTimeline(events) {
@@ -698,11 +700,19 @@ export class AgentRuntime {
         catch { throw new Error("items_json must be valid JSON"); }
         if (!Array.isArray(items) || items.length !== 1)
           throw new Error("items_json must contain exactly one delegated work item");
-        const created = await this.subitemStore({ parentId: data.workItemId, items });
+        if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
+          throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
+        const created = await this.subitemStore.create({ parentId: data.workItemId, items });
         const ids = created.map(({ id }) => id);
         this.audit("peer-work-delegated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
-        const results = await this.waitForPeers(ids, exec.signal);
-        return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+        try {
+          const results = await this.waitForPeers(ids, exec.signal);
+          return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+        } catch (error) {
+          // The caller has gone; a peer left running has nobody to report back to.
+          await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
+          throw error;
+        }
       }
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
@@ -745,7 +755,8 @@ export class AgentRuntime {
         return result;
       }
     }));
-    const grants = this.database.prepare(`
+    // Read again at publish time: a location archived mid-run must stop being a target.
+    const granted = () => this.database.prepare(`
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
       JOIN workspaces w ON w.team_id = l.team_id
       JOIN device_location_mappings m ON m.location_id = l.id
@@ -753,6 +764,7 @@ export class AgentRuntime {
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
     `).all(currentIdentity(this.database).deviceId, JSON.stringify(data.grants ?? []), data.workspaceId);
+    const grants = granted();
     if (grants.length) {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
@@ -777,7 +789,7 @@ export class AgentRuntime {
           render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
         },
         execute: async (args, exec) => {
-          const location = grants.find((grant) => grant.id === args.location_id);
+          const location = granted().find((grant) => grant.id === args.location_id);
           if (!location) throw new Error("That publication target was not granted to this run");
           if (!exec.agent) throw new Error("Publication requires an active DSH agent turn");
           const outcome = await this.ctx.approval.request({
@@ -796,6 +808,16 @@ export class AgentRuntime {
         }
       }));
     }
+  }
+
+  /** A peer may delegate in turn, but the chain has to end somewhere. */
+  peerDepth(workItemId) {
+    return this.database.prepare(`
+      WITH RECURSIVE up(id, parent) AS (
+        SELECT id, parent_id FROM work_items WHERE id = ?
+        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent
+      ) SELECT COUNT(*) - 1 AS depth FROM up
+    `).get(workItemId).depth;
   }
 
   async waitForPeers(ids, signal) {
@@ -1106,7 +1128,14 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
       if (detail) throw new Error(detail);
-      throw badTurn(`DSH stage ended ${run.status} without submitting a stage result`);
+      const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?")
+        .get(executionId).n;
+      submission = await this.admit("bees-run", executionId, {
+        ...payload,
+        initialData: undefined,
+        idempotencyKey: `process:${executionId}:resubmit:${asked}`,
+        body: `Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done.\n\n${payload.body}`
+      });
     }
 
     const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
