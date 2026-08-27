@@ -14,7 +14,7 @@ describe("Bees work cockpit UI", () => {
     });
     const noop = (): undefined => undefined;
     const React = {
-      createElement: noop, useEffect: noop, useMemo: noop, useRef: noop, useState: noop
+      Component: class {}, createElement: noop, useEffect: noop, useMemo: noop, useRef: noop, useState: noop
     };
     const modules: Record<string, any> = {
       react: React,

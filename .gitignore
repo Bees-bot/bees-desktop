@@ -15,4 +15,5 @@ dsh-runtime/plugin/lib/client.js
 *.db-wal
 coverage/
 .DS_Store
+services/api-bridge/bridge.mjs
 .playwright-cli/
