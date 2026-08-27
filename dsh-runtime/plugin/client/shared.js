@@ -375,10 +375,25 @@ export function workItemsFor(data, route, workspaceIds) {
   return rows.filter((item) => route === "completed" ? isDone(item) : !isDone(item));
 }
 
+export const headerEmitter = {
+  header: null,
+  actions: null,
+  listeners: new Set(),
+  setHeader(h) { this.header = h; this.listeners.forEach(l => l()); },
+  setActions(a) { this.actions = a; this.listeners.forEach(l => l()); }
+};
+
 export function PageHead({ setPageHeader, children }) {
   useEffect(() => {
-    setPageHeader && setPageHeader(h(React.Fragment, null, children));
-    return () => setPageHeader && setPageHeader(null);
+    if (setPageHeader === 'actions') headerEmitter.setActions(h(React.Fragment, null, children));
+    else if (setPageHeader === 'header') headerEmitter.setHeader(h(React.Fragment, null, children));
+    else if (typeof setPageHeader === 'function') setPageHeader(h(React.Fragment, null, children));
+
+    return () => {
+      if (setPageHeader === 'actions') headerEmitter.setActions(null);
+      else if (setPageHeader === 'header') headerEmitter.setHeader(null);
+      else if (typeof setPageHeader === 'function') setPageHeader(null);
+    };
   });
   return null;
 }

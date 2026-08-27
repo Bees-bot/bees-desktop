@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import {
   ask, Button, NAVIGATION, navigationItem, PinButton, request, scopeParts,
-  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor
+  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor, headerEmitter
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
@@ -76,8 +76,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [workProcessId, setWorkProcessId] = useState("");
   const [runId, setRunId] = useState("");
   const [needsYouRunId, setNeedsYouRunId] = useState("");
-  const [pageActions, setPageActions] = useState(null);
-  const [pageHeader, setPageHeader] = useState(null);
+  const setPageActions = "actions";
+  const setPageHeader = "header";
   const load = async () => {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -264,17 +264,31 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       )
     ),
     h("section", { className: "bees-main" },
-      h("header", { className: "bees-top" },
-        pageHeader ? pageHeader : h(React.Fragment, null,
-          h("div", { className: "bees-title" }, routeLabel),
-          route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
-          route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null
-        ),
-        h("div", { className: "bees-grow" }),
-        pageActions,
-        h(ThemeToggle, { ctx })),
+      h(AppHeader, { route, routeLabel, parts, pins, setPins, ctx }),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));
+}
+
+function AppHeader({ route, routeLabel, parts, pins, setPins, ctx }) {
+  const [header, setHeader] = useState(null);
+  const [actions, setActions] = useState(null);
+  useEffect(() => {
+    const update = () => { setHeader(headerEmitter.header); setActions(headerEmitter.actions); };
+    headerEmitter.listeners.add(update);
+    update();
+    return () => headerEmitter.listeners.delete(update);
+  }, []);
+
+  return h("header", { className: "bees-top" },
+    header ? header : h(React.Fragment, null,
+      h("div", { className: "bees-title" }, routeLabel),
+      route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
+      route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null
+    ),
+    h("div", { className: "bees-grow" }),
+    actions,
+    h(ThemeToggle, { ctx })
+  );
 }

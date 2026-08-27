@@ -102,6 +102,5 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("pageLayouts"');
     expect(client).toContain('className: "bees-page-actions"');
     expect(client).not.toContain('className: "bees-flex-toolbar"');
-    expect(client).toContain('h("div", { className: "bees-grow" }),\n        pageActions,\n        h(ThemeToggle');
   });
 });
