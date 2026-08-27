@@ -26,7 +26,6 @@
     "@temporalio/client": "1.22.0",
     "@temporalio/worker": "1.22.0",
     "@temporalio/workflow": "1.22.0",
-    "better-sqlite3": "12.10.0",
     "gridstack": "13.2.0"
   }
 }

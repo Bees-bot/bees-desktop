@@ -418,8 +418,7 @@ describe("Bees DSH public contract", () => {
         "@bees/dsh-local-ai": "file:plugins/local-ai",
         "@bees/dsh-free-ai": "file:plugins/free-ai",
         "@bees/dsh-custom-ai": "file:plugins/custom-ai",
-        "@bees/dsh-subscriptions": "file:plugins/subscriptions",
-        "better-sqlite3": "12.10.0"
+        "@bees/dsh-subscriptions": "file:plugins/subscriptions"
       });
       expect(pluginPackage.dsh.client.inject).toEqual(expect.arrayContaining([
         "@bees/dsh-local-ai", "@bees/dsh-free-ai", "@bees/dsh-custom-ai", "@bees/dsh-subscriptions"

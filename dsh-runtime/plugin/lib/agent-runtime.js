@@ -342,7 +342,7 @@ export class AgentRuntime {
     this.database = database;
     this.live = new Map();
     this.recovery = new Set();
-    this.settling = new Set();
+    this.closing = false;
     database.exec(`
       CREATE TABLE IF NOT EXISTS execution_links (
         execution_id TEXT PRIMARY KEY,
@@ -491,6 +491,7 @@ export class AgentRuntime {
   }
 
   onSessionEvent(session, event) {
+    if (this.closing) return;
     const run = this.database.prepare(`
       SELECT execution_id AS executionId FROM execution_links WHERE current_session_id = ?
     `).get(String(session.id));
@@ -1061,6 +1062,7 @@ export class AgentRuntime {
   }
 
   async finish(executionId, submissionId, sessionId, handle, result) {
+    if (this.closing) return;
     const at = new Date().toISOString();
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
@@ -1224,17 +1226,14 @@ export class AgentRuntime {
     };
   }
 
-  /** Settling outlives the reply that started it, so shutdown waits rather than closing the database under it. */
+  /** Settling outlives the reply that started it, and an unhandled rejection here takes the runtime down. */
   track(promise) {
-    const done = promise
-      .catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`))
-      .finally(() => this.settling.delete(done));
-    this.settling.add(done);
+    promise.catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`));
   }
 
-  async close() {
-    for (const executionId of [...this.live.keys()]) this.abort(executionId);
-    await Promise.all([...this.settling]);
+  /** Shutdown leaves a working run alone; it resumes from its DSH checkpoint on the next start. */
+  close() {
+    this.closing = true;
   }
 
   abort(executionId) {
