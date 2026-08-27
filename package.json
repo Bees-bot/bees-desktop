@@ -6,7 +6,7 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
-    "postinstall": "npm ci --omit=dev --prefix dsh-runtime --ignore-scripts && node scripts/stage-dsh-plugin.mjs",
+    "postinstall": "npm ci --omit=dev --prefix dsh-runtime --ignore-scripts && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
     "prepare:dsh": "node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "dev": "vite",
     "build": "vite build",
