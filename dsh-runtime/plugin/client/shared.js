@@ -112,8 +112,7 @@ export function useSubmit(handler) {
   return [busy, async (event) => {
     event.preventDefault();
     if (running.current) return;
-    running.current = true;
-    setBusy(true);
+    running.current = true; setBusy(true);
     try { await handler(event); } finally { running.current = false; setBusy(false); }
   }];
 }

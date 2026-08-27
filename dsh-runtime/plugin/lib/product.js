@@ -60,9 +60,8 @@ export class BeesProduct {
       FROM execution_links ORDER BY updated_at
     `).all().filter((run) => this.agents.needsRecovery(run.executionId));
     const recoveries = runs.flatMap((run) => {
-      try {
-        return this.recovery(run);
-      } catch (error) {
+      try { return this.recovery(run); }
+      catch (error) {
         this.agents.ctx.logger.warn(`bees: could not recover ${run.executionId}: ${message(error)}`);
         return [];
       }

@@ -104,15 +104,14 @@ export class ConnectedAccount {
     if (!account) return [];
     const { organizations = [] } = await this.request("/api/organizations");
     // Read the whole remote picture first: a half-applied sync leaves memberships no later pass repairs.
-    const remote = await Promise.all(organizations.map(async (organization) => ({
-      organization,
-      teams: await this.request("/api/teams", { organizationId: organization.id })
-        .then(({ teams = [] }) => Promise.all(teams.map(async (team) => ({
-          team,
-          members: await this.request(`/api/teams/${team.id}/members`, { organizationId: organization.id })
-            .then(({ members }) => members).catch(() => [])
-        }))))
-    })));
+    const remote = await Promise.all(organizations.map(async (organization) => {
+      const { teams = [] } = await this.request("/api/teams", { organizationId: organization.id });
+      return { organization, teams: await Promise.all(teams.map(async (team) => ({
+        team,
+        members: await this.request(`/api/teams/${team.id}/members`, { organizationId: organization.id })
+          .then(({ members }) => members).catch(() => [])
+      }))) };
+    }));
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
     const at = new Date().toISOString();
     transaction(this.database, () => {

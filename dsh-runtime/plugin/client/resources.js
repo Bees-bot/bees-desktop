@@ -86,8 +86,7 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
   useEffect(() => {
     let active = true;
     if (route === "audit") request("/bees-api/audit")
-      .then((value) => active && setEvents(value.events ?? []))
-      .catch(() => active && setEvents([]));
+      .then((value) => active && setEvents(value.events ?? []), () => active && setEvents([]));
     return () => { active = false; };
   }, [route]);
   useEffect(() => {

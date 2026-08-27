@@ -818,8 +818,8 @@ export class AgentRuntime {
     return this.database.prepare(`
       WITH RECURSIVE up(id, parent) AS (
         SELECT id, parent_id FROM work_items WHERE id = ?
-        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent
-      ) SELECT COUNT(*) - 1 AS depth FROM up
+        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent)
+      SELECT COUNT(*) - 1 AS depth FROM up
     `).get(workItemId).depth;
   }
 
@@ -1091,9 +1091,8 @@ export class AgentRuntime {
   /** A new attempt replaces the last one, whose session would otherwise sit live for good. */
   supersede(executionId, workItemId) {
     if (!workItemId) return;
-    for (const id of [...this.live.keys()]) {
+    for (const id of [...this.live.keys()])
       if (id !== executionId && this.run(id)?.workItemId === workItemId) this.abort(id);
-    }
   }
 
   async waitForDelivery(executionId, submissionId, signal) {
@@ -1141,8 +1140,7 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
       if (detail) throw new Error(detail);
-      const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?")
-        .get(executionId).n;
+      const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
@@ -1238,14 +1236,10 @@ export class AgentRuntime {
   }
 
   /** Settling outlives the reply that started it, and an unhandled rejection here takes the runtime down. */
-  track(promise) {
-    promise.catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`));
-  }
+  track(promise) { promise.catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`)); }
 
   /** Shutdown leaves a working run alone; it resumes from its DSH checkpoint on the next start. */
-  close() {
-    this.closing = true;
-  }
+  close() { this.closing = true; }
 
   abort(executionId) {
     // Draining the worker cancels the activity too, and that is a restart, not a person pressing stop.

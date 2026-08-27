@@ -11,7 +11,7 @@ export const SKILL_CATALOG = [
 
 /** One skill bundle is small. These caps stop a hostile repo filling the disk. */
 const MAX_FILES = 40;
-/** The Agent Skills naming rule. It doubles as the guard that keeps a folder inside the skills root. */
+/** The Agent Skills naming rule, which doubles as the guard keeping a folder inside the skills root. */
 const SKILL_NAME = /^[\p{L}\p{N}-]+$/u;
 const MAX_BYTES = 2_000_000;
 
@@ -19,17 +19,14 @@ export function skillsRoot() {
   return join(process.env.DSH_HOME, "skills");
 }
 
-async function json(url) {
+/** GitHub cuts a large tree short, and a cut listing would install half a skill. */
+async function treeOf(repo) {
+  const url = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`;
   const response = await fetch(url, {
     headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(20_000)
   });
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
-  return response.json();
-}
-
-/** GitHub cuts a large tree short, and a cut listing would install half a skill. */
-async function treeOf(repo) {
-  const { tree = [], truncated } = await json(`https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`);
+  const { tree = [], truncated } = await response.json();
   if (truncated) throw new Error(`${repo} is too large for GitHub to list in one call`);
   return tree;
 }
