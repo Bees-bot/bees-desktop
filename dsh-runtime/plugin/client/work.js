@@ -333,7 +333,7 @@ function displayOption(label) {
   return { label: text.replace(/\s*\(recommended\)\s*$/i, ""), recommended };
 }
 
-function FilePreview({ target }) {
+export function FilePreview({ target }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {

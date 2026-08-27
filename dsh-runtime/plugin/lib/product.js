@@ -145,8 +145,12 @@ export class BeesProduct {
     const handoff = stage.candidateExecutionId && !reviewer
       ? `\n\nPrior-stage handoff: the previous deliverables are already copied into outputs/. Continue from them; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
+    // A delegated peer runs in its caller's workspace, so files it never wrote are sitting next to its own.
+    const shared = item.parentId
+      ? " This work was delegated by another agent and ran in that caller's workspace, so files it did not write are present. Judge only what this stage was asked to produce, and never fail it for a file the caller left there."
+      : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate. Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
+      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
       : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do small, tightly coupled work yourself. Use bees_delegate_work for self-contained work that an independent peer can own. Delegate exactly one peer at a time. The caller waits while that peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,

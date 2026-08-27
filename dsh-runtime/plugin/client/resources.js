@@ -1,4 +1,5 @@
 import { h, useEffect, useState } from "./runtime.js";
+import { FilePreview } from "./work.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, request, runTitle
 } from "./shared.js";
@@ -158,9 +159,19 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
+  const [viewer, setViewer] = useState(null);
   if (route === "artifacts") {
     const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs.length);
-    return rows.length ? rows.map((run) => h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Run"), h("div", { className: "bees-muted" }, run.outputs.join(", "))))) : h(Empty, null, "No run artifacts yet");
+    if (!rows.length) return h(Empty, null, "No run artifacts yet");
+    return h("div", { className: "bees-stack" }, ...rows.map((run) => h("div", { className: "bees-row", key: run.id },
+      h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Run"),
+        h("div", { className: "bees-file-list" }, ...run.outputs.map((name) => h(Button, {
+          key: name,
+          className: viewer?.executionId === run.id && viewer?.path === `outputs/${name}` ? "bees-file-chip active" : "bees-file-chip",
+          onClick: () => setViewer({ executionId: run.id, path: `outputs/${name}` })
+        }, name)))))),
+      viewer ? h(FilePreview, { target: viewer }) : null);
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   return h("div", { className: "bees-stack" }, h("form", { className: "bees-search", onSubmit: async (event) => {
