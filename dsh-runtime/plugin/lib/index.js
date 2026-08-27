@@ -6,6 +6,7 @@ import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
 import { ProcessRuntime } from "./process-runtime.js";
+import { message } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 
 export const name = "bees";
@@ -100,10 +101,6 @@ async function body(req) {
     if (value.length > 1_000_000) throw new Error("Request body is too large");
   }
   return value ? JSON.parse(value) : {};
-}
-
-function message(error) {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function register(ctx, route) {

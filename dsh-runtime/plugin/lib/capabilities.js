@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { iso, required, transaction } from "./product-database.js";
+import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
@@ -14,6 +14,12 @@ import { specFromCurl } from "./spec-from-curl.js";
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Stopping can fail when the child is already gone, which must not pass unnoticed. */
+async function stop(ctx, fiber, what) {
+  try { await fiber.dispose(); }
+  catch (error) { ctx.logger.warn(`bees: could not stop ${what}: ${message(error)}`); }
+}
 
 /** Secrets live in the DSH credential store, never in the product database. */
 function secretRef(serverName, name) {
@@ -108,7 +114,7 @@ export class Capabilities {
       await fiber;
       entry.ready = true;
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = message(error);
       // The client names the server but never what it tried, which is what you need.
       const attempted = server.transport === "stdio"
         ? `Bees tried to run: ${[server.command, ...server.args].join(" ")}`
@@ -116,14 +122,14 @@ export class Capabilities {
       entry.error = `${reason}. ${attempted}`;
     }
     // A row removed while its fiber was starting must not leave the child process behind.
-    if (!this.mounted.has(server.id) && entry.fiber) await entry.fiber.dispose().catch(() => {});
+    if (!this.mounted.has(server.id) && entry.fiber) await stop(this.ctx, entry.fiber, server.serverName);
     return entry;
   }
 
   async unmount(serverId) {
     const entry = this.mounted.get(serverId);
     this.mounted.delete(serverId);
-    if (entry?.fiber) await entry.fiber.dispose().catch(() => {});
+    if (entry?.fiber) await stop(this.ctx, entry.fiber, serverId);
   }
 
   async remount(server) {
@@ -156,7 +162,7 @@ export class Capabilities {
           removable: skill.source === "user-dsh"
         }));
       } catch (error) {
-        row.broken = error instanceof Error ? error.message : String(error);
+        row.broken = message(error);
       }
     }
     return rows;
@@ -421,7 +427,7 @@ export class Capabilities {
     const server = this.row(input.serverId);
     await this.serialize(server.id, () => this.unmount(server.id));
     for (const name of [...server.envNames, ...server.headerNames]) {
-      await this.ctx.credentials.unset(secretRef(server.serverName, name)).catch(() => {});
+      await this.ctx.credentials.unset(secretRef(server.serverName, name));
     }
     this.database.prepare("DELETE FROM mcp_servers WHERE id = ?").run(server.id);
     return { id: server.id, removed: true };

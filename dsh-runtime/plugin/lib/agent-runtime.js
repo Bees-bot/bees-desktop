@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { MCP_CATALOG } from "./mcp-catalog.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
@@ -619,16 +620,14 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
-  /** A folder-bound server takes its path as an argument, and nothing else tells the model which. */
-boundFolders() {
-  const rows = this.database.prepare(`
-    SELECT server_name AS name, args_json AS args FROM mcp_servers WHERE enabled = 1 AND catalog_id IN ('git', 'filesystem')
-  `).all();
-  return rows.flatMap(({ name, args }) => {
-    const last = (JSON.parse(args || "[]") ?? []).at(-1);
-    return last?.startsWith("/") ? [`mcp__${name}__ works on ${last}`] : [];
-  });
-}
+  /** A folder-bound server takes its folder as its last argument; nothing else tells the model which. */
+  boundFolders() {
+    const bound = new Set(MCP_CATALOG.filter(({ requiresDirectory }) => requiresDirectory).map(({ id }) => id));
+    return this.database.prepare("SELECT server_name AS name, args_json AS args, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
+      .all()
+      .filter(({ catalogId }) => bound.has(catalogId))
+      .map(({ name, args }) => `Every mcp__${name}__ tool takes a path argument. Always pass ${JSON.parse(args).at(-1)}, never your working directory.`);
+  }
 
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
@@ -636,12 +635,10 @@ boundFolders() {
     this.restrictMcp(agentCtx, data);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
-      text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
-    });
-    const folders = this.boundFolders();
-    if (folders.length) agentCtx.systemPrompt.section({
-      name: "bees:mcp-folders", order: 1,
-      text: `Pass these paths to the tools below, not your working directory.\n${folders.join("\n")}`, complete: true
+      text: [
+        data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
+        String(data.instructions ?? ""), ...this.boundFolders()
+      ].filter(Boolean).join("\n\n"), complete: true
     });
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
@@ -1023,7 +1020,7 @@ boundFolders() {
     } catch (error) {
       await this.finish(executionId, submissionId, sessionId, handle, {
         outcome: "failed",
-        error: { message: error instanceof Error ? error.message : String(error) }
+        error: { message: message(error) }
       });
     }
   }
@@ -1034,7 +1031,7 @@ boundFolders() {
       await handle.agent.whenIdle();
       result = outcomeFor(lastTurn(handle.agent.session.events, before));
     } catch (error) {
-      result = { outcome: "failed", error: { message: error instanceof Error ? error.message : String(error) } };
+      result = { outcome: "failed", error: { message: message(error) } };
     }
     await this.finish(executionId, submissionId, sessionId, handle, result);
   }
