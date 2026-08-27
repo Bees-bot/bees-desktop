@@ -4,6 +4,7 @@ import {
   Client, Connection, WorkflowExecutionAlreadyStartedError
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
+import { message } from "./product-database.js";
 
 export const PROCESS_TASK_QUEUE = "bees-processes-v1";
 export const processWorkflowId = (workItemId) => `bees/work-item/${workItemId}`;
@@ -66,9 +67,9 @@ export class ProcessRuntime {
           return await runStage(stage, context.cancellationSignal);
         } catch (error) {
           if (context.cancellationSignal.aborted) throw error;
-          const message = error instanceof Error ? error.message : String(error);
-          if (error?.retryable) throw ApplicationFailure.retryable(message, "DshStageFailure");
-          throw ApplicationFailure.nonRetryable(message, "DshStageFailure");
+          const reason = message(error);
+          if (error?.retryable) throw ApplicationFailure.retryable(reason, "DshStageFailure");
+          throw ApplicationFailure.nonRetryable(reason, "DshStageFailure");
         } finally {
           clearInterval(heartbeat);
         }

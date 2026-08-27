@@ -1,12 +1,11 @@
 import {
-  CancellationScope, condition, defineQuery, defineSignal, isCancellation,
+  CancellationScope, condition, defineSignal, isCancellation,
   proxyActivities, setHandler, sleep
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
-export const processStateQuery = defineQuery("processState");
 
 const { projectWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
@@ -52,7 +51,6 @@ export async function processWorkflow(input) {
   setHandler(pauseSignal, () => { paused = true; });
   setHandler(resumeSignal, () => { paused = false; });
   setHandler(retrySignal, () => { retryRequested = true; paused = false; });
-  setHandler(processStateQuery, () => state);
 
   const project = async (phase = state.phase, error = state.error) => {
     state.phase = phase;
