@@ -150,8 +150,7 @@ export class Capabilities {
 
   /** DSH keeps tools on the agent plane, so only a preset's own scope knows what a run gets. */
   async presetTools() {
-    let presets = [];
-    try { presets = await this.ctx.agentPresets.list(); } catch { return []; }
+    const presets = await this.ctx.agentPresets.list();
     const rows = [];
     for (const raw of presets) {
       const preset = namePreset(raw);

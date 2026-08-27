@@ -156,7 +156,7 @@ export function outputFiles(runDirectory) {
       }
     }
     return files;
-  } catch {
+  } catch { /* a run may not have created this directory yet */
     return [];
   }
 }
