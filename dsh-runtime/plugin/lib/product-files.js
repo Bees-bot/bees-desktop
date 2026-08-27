@@ -23,7 +23,7 @@ export function mappedLocation(database, locationId) {
 export function canonicalMapping(path, kind) {
   const canonical = realpathSync(required(path, kind === "file" ? "File" : "Folder"));
   const stat = lstatSync(canonical);
-  if (stat.isSymbolicLink() || (kind === "file" ? !stat.isFile() : !stat.isDirectory()))
+  if (kind === "file" ? !stat.isFile() : !stat.isDirectory())
     throw new Error(`The selected path is not a ${kind}`);
   return canonical;
 }
@@ -54,7 +54,7 @@ function walkLocation(location, onFile) {
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(path);
-      else if (entry.isFile()) onFile(path, relative(root, path));
+      else if (entry.isFile() && onFile(path, relative(root, path)) === false) return;
     }
   }
 }
@@ -67,7 +67,8 @@ export function indexLocation(database, location) {
   );
   let seen = 0;
   walkLocation(location, (path, logical) => {
-    if (seen >= 2_000 || !TEXT_EXTENSIONS.has(extname(path).toLowerCase())) return;
+    if (seen >= 2_000) return false;
+    if (!TEXT_EXTENSIONS.has(extname(path).toLowerCase())) return;
     const stat = lstatSync(path);
     if (stat.size > 1_000_000 || !logical || logical === ".." || logical.startsWith(`..${sep}`)) return;
     insert.run(`${location.id}:${logical}`, `${location.name}/${logical}`, readFileSync(path, "utf8"));
@@ -79,7 +80,7 @@ export function stageLocation(location, destination) {
   let files = 0;
   let bytes = 0;
   walkLocation(location, (source, logical) => {
-    if (files >= 1_000 || bytes >= 250_000_000) return;
+    if (files >= 1_000 || bytes >= 250_000_000) return false;
     const stat = lstatSync(source);
     const target = resolve(destination, logical);
     if (!logical || logical === ".." || logical.startsWith(`..${sep}`) || !target.startsWith(`${destination}${sep}`)) return;
