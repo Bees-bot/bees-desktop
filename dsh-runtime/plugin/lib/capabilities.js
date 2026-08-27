@@ -170,8 +170,7 @@ export class Capabilities {
 
   async snapshot() {
     const servers = this.servers();
-    let tools = [];
-    try { tools = this.ctx.tools.schemas(); } catch { tools = []; }
+    const tools = this.ctx.tools.schemas();
     const presets = await this.presetTools();
     // Skills are per preset too; list each once and say which presets reach it.
     const merged = new Map();
