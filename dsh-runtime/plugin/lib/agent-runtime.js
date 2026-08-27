@@ -599,7 +599,7 @@ export class AgentRuntime {
 
   run(executionId) {
     return this.database.prepare(`
-      SELECT execution_id AS executionId, agent_name AS agentName,
+      SELECT execution_id AS executionId, work_item_id AS workItemId, agent_name AS agentName,
              current_session_id AS currentSessionId, previous_session_id AS previousSessionId,
              instance_uid AS instanceUid, run_directory AS runDirectory, config_json AS configJson,
              status, recovery_count AS recoveryCount
@@ -612,7 +612,9 @@ export class AgentRuntime {
    * tools are still registering at setup, so an allow mask would freeze the agent to whatever
    * happened to exist at that instant.
    *
-   * ponytail: a server connected mid-run stays visible to a run already going. Runs are short.
+   * ponytail: a server connected mid-run stays visible to a run already going. An allow mask would
+   * close that, at the cost of hiding every tool that registers late, and DSH is explicit that
+   * restrict() is tool visibility rather than an authority boundary either way.
    */
   restrictMcp(agentCtx, data) {
     if (data.mcpAccess === "all") return;
@@ -1086,6 +1088,14 @@ export class AgentRuntime {
     `).get(executionId);
   }
 
+  /** A new attempt replaces the last one, whose session would otherwise sit live for good. */
+  supersede(executionId, workItemId) {
+    if (!workItemId) return;
+    for (const id of [...this.live.keys()]) {
+      if (id !== executionId && this.run(id)?.workItemId === workItemId) this.abort(id);
+    }
+  }
+
   async waitForDelivery(executionId, submissionId, signal) {
     while (true) {
       const delivery = this.database.prepare(`
@@ -1107,6 +1117,7 @@ export class AgentRuntime {
   }
 
   async executeStage(executionId, payload, signal) {
+    this.supersede(executionId, payload.initialData?.workItemId);
     let run = this.run(executionId);
     const completed = this.stageResult(executionId);
     if (completed && run?.status === "completed") return completed;
