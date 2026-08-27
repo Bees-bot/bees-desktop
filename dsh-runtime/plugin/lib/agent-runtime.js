@@ -1144,6 +1144,7 @@ export class AgentRuntime {
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
+        uid: run.instanceUid,
         idempotencyKey: `process:${executionId}:resubmit:${asked}`,
         body: `Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done.\n\n${payload.body}`
       });
@@ -1225,12 +1226,13 @@ export class AgentRuntime {
       executions.push({
         executionId: run.executionId, agentName: run.agentName, status: run.status,
         mode: config.mode ?? null, stagePurpose: config.stagePurpose ?? null,
+        mcpAccess: config.mcpAccess ?? "all", mcpServers: config.mcpServers ?? [],
         createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit
       });
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran.",
+      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
       executions
     };
   }

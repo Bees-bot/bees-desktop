@@ -340,8 +340,9 @@ export class BeesProduct {
 
   search(query, workspaceId) {
     const workspace = workspaceContext(this.database, workspaceId);
-    const normalized = String(query ?? "").trim().replace(/["*]/g, "");
-    if (!normalized) return [];
+    // FTS5 reads bare punctuation as query syntax, so each word goes in as a quoted prefix term.
+    const terms = String(query ?? "").replace(/"/g, "").trim().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
     const { deviceId } = currentIdentity(this.database);
     for (const location of this.database.prepare(`
       SELECT l.id, l.name, l.kind, m.absolute_path AS localPath
@@ -364,7 +365,7 @@ export class BeesProduct {
     return this.database.prepare(`
       SELECT kind, ref_id AS id, title, snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
       FROM bees_search WHERE bees_search MATCH ? ORDER BY bm25(bees_search) LIMIT 100
-    `).all(`${normalized}*`).filter((row) => row.kind === "item"
+    `).all(terms.map((term) => `"${term}"*`).join(" ")).filter((row) => row.kind === "item"
       ? allowedItems.includes(row.id)
       : allowedLocations.some((id) => row.id.startsWith(`${id}:`))).slice(0, 50);
   }
