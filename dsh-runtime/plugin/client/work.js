@@ -131,7 +131,27 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
         const toolParts = msg.parts.filter(p => p.type === "tool");
         if (textParts.length) convoItems.push(h("div", { className: "bees-convo-msg agent", key: msg.id }, h("strong", null, "Agent"), h("div", null, textParts.map(p => p.text).join(" "))));
         if (toolParts.length) {
-          convoItems.push(h("div", { className: "bees-convo-msg system", key: `tool-${msg.id}` }, `Agent performed ${toolParts.length} task${toolParts.length > 1 ? 's' : ''}`));
+          convoItems.push(h("div", { className: "bees-convo-msg agent", key: `tool-${msg.id}` }, 
+            h("strong", null, "Agent Actions"),
+            h("div", { className: "bees-tool-blocks", style: { display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" } },
+              ...toolParts.map((part, index) => h("div", { key: index, className: "bees-box bees-tool-block", style: { background: "var(--dsw-alias-surface-sunken)", padding: "10px", borderRadius: "6px" } },
+                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" } },
+                  h("strong", null, part.toolName),
+                  h("span", { style: { fontSize: "12px", color: part.state === "output-error" ? "#cf5b5b" : "var(--dsw-alias-label-secondary)", background: part.state === "output-error" ? "#a9363622" : "var(--dsw-alias-border-l1)", padding: "2px 6px", borderRadius: "10px" } }, 
+                    part.state === "input-available" ? "Working..." : part.state === "output-error" ? "Failed" : "Completed"
+                  )
+                ),
+                part.input ? h("div", { style: { fontSize: "13px", marginBottom: "6px" } }, 
+                  h("strong", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: "12px" } }, "Details:"),
+                  h("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", margin: "2px 0 0 0", color: "var(--dsw-alias-label-primary)" } }, typeof part.input === "object" ? JSON.stringify(part.input, null, 2) : part.input)
+                ) : null,
+                part.output ? h("div", { style: { fontSize: "13px", marginTop: "6px", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "6px" } }, 
+                  h("strong", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: "12px" } }, "Result:"),
+                  h("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", margin: "2px 0 0 0", maxHeight: "150px", overflowY: "auto", color: "var(--dsw-alias-label-primary)" } }, typeof part.output === "object" ? JSON.stringify(part.output, null, 2) : part.output)
+                ) : null
+              ))
+            )
+          ));
         }
       }
     }
