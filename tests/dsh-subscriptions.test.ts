@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 // @ts-expect-error The local DSH plugin is authored as runtime JavaScript.
 import { claudeChunks, claudeProtocolMode, claudeResponseSchema, normalizeClaudeModels } from "../dsh-runtime/plugins/subscriptions/lib/index.js";
 
@@ -49,5 +50,12 @@ describe("Claude Code DSH tool bridge", () => {
     });
     expect(mode).toBe("finish");
     expect((claudeResponseSchema(tools, mode) as any).properties.tool.enum).toEqual([""]);
+  });
+
+  it("tells Claude to select virtual tools through structured output", () => {
+    const source = readFileSync(new URL(
+      "../dsh-runtime/plugins/subscriptions/lib/index.js", import.meta.url
+    ), "utf8");
+    expect(source).toContain("virtual DSH tools, not Claude Code native tools");
   });
 });

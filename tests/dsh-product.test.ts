@@ -286,6 +286,7 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
+    expect(stageRuns.at(-1)[1].body).toContain("When the goal explicitly requires a delegation protocol or count, follow it exactly");
     database.connection.prepare(`
       INSERT INTO execution_links
         (execution_id, workspace_id, work_item_id, agent_name, current_session_id,

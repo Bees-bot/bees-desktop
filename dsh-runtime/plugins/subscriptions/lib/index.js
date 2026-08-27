@@ -163,6 +163,7 @@ function claudePrompt(options, mode) {
       : mode === "finish"
         ? "The required completion tool succeeded. Do not call another tool; return a concise final answer with an empty tool name."
         : "Choose one DSH tool, or answer with an empty tool name and put the answer in text.",
+    "These are virtual DSH tools, not Claude Code native tools. Select one only through this structured JSON response; never try to invoke its name directly.",
     "For a tool call, set text to an empty string and provide its JSON arguments.",
     `Available DSH tools:\n${JSON.stringify(tools)}`
   ].join("\n"));

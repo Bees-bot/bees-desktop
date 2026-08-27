@@ -71,16 +71,25 @@ describe("DSH stage results", () => {
     let conclusions = 0;
     const exec = { concludeTurn: () => conclusions++ };
 
-    await expect(
-      submit.execute({ outcome: "candidate", summary: "Done" }, exec),
-    ).resolves.toEqual({ outcome: "candidate", summary: "Done" });
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: false, summary: "Blocked",
+    }, exec)).rejects.toThrow("every acceptance criterion is met");
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: true,
+      summary: "Acceptance criteria are not fully met",
+    }, exec)).rejects.toThrow("every acceptance criterion is met");
+    expect(conclusions).toBe(0);
+
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: true, summary: "Done",
+    }, exec)).resolves.toEqual({ outcome: "candidate", summary: "Done" });
     expect(conclusions).toBe(1);
 
-    await submit.execute({ outcome: "candidate", summary: "Done" }, exec);
+    await submit.execute({ outcome: "candidate", acceptance_criteria_met: true, summary: "Done" }, exec);
     expect(conclusions).toBe(2);
 
     await expect(
-      submit.execute({ outcome: "candidate", summary: "Different" }, exec),
+      submit.execute({ outcome: "candidate", acceptance_criteria_met: true, summary: "Different" }, exec),
     ).rejects.toThrow("different immutable result");
     expect(conclusions).toBe(2);
   });
