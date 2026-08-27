@@ -1,5 +1,5 @@
 import {
-  CancellationScope, condition, defineSignal, isCancellation,
+  CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
   proxyActivities, setHandler, sleep
 } from "@temporalio/workflow";
 
@@ -35,6 +35,7 @@ export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
+  deprecatePatch("bees-durable-human-waits-v1");
   let candidateExecutionId = null;
   let feedback = "";
   const state = {

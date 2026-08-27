@@ -131,6 +131,10 @@ function toolCallCounts(events) {
   return counts;
 }
 
+const admitsIncompleteCandidate = (summary) =>
+  /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
+  /\b(?:partial|blocked) deliverable\b/i.test(summary);
+
 const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
@@ -732,6 +736,12 @@ export class AgentRuntime {
           enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"],
           description: "The allowed result for this stage."
         },
+        ...(data.stagePurpose === "worker" ? {
+          acceptance_criteria_met: {
+            type: "boolean", required: true,
+            description: "True only after verifying every acceptance criterion. An incomplete or blocked stage cannot submit a candidate."
+          }
+        } : {}),
         summary: { type: "string", required: true, description: "Concise evidence or revision feedback." }
       },
       output: {
@@ -756,6 +766,9 @@ export class AgentRuntime {
           exec.concludeTurn();
           return prior;
         }
+        if (data.stagePurpose === "worker" &&
+            (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
+          throw new Error("A candidate can be submitted only after every acceptance criterion is met");
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
