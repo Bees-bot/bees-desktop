@@ -197,6 +197,7 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     ...(effort ? ["--effort", effort] : [])
   ];
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
     const child = spawn(command, args, {
       cwd: process.env.BEES_DEFAULT_WORKSPACE,
       env: safeEnvironment(),
@@ -216,12 +217,13 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
     const abort = () => stop();
     signal?.addEventListener("abort", abort, { once: true });
+    // "close" may never arrive after "error", so the timer and listener are cleared on both.
+    const settled = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
     child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); if (overflow) stop(); });
     child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); if (overflow) stop(); });
-    child.on("error", reject);
+    child.on("error", (error) => { settled(); reject(error); });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
+      settled();
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
