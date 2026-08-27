@@ -103,7 +103,18 @@ describe("Bees work cockpit UI", () => {
 
   it("keeps work-item navigation inside the Bees task screen", () => {
     expect(client).toContain("onClick: () => setWorkItemId(item.id)");
+    expect(client).toContain('type: "button", className: "bees-row bees-work-item-row"');
+    expect(client).not.toContain('className: "primary bees-work-item-open"');
     expect(client).not.toContain("ctx.sessions.open(");
+  });
+
+  it("puts creation actions in widget headers and uses a selectable pool member", () => {
+    expect(client).toContain('panel.actions ? h("div", { className: "bees-flex-widget-actions"');
+    expect(client).toContain('agents: { label: "Agents", actions: h(Button');
+    expect(client).toContain('pools: { label: "Agent pools", actions: h(Button');
+    expect(client).toContain('processes: { label: "Processes", actions: h(Button');
+    expect(client).toContain('"aria-label": "Agent to add"');
+    expect(client).toContain('resizeAlways: true');
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {

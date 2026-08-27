@@ -9,8 +9,8 @@ const AGENTS_LAYOUT = [
 ];
 
 const AGENT_POOL_LAYOUT = [
-  { kind: "settings", x: 0, y: 0, w: 5, h: 6 },
-  { kind: "members", x: 5, y: 0, w: 7, h: 6 }
+  { kind: "settings", x: 0, y: 0, w: 5, h: 8 },
+  { kind: "members", x: 5, y: 0, w: 7, h: 8 }
 ];
 
 const CODEX_CHANNELS = [
@@ -212,6 +212,7 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
   const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
   const [selectedId, setSelectedId] = useState("");
   const [selectedPoolId, setSelectedPoolId] = useState("");
+  const [memberAgentId, setMemberAgentId] = useState("");
   const selected = assignments.find(({ id }) => id === selectedId);
   const selectedPool = pools.find(({ id }) => id === selectedPoolId);
   if (creating === "agent") return h(AgentCreateForm, { ctx, data, servers, workspaceId, act,
@@ -225,11 +226,12 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
       })).filter(({ agent }) => agent);
       const available = assignments.filter(({ workspaceId: id, id: agentId }) =>
         id === selectedPool.workspaceId && !members.some(({ agentAssignmentId }) => agentAssignmentId === agentId));
+      const selectedMemberAgentId = available.some(({ id }) => id === memberAgentId) ? memberAgentId : "";
       const addMember = async () => {
-        const name = await ask(`Agent:\n${available.map(({ name }) => name).join("\n")}`, available[0]?.name ?? "");
-        const agent = available.find((row) => row.name === name); if (!agent) return;
+        const agent = available.find(({ id }) => id === selectedMemberAgentId); if (!agent) return;
         const priority = await ask("Priority (1 runs first)", "100", "number"); if (priority === null) return;
         await act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: agent.id, priority: Number(priority) });
+        setMemberAgentId("");
       };
       const settings = h("form", { className: "bees-form", onSubmit: async (event) => {
           event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -241,8 +243,12 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
           h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selectedPool.description })),
           h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save pool")));
       const memberList = h("div", null,
-          h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-            h(Button, { className: "primary", disabled: !available.length, onClick: addMember }, "Add agent")),
+          h("div", { className: "bees-row" },
+            h("select", { className: "bees-select bees-grow", value: selectedMemberAgentId,
+              "aria-label": "Agent to add", disabled: !available.length, onChange: (event) => setMemberAgentId(event.target.value) },
+              h("option", { value: "" }, available.length ? "Select an agent" : "All agents are in this pool"),
+              ...available.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
+            h(Button, { className: "primary", disabled: !selectedMemberAgentId, onClick: addMember }, "Add agent")),
           ...(memberAgents.length ? memberAgents.map((member) => h("div", { className: "bees-row", key: member.agentAssignmentId },
             h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.agent.name),
               h("div", { className: "bees-muted" }, `Priority ${member.priority}${member.lastAssignedAt ? ` · last selected ${new Date(member.lastAssignedAt).toLocaleString()}` : " · never selected"}`)),
@@ -252,10 +258,10 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
               act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: member.agentAssignmentId, remove: true }) }, "Remove")))
             : [h(Empty, { key: "empty" }, "No agents in this pool yet")]));
       return h(GridStackPage, {
-        layoutId: "agent-pool", defaults: AGENT_POOL_LAYOUT, preference, preferences, setPageActions,
+        layoutId: "agent-pool", defaults: AGENT_POOL_LAYOUT, preference, preferences, setPageActions, resizeAlways: true,
         panels: {
           settings: { label: "Pool settings", minW: 4, minH: 4, content: settings },
-          members: { label: "Pool members", minW: 4, minH: 4, content: memberList }
+          members: { label: "Pool members", minW: 4, minH: 6, content: memberList }
         }
       });
   }
@@ -293,12 +299,9 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
   );
   const agents = h("div", null,
-      h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-        h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")),
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
   const agentPools = h("div", null,
-      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Interchangeable agents for the same work."),
-        h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("pool") }, "New pool")),
+      h("p", { className: "bees-muted" }, "Interchangeable agents for the same work."),
       ...(pools.length ? pools.map((pool) => {
         const members = data.poolMembers.filter(({ poolId }) => poolId === pool.id);
         return h("div", { className: "bees-row", key: pool.id },
@@ -316,8 +319,8 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
   return h(GridStackPage, {
     layoutId: "agents", defaults: AGENTS_LAYOUT, preference, preferences, setPageActions,
     panels: {
-      agents: { label: "Agents", minW: 4, minH: 4, content: agents },
-      pools: { label: "Agent pools", minW: 4, minH: 4, content: agentPools },
+      agents: { label: "Agents", actions: h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent"), minW: 4, minH: 4, content: agents },
+      pools: { label: "Agent pools", actions: h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("pool") }, "New pool"), minW: 4, minH: 4, content: agentPools },
       presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
     }
   });

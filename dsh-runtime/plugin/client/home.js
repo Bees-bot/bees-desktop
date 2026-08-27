@@ -183,7 +183,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions }) {
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
@@ -196,7 +196,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     if (dashboards.length >= 20) return;
     const name = await ask("Dashboard name", "New dashboard");
     if (!name) return;
-    const created = { id: newDashboardId(), name, widgets: [] };
+    const created = { id: newDashboardId(), name, widgets: dashboard.widgets.map((widget) => ({ ...widget })) };
     await preferences.set("dashboards", [...dashboards, created]);
     await preferences.set("activeDashboardId", created.id);
   };
@@ -216,14 +216,9 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
   const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute };
 
-  return h("div", { className: "bees-dashboard" },
-    h("div", { className: "bees-dashboard-toolbar" },
-      h("select", {
-        className: "bees-select bees-dashboard-select", value: dashboard.id, "aria-label": "Dashboard",
-        onChange: (event) => preferences.set("activeDashboardId", event.target.value)
-      }, ...dashboards.map((candidate) => h("option", { key: candidate.id, value: candidate.id }, candidate.name))),
+  useEffect(() => {
+    setPageActions(h("div", { className: "bees-page-actions" },
       h(Button, { onClick: createDashboard, disabled: dashboards.length >= 20 }, "+ Dashboard"),
-      h("div", { className: "bees-grow" }),
       editing ? h("details", { className: "bees-dashboard-add" },
         h("summary", { className: "bees-btn" }, "+ Widget"),
         h("div", { className: "bees-dashboard-widget-menu" },
@@ -234,7 +229,11 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
       ) : null,
       editing ? h(Button, { onClick: renameDashboard }, "Rename") : null,
       editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete") : null,
-      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit")),
+      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit")));
+    return () => setPageActions(null);
+  }, [editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
+
+  return h("div", { className: "bees-dashboard" },
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,
       editing,

@@ -177,8 +177,6 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
     });
   }
   const processList = h("div", null,
-    h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }), h(Button, { className: "primary", disabled: !workspaceId,
-      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process")),
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
       return h("div", { className: "bees-row", key: process.id },
@@ -188,6 +186,7 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
     }) : [h(Empty, { key: "empty" }, "No processes yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
-    panels: { processes: { label: "Processes", minW: 6, minH: 4, content: processList } }
+    panels: { processes: { label: "Processes", actions: h(Button, { className: "primary", disabled: !workspaceId,
+      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process"), minW: 6, minH: 4, content: processList } }
   });
 }

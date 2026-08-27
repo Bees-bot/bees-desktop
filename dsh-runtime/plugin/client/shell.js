@@ -209,7 +209,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const page = route === "home" ? h(Home, {
     ctx, data, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
-    rowsForRoute: pinnedRows, preference, preferences
+    rowsForRoute: pinnedRows, preference, preferences, setPageActions
   })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
@@ -250,7 +250,14 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
                   h(PinButton, { id: child, label, pins, setPins }))
               )
             ) : null
-          )
+          ),
+          item.id === "home" ? h("div", { className: "bees-nav-dashboards" },
+            ...dashboards.filter(({ id }) => id !== "home").map((dashboard) => h("button", {
+              className: `bees-nav-link bees-dashboard-link ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
+              title: dashboard.name, key: dashboard.id, onClick: () => {
+                setRoute("home"); void preferences.set("activeDashboardId", dashboard.id);
+              }
+            }, h("span", null, dashboard.name)))) : null
         )))
       ),
       h("div", { className: "bees-sidebar-foot" },
