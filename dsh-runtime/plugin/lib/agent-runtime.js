@@ -434,6 +434,10 @@ export class AgentRuntime {
     this.proposalStore = store;
   }
 
+  setKnowledgeSearch(search) {
+    this.knowledgeSearch = search;
+  }
+
   setSubitemStore(store) {
     this.subitemStore = store;
   }
@@ -652,6 +656,26 @@ export class AgentRuntime {
         String(data.instructions ?? ""), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
     });
+    agentCtx.tools.register(defineTool({
+      name: "bees_search_knowledge",
+      description: "Search work items in this Bees workspace and files mapped to its team. Results are read-only excerpts and are automatically scoped to the current run.",
+      parameters: {
+        query: { type: "string", required: true, description: "Words or phrase to find." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            results_json: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: value.results_json }]
+      },
+      execute: async (args) => {
+        if (!this.knowledgeSearch) throw new Error("Bees knowledge search is unavailable");
+        const results = await this.knowledgeSearch(args.query, data.workspaceId);
+        return { results_json: JSON.stringify(results) };
+      }
+    }));
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
       description: "Submit a reviewable Bees proposal. This stores a preview only; the user must apply it in Bees.",

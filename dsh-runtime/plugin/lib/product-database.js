@@ -510,6 +510,10 @@ export function initializeProductDatabase(database) {
         AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
     `).run(GOALS_REVIEW_INSTRUCTIONS);
   }
+  if (version < 9) database.exec(`
+    DELETE FROM bees_search WHERE kind = 'file';
+    PRAGMA user_version = 9;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

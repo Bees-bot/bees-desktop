@@ -12,6 +12,11 @@ describe("DSH stage results", () => {
       },
       database.connection,
     );
+    const searches: Array<{ query: string; workspaceId: string }> = [];
+    runtime.setKnowledgeSearch(async (query, workspaceId) => {
+      searches.push({ query, workspaceId });
+      return [{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }];
+    });
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
     ).get() as { id: string };
@@ -52,6 +57,12 @@ describe("DSH stage results", () => {
 
     expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "workflow", "ralph"]));
     expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
+    expect(tools.map(({ name }) => name)).toContain("bees_search_knowledge");
+    const search = tools.find(({ name }) => name === "bees_search_knowledge");
+    await expect(search.execute({ query: "release" })).resolves.toEqual({
+      results_json: JSON.stringify([{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }])
+    });
+    expect(searches).toEqual([{ query: "release", workspaceId: workspace.id }]);
     expect(prompts.join("\n")).toContain("Never simulate or claim a peer");
     const delegate = tools.find(({ name }) => name === "bees_delegate_work");
     expect(delegate.timeoutMs).toBeLessThanOrEqual(2_147_483_647);

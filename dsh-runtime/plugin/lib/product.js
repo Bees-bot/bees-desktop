@@ -6,15 +6,12 @@ import {
   processStageNames, required, workspaceContext
 } from "./product-database.js";
 import {
-  indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
-  TEXT_EXTENSIONS
+  logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
+import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { executeProductCommand } from "./product-commands.js";
-
-/** A search used to rewalk every mapped folder; a minute-old index beats freezing the runtime. */
-const INDEX_INTERVAL = 60_000;
 
 export { initializeProductDatabase };
 
@@ -25,11 +22,11 @@ export class BeesProduct {
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
     this.workspaceRegistry = services.workspaceRegistry;
-    /** locationId -> when its folder was last walked, so a burst of searches does not redo it. */
-    this.indexedAt = new Map();
+    this.knowledge = new TeamKnowledgeSearch(defaultWorkspace);
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
+    this.agents?.setKnowledgeSearch?.((query, workspaceId) => this.search(query, workspaceId));
     this.agents?.setSubitemStore?.({
       create: (input) => this.createSubitems(input),
       cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
@@ -342,36 +339,31 @@ export class BeesProduct {
     };
   }
 
-  search(query, workspaceId) {
+  async search(query, workspaceId) {
     const workspace = workspaceContext(this.database, workspaceId);
     // FTS5 reads bare punctuation as query syntax, so each word goes in as a quoted prefix term.
     const terms = String(query ?? "").replace(/"/g, "").trim().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
     const { deviceId } = currentIdentity(this.database);
-    for (const location of this.database.prepare(`
+    const locations = this.database.prepare(`
       SELECT l.id, l.name, l.kind, m.absolute_path AS localPath
       FROM team_locations l JOIN device_location_mappings m ON m.location_id = l.id
       WHERE l.team_id = ? AND l.archived_at IS NULL AND m.device_id = ?
-    `).all(workspace.teamId, deviceId)) {
-      if (Date.now() - (this.indexedAt.get(location.id) ?? 0) < INDEX_INTERVAL) continue;
-      try {
-        indexLocation(this.database, location);
-        this.indexedAt.set(location.id, Date.now());
-      } catch { /* unavailable mappings stay out of results */ }
-    }
-    const allowedItems = this.database.prepare(`
-      SELECT w.id FROM work_items w JOIN processes p ON p.id = w.process_id
-      WHERE p.workspace_id = ? AND w.deleted_at IS NULL
-    `).all(workspace.id).map(({ id }) => id);
-    const allowedLocations = this.database.prepare(`
-      SELECT id FROM team_locations WHERE team_id = ? AND archived_at IS NULL
-    `).all(workspace.teamId).map(({ id }) => id);
-    return this.database.prepare(`
-      SELECT kind, ref_id AS id, title, snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
-      FROM bees_search WHERE bees_search MATCH ? ORDER BY bm25(bees_search) LIMIT 100
-    `).all(terms.map((term) => `"${term}"*`).join(" ")).filter((row) => row.kind === "item"
-      ? allowedItems.includes(row.id)
-      : allowedLocations.some((id) => row.id.startsWith(`${id}:`))).slice(0, 50);
+    `).all(workspace.teamId, deviceId);
+    const items = this.database.prepare(`
+      SELECT bees_search.kind, bees_search.ref_id AS id, bees_search.title,
+             snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
+      FROM bees_search
+      JOIN work_items w ON w.id = bees_search.ref_id
+      JOIN processes p ON p.id = w.process_id
+      WHERE bees_search MATCH ? AND bees_search.kind = 'item'
+        AND p.workspace_id = ? AND w.deleted_at IS NULL
+      ORDER BY bm25(bees_search) LIMIT 50
+    `).all(terms.map((term) => `"${term}"*`).join(" "), workspace.id);
+    let files = [];
+    try { files = await this.knowledge.search(String(query), workspace.teamId, locations); }
+    catch (error) { this.agents?.ctx?.logger?.warn?.(`bees: knowledge search unavailable: ${message(error)}`); }
+    return [...items, ...files].slice(0, 50);
   }
 
   audit() {
