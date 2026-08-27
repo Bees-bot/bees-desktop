@@ -76,8 +76,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [workProcessId, setWorkProcessId] = useState("");
   const [runId, setRunId] = useState("");
   const [needsYouRunId, setNeedsYouRunId] = useState("");
-  const setPageActions = "actions";
-  const setPageHeader = "header";
+  const setPageActions = (actions) => headerEmitter.setActions(actions);
+  const setPageHeader = (header) => headerEmitter.setHeader(header);
   const load = async () => {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
