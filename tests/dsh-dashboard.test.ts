@@ -42,6 +42,8 @@ describe("personal dashboards", () => {
     expect(client).toContain('className: `bees-nav-link bees-dashboard-link');
     expect(client).toContain('rowsForRoute: pinnedRows, preference, preferences, setPageActions');
     expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
+    expect(client).toContain('kind: "quick-actions"');
+    expect(client).toContain('kind: "knowledge-sources"');
   });
 
   it("provides and sanitizes the fixed work-item layout", () => {
@@ -101,7 +103,5 @@ describe("personal dashboards", () => {
     expect(client).toContain('className: "bees-page-actions"');
     expect(client).not.toContain('className: "bees-flex-toolbar"');
     expect(client).toContain('h("div", { className: "bees-grow" }),\n        pageActions,\n        h(ThemeToggle');
-    expect(client).toContain('kind: "quick-actions"');
-    expect(client).toContain('kind: "knowledge-sources"');
   });
 });

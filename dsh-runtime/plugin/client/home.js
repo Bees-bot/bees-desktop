@@ -201,7 +201,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createGoal, createProcess, createRun, createAgent }) {
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
