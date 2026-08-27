@@ -253,6 +253,17 @@ export async function executeProductCommand(action, input) {
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
       return { id: processId };
     });
+    if (action === "set_stage_instructions") return transaction(this.database, () => {
+      const stage = this.database.prepare(`
+        SELECT s.id, p.workspace_id AS workspaceId FROM stages s JOIN processes p ON p.id = s.process_id
+        WHERE s.id = ? AND s.archived_at IS NULL
+      `).get(required(input.stageId, "Stage"));
+      if (!stage) throw new Error("Stage not found");
+      workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
+      this.database.prepare("UPDATE stages SET completion_rules = ? WHERE id = ?")
+        .run(String(input.instructions ?? "").slice(0, 4_000), stage.id);
+      return { id: stage.id };
+    });
     if (action === "set_stage_route") return transaction(this.database, () => {
       const stageId = required(input.stageId, "Stage");
       const stage = this.database.prepare(`
