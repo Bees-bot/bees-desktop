@@ -118,8 +118,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
   let agents, processes, capabilities;
   ctx.effect(() => async () => {
+    agents?.close();
     await processes?.close();
-    await agents?.close();
     await capabilities?.close();
     database.close();
   }, "bees shutdown");

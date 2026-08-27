@@ -1237,6 +1237,8 @@ export class AgentRuntime {
   }
 
   abort(executionId) {
+    // Draining the worker cancels the activity too, and that is a restart, not a person pressing stop.
+    if (this.closing) return false;
     const live = this.live.get(executionId);
     if (!live) return false;
     live.approvalAbort.abort();
