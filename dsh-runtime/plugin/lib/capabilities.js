@@ -347,7 +347,8 @@ export class Capabilities {
       given.openapiSpec = found.specUrl;
       if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
     }
-    const args = [...entry.args];
+    const stateDir = process.env.BEES_STATE_DIR || tmpdir();
+    const args = entry.args.map((arg) => arg.replace("{stateDir}", stateDir));
     for (const field of entry.inputs) {
       const value = String(given[field.name] ?? "").trim();
       if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);

@@ -104,7 +104,8 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@playwright/mcp@latest"],
+    // Without a profile of its own the browser gets a throwaway one, so no sign-in ever survives.
+    args: ["-y", "@playwright/mcp@latest", "--user-data-dir", "{stateDir}/browser-profile"],
     env: [],
     headers: []
   },

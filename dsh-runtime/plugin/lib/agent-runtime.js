@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { showAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity } from "./product-database.js";
 
@@ -517,6 +518,7 @@ export class AgentRuntime {
         idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
       });
       this.audit("question-requested", executionId, sessionId, pending);
+      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/asked") {
@@ -539,6 +541,7 @@ export class AgentRuntime {
         idempotencyKey: `approval-asked:${sessionId}:${pending.approvalId}`
       });
       this.audit("approval-requested", executionId, sessionId, pending);
+      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/decided") {
@@ -557,6 +560,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
+      showAgentBrowser(false);
       return;
     }
     if (event.type === "tool/result") {
@@ -577,6 +581,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
+        showAgentBrowser(false);
       }
       const output = {
         sessionId,
