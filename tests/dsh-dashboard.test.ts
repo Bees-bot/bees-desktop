@@ -9,7 +9,7 @@ describe("personal dashboards", () => {
     expect(dashboards).toHaveLength(1);
     expect(dashboards[0]).toMatchObject({ id: "home", name: "Home" });
     expect(dashboards[0].widgets.map((widget: { kind: string }) => widget.kind))
-      .toEqual(["outcome", "templates", "waiting", "recent-work"]);
+      .toEqual(["metrics", "outcome", "quick-actions", "waiting", "recent-work"]);
   });
 
   it("sanitizes persisted layouts and preserves one widget of each kind", () => {
@@ -101,5 +101,7 @@ describe("personal dashboards", () => {
     expect(client).toContain('className: "bees-page-actions"');
     expect(client).not.toContain('className: "bees-flex-toolbar"');
     expect(client).toContain('h("div", { className: "bees-grow" }),\n        pageActions,\n        h(ThemeToggle');
+    expect(client).toContain('kind: "quick-actions"');
+    expect(client).toContain('kind: "knowledge-sources"');
   });
 });

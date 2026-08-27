@@ -4,10 +4,11 @@ import { ask, Button, confirmAction, Empty } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 
-function OutcomeWidget({ workspaceId, act, openWorkItem }) {
+function OutcomeWidget({ workspaceId, act, navigate }) {
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [created, setCreated] = useState(false);
   const submit = async () => {
     if (!workspaceId || !outcome.trim()) return;
     setBusy(true); setError("");
@@ -15,8 +16,8 @@ function OutcomeWidget({ workspaceId, act, openWorkItem }) {
       const text = outcome.trim();
       const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
       const title = lines[0].length > 60 ? `${lines[0].substring(0, 57)}...` : lines[0];
-      const created = await act({ action: "create_goal", workspaceId, title, description: text, priority: "normal" });
-      if (created?.id) openWorkItem(created.id);
+      const result = await act({ action: "create_goal", workspaceId, title, description: text, priority: "normal" });
+      if (result?.id) { setOutcome(""); setCreated(true); setTimeout(() => setCreated(false), 3000); navigate("goals"); }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -94,6 +95,15 @@ function MetricsWidget({ rowsForRoute }) {
       h("strong", null, String(value)), h("span", null, label))));
 }
 
+function QuickActionsWidget({ workspaceId, createWork, createGoal, createProcess, createRun, createAgent }) {
+  const actions = [
+    ["New goal", createGoal], ["New work item", createWork], ["New process", createProcess],
+    ["Start one-off run", createRun], ["New agent", createAgent]
+  ];
+  return h("div", { className: "bees-dashboard-list" }, ...actions.map(([label, action]) =>
+    h("button", { type: "button", className: "bees-btn bees-dashboard-row", key: label, disabled: !workspaceId, onClick: action }, label)));
+}
+
 function ProposalsWidget({ data, workspaceIds, act }) {
   const proposals = (data.proposals ?? []).filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
   if (!proposals.length) return h(Empty, null, "No proposals waiting for review.");
@@ -108,6 +118,7 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 
 const WIDGETS = [
   { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget },
+  { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, processes, runs, and agents", w: 4, h: 5, component: QuickActionsWidget },
   { kind: "metrics", label: "Metrics", description: "Key workspace counts", w: 12, h: 3, component: MetricsWidget },
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget },
   { kind: "recent-work", label: "Recent work", description: "Latest active work items", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget },
@@ -117,7 +128,11 @@ const WIDGETS = [
   { kind: "templates", label: "Templates", description: "Processes and reusable templates", w: 4, h: 5, component: TemplatesWidget },
   { kind: "processes", label: "Processes", description: "Active processes", route: "all-processes", w: 6, h: 5, component: ListWidget },
   { kind: "agents", label: "Agents", description: "Workspace agents", route: "all-agents", w: 6, h: 5, component: ListWidget },
+  { kind: "agent-pools", label: "Agent pools", description: "Workspace agent pools", route: "pools", w: 6, h: 5, component: ListWidget },
+  { kind: "agent-presets", label: "Agent presets", description: "Reusable agent presets", route: "presets", w: 6, h: 5, component: ListWidget },
+  { kind: "mcp-servers", label: "MCP servers", description: "Connected MCP servers", route: "mcp", w: 6, h: 5, component: ListWidget },
   { kind: "files", label: "Files & folders", description: "Team locations", route: "locations", w: 6, h: 5, component: ListWidget },
+  { kind: "knowledge-sources", label: "Knowledge sources", description: "Approved knowledge locations", route: "sources", w: 6, h: 5, component: ListWidget },
   { kind: "runs", label: "Runs", description: "Recent agent runs", route: "runs", w: 6, h: 5, component: ListWidget },
   { kind: "artifacts", label: "Artifacts", description: "Outputs from completed runs", route: "artifacts", w: 6, h: 5, component: ListWidget },
   { kind: "proposals", label: "Proposals", description: "Changes awaiting review", w: 6, h: 5, component: ProposalsWidget }
@@ -186,7 +201,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent }) {
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
@@ -217,7 +232,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute };
+  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createGoal, createProcess, createRun, createAgent };
 
   useEffect(() => {
     setPageActions(h("div", { className: "bees-page-actions" },

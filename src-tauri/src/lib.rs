@@ -517,6 +517,8 @@ pub fn run() {
     }
     builder
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            app.get_webview_window("main").unwrap().open_devtools();
             reap_orphan_llama_servers();
             if let Ok((node, temporal, _)) = runtime_paths(app.handle()) {
                 reap_orphaned_sidecars(&node);

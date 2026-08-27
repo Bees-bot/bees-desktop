@@ -207,7 +207,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const page = route === "home" ? h(Home, {
     ctx, data, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
-    rowsForRoute: pinnedRows, preference, preferences, setPageActions
+    rowsForRoute: pinnedRows, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
