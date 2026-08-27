@@ -37,6 +37,11 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("dashboards"');
     expect(client).toContain('preferences.set("activeDashboardId"');
     expect(client).toContain('draggable: { handle: ".bees-dashboard-widget-handle" }');
+    expect(client).toContain('className: "bees-nav-dashboards"');
+    expect(client).toContain('widgets: dashboard.widgets.map((widget) => ({ ...widget }))');
+    expect(client).toContain('className: `bees-nav-link bees-dashboard-link');
+    expect(client).toContain('rowsForRoute: pinnedRows, preference, preferences, setPageActions');
+    expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
   });
 
   it("provides and sanitizes the fixed work-item layout", () => {

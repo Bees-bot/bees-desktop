@@ -644,10 +644,9 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const renderRows = (records, empty) => records.length ? records.map((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
     const stage = data.stages.find(({ id }) => id === item.stageId);
-    return h("div", { className: "bees-row bees-work-item-row", key: item.id },
-      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
-      h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)),
-      h(Button, { className: "primary bees-work-item-open", onClick: () => setWorkItemId(item.id) }, "Open"));
+    return h("button", { type: "button", className: "bees-row bees-work-item-row", key: item.id, onClick: () => setWorkItemId(item.id) },
+      h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, `${item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
+      h("span", { className: `bees-status bees-${itemStatus(item)}` }, itemStatus(item)));
   }) : h(Empty, null, empty);
   return h("div", null,
     h("div", { className: "bees-row" },
