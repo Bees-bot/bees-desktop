@@ -236,8 +236,9 @@ export function useSnapshot(source, fallback = null) {
 }
 
 export function sectionFor(child) {
-  const legacySection = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", mappings: "files", references: "files", sources: "knowledge" }[child];
-  return NAVIGATION.find((section) => section.id === (legacySection ?? child) || section.defaultChild === child || section.children.some(([id]) => id === child)) ?? NAVIGATION[0];
+  // Routes a page owns without listing in the nav tree, so they still light up their section.
+  const section = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", sources: "knowledge" }[child];
+  return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
 export function navigationItem(id) {
