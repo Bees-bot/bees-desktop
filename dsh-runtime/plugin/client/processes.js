@@ -168,7 +168,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
       return h("div", null,
         h(PageHead, { setPageHeader },
-          h(Button, { className: "bees-nav-link", onClick: () => setProcessId("") }, "← Processes"),
+          h(Button, { onClick: () => setProcessId("") }, "← Processes"),
           h("div", { className: "bees-title" }, process.name)
         ),
         h(PageHead, { setPageHeader: setPageActions },
