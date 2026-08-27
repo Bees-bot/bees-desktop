@@ -7,6 +7,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { MCP_CATALOG } from "./mcp-catalog.js";
+import { currentIdentity } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
@@ -339,6 +340,7 @@ export class AgentRuntime {
     this.database = database;
     this.live = new Map();
     this.recovery = new Set();
+    this.settling = new Set();
     database.exec(`
       CREATE TABLE IF NOT EXISTS execution_links (
         execution_id TEXT PRIMARY KEY,
@@ -613,7 +615,7 @@ export class AgentRuntime {
     if (data.mcpAccess === "all") return;
     const allowed = new Set(data.mcpServers);
     const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
-      const match = /^mcp__([A-Za-z0-9_-]{1,32})__/.exec(name);
+      const match = /^mcp__([A-Za-z0-9_-]{1,32}?)__/.exec(name);
       return match && !allowed.has(match[1]);
     });
     if (!deny.length) return;
@@ -747,10 +749,10 @@ export class AgentRuntime {
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
       JOIN workspaces w ON w.team_id = l.team_id
       JOIN device_location_mappings m ON m.location_id = l.id
-        AND m.device_id = (SELECT id FROM devices ORDER BY created_at LIMIT 1)
+        AND m.device_id = ?
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
-    `).all(JSON.stringify(data.grants ?? []), data.workspaceId);
+    `).all(currentIdentity(this.database).deviceId, JSON.stringify(data.grants ?? []), data.workspaceId);
     if (grants.length) {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
@@ -944,10 +946,10 @@ export class AgentRuntime {
       ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
       : "";
     if (recoveryApproval) {
-      void this.recoverApproval(
+      this.track(this.recoverApproval(
         executionId, submissionId, sessionId, handle, approvalAbort,
         recoveryApproval, `${payload.body}${recoveryNotice}`
-      );
+      ));
       this.recovery.delete(executionId);
     } else {
       const before = handle.agent.session.seq;
@@ -966,7 +968,7 @@ export class AgentRuntime {
         throw error;
       }
       this.recovery.delete(executionId);
-      void this.settle(executionId, submissionId, sessionId, handle, before);
+      this.track(this.settle(executionId, submissionId, sessionId, handle, before));
     }
     return { submissionId, uid: run.instanceUid };
   }
@@ -1191,6 +1193,19 @@ export class AgentRuntime {
       note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran.",
       executions
     };
+  }
+
+  /** Settling outlives the reply that started it, so shutdown waits rather than closing the database under it. */
+  track(promise) {
+    const done = promise
+      .catch((error) => this.ctx.logger.warn(`bees: a run did not settle: ${message(error)}`))
+      .finally(() => this.settling.delete(done));
+    this.settling.add(done);
+  }
+
+  async close() {
+    for (const executionId of [...this.live.keys()]) this.abort(executionId);
+    await Promise.all([...this.settling]);
   }
 
   abort(executionId) {

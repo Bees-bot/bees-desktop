@@ -115,23 +115,28 @@ export async function apply(ctx, _config = {}, internals = {}) {
 
   const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
-  ctx.effect(() => () => database.close(), "bees database");
+  // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
+  let agents, processes, capabilities;
+  ctx.effect(() => async () => {
+    await processes?.close();
+    await agents?.close();
+    await capabilities?.close();
+    database.close();
+  }, "bees shutdown");
   ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
-  const agents = new AgentRuntime(ctx, database);
-  const processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
+  agents = new AgentRuntime(ctx, database);
+  processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets
   });
   const connected = new ConnectedAccount(database, ctx.credentials);
-  const capabilities = new Capabilities(ctx, database, workspace);
+  capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
   await product.recoverRuns();
   await capabilities.initialize();
-  ctx.effect(() => () => capabilities.close(), "bees MCP servers");
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
-  ctx.effect(() => () => processes.close(), "bees Temporal worker");
 
   const server = ctx.webServer.server;
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
