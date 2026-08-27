@@ -128,6 +128,9 @@ function toolCallCounts(events) {
   return counts;
 }
 
+/** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
+const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
+
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
@@ -616,6 +619,17 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
+  /** A folder-bound server takes its path as an argument, and nothing else tells the model which. */
+boundFolders() {
+  const rows = this.database.prepare(`
+    SELECT server_name AS name, args_json AS args FROM mcp_servers WHERE enabled = 1 AND catalog_id IN ('git', 'filesystem')
+  `).all();
+  return rows.flatMap(({ name, args }) => {
+    const last = (JSON.parse(args || "[]") ?? []).at(-1);
+    return last?.startsWith("/") ? [`mcp__${name}__ works on ${last}`] : [];
+  });
+}
+
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshDelegationTools(agentCtx);
@@ -623,6 +637,11 @@ export class AgentRuntime {
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: `${data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA}\n\n${String(data.instructions ?? "")}`, complete: true
+    });
+    const folders = this.boundFolders();
+    if (folders.length) agentCtx.systemPrompt.section({
+      name: "bees:mcp-folders", order: 1,
+      text: `Pass these paths to the tools below, not your working directory.\n${folders.join("\n")}`, complete: true
     });
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
@@ -1088,7 +1107,7 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
       if (detail) throw new Error(detail);
-      throw new Error(`DSH stage ended ${run.status} without submitting a stage result`);
+      throw badTurn(`DSH stage ended ${run.status} without submitting a stage result`);
     }
 
     const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
@@ -1097,8 +1116,7 @@ export class AgentRuntime {
       throw new Error(detail || `DSH stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
-    // A model that ends its turn without submitting is having a bad turn, not failing the stage.
-    if (!result) throw Object.assign(new Error("DSH completed without calling bees_submit_stage_result"), { retryable: true });
+    if (!result) throw badTurn("DSH completed without calling bees_submit_stage_result");
     return result;
   }
 
