@@ -4,12 +4,19 @@ import { resolve } from "node:path";
 import {
   assignment, capabilities, currentIdentity, insertProcess, insertWorkspaceDefaults, iso,
   itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStageNames,
-  requireTeam, required, stableUuid, transaction, workspaceContext
+  message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
   canonicalMapping, logicalRelativePath, mappedLocation, stageInputs
 } from "./product-files.js";
 import { resolveStageAgent } from "./product-routing.js";
+
+/** The three the UI offers. Anything else is a typo or a client that has drifted. */
+function priorityOf(value) {
+  const priority = String(value ?? "normal");
+  if (!["low", "normal", "high"].includes(priority)) throw new Error("Priority must be low, normal or high");
+  return priority;
+}
 
 /** An agent's MCP policy: every connected server, none of them, or a named few. */
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
@@ -119,11 +126,11 @@ export async function executeProductCommand(action, input) {
           agent_assignment_id, priority, archived_at, deleted_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
-        input.owner ? String(input.owner) : null, assignmentId, String(input.priority ?? "normal"), at, at);
+        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), at, at);
         return { id };
       });
-      await this.processes.startItem(created.id);
-      return created;
+      // The row is already committed; throwing here would have the caller retry and create a second item.
+      return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
@@ -138,7 +145,7 @@ export async function executeProductCommand(action, input) {
         UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
       `).run(required(input.title, "Title"), String(input.description ?? ""), input.owner ? String(input.owner) : null,
-        assignmentId, String(input.priority ?? "normal"), parentId, at, item.id);
+        assignmentId, priorityOf(input.priority), parentId, at, item.id);
       return {};
     });
     if (action === "move_item") {
