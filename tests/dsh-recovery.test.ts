@@ -83,9 +83,15 @@ describe("DSH-owned desktop and recovery", () => {
     expect(profile).toContain("provider: local-openai");
     expect(profile).toContain("model: active");
     expect(client).toContain('id: "bees-product"');
+    expect(client).toContain("class BeesErrorBoundary extends React.Component");
+    expect(client).toContain("}, BeesErrorBoundary));");
+    expect(client).toContain('event.code !== "KeyD"');
+    expect(client).toContain("event.metaKey || event.ctrlKey");
+    expect(client).toContain('toggleAttribute("data-bees-debug-dsh")');
+    expect(client).toContain('[data-bees-debug-dsh] .bees-app{display:none}');
     expect(client).toContain('.bees-main{min-width:0;min-height:0;overflow:hidden');
     expect(client).not.toContain('id: "bees-navigation"');
-    expect(client).toContain('["dsh-settings", "DSH settings"]');
+    expect(client).not.toContain('["dsh-settings", "DSH settings"]');
     expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
     expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');

@@ -402,7 +402,7 @@ describe("Bees DSH public contract", () => {
       expect(client).not.toContain('api.llm.providers({})');
       expect(client).not.toContain('"Other runtime providers"');
       expect(client).not.toContain('"Models"');
-      expect(client).toContain('["dsh-settings", "DSH settings"]');
+      expect(client).not.toContain('["dsh-settings", "DSH settings"]');
       expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
       expect(client).toContain('ctx.settingsScope.bind({ namespace: "bees-ui" })');
       expect(readFileSync(new URL("../dsh-runtime/plugin/lib/index.js", import.meta.url), "utf8"))
