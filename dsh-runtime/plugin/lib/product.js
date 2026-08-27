@@ -13,6 +13,9 @@ import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { executeProductCommand } from "./product-commands.js";
 
+/** A search used to rewalk every mapped folder; a minute-old index beats freezing the runtime. */
+const INDEX_INTERVAL = 60_000;
+
 export { initializeProductDatabase };
 
 export class BeesProduct {
@@ -22,6 +25,8 @@ export class BeesProduct {
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
     this.workspaceRegistry = services.workspaceRegistry;
+    /** locationId -> when its folder was last walked, so a burst of searches does not redo it. */
+    this.indexedAt = new Map();
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
@@ -62,7 +67,9 @@ export class BeesProduct {
         return [];
       }
     });
-    await Promise.allSettled(recoveries);
+    for (const settled of await Promise.allSettled(recoveries))
+      if (settled.status === "rejected")
+        this.agents.ctx.logger.warn(`bees: a run failed to resume: ${message(settled.reason)}`);
   }
 
   /** One unreadable row must not abort the whole recovery pass. */
@@ -342,7 +349,11 @@ export class BeesProduct {
       FROM team_locations l JOIN device_location_mappings m ON m.location_id = l.id
       WHERE l.team_id = ? AND l.archived_at IS NULL AND m.device_id = ?
     `).all(workspace.teamId, deviceId)) {
-      try { indexLocation(this.database, location); } catch { /* unavailable mappings stay out of results */ }
+      if (Date.now() - (this.indexedAt.get(location.id) ?? 0) < INDEX_INTERVAL) continue;
+      try {
+        indexLocation(this.database, location);
+        this.indexedAt.set(location.id, Date.now());
+      } catch { /* unavailable mappings stay out of results */ }
     }
     const allowedItems = this.database.prepare(`
       SELECT w.id FROM work_items w JOIN processes p ON p.id = w.process_id
