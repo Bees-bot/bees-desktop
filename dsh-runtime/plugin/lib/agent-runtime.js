@@ -130,9 +130,9 @@ function toolCallCounts(events) {
   return counts;
 }
 
-/** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const MAX_DELEGATION_DEPTH = 3;
 
+/** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 
 function reviewTimeline(events) {
