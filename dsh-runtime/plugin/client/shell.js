@@ -77,6 +77,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [runId, setRunId] = useState("");
   const [needsYouRunId, setNeedsYouRunId] = useState("");
   const [pageActions, setPageActions] = useState(null);
+  const [pageHeader, setPageHeader] = useState(null);
   const load = async () => {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
@@ -212,11 +213,11 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
       ? h(NeedsYouPage, { ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId: needsYouRunId })
-      : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act, preference, preferences, setPageActions })
-      : section.id === "processes" ? h(ProcessesPage, { data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions })
+      : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act, preference, preferences, setPageActions, setPageHeader })
+      : section.id === "processes" ? h(ProcessesPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
           : section.id === "files" ? h(FilesPage, { ctx, data, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
@@ -263,9 +264,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       )
     ),
     h("section", { className: "bees-main" },
-      h("header", { className: "bees-top" }, h("div", { className: "bees-title" }, routeLabel),
-        route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
-        route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null,
+      h("header", { className: "bees-top" },
+        pageHeader ? pageHeader : h(React.Fragment, null,
+          h("div", { className: "bees-title" }, routeLabel),
+          route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
+          route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null
+        ),
         h("div", { className: "bees-grow" }),
         pageActions,
         h(ThemeToggle, { ctx })),
