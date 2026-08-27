@@ -904,6 +904,8 @@ fn start_local_model_blocking(
         spec.context_size,
     );
     let mut command = Command::new(&executable);
+    // llama-server needs none of our environment, and the parent's may hold model credentials.
+    command.env_clear();
     command
         .current_dir(working_directory)
         .arg("--model")
@@ -1004,6 +1006,16 @@ pub async fn start_local_model(
     tauri::async_runtime::spawn_blocking(move || start_local_model_blocking(&app, &spec))
         .await
         .map_err(|error| error.to_string())?
+}
+
+impl LocalModelManager {
+    /// Quitting exits the process outright, so every llama-server is dropped here first.
+    pub fn shutdown(&self) {
+        if let Ok(mut runtimes) = self.runtimes.lock() {
+            runtimes.by_id.clear();
+            runtimes.active_id = None;
+        }
+    }
 }
 
 #[tauri::command]
