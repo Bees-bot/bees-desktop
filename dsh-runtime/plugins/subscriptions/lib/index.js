@@ -377,7 +377,12 @@ export async function apply(ctx) {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       const input = await requestBody(req);
       if (input.action === "codex_start") {
-        pending ??= beginCodexLogin();
+        if (!pending) {
+          const started = beginCodexLogin();
+          // An abandoned sign-in must not park a dead url here until the app restarts.
+          void started.result.catch(() => {}).finally(() => { if (pending === started) pending = null; });
+          pending = started;
+        }
         return json(res, 200, await pending.ready);
       }
       if (input.action === "codex_await") {

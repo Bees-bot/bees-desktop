@@ -111,12 +111,14 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const refresh = async () => {
         if (!window.__TAURI__?.core?.invoke) return;
-        const rows = await Promise.all(models.map(async (model) =>
-          [model.id, await invokeLocal("local_model_status", { spec: model })]));
-        setStatuses(Object.fromEntries(rows));
+        try {
+          const rows = await Promise.all(models.map(async (model) =>
+            [model.id, await invokeLocal("local_model_status", { spec: model })]));
+          setStatuses(Object.fromEntries(rows));
+        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
       useEffect(() => {
-        void refresh().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+        void refresh();
         let unlisten;
         void window.__TAURI__?.event?.listen("local-model-progress", ({ payload }) => {
           setProgress((current) => ({ ...current, [payload.modelId]: payload }));
@@ -251,9 +253,11 @@ window.__ModuleLoader__.load({
       const protects = (model) => systemDefault?.provider === "external-local-ai" && (!model || systemDefault.model === model);
       const defaultGuard = "Choose another System default above before removing or turning off this connection.";
       const [error, setError] = useState("");
+      // llama.cpp, LM Studio and Ollama want no auth, but pi-ai refuses a provider with neither.
+      const authorized = (profile) => ({ ...profile, headers: { authorization: "Bearer local" } });
       const saveProfile = async (profile) => {
         await preferences.set("externalLocalAiProfile", profile);
-        if (enabled) await modelSettings.set("providers", { ...config.providers, "external-local-ai": profile });
+        if (enabled) await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
       };
       const configure = async () => {
         try {
@@ -271,7 +275,7 @@ window.__ModuleLoader__.load({
             models
           };
           await preferences.set("externalLocalAiProfile", profile);
-          await modelSettings.set("providers", { ...config.providers, "external-local-ai": profile });
+          await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
@@ -291,7 +295,7 @@ window.__ModuleLoader__.load({
         const providers = { ...(config.providers ?? {}) };
         if (enabled) {
           if (!local.baseURL) return configure();
-          providers["external-local-ai"] = local;
+          providers["external-local-ai"] = authorized(local);
         } else {
           await preferences.set("externalLocalAiProfile", local);
           delete providers["external-local-ai"];
