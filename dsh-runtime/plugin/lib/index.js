@@ -145,11 +145,15 @@ export async function apply(ctx, _config = {}, internals = {}) {
     if (["/bees-auth", "/healthz", "/_bees_unauthorized"].includes(path)) return;
     if (!equalSecret(tokenFrom(req), token)) req.url = "/_bees_unauthorized";
   };
+  // An upgrade has no response to redirect, so an unauthorized socket is dropped instead.
+  const guardUpgrade = (req, socket) => {
+    if (!equalSecret(tokenFrom(req), token)) socket.destroy();
+  };
   server.prependListener("request", guard);
-  server.prependListener("upgrade", guard);
+  server.prependListener("upgrade", guardUpgrade);
   ctx.effect(() => () => {
     server.off("request", guard);
-    server.off("upgrade", guard);
+    server.off("upgrade", guardUpgrade);
   }, "bees loopback auth");
 
   register(ctx, { kind: "exact", path: "/_bees_unauthorized", handler: (_req, res) =>
@@ -166,8 +170,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
     });
     res.end();
   } });
-  register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) =>
-    reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
+    try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
+    catch (error) { reply(res, 409, { error: message(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {

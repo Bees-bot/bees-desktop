@@ -22,7 +22,7 @@ const SHIPPED = {
   }
 };
 
-const readable = (value) => typeof value === "string" && value.trim() !== "" && !/[^\p{ASCII}]/u.test(value);
+const readable = (value) => typeof value === "string" && value.trim() !== "";
 
 /** One preset, named so an English reader can pick between them. */
 export function namePreset(preset) {

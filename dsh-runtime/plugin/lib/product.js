@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
-  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, processStageNames,
-  required, workspaceContext
+  currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
+  processStageNames, required, workspaceContext
 } from "./product-database.js";
 import {
   indexLocation, logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation,
@@ -55,30 +55,40 @@ export class BeesProduct {
       FROM execution_links ORDER BY updated_at
     `).all().filter((run) => this.agents.needsRecovery(run.executionId));
     const recoveries = runs.flatMap((run) => {
-      const pending = this.agents.pendingInteraction(run.executionId);
-      const data = JSON.parse(run.configJson);
-      let body;
-      if (!run.workItemId && data.mode === "planning") {
-        body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
-      } else if (run.workItemId) {
-        const lifecycle = this.database.prepare(`
-          SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt
-          FROM work_items WHERE id = ?
-        `).get(run.workItemId);
-        if (!lifecycle || lifecycle.archivedAt || lifecycle.deletedAt ||
-          ["completed", "cancelled"].includes(lifecycle.runtimePhase)) return [];
-        const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
-        if (this.processes?.isAutomatic(item.processId)) return [];
-        body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
-      } else return [];
-      if (pending?.kind === "question")
-        body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
-      return [this.agents.admit("bees-run", run.executionId, {
-        idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
-        body
-      })];
+      try {
+        return this.recovery(run);
+      } catch (error) {
+        this.agents.ctx.logger.warn(`bees: could not recover ${run.executionId}: ${message(error)}`);
+        return [];
+      }
     });
     await Promise.allSettled(recoveries);
+  }
+
+  /** One unreadable row must not abort the whole recovery pass. */
+  recovery(run) {
+    const pending = this.agents.pendingInteraction(run.executionId);
+    const data = JSON.parse(run.configJson);
+    let body;
+    if (!run.workItemId && data.mode === "planning") {
+      body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
+    } else if (run.workItemId) {
+      const lifecycle = this.database.prepare(`
+        SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt
+        FROM work_items WHERE id = ?
+      `).get(run.workItemId);
+      if (!lifecycle || lifecycle.archivedAt || lifecycle.deletedAt ||
+        ["completed", "cancelled"].includes(lifecycle.runtimePhase)) return [];
+      const item = itemContext(this.database, run.workItemId, ["admin", "member"]);
+      if (this.processes?.isAutomatic(item.processId)) return [];
+      body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
+    } else return [];
+    if (pending?.kind === "question")
+      body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
+    return [this.agents.admit("bees-run", run.executionId, {
+      idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
+      body
+    })];
   }
 
   async runProcessStage(stage, signal) {
@@ -224,14 +234,16 @@ export class BeesProduct {
       LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
       WHERE l.team_id IN (SELECT value FROM json_each(?)) ORDER BY l.name
     `).all(deviceId, JSON.stringify(allowedTeams)).map((row) => ({ ...row, mapped: Boolean(row.localPath) })) : [];
-    const attachments = this.database.prepare(`
-      SELECT work_item_id AS workItemId, location_id AS locationId, relative_path AS relativePath
-      FROM work_item_locations ORDER BY work_item_id, location_id
-    `).all();
-    const processAttachments = this.database.prepare(`
+    const attachments = processIds.length ? this.database.prepare(`
+      SELECT a.work_item_id AS workItemId, a.location_id AS locationId, a.relative_path AS relativePath
+      FROM work_item_locations a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.process_id IN (SELECT value FROM json_each(?)) ORDER BY a.work_item_id, a.location_id
+    `).all(JSON.stringify(processIds)) : [];
+    const processAttachments = processIds.length ? this.database.prepare(`
       SELECT process_id AS processId, location_id AS locationId, relative_path AS relativePath
-      FROM process_locations ORDER BY process_id, location_id
-    `).all();
+      FROM process_locations WHERE process_id IN (SELECT value FROM json_each(?))
+      ORDER BY process_id, location_id
+    `).all(JSON.stringify(processIds)) : [];
     const assignments = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
              instructions, model, reasoning_effort AS reasoningEffort,

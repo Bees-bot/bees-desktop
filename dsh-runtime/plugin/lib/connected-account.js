@@ -38,7 +38,8 @@ export class ConnectedAccount {
           ...(token?.value ? { authorization: `Bearer ${token.value}` } : {}),
           ...(organizationId ? { "x-organization-id": organizationId } : {})
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(20_000)
       });
     } catch {
       throw new Error("Can't reach the Bees server");
@@ -54,13 +55,14 @@ export class ConnectedAccount {
       response = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20_000)
       });
     } catch {
       throw new Error("Can't reach the Bees server");
     }
     const value = await response.json().catch(() => ({}));
-    if (!response.ok || !value.user) throw new Error(message(value, response.status));
+    if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));
     const token = response.headers.get("set-auth-token");
     if (!token) throw new Error("Server did not return a session token");
     await this.credentials.set(sessionCredential, token);
