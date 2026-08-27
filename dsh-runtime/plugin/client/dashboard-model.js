@@ -1,10 +1,11 @@
 const COLUMNS = 12;
 
 const DEFAULT_WIDGETS = [
-  { kind: "outcome", x: 0, y: 0, w: 8, h: 5 },
-  { kind: "templates", x: 8, y: 0, w: 4, h: 5 },
-  { kind: "waiting", x: 0, y: 5, w: 6, h: 4 },
-  { kind: "recent-work", x: 6, y: 5, w: 6, h: 4 }
+  { kind: "metrics", x: 0, y: 0, w: 12, h: 3 },
+  { kind: "outcome", x: 0, y: 3, w: 8, h: 5 },
+  { kind: "quick-actions", x: 8, y: 3, w: 4, h: 5 },
+  { kind: "waiting", x: 0, y: 8, w: 6, h: 4 },
+  { kind: "recent-work", x: 6, y: 8, w: 6, h: 4 }
 ];
 
 const DEFAULT_WORK_ITEM_WIDGETS = [

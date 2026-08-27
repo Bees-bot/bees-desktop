@@ -4,12 +4,19 @@ import { addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkIt
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
+  it("keeps page header setters callable", () => {
+    expect(client).toContain("const setPageActions = (actions) => headerEmitter.setActions(actions)");
+    expect(client).toContain("const setPageHeader = (header) => headerEmitter.setHeader(header)");
+    expect(client).toContain('import { h, React, useEffect, useRef, useState } from "./runtime.js"');
+    expect(client).not.toContain('const setPageActions = "actions"');
+  });
+
   it("provides the default Home layout without writing settings", () => {
     const dashboards = dashboardsFrom(undefined);
     expect(dashboards).toHaveLength(1);
     expect(dashboards[0]).toMatchObject({ id: "home", name: "Home" });
     expect(dashboards[0].widgets.map((widget: { kind: string }) => widget.kind))
-      .toEqual(["outcome", "templates", "waiting", "recent-work"]);
+      .toEqual(["metrics", "outcome", "quick-actions", "waiting", "recent-work"]);
   });
 
   it("sanitizes persisted layouts and preserves one widget of each kind", () => {
@@ -42,6 +49,8 @@ describe("personal dashboards", () => {
     expect(client).toContain('className: `bees-nav-link bees-dashboard-link');
     expect(client).toContain('rowsForRoute: pinnedRows, preference, preferences, setPageActions');
     expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
+    expect(client).toContain('kind: "quick-actions"');
+    expect(client).toContain('kind: "knowledge-sources"');
   });
 
   it("provides and sanitizes the fixed work-item layout", () => {
@@ -70,6 +79,7 @@ describe("personal dashboards", () => {
       { kind: "details", x: 7, y: 4, w: 5, h: 8 }
     ]);
     expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle" }');
+    expect(client).toContain("if (!element.gridstackNode) grid.makeWidget(element)");
     expect(client).toContain('preferences.set("workItemLayout"');
     expect(client).toContain('editing ? "Done" : "Edit layout"');
   });
@@ -100,6 +110,5 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("pageLayouts"');
     expect(client).toContain('className: "bees-page-actions"');
     expect(client).not.toContain('className: "bees-flex-toolbar"');
-    expect(client).toContain('h("div", { className: "bees-grow" }),\n        pageActions,\n        h(ThemeToggle');
   });
 });

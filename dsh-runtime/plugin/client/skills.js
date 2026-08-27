@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { Button, confirmAction, Empty, openExternal, request, useSubmit } from "./shared.js";
+import { Button, confirmAction, Empty, openExternal, request, useSubmit, PageHead} from "./shared.js";
 
 const STATUS_CLASS = { connected: "bees-running", failed: "bees-failed", starting: "", off: "" };
 const STATUS_LABEL = {
@@ -158,7 +158,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
  * The review screen for one catalog entry. Nothing installs until the publisher, the reach, and the
  * inputs have all been shown once, because installing runs someone else's program on this machine.
  */
-function CatalogReview({ ctx, entry, onCancel, onInstall }) {
+function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
   const [directory, setDirectory] = useState("");
   const [secrets, setSecrets] = useState({});
   const [inputs, setInputs] = useState({});
@@ -171,7 +171,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall }) {
     if (path) setDirectory(path);
   };
   return h("section", { className: "bees-box" },
-    h("div", { className: "bees-page-head" },
+    h(PageHead, { setPageHeader },
       h(Button, { onClick: onCancel }, "← Catalog"),
       h("div", null, h("h2", null, `Add ${entry.label}`),
         h("div", { className: "bees-muted" }, entry.summary))),
@@ -223,7 +223,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall }) {
       h(Button, { onClick: onCancel }, "Cancel")));
 }
 
-function ManualServerForm({ onCancel, act }) {
+function ManualServerForm({ onCancel, act, setPageHeader }) {
   const [transport, setTransport] = useState("stdio");
   const [busy, onSubmit] = useSubmit(async (event) => {
       const form = new FormData(event.currentTarget);
@@ -241,7 +241,7 @@ function ManualServerForm({ onCancel, act }) {
       if (created?.id) onCancel();
   });
   return h("form", { className: "bees-box bees-form", onSubmit },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← MCP servers"),
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← MCP servers"),
       h("div", null, h("h2", null, "Add a server by hand"),
         h("div", { className: "bees-muted" }, "Only add a server you trust. Its tools go straight to your agents."))),
     h("label", null, "Short name", h("input", {

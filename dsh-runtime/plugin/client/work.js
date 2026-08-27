@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, useSubmit, workItemsFor
-} from "./shared.js";
+, PageHead} from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 
@@ -16,7 +16,7 @@ const WORK_PAGE_LAYOUT = [
   { kind: "finished-work", x: 0, y: 6, w: 12, h: 6 }
 ];
 
-function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, editing, onLayout }) {
+function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layout, editing, onLayout, setPageHeader }) {
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -35,7 +35,9 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
   const convoRef = React.useRef(null);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
-  const interaction = null;
+  const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : null;
+  const session = useSnapshot(binding?.session);
+  const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
     setActiveTab("details");
@@ -56,6 +58,11 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
       .catch(() => active && setAudit([]));
     return () => { active = false; };
   }, [item.id, data.runs.length]);
+  
+  // Auto-scroll conversation
+  useEffect(() => {
+    if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight;
+  }, [history, pendingRun, interaction]);
 
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
@@ -124,7 +131,27 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
         const toolParts = msg.parts.filter(p => p.type === "tool");
         if (textParts.length) convoItems.push(h("div", { className: "bees-convo-msg agent", key: msg.id }, h("strong", null, "Agent"), h("div", null, textParts.map(p => p.text).join(" "))));
         if (toolParts.length) {
-          convoItems.push(h("div", { className: "bees-convo-msg system", key: `tool-${msg.id}` }, `Agent performed ${toolParts.length} task${toolParts.length > 1 ? 's' : ''}`));
+          convoItems.push(h("div", { className: "bees-convo-msg agent", key: `tool-${msg.id}` }, 
+            h("strong", null, "Agent Actions"),
+            h("div", { className: "bees-tool-blocks", style: { display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" } },
+              ...toolParts.map((part, index) => h("div", { key: index, className: "bees-box bees-tool-block", style: { background: "var(--dsw-alias-surface-sunken)", padding: "10px", borderRadius: "6px" } },
+                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" } },
+                  h("strong", null, part.toolName),
+                  h("span", { style: { fontSize: "12px", color: part.state === "output-error" ? "#cf5b5b" : "var(--dsw-alias-label-secondary)", background: part.state === "output-error" ? "#a9363622" : "var(--dsw-alias-border-l1)", padding: "2px 6px", borderRadius: "10px" } }, 
+                    part.state === "input-available" ? "Working..." : part.state === "output-error" ? "Failed" : "Completed"
+                  )
+                ),
+                part.input ? h("div", { style: { fontSize: "13px", marginBottom: "6px" } }, 
+                  h("strong", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: "12px" } }, "Details:"),
+                  h("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", margin: "2px 0 0 0", color: "var(--dsw-alias-label-primary)" } }, typeof part.input === "object" ? JSON.stringify(part.input, null, 2) : part.input)
+                ) : null,
+                part.output ? h("div", { style: { fontSize: "13px", marginTop: "6px", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "6px" } }, 
+                  h("strong", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: "12px" } }, "Result:"),
+                  h("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", margin: "2px 0 0 0", maxHeight: "150px", overflowY: "auto", color: "var(--dsw-alias-label-primary)" } }, typeof part.output === "object" ? JSON.stringify(part.output, null, 2) : part.output)
+                ) : null
+              ))
+            )
+          ));
         }
       }
     }
@@ -136,11 +163,11 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
   const subitems = data.items.filter(i => i.parentId === item.id && !i.archivedAt);
   for (const sub of subitems) {
     if (["running", "waiting", "paused"].includes(sub.runtimePhase)) {
-      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent doing"), `${sub.title}`));
+      convoItems.push(h("div", { className: "bees-convo-msg agent", key: `sub-${sub.id}` }, h("strong", null, "Agent working on"), h("div", null, sub.title), h("div", { className: "bees-working-indicator", style: { padding: 4, justifyContent: "flex-start" } }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })))));
     } else if (sub.runtimePhase === "completed") {
-      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent done"), `${sub.title}`));
+      convoItems.push(h("div", { className: "bees-convo-msg agent", key: `sub-${sub.id}` }, h("strong", null, "Agent finished"), h("div", null, sub.title)));
     } else if (sub.runtimePhase === "failed") {
-      convoItems.push(h("div", { className: "bees-convo-msg system", key: `sub-${sub.id}` }, h("strong", null, "Agent failed"), `${sub.title}`));
+      convoItems.push(h("div", { className: "bees-convo-msg agent", key: `sub-${sub.id}`, style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Agent failed"), h("div", null, sub.title)));
     }
   }
 
@@ -148,7 +175,10 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
   const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
-        pendingRun ? h("div", { className: "bees-convo-msg system" }, "⚡ Agent is waiting for your input — go to Needs You to respond.") : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system" }, "Agent is working...") : null,
+        interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered }))
+        : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered }))
+        : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
+        : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),
       h("form", { className: "bees-composer", style: { margin: "16px", flexShrink: 0 } },
@@ -226,14 +256,14 @@ function WorkItemDetails({ data, item, teamId, act, onArchived, board, layout, e
     layout, editing, onLayout,
     className: "bees-work-item-grid",
     panels: {
-      kanban: { label: "Kanban", minW: 6, minH: 3, content: board },
+      kanban: { label: "Kanban", hideHeader: true, borderless: true, minW: 6, minH: 3, content: board },
       conversation: { label: "Conversation", minW: 3, minH: 4, content: conversation },
       details: { label: "Details", minW: 3, minH: 4, content: details }
     }
   });
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, preferences }) {
+function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, preferences, setPageActions, setPageHeader }) {
   const root = data.items.find(({ id }) => id === rootId);
   const [selectedId, setSelectedId] = useState(rootId);
   const [editing, setEditing] = useState(false);
@@ -276,23 +306,44 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, p
           h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
       }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
   }));
+  useEffect(() => {
+    setPageHeader && setPageHeader(
+      h(React.Fragment, null,
+        h(Button, { onClick: onBack }, "← Work"),
+        h("div", { className: "bees-title", style: { marginLeft: 12 } }, root.title),
+        h("div", { className: "bees-context" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
+      )
+    );
+    setPageActions && setPageActions(
+      h(React.Fragment, null,
+        editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
+        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")
+      )
+    );
+    return () => {
+      setPageHeader && setPageHeader(null);
+      setPageActions && setPageActions(null);
+    };
+  }, [root.title, process?.name, completed, total, editing, onBack, setPageHeader, setPageActions]);
+
   return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 } },
-    h("header", { className: "bees-cockpit-head" }, h(Button, { onClick: onBack }, "← Work"),
-      h("div", null, h("h2", null, root.title), h("div", { className: "bees-muted" }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)),
-      h("div", { className: "bees-grow" }),
-      editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")),
     h(WorkItemDetails, {
-      data, item: selected, teamId, act, onArchived: onBack, board, layout, editing,
+      ctx, data, item: selected, teamId, act, onArchived: onBack, board, layout, editing,
       onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value))
     })
   );
 }
 
-function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated }) {
+function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated, setPageHeader }) {
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const goal = kind === "goal";
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
+    h(Empty, null, "Choose one workspace before creating work."));
+  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
+    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const command = goal ? {
@@ -305,14 +356,8 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
     };
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
-    h(Empty, null, "Choose one workspace before creating work."));
-  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
-    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
   return h("form", { className: "bees-box bees-form", onSubmit },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Work"),
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"),
       h("div", null, h("h2", null, goal ? "New goal" : "New work"),
         h("div", { className: "bees-muted" }, goal
           ? "Describe the outcome. Bees will plan and execute the work needed to reach it."
@@ -555,7 +600,7 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   return { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered };
 }
 
-export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, rowsForRoute, limit = 8 }) {
+export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, rowsForRoute, limit = 8, setPageHeader }) {
   const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const listedItemIds = new Set();
@@ -599,7 +644,7 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
   );
 }
 
-export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId = "" }) {
+export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId = "", setPageHeader }) {
   const { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered } =
     useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId);
   return h(React.Fragment, null,
@@ -634,16 +679,16 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
   );
 }
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences, setPageActions }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [type, setType] = useState(route === "goals" ? "goal" : "all");
   if (workItemId) return h(WorkItemCockpit, {
-    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId("")
+    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""), setPageActions, setPageHeader
   });
   if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
     data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
-    onCreated: (id) => { setCreating(""); setWorkItemId(id); }
+    onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
   });
   const items = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
   const itemStatus = (item) => isDone(item) ? "completed" : item.runtimePhase || "pending";
@@ -672,7 +717,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       h(Button, { disabled: !workspaceId, onClick: () => setCreating("goal") }, "New goal"),
       h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("work") }, "New work")),
     h(GridStackPage, {
-      layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions,
+      layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
         "active-work": { label: "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), "No active work matches these filters") },
         "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters") }

@@ -1,6 +1,7 @@
-import { h, React } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, useSubmit } from "./shared.js";
+import { h, useState } from "./runtime.js";
+import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
+import { AgentCreateForm, AgentEditForm } from "./agents.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 8 }];
 const TEMPLATES_LAYOUT = [
@@ -8,14 +9,17 @@ const TEMPLATES_LAYOUT = [
   { kind: "templates", x: 0, y: 2, w: 12, h: 8 }
 ];
 const PROCESS_DETAIL_LAYOUT = [
-  { kind: "routing", x: 0, y: 0, w: 7, h: 7 },
-  { kind: "work", x: 7, y: 0, w: 5, h: 7 },
-  { kind: "archive", x: 0, y: 7, w: 12, h: 3 }
+  { kind: "routing", x: 0, y: 0, w: 12, h: 7 },
+  { kind: "agent", x: 0, y: 7, w: 12, h: 10 },
+  { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
 ];
 
-function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
+function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
   const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
+    h(Empty, null, "Choose one workspace before creating a process."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
@@ -25,15 +29,15 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
     });
     if (created?.id) onCreated(created.id);
   });
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"), h("h2", null, template ? "New template" : "New process")),
-    h(Empty, null, "Choose one workspace before creating a process."));
   return h("form", { className: "bees-box bees-form", onSubmit },
-    h("div", { className: "bees-page-head" }, h(Button, { onClick: onCancel }, "← Processes"),
-      h("div", null, h("h2", null, template ? "New process template" : draft ? "Create process from template" : "New process"),
-        h("div", { className: "bees-muted" }, template
+    h(PageHead, { setPageHeader }, 
+      h(Button, { onClick: onCancel }, "← Processes"),
+      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process from template" : "New process"),
+      h("div", { className: "bees-grow" })
+    ),
+    h("div", { className: "bees-muted", style: { marginBottom: "16px" } }, template
           ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."))),
+          : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."),
     h("label", null, template ? "Template name" : "Process name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
     h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
@@ -46,12 +50,14 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated }) {
   );
 }
 
-export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions }) {
+export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [creatingStageId, setCreatingStageId] = useState("");
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
     kind: creating, draft: processDraft, workspaceId, act,
     onCancel: () => { setCreating(""); setProcessDraft(null); },
-    onCreated: (id) => {
+    setPageHeader, onCreated: (id) => {
       const wasTemplate = creating === "template";
       setCreating(""); setProcessDraft(null);
       if (!wasTemplate) setProcessId(id);
@@ -73,7 +79,6 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
       const processStages = data.stages.filter(({ processId }) => processId === process.id);
       const processAgents = data.assignments.filter(({ workspaceId }) => workspaceId === process.workspaceId);
       const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
-      const roots = data.items.filter((item) => item.processId === process.id && !item.parentId && !item.archivedAt && item.kind !== "run");
       const attach = async () => {
         const available = locations.filter((location) => !attached.some(({ locationId }) => locationId === location.id));
         const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
@@ -110,46 +115,77 @@ export function ProcessesPage({ data, route, workspaceIds, workspaceId, teamId, 
         if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
         if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
       };
-      const routing = h("div", null,
+      const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
+      const creatingStage = processStages.find(({ id }) => id === creatingStageId);
+      const routing = h("div", { className: "bees-stack" },
         h("p", { className: "bees-muted" }, "Assign an agent or pool to each stage here—including a stage named Waiting. “Needs you” is a separate queue for blocked work, not an assignable stage. Workspace defaults remain the fallback."),
-        ...processStages.map((stage) => h("div", { className: "bees-row", key: stage.id },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, stage.name),
-            h("div", { className: "bees-muted" }, stage.requiredCapabilities.length
-              ? `Requires: ${stage.requiredCapabilities.join(", ")}` : stage.driver)),
-          stage.driver === "terminal" ? h("span", { className: "bees-badge" }, "Terminal") : h(React.Fragment, null,
-            h("select", {
-              className: "bees-select", value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
-              "aria-label": `${stage.name} agent route`, onChange: (event) => void setStageRoute(stage, event.target.value)
-            },
-              h("option", { value: "" }, `Workspace ${stage.driver === "review" ? "reviewer" : "worker"}`),
-              h("optgroup", { label: "Agents" }, ...processAgents.map((agent) =>
-                h("option", { value: `agent:${agent.id}`, key: agent.id, disabled: !agent.enabled }, agent.name))),
-              h("optgroup", { label: "Pools" }, ...processPools.map((pool) =>
-                h("option", { value: `pool:${pool.id}`, key: pool.id }, pool.name)))),
-            h(Button, { onClick: () => setRequirements(stage) }, "Requirements")))));
-      const work = h("div", null, ...(roots.length ? roots.map((item) => {
-        const stage = data.stages.find(({ id }) => id === item.stageId);
-        return h("button", { className: "bees-row bees-nav-link", key: item.id, onClick: () => openWorkItem(item.id) },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, item.title), h("div", { className: "bees-muted" }, `${stage?.name ?? "Stage"} · ${item.runtimePhase}`)),
-          h("span", { className: `bees-status bees-${item.runtimePhase}` }, item.runtimePhase));
-      }) : [h(Empty, { key: "empty" }, "No root work items in this process")]));
+        h("div", { className: "bees-board bees-routing-board" }, ...processStages.map((stage) => {
+          const agent = stage.routeType === "agent" ? processAgents.find(({ id }) => id === stage.routeTargetId) : null;
+          const pool = stage.routeType === "pool" ? processPools.find(({ id }) => id === stage.routeTargetId) : null;
+          const card = stage.driver === "terminal"
+            ? h("div", { className: "bees-card" }, h("span", { className: "bees-badge" }, "Terminal"),
+              h("p", null, "Work completes in this stage."))
+            : agent ? h("button", { type: "button", className: `bees-hierarchy-card ${selectedAgentId === agent.id ? "active" : ""}`,
+              onClick: () => { setCreatingStageId(""); setSelectedAgentId(agent.id); } },
+              h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")))
+              : pool ? h("div", { className: "bees-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"))
+                : h(Empty, null, `No agent assigned`);
+          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form bees-routing-controls", style: { marginTop: "12px" } },
+            h("div", { className: "bees-card-actions" },
+              h("select", {
+                className: "bees-select", style: { flex: 1 }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+                "aria-label": `${stage.name} agent route`, onChange: (event) => {
+                  if (event.target.value === "create_new") {
+                    event.target.value = "";
+                    setSelectedAgentId(""); setCreatingStageId(stage.id);
+                  } else {
+                    void setStageRoute(stage, event.target.value);
+                  }
+                }
+              },
+                h("option", { value: "" }, agent || pool ? "Change agent..." : "+ Pick agent"),
+                h("option", { value: "create_new" }, "+ Create new agent"),
+                h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
+                  h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
+                h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
+                  h("option", { value: `pool:${row.id}`, key: row.id }, row.name)))),
+              h(Button, { onClick: () => setRequirements(stage) }, "Requirements")
+            ),
+            stage.requiredCapabilities.length ? h("div", { className: "bees-muted" }, `Requires: ${stage.requiredCapabilities.join(", ")}`) : null);
+          return h("section", { className: "bees-column", key: stage.id },
+            h("header", { className: "bees-column-head" }, stage.name,
+              h("span", { className: "bees-count" }, stage.driver === "terminal" ? "Done" : agent || pool ? 1 : 0)),
+            h("div", { className: "bees-cards" }, card, controls));
+        })));
+      const agentForm = creatingStage ? h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true,
+          onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
+            await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
+          } })
+        : selectedAgent ? h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close",
+          onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null;
       const archive = process.kind === "standard" ? h("div", null,
         h("p", { className: "bees-muted" }, "Archive hides this process without breaking work history or database links."),
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
       return h("div", null,
-        h("div", { className: "bees-row" }, h(Button, { onClick: () => setProcessId("") }, "← All processes"), h("strong", null, process.name), h("div", { className: "bees-grow" }),
+        h(PageHead, { setPageHeader },
+          h(Button, { className: "bees-nav-link", onClick: () => setProcessId("") }, "← Processes"),
+          h("div", { className: "bees-title" }, process.name)
+        ),
+        h(PageHead, { setPageHeader: setPageActions },
           ...attached.map(({ locationId, relativePath }) => {
             const location = locations.find(({ id }) => id === locationId);
             return location ? h(Button, { key: `${locationId}:${relativePath}`, onClick: () => act({ action: "detach_location", processId: process.id, locationId }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
           }),
           h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
           process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")),
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
+        ),
         h(GridStackPage, {
           layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions,
           panels: {
             routing: { label: "Stage routing", minW: 5, minH: 4, content: routing },
-            work: { label: "Work items", minW: 4, minH: 4, content: work },
+            ...(agentForm ? { agent: { label: creatingStage ? `New agent for ${creatingStage.name}` : `Configure ${selectedAgent.name}`,
+              minW: 5, minH: 6, content: agentForm } } : {}),
             ...(archive ? { archive: { label: "Archive process", minW: 4, minH: 2, content: archive } } : {})
           }
         })

@@ -38,7 +38,12 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
     gridRef.current?.enableResize(editing || resizeAlways);
   }, [editing, resizeAlways]);
   useEffect(() => {
-    gridRef.current?.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })));
+    const grid = gridRef.current;
+    if (!grid) return;
+    [...root.current.children].forEach((element) => {
+      if (!element.gridstackNode) grid.makeWidget(element);
+    });
+    grid.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })));
   }, [layoutKey]);
 
   return h("div", { className: `grid-stack bees-flex-grid ${editing ? "editing" : ""} ${className}`.trim(), ref: root },
@@ -54,9 +59,9 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-h": widget.h,
         "gs-min-w": panel.minW ?? 3,
         "gs-min-h": panel.minH ?? 2
-      }, h("div", { className: "grid-stack-item-content bees-flex-widget" },
-        h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label),
-          panel.actions ? h("div", { className: "bees-flex-widget-actions", onPointerDown: (event) => event.stopPropagation() }, panel.actions) : null),
+      }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless && !editing ? "bees-flex-widget-borderless" : ""}` },
+        (!panel.hideHeader || editing) ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label),
+          panel.actions ? h("div", { className: "bees-flex-widget-actions", onPointerDown: (event) => event.stopPropagation() }, panel.actions) : null) : null,
         h("div", { className: "bees-flex-widget-body" }, panel.content)));
     })
   );

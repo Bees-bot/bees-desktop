@@ -44,7 +44,6 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses the full content width and separates the detail views into tabs", () => {
-    expect(client).toContain('import { h, React } from "./runtime.js";');
     expect(client).toContain('"bees-panel-wide"');
     expect(client).toContain('"bees-panel-full-height"');
     expect(client).toContain('setActiveTab("details")');
