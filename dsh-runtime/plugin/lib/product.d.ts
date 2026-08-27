@@ -7,7 +7,7 @@ export class BeesProduct {
   runProcessStage(stage: Record<string, any>, signal?: AbortSignal): Promise<any>;
   snapshot(): Promise<any>;
   references(query: string, workspaceId: string): Promise<any>;
-  search(query: string, workspaceId: string): any[];
+  search(query: string, workspaceId: string): Promise<any[]>;
   audit(): any[];
   runHistory(executionId: string): Promise<any>;
   runFile(executionId: string, filePath: string): {

@@ -199,11 +199,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
     try { reply(res, 200, await product.references(query, workspaceId)); }
     catch (error) { reply(res, 409, { error: message(error) }); }
   } });
-  register(ctx, { kind: "exact", path: "/bees-api/search", handler: (req, res) => {
+  register(ctx, { kind: "exact", path: "/bees-api/search", handler: async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const query = url.searchParams.get("q") ?? "";
-      reply(res, 200, { results: product.search(query, url.searchParams.get("workspaceId") ?? "") });
+      reply(res, 200, { results: await product.search(query, url.searchParams.get("workspaceId") ?? "") });
     } catch (error) { reply(res, 409, { error: message(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (_req, res) =>

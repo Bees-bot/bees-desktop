@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync
+  copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync
 } from "node:fs";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { currentIdentity, required } from "./product-database.js";
@@ -57,23 +57,6 @@ function walkLocation(location, onFile) {
       else if (entry.isFile() && onFile(path, relative(root, path)) === false) return;
     }
   }
-}
-
-export function indexLocation(database, location) {
-  database.prepare("DELETE FROM bees_search WHERE kind = 'file' AND ref_id LIKE ?")
-    .run(`${location.id}:%`);
-  const insert = database.prepare(
-    "INSERT INTO bees_search(kind, ref_id, title, body) VALUES ('file', ?, ?, ?)"
-  );
-  let seen = 0;
-  walkLocation(location, (path, logical) => {
-    if (seen >= 2_000) return false;
-    if (!TEXT_EXTENSIONS.has(extname(path).toLowerCase())) return;
-    const stat = lstatSync(path);
-    if (stat.size > 1_000_000 || !logical || logical === ".." || logical.startsWith(`..${sep}`)) return;
-    insert.run(`${location.id}:${logical}`, `${location.name}/${logical}`, readFileSync(path, "utf8"));
-    seen += 1;
-  });
 }
 
 export function stageLocation(location, destination) {
@@ -182,4 +165,3 @@ export function previewFiles(runDirectory) {
   }
   return files.sort();
 }
-

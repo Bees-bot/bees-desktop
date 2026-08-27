@@ -131,6 +131,10 @@ function toolCallCounts(events) {
   return counts;
 }
 
+const admitsIncompleteCandidate = (summary) =>
+  /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
+  /\b(?:partial|blocked) deliverable\b/i.test(summary);
+
 const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
@@ -434,6 +438,10 @@ export class AgentRuntime {
     this.proposalStore = store;
   }
 
+  setKnowledgeSearch(search) {
+    this.knowledgeSearch = search;
+  }
+
   setSubitemStore(store) {
     this.subitemStore = store;
   }
@@ -652,6 +660,26 @@ export class AgentRuntime {
         String(data.instructions ?? ""), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
     });
+    agentCtx.tools.register(defineTool({
+      name: "bees_search_knowledge",
+      description: "Search work items in this Bees workspace and files mapped to its team. Results are read-only excerpts and are automatically scoped to the current run.",
+      parameters: {
+        query: { type: "string", required: true, description: "Words or phrase to find." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            results_json: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: value.results_json }]
+      },
+      execute: async (args) => {
+        if (!this.knowledgeSearch) throw new Error("Bees knowledge search is unavailable");
+        const results = await this.knowledgeSearch(args.query, data.workspaceId);
+        return { results_json: JSON.stringify(results) };
+      }
+    }));
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
       description: "Submit a reviewable Bees proposal. This stores a preview only; the user must apply it in Bees.",
@@ -732,6 +760,12 @@ export class AgentRuntime {
           enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"],
           description: "The allowed result for this stage."
         },
+        ...(data.stagePurpose === "worker" ? {
+          acceptance_criteria_met: {
+            type: "boolean", required: true,
+            description: "True only after verifying every acceptance criterion. An incomplete or blocked stage cannot submit a candidate."
+          }
+        } : {}),
         summary: { type: "string", required: true, description: "Concise evidence or revision feedback." }
       },
       output: {
@@ -756,6 +790,9 @@ export class AgentRuntime {
           exec.concludeTurn();
           return prior;
         }
+        if (data.stagePurpose === "worker" &&
+            (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
+          throw new Error("A candidate can be submitted only after every acceptance criterion is met");
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -32,7 +32,7 @@ describe("Bees DSH product plugin", () => {
       { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 8 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 9 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
     database.exec("UPDATE stages SET completion_rules = 'Old goal instructions' WHERE name IN ('Work', 'Review'); PRAGMA user_version = 7");
@@ -221,8 +221,8 @@ describe("Bees DSH product plugin", () => {
     expect(after.locations).toContainEqual(expect.objectContaining({
       teamId: team.id, name: "Work", localPath: realpathSync(files), mapped: true
     }));
-    expect(product.search("Stage", workspace.id)).toContainEqual(expect.objectContaining({ id: created.id }));
-    expect(product.search("Honey", workspace.id)).toContainEqual(expect.objectContaining({
+    expect(await product.search("Stage", workspace.id)).toContainEqual(expect.objectContaining({ id: created.id }));
+    expect(await product.search("Honey", workspace.id)).toContainEqual(expect.objectContaining({
       kind: "file", title: "Work/brief.md"
     }));
 
@@ -286,6 +286,7 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
+    expect(stageRuns.at(-1)[1].body).toContain("When the goal explicitly requires a delegation protocol or count, follow it exactly");
     database.connection.prepare(`
       INSERT INTO execution_links
         (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
@@ -423,6 +424,52 @@ describe("Bees DSH product plugin", () => {
 
     rmSync(files, { recursive: true });
     rmSync(runRoot, { recursive: true });
+  });
+
+  it("shares file knowledge within a team and isolates it from other teams", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-knowledge-"));
+    const firstFiles = join(root, "first-files");
+    const secondFiles = join(root, "second-files");
+    mkdirSync(firstFiles);
+    mkdirSync(secondFiles);
+    writeFileSync(join(firstFiles, "alpha.md"), "Alpha workspace knowledge");
+    writeFileSync(join(secondFiles, "beta.md"), "Beta private team knowledge");
+    const database = new NodeDatabase();
+    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agents, null, root);
+    const initial = await product.snapshot();
+    const firstWorkspace = initial.workspaces[0];
+    const firstTeam = initial.teams[0];
+    const siblingWorkspace = await product.command({
+      action: "create_workspace", teamId: firstTeam.id, name: "Sibling"
+    });
+    const organization = await product.command({ action: "create_organization", name: "Other org" });
+    const secondTeam = await product.command({
+      action: "create_team", organizationId: organization.id, name: "Other team"
+    });
+    const secondWorkspace = await product.command({
+      action: "create_workspace", teamId: secondTeam.id, name: "Other workspace"
+    });
+    await product.command({
+      action: "add_location", teamId: firstTeam.id, name: "First", kind: "folder", path: firstFiles
+    });
+    await product.command({
+      action: "add_location", teamId: secondTeam.id, name: "Second", kind: "folder", path: secondFiles
+    });
+
+    expect(await product.search("Alpha", firstWorkspace.id)).toContainEqual(expect.objectContaining({
+      kind: "file", title: "First/alpha.md"
+    }));
+    expect(await product.search("Alpha", siblingWorkspace.id)).toContainEqual(expect.objectContaining({
+      kind: "file", title: "First/alpha.md"
+    }));
+    expect(await product.search("Beta", firstWorkspace.id)).toEqual([]);
+    expect(await product.search("Beta", secondWorkspace.id)).toContainEqual(expect.objectContaining({
+      kind: "file", title: "Second/beta.md"
+    }));
+    expect(readdirSync(join(root, "knowledge"), { withFileTypes: true }).filter((entry) => entry.isDirectory()))
+      .toHaveLength(2);
+    rmSync(root, { recursive: true });
   });
 
   it("keeps one connected account and mirrors its organization and team roles", async () => {

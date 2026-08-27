@@ -12,6 +12,11 @@ describe("DSH stage results", () => {
       },
       database.connection,
     );
+    const searches: Array<{ query: string; workspaceId: string }> = [];
+    runtime.setKnowledgeSearch(async (query, workspaceId) => {
+      searches.push({ query, workspaceId });
+      return [{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }];
+    });
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
     ).get() as { id: string };
@@ -52,6 +57,12 @@ describe("DSH stage results", () => {
 
     expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "workflow", "ralph"]));
     expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
+    expect(tools.map(({ name }) => name)).toContain("bees_search_knowledge");
+    const search = tools.find(({ name }) => name === "bees_search_knowledge");
+    await expect(search.execute({ query: "release" })).resolves.toEqual({
+      results_json: JSON.stringify([{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }])
+    });
+    expect(searches).toEqual([{ query: "release", workspaceId: workspace.id }]);
     expect(prompts.join("\n")).toContain("Never simulate or claim a peer");
     const delegate = tools.find(({ name }) => name === "bees_delegate_work");
     expect(delegate.timeoutMs).toBeLessThanOrEqual(2_147_483_647);
@@ -60,16 +71,25 @@ describe("DSH stage results", () => {
     let conclusions = 0;
     const exec = { concludeTurn: () => conclusions++ };
 
-    await expect(
-      submit.execute({ outcome: "candidate", summary: "Done" }, exec),
-    ).resolves.toEqual({ outcome: "candidate", summary: "Done" });
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: false, summary: "Blocked",
+    }, exec)).rejects.toThrow("every acceptance criterion is met");
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: true,
+      summary: "Acceptance criteria are not fully met",
+    }, exec)).rejects.toThrow("every acceptance criterion is met");
+    expect(conclusions).toBe(0);
+
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: true, summary: "Done",
+    }, exec)).resolves.toEqual({ outcome: "candidate", summary: "Done" });
     expect(conclusions).toBe(1);
 
-    await submit.execute({ outcome: "candidate", summary: "Done" }, exec);
+    await submit.execute({ outcome: "candidate", acceptance_criteria_met: true, summary: "Done" }, exec);
     expect(conclusions).toBe(2);
 
     await expect(
-      submit.execute({ outcome: "candidate", summary: "Different" }, exec),
+      submit.execute({ outcome: "candidate", acceptance_criteria_met: true, summary: "Different" }, exec),
     ).rejects.toThrow("different immutable result");
     expect(conclusions).toBe(2);
   });
