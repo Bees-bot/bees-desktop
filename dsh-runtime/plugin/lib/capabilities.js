@@ -258,7 +258,8 @@ export class Capabilities {
     const found = await discoverApi(address);
     if (found.kind !== "endpoint-list") return found;
     const { spec, ...rest } = found;
-    return { ...rest, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
+    // The spec's paths are whole pathnames, so the bridge has to call the origin or it doubles the prefix.
+    return { ...rest, apiBaseUrl: new URL(address).origin, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
   /** Hashed name, or a second endpoint on one host would overwrite the first server's spec. */
@@ -347,7 +348,7 @@ export class Capabilities {
       const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
       if (!found.specUrl) throw new Error(`${found.how}. Paste its OpenAPI spec URL instead.`);
       given.openapiSpec = found.specUrl;
-      if (found.apiBaseUrl && !String(given.apiBaseUrl ?? "").trim()) given.apiBaseUrl = found.apiBaseUrl;
+      if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
     }
     const args = [...entry.args];
     for (const field of entry.inputs) {
