@@ -3,7 +3,7 @@ import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 
 import { basename, extname, resolve, sep } from "node:path";
 import {
   currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
-  processStageNames, required, workspaceContext
+  processStages, required, workspaceContext
 } from "./product-database.js";
 import {
   logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation, TEXT_EXTENSIONS
@@ -431,7 +431,7 @@ export class BeesProduct {
         proposedProcesses.add(key);
         return {
           action: "create_process", name, description: String(change.description ?? ""),
-          stages: processStageNames(change.stages, "proposed process")
+          stages: processStages(change.stages, "proposed process")
         };
       }
       if (change.action === "create_item") {
