@@ -8,11 +8,11 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { showAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
-import { currentIdentity } from "./product-database.js";
+import { currentIdentity, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation and stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
@@ -400,11 +400,26 @@ export class AgentRuntime {
       CREATE TABLE IF NOT EXISTS bees_stage_results (
         execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
         purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
-        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'pass', 'revise')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
         summary TEXT NOT NULL,
         created_at TEXT NOT NULL
       ) STRICT;
     `);
+    const stageResultSchema = database.prepare(`
+      SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'
+    `).get()?.sql ?? "";
+    if (!stageResultSchema.includes("'blocked'")) transaction(database, () => database.exec(`
+      CREATE TABLE bees_stage_results_next (
+        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO bees_stage_results_next SELECT * FROM bees_stage_results;
+      DROP TABLE bees_stage_results;
+      ALTER TABLE bees_stage_results_next RENAME TO bees_stage_results;
+    `));
     const active = database.prepare(`
       SELECT execution_id, current_session_id, status FROM execution_links
       WHERE status IN ('running', 'waiting_for_approval', 'waiting_for_input')
@@ -753,17 +768,17 @@ export class AgentRuntime {
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
       name: "bees_submit_stage_result",
-      description: "Finish this automatic process stage. Workers submit candidate; reviewers submit pass or revise. The first submitted result is immutable.",
+      description: "Finish this automatic process stage. Workers submit candidate when complete or blocked when they cannot continue; reviewers submit pass or revise. The first submitted result is immutable.",
       parameters: {
         outcome: {
           type: "string", required: true,
-          enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"],
+          enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"],
           description: "The allowed result for this stage."
         },
         ...(data.stagePurpose === "worker" ? {
           acceptance_criteria_met: {
             type: "boolean", required: true,
-            description: "True only after verifying every acceptance criterion. An incomplete or blocked stage cannot submit a candidate."
+            description: "True only for a verified candidate; use false when submitting blocked."
           }
         } : {}),
         summary: { type: "string", required: true, description: "Concise evidence or revision feedback." }
@@ -777,7 +792,7 @@ export class AgentRuntime {
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
       execute: async (args, exec) => {
-        const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate"];
+        const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"];
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
@@ -790,7 +805,7 @@ export class AgentRuntime {
           exec.concludeTurn();
           return prior;
         }
-        if (data.stagePurpose === "worker" &&
+        if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
         this.database.prepare(`

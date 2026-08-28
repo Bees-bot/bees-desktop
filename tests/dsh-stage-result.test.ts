@@ -72,6 +72,15 @@ describe("DSH stage results", () => {
     const exec = { concludeTurn: () => conclusions++ };
 
     await expect(submit.execute({
+      outcome: "blocked", acceptance_criteria_met: false, summary: "Approval declined",
+    }, exec)).resolves.toEqual({ outcome: "blocked", summary: "Approval declined" });
+    expect(database.connection.prepare(
+      "SELECT outcome, summary FROM bees_stage_results WHERE execution_id = 'run'"
+    ).get()).toEqual({ outcome: "blocked", summary: "Approval declined" });
+    database.connection.prepare("DELETE FROM bees_stage_results WHERE execution_id = 'run'").run();
+    conclusions = 0;
+
+    await expect(submit.execute({
       outcome: "candidate", acceptance_criteria_met: false, summary: "Blocked",
     }, exec)).rejects.toThrow("every acceptance criterion is met");
     await expect(submit.execute({
@@ -92,6 +101,47 @@ describe("DSH stage results", () => {
       submit.execute({ outcome: "candidate", acceptance_criteria_met: true, summary: "Different" }, exec),
     ).rejects.toThrow("different immutable result");
     expect(conclusions).toBe(2);
+  });
+
+  it("upgrades the durable result constraint without losing prior results", () => {
+    const database = new NodeDatabase();
+    database.connection.exec("PRAGMA foreign_keys = ON");
+    new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
+    ).get() as { id: string };
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('prior-run', ?, 'bees-run', 'prior-session', 'prior-uid', '/tmp/prior', '{}',
+        'completed', '2026-01-01', '2026-01-01')
+    `).run(workspace.id);
+    database.connection.prepare(`
+      INSERT INTO bees_stage_results VALUES
+        ('prior-run', 'worker', 'candidate', 'Already done', '2026-01-01')
+    `).run();
+    database.connection.exec(`
+      ALTER TABLE bees_stage_results RENAME TO bees_stage_results_new;
+      CREATE TABLE bees_stage_results (
+        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'pass', 'revise')),
+        summary TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO bees_stage_results SELECT * FROM bees_stage_results_new;
+      DROP TABLE bees_stage_results_new;
+    `);
+
+    new AgentRuntime({ on: () => () => undefined }, database.connection);
+
+    const schema = database.connection.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'"
+    ).get() as { sql: string };
+    expect(schema.sql).toContain("'blocked'");
+    expect(database.connection.prepare(
+      "SELECT outcome, summary FROM bees_stage_results WHERE execution_id = 'prior-run'"
+    ).get()).toEqual({ outcome: "candidate", summary: "Already done" });
   });
 
   it("waits for peer work without copying shared outputs", async () => {
