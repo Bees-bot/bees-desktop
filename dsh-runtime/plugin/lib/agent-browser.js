@@ -41,8 +41,14 @@ export async function openAgentBrowser(executionId) {
   opened = { executionId, child };
 }
 
-export function closeAgentBrowser(executionId) {
+export async function closeAgentBrowser(executionId) {
   if (opened?.executionId !== executionId) return;
-  opened.child.kill();
+  const { child } = opened;
   opened = null;
+  child.kill();
+  // Chrome writes the cookie jar on its way out. Firing the signal and moving on lost the sign-in
+  // the person had just done, and left the profile locked for whatever browsed next.
+  for (let waited = 0; waited < 100 && child.exitCode === null && child.signalCode === null; waited += 1) {
+    await delay(100);
+  }
 }

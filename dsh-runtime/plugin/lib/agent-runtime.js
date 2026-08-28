@@ -590,7 +590,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      closeAgentBrowser(executionId);
+      this.track(closeAgentBrowser(executionId));
       return;
     }
     if (event.type === "tool/result") {
@@ -611,7 +611,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        closeAgentBrowser(executionId);
+        this.track(closeAgentBrowser(executionId));
       }
       const output = {
         sessionId,
