@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { showAgentBrowser } from "./agent-browser.js";
+import { closeAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, transaction } from "./product-database.js";
 
@@ -545,7 +545,6 @@ export class AgentRuntime {
         idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
       });
       this.audit("question-requested", executionId, sessionId, pending);
-      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/asked") {
@@ -568,7 +567,6 @@ export class AgentRuntime {
         idempotencyKey: `approval-asked:${sessionId}:${pending.approvalId}`
       });
       this.audit("approval-requested", executionId, sessionId, pending);
-      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/decided") {
@@ -587,7 +585,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      showAgentBrowser(false);
+      closeAgentBrowser(executionId);
       return;
     }
     if (event.type === "tool/result") {
@@ -608,7 +606,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        showAgentBrowser(false);
+        closeAgentBrowser(executionId);
       }
       const output = {
         sessionId,
@@ -975,8 +973,10 @@ export class AgentRuntime {
       await mkdir(workspace, { recursive: true });
       const uid = randomUUID();
       const at = new Date().toISOString();
+      // Temporal can redeliver an activity attempt, so two admits for one new run can both get
+      // past the check above. The loser takes the row the winner wrote rather than throwing.
       this.database.prepare(`
-        INSERT INTO execution_links
+        INSERT OR IGNORE INTO execution_links
           (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
            instance_uid, run_directory, config_json, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)

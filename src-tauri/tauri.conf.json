@@ -5,6 +5,7 @@
   "identifier": "bot.bees.desktop",
   "build": {
     "beforeBuildCommand": "npm run build && npm run prepare:dsh",
+    "beforeDevCommand": "npm run build && npm run prepare:dsh",
     "frontendDist": "../dist"
   },
   "app": {

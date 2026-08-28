@@ -2,8 +2,8 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
-  ask, Button, NAVIGATION, navigationItem, PinButton, request, scopeParts,
-  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor, headerEmitter
+  ask, headerEmitter, NAVIGATION, navigationItem, PinButton, request, scopeParts,
+  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
@@ -232,7 +232,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           const pinned = navigationItem(id);
           return h("div", { className: "bees-nav-group", key: `pin:${id}` },
             h("div", { className: `bees-nav-group-head ${route === pinned.route ? "active" : ""}` },
-              h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, onClick: () => navigate(pinned.route) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(pinned.icon)), h("span", null, pinned.label)),
+              h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, "aria-current": route === pinned.route ? "page" : null, onClick: () => navigate(pinned.route) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(pinned.icon)), h("span", null, pinned.label)),
               h(PinButton, { id: pinned.id, label: pinned.label, pins, setPins })),
             ...pinnedRows(pinned.route).map((row) => h("button", { className: "bees-nav-link bees-nav-record", title: row.label, key: `${pinned.id}:${row.id}`, onClick: row.open }, row.label))
           );
@@ -240,12 +240,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         h("div", { className: "bees-nav-standard" }, ...NAVIGATION.map((item, idx) => h(React.Fragment, { key: item.id },
           idx === 4 ? h("div", { className: "bees-nav-separator" }) : null,
           h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
-            h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
+            h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, "aria-current": section.id === item.id ? "page" : null, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
             h(PinButton, { id: item.id, label: item.label, pins, setPins }),
             item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
               ...item.children.map(([child, label]) =>
                 h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
-                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, onClick: () => navigate(child) }, label),
+                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, "aria-current": route === child ? "page" : null, onClick: () => navigate(child) }, label),
                   h(PinButton, { id: child, label, pins, setPins }))
               )
             ) : null
@@ -253,6 +253,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           item.id === "home" ? h("div", { className: "bees-nav-dashboards" },
             ...dashboards.filter(({ id }) => id !== "home").map((dashboard) => h("button", {
               className: `bees-nav-link bees-dashboard-link ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
+              "aria-current": route === "home" && activeDashboard.id === dashboard.id ? "page" : null,
               title: dashboard.name, key: dashboard.id, onClick: () => {
                 setRoute("home"); void preferences.set("activeDashboardId", dashboard.id);
               }
@@ -260,7 +261,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         )))
       ),
       h("div", { className: "bees-sidebar-foot" },
-        h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works"))
+        h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, "aria-current": route === "guide" ? "page" : null, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works"))
       )
     ),
     h("section", { className: "bees-main" },

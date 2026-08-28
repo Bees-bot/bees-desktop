@@ -5,6 +5,13 @@ const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverab
 
 export const iso = () => new Date().toISOString();
 export const message = (error) => error instanceof Error ? error.message : String(error);
+// Tauri always sets this before it starts the harness, so a missing value is a broken launch,
+// not a case to fall back on. Falling back put the browser profile somewhere that does not survive.
+export function stateDirectory() {
+  const directory = process.env.BEES_STATE_DIR;
+  if (!directory) throw new Error("Bees did not provide its state directory");
+  return directory;
+}
 export function stableUuid(value) {
   const hex = createHash("sha256").update(String(value)).digest("hex").slice(0, 32).split("");
   hex[12] = "5";

@@ -1,10 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { iso, message, required, transaction } from "./product-database.js";
+import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
@@ -264,7 +263,7 @@ export class Capabilities {
 
   /** Hashed name, or a second endpoint on one host would overwrite the first server's spec. */
   async writeSpec(host, spec) {
-    const directory = join(process.env.BEES_STATE_DIR || tmpdir(), "api-specs");
+    const directory = join(stateDirectory(), "api-specs");
     await mkdir(directory, { recursive: true });
     const stamp = createHash("sha256").update(spec).digest("hex").slice(0, 12);
     const file = join(directory, `${host.replace(/[^a-z0-9.-]/gi, "-")}-${stamp}.json`);
@@ -347,8 +346,7 @@ export class Capabilities {
       given.openapiSpec = found.specUrl;
       if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
     }
-    const stateDir = process.env.BEES_STATE_DIR || tmpdir();
-    const args = entry.args.map((arg) => arg.replace("{stateDir}", stateDir));
+    const args = entry.args.map((arg) => arg.replaceAll("{stateDir}", stateDirectory()));
     for (const field of entry.inputs) {
       const value = String(given[field.name] ?? "").trim();
       if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);

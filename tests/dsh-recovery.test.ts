@@ -88,8 +88,8 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('event.code !== "KeyD"');
     expect(client).toContain("event.metaKey || event.ctrlKey");
     expect(client).toContain('toggleAttribute("data-bees-debug-dsh")');
-    expect(client).toContain('[data-bees-debug-dsh] .bees-app{display:none}');
-    expect(client).toContain('.bees-main{min-width:0;min-height:0;overflow:hidden');
+    expect(client).toMatch(/\[data-bees-debug-dsh\] \.bees-app \{[^}]*display:none/);
+    expect(client).toMatch(/\.bees-main \{[^}]*min-width:0;min-height:0;overflow:hidden/);
     expect(client).not.toContain('id: "bees-navigation"');
     expect(client).not.toContain('["dsh-settings", "DSH settings"]');
     expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
@@ -105,7 +105,8 @@ describe("DSH-owned desktop and recovery", () => {
     expect(localAiClient).toContain('"data-model-toggle": "download"');
     expect(localAiClient).toContain('"data-model-toggle": "run"');
     expect(localAiClient).toContain('invokeLocal("delete_local_model"');
-    expect(tauri).toContain('("@bees", "dsh-subscriptions")');
+    expect(tauri).toMatch(/const BEES_PLUGINS[\s\S]*?"dsh-subscriptions"/);
+    expect(tauri).toContain('BEES_PLUGINS.map(|package| ("@bees", package))');
     expect(client).toContain('action: "edit_process"');
     expect(client).not.toContain('openButton.textContent = "Open Bees"');
     expect(client).not.toContain("data.beesOpen");

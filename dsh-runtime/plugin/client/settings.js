@@ -91,12 +91,17 @@ function OrganizationsSettings({ reload }) {
 function OrganizationSettings({ organization }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
-  const load = async () => {
-    if (!organization?.connected || !["owner", "admin"].includes(organization.role)) return;
-    try { setPeople(await collaboration("organization_people", { organizationId: organization.id })); setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
-  useEffect(() => { setPeople(null); setError(""); void load(); }, [organization?.id]);
+  useEffect(() => {
+    let active = true;
+    setPeople(null);
+    setError("");
+    if (organization?.connected && ["owner", "admin"].includes(organization.role)) {
+      collaboration("organization_people", { organizationId: organization.id })
+        .then((value) => active && setPeople(value))
+        .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
+    }
+    return () => { active = false; };
+  }, [organization?.id]);
   if (!organization) return h(Empty, null, "Choose an organization");
   if (!organization.connected) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
     h("p", { className: "bees-muted" }, "This organization is local to this device. Connect an account to invite members."));
@@ -129,12 +134,17 @@ function OrganizationSettings({ organization }) {
 function TeamSettings({ team, organization }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
-  const load = async () => {
-    if (!team || !organization?.connected || team.role !== "admin") return;
-    try { setPeople(await collaboration("team_people", { teamId: team.id })); setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
-  useEffect(() => { setPeople(null); setError(""); void load(); }, [team?.id]);
+  useEffect(() => {
+    let active = true;
+    setPeople(null);
+    setError("");
+    if (team && organization?.connected && team.role === "admin") {
+      collaboration("team_people", { teamId: team.id })
+        .then((value) => active && setPeople(value))
+        .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
+    }
+    return () => { active = false; };
+  }, [team?.id]);
   if (!team) return h(Empty, null, "Choose a team");
   if (!organization?.connected) return h("section", { className: "bees-box" }, h("h3", null, team.name),
     h("p", { className: "bees-muted" }, "This team is local to this device."));

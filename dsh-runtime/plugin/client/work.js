@@ -2,8 +2,8 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, isDone, request, runTitle, useSnapshot, useSubmit, workItemsFor
-, PageHead} from "./shared.js";
+  ask, AuditEvent, Button, confirmAction, Empty, isDone, PageHead, request, runTitle, useSnapshot, useSubmit
+} from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 
@@ -303,7 +303,9 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, p
         const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
         return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
           h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
-          h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
+          // the item's phase and the run's status are different things; joining them read as
+          // "failed - Bees work agent - completed" on any item whose last run finished badly
+          h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name].filter(Boolean).join(" · ")));
       }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
   }));
   useEffect(() => {
@@ -542,6 +544,7 @@ function NeedsYouControls({ item, act, onDone }) {
 }
 
 function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled }) {
+  const [openingBrowser, setOpeningBrowser] = useState(false);
   const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -555,6 +558,14 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
     h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
+      act ? h(Button, {
+        disabled: openingBrowser, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
+        onClick: async () => {
+          setOpeningBrowser(true);
+          await act({ action: "open_agent_browser", executionId: run.id });
+          setOpeningBrowser(false);
+        }
+      }, openingBrowser ? "Opening…" : "Open browser") : null,
       h(NeedsYouControls, { item, act, onDone: onControlled }))),
     interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
