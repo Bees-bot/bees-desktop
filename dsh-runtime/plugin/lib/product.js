@@ -6,7 +6,8 @@ import {
   processStages, required, workspaceContext
 } from "./product-database.js";
 import {
-  logicalRelativePath, outputFiles, previewFiles, stageInputs, stageLocation, TEXT_EXTENSIONS
+  inputManifest, logicalRelativePath, outputFiles, outputLocation, previewFiles, stageInputs,
+  stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
@@ -104,8 +105,19 @@ export class BeesProduct {
       ORDER BY updated_at DESC LIMIT 1
     `).get(item.parentId) : null;
     const runDirectory = parentRun?.runDirectory ?? resolve(this.defaultWorkspace, "runs", executionId);
-    const locations = stageInputs(this.database, item.id, runDirectory);
     const reviewer = stage.purpose === "reviewer";
+    let assignment;
+    try {
+      assignment = resolveStageAgent(this.database, {
+        executionId, item, stageId: required(stage.stageId, "Stage"), purpose: stage.purpose,
+        candidateExecutionId: stage.candidateExecutionId
+      });
+    } catch (error) {
+      if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
+      throw error;
+    }
+    const locations = stageInputs(this.database, item.id, runDirectory, assignment.id);
+    const manifest = inputManifest(locations);
     let candidateSummary = "";
     if (stage.candidateExecutionId) {
       const candidate = this.database.prepare(`
@@ -136,19 +148,10 @@ export class BeesProduct {
     const shared = item.parentId
       ? " This work was delegated by another agent and ran in that caller's workspace, so files it did not write are present. Judge only what this stage was asked to produce, and never fail it for a file the caller left there."
       : "";
+    const inputs = manifest ? `\n\n${manifest}` : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do the work yourself. Unless delegation is itself an explicit requirement, only use bees_delegate_work for a large separate piece a peer can own end to end; a tool call, lookup or single-file edit is not enough, and delegate at most one peer once. When the goal explicitly requires a delegation protocol or count, follow it exactly; only the parent delegates, and it waits for each peer before launching the next. The caller waits while a peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}`;
-    let assignment;
-    try {
-      assignment = resolveStageAgent(this.database, {
-        executionId, item, stageId: required(stage.stageId, "Stage"), purpose: stage.purpose,
-        candidateExecutionId: stage.candidateExecutionId
-      });
-    } catch (error) {
-      if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
-      throw error;
-    }
+      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}${inputs}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do the work yourself. Unless delegation is itself an explicit requirement, only use bees_delegate_work for a large separate piece a peer can own end to end; a tool call, lookup or single-file edit is not enough, and delegate at most one peer once. When the goal explicitly requires a delegation protocol or count, follow it exactly; only the parent delegates, and it waits for each peer before launching the next. The caller waits while a peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}${inputs}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -162,7 +165,7 @@ export class BeesProduct {
         instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
         ...mcpGrantFor(this.database, assignment?.id),
-        grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
+        grants: reviewer ? [] : [outputLocation(this.database, item.id)].filter(Boolean)
       }
     }, signal);
   }
@@ -198,7 +201,8 @@ export class BeesProduct {
     `).all(JSON.stringify(allowedTeams)) : [];
     const workspaceIds = workspaces.map(({ id }) => id);
     const processes = workspaceIds.length ? this.database.prepare(`
-      SELECT id, workspace_id AS workspaceId, name, description, kind FROM processes
+      SELECT id, workspace_id AS workspaceId, name, description, kind,
+             output_location_id AS outputLocationId FROM processes
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
     `).all(JSON.stringify(workspaceIds)) : [];
     const templates = workspaceIds.length ? this.database.prepare(`
@@ -228,6 +232,7 @@ export class BeesProduct {
              w.priority, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
              w.runtime_review_cycle AS runtimeReviewCycle,
              w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
+             w.output_location_id AS outputLocationId,
              w.archived_at AS archivedAt, w.updated_at AS updatedAt,
              s.is_terminal AS completed
       FROM work_items w JOIN stages s ON s.id = w.stage_id
@@ -251,6 +256,13 @@ export class BeesProduct {
       FROM process_locations WHERE process_id IN (SELECT value FROM json_each(?))
       ORDER BY process_id, location_id
     `).all(JSON.stringify(processIds)) : [];
+    const agentAttachments = workspaceIds.length ? this.database.prepare(`
+      SELECT agent_assignment_id AS agentAssignmentId, location_id AS locationId,
+             relative_path AS relativePath FROM agent_locations
+      WHERE agent_assignment_id IN (
+        SELECT id FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?))
+      ) ORDER BY agent_assignment_id, location_id
+    `).all(JSON.stringify(workspaceIds)) : [];
     const assignments = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
              instructions, model, reasoning_effort AS reasoningEffort,
@@ -307,7 +319,7 @@ export class BeesProduct {
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
-      processes, templates, stages, items, locations, attachments, processAttachments,
+      processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, pools, poolMembers, presets, runs, proposals
     };
   }

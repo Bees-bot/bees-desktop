@@ -206,21 +206,39 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   }
 
   
+  const isWorking = item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
+  const isAgentBusy = isWorking || sending;
+  
   const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
         interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
-        : item.runtimePhase === "running" ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
+        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
         : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent error" }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),
       h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
           event.preventDefault();
           const text = composerText.trim();
-          if (!text || sending) return;
+          if (!text || isAgentBusy) return;
           const sessionBinding = activeBinding;
-          if (!sessionBinding) return;
+          // If there is no active binding but the user is trying to send a message, we might need to recover the run first
+          if (!sessionBinding) {
+             if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
+               setSending(true);
+               try {
+                 await act({ action: "recover_run", executionId: run.id });
+                 // We don't clear the composer text because we couldn't send the prompt yet.
+                 // The user can re-send their message once the agent is fully recovered and active.
+               } catch (err) {
+                 console.error("Failed to recover run:", err);
+               } finally {
+                 setSending(false);
+               }
+             }
+             return;
+          }
           setSending(true);
           try {
             await sessionBinding.session.prompt([{ type: "text", text }], "queue");
@@ -233,8 +251,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
         }},
         h("textarea", { 
           className: "bees-composer-input", 
-          placeholder: pendingRun ? "Answer above or add a note..." : activeBinding ? "Add a note or instruction..." : "Agent session ended (task completed or failed)",
-          disabled: !activeBinding || sending,
+          placeholder: pendingRun ? "Answer above or add a note..." : isWorking ? "Agent is working..." : "Add a note or instruction to continue...",
+          disabled: isAgentBusy,
           value: composerText,
           rows: 2,
           onChange: (e) => setComposerText(e.target.value),
@@ -242,7 +260,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.target.form.requestSubmit(); }
           }
         }),
-        h("button", { type: "submit", className: "bees-composer-send", disabled: !activeBinding || !composerText.trim() || sending, "aria-label": "Send message" }, sending ? "…" : "↑")
+        h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")
       ));
   const details = h("div", { className: "bees-details-panel" },
       h("div", { className: "bees-box" },
@@ -334,7 +352,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   });
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, preferences, setPageActions, setPageHeader }) {
+function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, preference, preferences, setPageActions, setPageHeader }) {
   const root = data.items.find(({ id }) => id === rootId);
   const [selectedId, setSelectedId] = useState(rootId);
   const [editing, setEditing] = useState(false);
@@ -392,7 +410,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, p
     setPageActions && setPageActions(
       h(React.Fragment, null,
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")
+        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout"),
+        !editing ? h(Button, { className: "primary", onClick: () => onNewWork?.(root.processId) }, "New work") : null
       )
     );
     return () => {
@@ -779,12 +798,18 @@ export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openR
   );
 }
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [type, setType] = useState(route === "goals" ? "goal" : "all");
   if (workItemId) return h(WorkItemCockpit, {
-    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""), setPageActions, setPageHeader
+    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
+    onNewWork: (processId) => {
+      setWorkProcessId?.(processId);
+      setWorkItemId("");
+      setCreating("work");
+    },
+    setPageActions, setPageHeader
   });
   if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
     ctx, data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),

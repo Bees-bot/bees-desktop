@@ -63,11 +63,13 @@ export function stageLocation(location, destination) {
   let files = 0;
   let bytes = 0;
   walkLocation(location, (source, logical) => {
-    if (files >= 1_000 || bytes >= 250_000_000) return false;
+    if (files >= 1_000 || bytes >= 250_000_000)
+      throw new Error(`${location.name} exceeds the 1,000 file or 250 MB input limit`);
     const stat = lstatSync(source);
     const target = resolve(destination, logical);
     if (!logical || logical === ".." || logical.startsWith(`..${sep}`) || !target.startsWith(`${destination}${sep}`)) return;
-    if (stat.size > 20_000_000 || bytes + stat.size > 250_000_000) return;
+    if (stat.size > 20_000_000 || bytes + stat.size > 250_000_000)
+      throw new Error(`${location.name} contains a file larger than 20 MB or exceeds the 250 MB input limit`);
     mkdirSync(resolve(target, ".."), { recursive: true });
     copyFileSync(source, target);
     files += 1;
@@ -88,7 +90,7 @@ function stagedLocation(location, relativePath) {
   return { ...location, localPath: selected, kind: stat.isFile() ? "file" : "folder" };
 }
 
-export function stageInputs(database, itemId, runDirectory) {
+export function stageInputs(database, itemId, runDirectory, agentId = null) {
   const inputRoot = resolve(runDirectory, "inputs");
   mkdirSync(inputRoot, { recursive: true });
   mkdirSync(resolve(runDirectory, "outputs"), { recursive: true });
@@ -99,6 +101,8 @@ export function stageInputs(database, itemId, runDirectory) {
       UNION
       SELECT pl.location_id, pl.relative_path FROM process_locations pl
       JOIN work_items wi ON wi.process_id = pl.process_id WHERE wi.id = ?
+      UNION
+      SELECT location_id, relative_path FROM agent_locations WHERE agent_assignment_id = ?
     )
     SELECT l.id, l.name, l.kind, r.relative_path AS relativePath, m.absolute_path AS localPath
     FROM refs r
@@ -108,7 +112,7 @@ export function stageInputs(database, itemId, runDirectory) {
     JOIN workspaces ws ON ws.id = p.workspace_id AND ws.team_id = l.team_id
     LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
     WHERE l.archived_at IS NULL ORDER BY l.name
-  `).all(itemId, itemId, itemId, deviceId);
+  `).all(itemId, itemId, agentId, itemId, deviceId);
   for (const location of locations) {
     if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
     const selected = stagedLocation(location, location.relativePath);
@@ -118,8 +122,21 @@ export function stageInputs(database, itemId, runDirectory) {
     const directory = resolve(inputRoot, `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}${suffix}`);
     mkdirSync(directory, { recursive: true });
     stageLocation(selected, directory);
+    location.stagedPath = relative(runDirectory, directory).replaceAll("\\", "/");
   }
   return locations;
+}
+
+export function inputManifest(locations) {
+  if (!locations.length) return "";
+  return `Available input snapshots:\n${locations.map(({ name, stagedPath }) => `- ${name}: ${stagedPath}`).join("\n")}`;
+}
+
+export function outputLocation(database, itemId) {
+  return database.prepare(`
+    SELECT coalesce(w.output_location_id, p.output_location_id) AS id
+    FROM work_items w JOIN processes p ON p.id = w.process_id WHERE w.id = ?
+  `).get(itemId)?.id ?? null;
 }
 
 export function outputFiles(runDirectory) {

@@ -827,7 +827,17 @@ export class AgentRuntime {
         return result;
       }
     }));
-    // Read again at publish time: a location archived mid-run must stop being a target.
+    // Read again at publish time: a changed target or a location archived mid-run must take effect.
+    const grantIds = () => {
+      if (data.workItemId) {
+        const row = this.database.prepare(`
+          SELECT coalesce(w.output_location_id, p.output_location_id) AS locationId
+          FROM work_items w JOIN processes p ON p.id = w.process_id WHERE w.id = ?
+        `).get(data.workItemId);
+        return row?.locationId ? [row.locationId] : [];
+      }
+      return data.grants ?? [];
+    };
     const granted = () => this.database.prepare(`
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
       JOIN workspaces w ON w.team_id = l.team_id
@@ -835,7 +845,7 @@ export class AgentRuntime {
         AND m.device_id = ?
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
-    `).all(currentIdentity(this.database).deviceId, JSON.stringify(data.grants ?? []), data.workspaceId);
+    `).all(currentIdentity(this.database).deviceId, JSON.stringify(grantIds()), data.workspaceId);
     const grants = granted();
     if (grants.length) {
       agentCtx.systemPrompt.context({
@@ -843,7 +853,8 @@ export class AgentRuntime {
         order: 90,
         text: `Approved publication targets (an additional DSH approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`
       });
-      agentCtx.tools.register(defineTool({
+    }
+    if (data.mode === "work") agentCtx.tools.register(defineTool({
         name: "bees_publish_outputs",
         description: "Copy the finished files under outputs/ to one granted company folder. This always asks the user for DSH approval before writing outside the run workspace.",
         parameters: {
@@ -879,7 +890,6 @@ export class AgentRuntime {
           return result;
         }
       }));
-    }
   }
 
   /** A peer does the work itself. Letting it delegate again spirals into a chain that never starts. */

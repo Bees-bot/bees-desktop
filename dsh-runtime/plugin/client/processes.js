@@ -2,6 +2,7 @@ import { h, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
+import { addLocationFromDevice, ResourceFields } from "./location-fields.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 8 }];
 const TEMPLATES_LAYOUT = [
@@ -14,18 +15,21 @@ const PROCESS_DETAIL_LAYOUT = [
   { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
 ];
 
-function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPageHeader }) {
+function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
   const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
   if (!workspaceId) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
     h(Empty, null, "Choose one workspace before creating a process."));
+  const [inputLocationIds, setInputLocationIds] = useState([]);
+  const [outputLocationId, setOutputLocationId] = useState("");
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
     const created = await act({
       action: template ? "create_process_template" : "create_process", workspaceId,
-      name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages
+      name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages,
+      inputLocationIds, outputLocationId
     });
     if (created?.id) onCreated(created.id);
   });
@@ -45,6 +49,8 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPa
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
     h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. A stage named Review gets an independent reviewer; the last stage completes the work."),
+    template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
@@ -55,7 +61,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
   const [creatingStageId, setCreatingStageId] = useState("");
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
-    kind: creating, draft: processDraft, workspaceId, act,
+    ctx, data, kind: creating, draft: processDraft, workspaceId, teamId, act,
     onCancel: () => { setCreating(""); setProcessDraft(null); },
     setPageHeader, onCreated: (id) => {
       const wasTemplate = creating === "template";
@@ -110,6 +116,10 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const saveTemplate = async () => {
         const name = await ask("Template name", process.name); if (!name) return;
         await act({ action: "save_process_template", processId: process.id, name });
+      };
+      const chooseOutput = async () => {
+        const created = await addLocationFromDevice(ctx, act, teamId, "folder");
+        if (created?.id) await act({ action: "set_output_location", processId: process.id, locationId: created.id });
       };
       const archiveProcess = async () => {
         if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
@@ -189,6 +199,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
             return location ? h(Button, { key: `${locationId}:${relativePath}`, onClick: () => act({ action: "detach_location", processId: process.id, locationId }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
           }),
           h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
+          h(Button, { onClick: chooseOutput }, process.outputLocationId ? "Change result folder" : "Choose result folder"),
           process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
           h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
         ),

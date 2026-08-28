@@ -26,13 +26,13 @@ describe("Bees DSH product plugin", () => {
     `).get()).toEqual({ organization: "Personal Org", team: "Team1", workspace: "My workspace" });
     expect(database.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
-        ('organization_memberships','team_memberships','team_locations','device_location_mappings')
+        ('organization_memberships','team_memberships','team_locations','device_location_mappings','agent_locations')
       ORDER BY name
     `).all()).toEqual([
-      { name: "device_location_mappings" }, { name: "organization_memberships" },
+      { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 9 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 10 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
     database.exec("UPDATE stages SET completion_rules = 'Old goal instructions' WHERE name IN ('Work', 'Review'); PRAGMA user_version = 7");
@@ -198,6 +198,16 @@ describe("Bees DSH product plugin", () => {
     const location = await product.command({
       action: "add_location", teamId: team.id, name: "Work", kind: "folder", path: files
     });
+    const resourcedGoal = await product.command({
+      action: "create_goal", workspaceId: workspace.id, title: "Shortlist candidates",
+      inputLocationIds: [location.id], outputLocationId: location.id
+    });
+    expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
+      id: resourcedGoal.id, outputLocationId: location.id
+    }));
+    expect((await product.snapshot()).attachments).toContainEqual(expect.objectContaining({
+      workItemId: resourcedGoal.id, locationId: location.id
+    }));
     await expect(product.command({
       action: "attach_location", itemId: created.id, locationId: location.id, relativePath: "../outside"
     })).rejects.toThrow("cannot leave");
@@ -227,19 +237,20 @@ describe("Bees DSH product plugin", () => {
     }));
 
     const newProcess = await product.command({
-      action: "create_process", workspaceId: workspace.id, name: "Publishing", stages: ["Draft", "Published"]
+      action: "create_process", workspaceId: workspace.id, name: "Publishing", stages: ["Draft", "Published"],
+      inputLocationIds: [location.id], outputLocationId: location.id
     });
-    await product.command({ action: "attach_location", processId: newProcess.id, locationId: location.id });
     await product.command({
       action: "edit_process", processId: newProcess.id, name: "Editorial",
       description: "Publish reviewed work", stages: ["Draft", "Polish", "Review", "Published"]
     });
     expect((await product.snapshot()).processes).toContainEqual(expect.objectContaining({
-      id: newProcess.id, workspaceId: workspace.id, name: "Editorial"
+      id: newProcess.id, workspaceId: workspace.id, name: "Editorial", outputLocationId: location.id
     }));
     const writer = await product.command({
       action: "add_agent_assignment", workspaceId: workspace.id, presetId: "standard",
-      name: "Content writer", capabilities: ["writing"], instructions: "Use the editorial voice"
+      name: "Content writer", capabilities: ["writing"], instructions: "Use the editorial voice",
+      inputLocationIds: [location.id]
     });
     const backupReviewer = await product.command({
       action: "add_agent_assignment", workspaceId: workspace.id, presetId: "standard",
@@ -278,6 +289,9 @@ describe("Bees DSH product plugin", () => {
       expect.objectContaining({ id: polish.id, routeType: "agent", routeTargetId: writer.id, requiredCapabilities: ["writing"] }),
       expect.objectContaining({ id: review.id, routeType: "pool", routeTargetId: reviewPool.id, requiredCapabilities: ["review"] })
     ]));
+    expect((await product.snapshot()).agentAttachments).toContainEqual(expect.objectContaining({
+      agentAssignmentId: writer.id, locationId: location.id
+    }));
     const automaticItem = await product.command({
       action: "create_run", processId: newProcess.id, title: "Publish this week"
     });
@@ -287,13 +301,20 @@ describe("Bees DSH product plugin", () => {
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
     expect(stageRuns.at(-1)[1].body).toContain("When the goal explicitly requires a delegation protocol or count, follow it exactly");
+    expect(stageRuns.at(-1)[1].body).toContain(`Available input snapshots:\n- Work: inputs/Work-${location.id.slice(0, 8)}`);
     database.connection.prepare(`
       INSERT INTO execution_links
         (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
          instance_uid, run_directory, config_json, status, created_at, updated_at)
-      VALUES (?, ?, ?, 'Content writer', 'draft-session', 'draft-instance', ?, '{}',
+      VALUES (?, ?, ?, 'Content writer', 'draft-session', 'draft-instance', ?, ?,
         'completed', '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
-    `).run(executionId, workspace.id, automaticItem.id, join(runRoot, "runs", executionId));
+    `).run(executionId, workspace.id, automaticItem.id, join(runRoot, "runs", executionId), JSON.stringify({
+      workItemId: automaticItem.id, workspaceId: workspace.id, grants: [location.id]
+    }));
+    await product.command({ action: "set_output_location", processId: newProcess.id, locationId: null });
+    await expect(product.command({ action: "publish_run", executionId, locationId: location.id }))
+      .rejects.toThrow("not granted");
+    await product.command({ action: "set_output_location", processId: newProcess.id, locationId: location.id });
     database.connection.prepare(`
       INSERT INTO bees_stage_results VALUES (?, 'worker', 'candidate', ?, '2026-08-23T00:00:00.000Z')
     `).run(executionId, "Draft complete; do not repeat it");

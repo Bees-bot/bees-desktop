@@ -213,7 +213,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
       ? h(NeedsYouPage, { ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId: needsYouRunId })
-      : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, act, preference, preferences, setPageActions, setPageHeader })
+      : h(WorkPage, { ctx, data, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })

@@ -1,6 +1,7 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
+import { ResourceFields } from "./location-fields.js";
 
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
@@ -155,6 +156,8 @@ function McpAccess({ servers, access, chosen }) {
 export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false }) {
   const presets = data.presets.filter(({ broken }) => !broken);
   if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
+  const [inputLocationIds, setInputLocationIds] = useState([]);
+  const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const created = await act({
@@ -163,6 +166,7 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      inputLocationIds,
       mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
@@ -201,6 +205,8 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
     ),
     
     h(McpAccess, { servers }),
+    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, allowOutput: false }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"),
       h(Button, { onClick: onCancel }, "Cancel"))
@@ -208,6 +214,12 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
 }
 
 export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents" }) {
+  const [inputLocationIds, setInputLocationIds] = useState(() =>
+    data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId));
+  const teamId = data.workspaces.find(({ id }) => id === selected.workspaceId)?.teamId;
+  useEffect(() => setInputLocationIds(
+    data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId)
+  ), [selected.id]);
   return h("form", { className: "bees-box bees-form bees-agent-form", key: selected.id, onSubmit: async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const saved = await act({
@@ -216,6 +228,7 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
       description: String(form.get("description") ?? ""), instructions: String(form.get("instructions") ?? ""),
       model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""),
       capabilities: String(form.get("capabilities") ?? "").split(","),
+      inputLocationIds,
       mcpAccess: String(form.get("mcpAccess") ?? "all"), mcpServers: form.getAll("mcpServers").map(String),
       enabled: form.get("enabled") === "on", maxConcurrency: Number(form.get("maxConcurrency") ?? 0)
     });
@@ -248,6 +261,8 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
     ),
     
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
+    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, allowOutput: false }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))

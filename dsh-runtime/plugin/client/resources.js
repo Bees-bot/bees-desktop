@@ -3,31 +3,19 @@ import { FilePreview } from "./work.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, request, runTitle
 } from "./shared.js";
+import { addLocationFromDevice } from "./location-fields.js";
 
 export function FilesPage({ ctx, data, teamId, act }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   const pickFolder = async () => ctx.workspaces.pickDirectory();
-  const addFolder = async () => {
-    const path = await pickFolder(); if (!path) return;
-    const name = await ask("Team location name", path.split(/[\\/]/).filter(Boolean).pop() ?? "Files");
-    if (name) await act({ action: "add_location", teamId, name, kind: "folder", path });
-  };
-  const addFile = async () => {
-    const path = typeof ctx.workspaces.pickFile === "function"
-      ? await ctx.workspaces.pickFile()
-      : await ask("Absolute path to a file on this device", "");
-    if (!path) return;
-    const name = await ask("Team file name", path.split(/[\\/]/).filter(Boolean).pop() ?? "File");
-    if (name) await act({ action: "add_location", teamId, name, kind: "file", path });
-  };
   const pickMapping = async (location) => location.kind === "folder"
     ? pickFolder()
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-      h(Button, { disabled: !teamId || team?.role !== "admin", onClick: addFile }, "Add file"),
-      h(Button, { className: "primary", disabled: !teamId || team?.role !== "admin", onClick: addFolder }, "Add folder")),
+      h(Button, { disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
+      h(Button, { className: "primary", disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
     ...(locations.length ? locations.map((location) => h("div", { className: "bees-row", key: location.id },
       h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, location.name),
         h("div", { className: "bees-muted" }, `${location.kind} · ${location.localPath || "Not mapped on this device"}`),
