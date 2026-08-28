@@ -202,27 +202,28 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
-    const stageName = typeof stage === "string" ? stage : stage.name;
-    const definition = typeof stage === "string" ? {
-      name: stageName,
-      driver: position === stages.length - 1 ? "terminal"
-        : position > 0 && /review/i.test(stageName) ? "review" : "agent"
-    } : stage;
-    insert.run(
-      randomUUID(), id, required(definition.name, "Stage"), position,
-      definition.driver ?? "manual", String(definition.instructions ?? ""),
-      definition.driver === "terminal" || position === stages.length - 1 ? 1 : 0
-    );
+    const name = required(typeof stage === "string" ? stage : stage.name, "Stage");
+    // The last stage ends the process and a stage called Review reviews; the rest do the work.
+    const driver = (typeof stage === "string" ? null : stage.driver)
+      ?? (position === stages.length - 1 ? "terminal"
+        : position > 0 && /review/i.test(name) ? "review" : "agent");
+    insert.run(randomUUID(), id, name, position, driver,
+      String((typeof stage === "string" ? "" : stage.instructions) ?? ""),
+      driver === "terminal" ? 1 : 0);
   });
   return id;
 }
 
-export function processStageNames(value, label = "process") {
-  const names = Array.isArray(value) ? value.map((entry) => required(entry, "Stage")) : [];
-  if (names.length < 2 || names.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
-  if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length)
+/** A stage is a name, or a name with the instructions its agent runs on. */
+export function processStages(value, label = "process") {
+  const stages = (Array.isArray(value) ? value : []).map((entry) => ({
+    name: required(typeof entry === "string" ? entry : entry?.name, "Stage"),
+    instructions: String((typeof entry === "string" ? "" : entry?.instructions) ?? "").slice(0, 4_000)
+  }));
+  if (stages.length < 2 || stages.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
+  if (new Set(stages.map(({ name }) => name.toLocaleLowerCase())).size !== stages.length)
     throw new Error("Stage names must be unique");
-  return names;
+  return stages;
 }
 
 /** An empty Templates screen gives a new user nowhere to start, so ship a few worth copying. */
