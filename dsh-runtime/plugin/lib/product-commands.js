@@ -646,6 +646,16 @@ export async function executeProductCommand(action, input) {
           : `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
       });
     }
+    if (action === "continue_run") {
+      const executionId = required(input.executionId, "Execution");
+      const text = required(input.text, "Text");
+      const { uid } = runContext(this.database, executionId);
+      return this.agents.admit("bees-run", executionId, {
+        idempotencyKey: `continue:${executionId}:${Date.now()}`,
+        uid,
+        body: text
+      });
+    }
     if (action === "publish_run") {
       const executionId = required(input.executionId, "Execution");
       const { uid, data } = runContext(this.database, executionId);

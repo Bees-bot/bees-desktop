@@ -44,13 +44,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   }).filter(Boolean);
   const hasFiles = itemFiles.length > 0 || inputLocations.length > 0;
 
-  useEffect(() => {
-    if (!hasFiles && activeTab === "files") setActiveTab("details");
-  }, [hasFiles, activeTab]);
-
   const [viewer, setViewer] = useState(null);
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
+
+  useEffect(() => {
+    if (!hasFiles && activeTab === "files") setActiveTab("details");
+  }, [hasFiles, activeTab]);
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
   const [audit, setAudit] = useState([]);
@@ -64,6 +64,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   const session = useSnapshot(binding?.session);
   const [composerText, setComposerText] = useState("");
   const [sending, setSending] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
@@ -76,7 +77,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
       .then((value) => active && setHistory(value.history))
       .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
     return () => { active = false; };
-  }, [run?.id]);
+  }, [run?.id, refreshCount]);
+  useEffect(() => {
+    let interval;
+    if (run && ["running", "waiting", "waiting_for_input", "waiting_for_approval"].includes(item.runtimePhase)) {
+      interval = setInterval(() => setRefreshCount(c => c + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [run?.id, item.runtimePhase]);
   // The audit strip is supplementary, so a failed refresh leaves it empty rather than taking the page down.
   useEffect(() => {
     let active = true;
@@ -223,18 +231,19 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
           const text = composerText.trim();
           if (!text || isAgentBusy) return;
           const sessionBinding = activeBinding;
-          // If there is no active binding but the user is trying to send a message, we might need to recover the run first
+          // If there is no active binding but the user is trying to send a message, we continue the conversation with the backend action
           if (!sessionBinding) {
              if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
                setSending(true);
                try {
-                 await act({ action: "recover_run", executionId: run.id });
-                 // We don't clear the composer text because we couldn't send the prompt yet.
-                 // The user can re-send their message once the agent is fully recovered and active.
+                 await act({ action: "continue_run", executionId: run.id, text });
+                 setComposerText("");
                } catch (err) {
-                 console.error("Failed to recover run:", err);
+                 console.error("Failed to continue run:", err);
                } finally {
                  setSending(false);
+                 setRefreshCount(c => c + 1);
+                 setTimeout(() => setRefreshCount(c => c + 1), 500);
                }
              }
              return;
@@ -247,6 +256,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             console.error("Failed to send message:", err);
           } finally {
             setSending(false);
+            setRefreshCount(c => c + 1);
+            setTimeout(() => setRefreshCount(c => c + 1), 500);
           }
         }},
         h("textarea", { 
@@ -418,7 +429,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, pr
       setPageHeader && setPageHeader(null);
       setPageActions && setPageActions(null);
     };
-  }, [root.title, process?.name, completed, total, editing, onBack, setPageHeader, setPageActions]);
+  }, [root.title, root.processId, process?.name, completed, total, editing, onBack, setPageHeader, setPageActions, onNewWork]);
 
   return h("div", { style: { display: "flex", flexDirection: "column" } },
     h(WorkItemDetails, {
