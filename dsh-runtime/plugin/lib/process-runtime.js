@@ -104,10 +104,15 @@ export class ProcessRuntime {
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
         AND w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
     `).all();
-    await Promise.all([
+    // One work item that cannot start must not reject startup: reconcile runs before the plugin
+    // registers its routes, so a single bad row used to leave the app with no /healthz at all.
+    for (const settled of await Promise.allSettled([
       ...items.map(({ id }) => this.startItem(id)),
       ...interruptedWaits.map(({ id }) => this.signal(id, "retry"))
-    ]);
+    ])) {
+      if (settled.status === "rejected")
+        this.logger.warn?.(`bees: a work item failed to reconcile: ${message(settled.reason)}`);
+    }
   }
 
   async startItem(workItemId) {
