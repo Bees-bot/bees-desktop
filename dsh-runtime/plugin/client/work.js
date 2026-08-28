@@ -245,6 +245,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
             ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
             h(Button, { className: "danger", onClick: archive }, "Archive"),
+            // The interaction card only exists while a run is waiting, so a run that failed at a
+            // sign-in wall had no way to reach this at all.
+            run ? h(Button, {
+              title: "Open the browser profile this agent uses, so you can sign in on its behalf",
+              onClick: () => act({ action: "open_agent_browser", executionId: run.id })
+            }, "Open browser") : null,
             run?.status === "completed" && run.outputs?.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)
         ),
         h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },

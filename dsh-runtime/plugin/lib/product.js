@@ -283,8 +283,11 @@ export class BeesProduct {
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
-             d.reason AS dispatchReason, d.agent_revision AS agentRevision
-      FROM execution_links e LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
+             d.reason AS dispatchReason, d.agent_revision AS agentRevision,
+             r.outcome AS resultOutcome, r.summary AS resultSummary
+      FROM execution_links e
+      LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
+      LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
