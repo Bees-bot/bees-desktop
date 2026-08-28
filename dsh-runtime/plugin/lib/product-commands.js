@@ -8,7 +8,7 @@ import {
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
-  canonicalMapping, logicalRelativePath, mappedLocation, stageInputs
+  canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputs
 } from "./product-files.js";
 import { resolveStageAgent } from "./product-routing.js";
 
@@ -40,6 +40,26 @@ function checkMcpServers(database, policy) {
   const missing = policy.servers.filter((id) => !known.includes(id));
   if (missing.length) throw new Error(`No MCP server matches ${missing.join(", ")}`);
   return policy;
+}
+
+function locationIds(database, workspaceId, values, foldersOnly = false) {
+  const workspace = workspaceContext(database, workspaceId, ["admin", "member"]);
+  const ids = [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))];
+  if (ids.length > 32) throw new Error("Choose at most 32 input locations");
+  if (!ids.length) return [];
+  const rows = database.prepare(`
+    SELECT id, kind FROM team_locations
+    WHERE team_id = ? AND archived_at IS NULL AND id IN (SELECT value FROM json_each(?))
+  `).all(workspace.teamId, JSON.stringify(ids));
+  if (rows.length !== ids.length) throw new Error("A selected location is unavailable to this workspace's team");
+  if (foldersOnly && rows.some(({ kind }) => kind !== "folder")) throw new Error("Results must be saved to a folder");
+  return ids;
+}
+
+function replaceLocations(database, table, ownerColumn, ownerId, ids) {
+  database.prepare(`DELETE FROM ${table} WHERE ${ownerColumn} = ?`).run(ownerId);
+  const insert = database.prepare(`INSERT INTO ${table} VALUES (?, ?, '')`);
+  ids.forEach((id) => insert.run(ownerId, id));
 }
 
 /** A run is only reachable through the work item or workspace that owns it. */
@@ -109,6 +129,9 @@ export async function executeProductCommand(action, input) {
       `).get(processId);
       if (!process) throw new Error("Process not found");
       workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      const inputLocationIds = locationIds(this.database, process.workspaceId, input.inputLocationIds);
+      const outputLocationId = locationIds(this.database, process.workspaceId,
+        input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
       const stageId = input.stageId || this.database.prepare(`
         SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position LIMIT 1
       `).get(processId)?.id;
@@ -124,11 +147,12 @@ export async function executeProductCommand(action, input) {
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
-          agent_assignment_id, priority, archived_at, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+          agent_assignment_id, priority, output_location_id, archived_at, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
-        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), at, at);
-        return { id };
+        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId, at, at);
+      replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
+      return { id };
       });
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
@@ -164,7 +188,13 @@ export async function executeProductCommand(action, input) {
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const stages = processStages(input.stages);
-      return { id: insertProcess(this.database, workspace.id, input.name, input.description, stages) };
+      const inputLocationIds = locationIds(this.database, workspace.id, input.inputLocationIds);
+      const outputLocationId = locationIds(this.database, workspace.id,
+        input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
+      const id = insertProcess(this.database, workspace.id, input.name, input.description, stages);
+      this.database.prepare("UPDATE processes SET output_location_id = ? WHERE id = ?").run(outputLocationId, id);
+      replaceLocations(this.database, "process_locations", "process_id", id, inputLocationIds);
+      return { id };
     });
     if (action === "create_process_template") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
@@ -360,6 +390,7 @@ export async function executeProductCommand(action, input) {
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       return transaction(this.database, () => {
         const id = randomUUID();
+        const inputLocationIds = locationIds(this.database, workspace.id, input.inputLocationIds);
         const maxConcurrency = Number(input.maxConcurrency ?? 0);
         if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
           throw new Error("Agent concurrency must be an integer from 0 to 1000");
@@ -373,6 +404,7 @@ export async function executeProductCommand(action, input) {
           optionalReasoningEffort(input.reasoningEffort),
           JSON.stringify(capabilities(input.capabilities)), input.enabled === false ? 0 : 1,
           maxConcurrency, at, at, policy.access, JSON.stringify(policy.servers));
+        replaceLocations(this.database, "agent_locations", "agent_assignment_id", id, inputLocationIds);
         return { id };
       });
     }
@@ -413,6 +445,8 @@ export async function executeProductCommand(action, input) {
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);
+      if (Object.hasOwn(input, "inputLocationIds")) replaceLocations(this.database, "agent_locations",
+        "agent_assignment_id", id, locationIds(this.database, assignment.workspaceId, input.inputLocationIds));
       return { id };
     }
     if (action === "add_location") {
@@ -487,6 +521,16 @@ export async function executeProductCommand(action, input) {
       }
       return {};
     });
+    if (action === "set_output_location") return transaction(this.database, () => {
+      const target = input.processId
+        ? { ...processContext(this.database, input.processId, ["admin", "member"]), table: "processes" }
+        : { ...itemContext(this.database, input.itemId, ["admin", "member"]), table: "work_items" };
+      const locationId = locationIds(this.database, target.workspaceId,
+        input.locationId ? [input.locationId] : [], true)[0] ?? null;
+      this.database.prepare(`UPDATE ${target.table} SET output_location_id = ?, updated_at = ? WHERE id = ?`)
+        .run(locationId, at, target.id);
+      return {};
+    });
     if (action === "apply_proposal") {
       const proposalId = required(input.proposalId, "Proposal");
       const proposal = this.database.prepare(`
@@ -554,8 +598,6 @@ export async function executeProductCommand(action, input) {
         .get(item.stageId, item.processId);
       const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
-      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
-      const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       const assignment = resolveStageAgent(this.database, {
         executionId, item, stageId: item.stageId, purpose: stagePurpose,
         // Without this the reviewer could be the same agent that produced the work.
@@ -564,9 +606,12 @@ export async function executeProductCommand(action, input) {
           WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
         `).get(item.id)?.executionId : null
       });
+      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
+      const grants = [outputLocation(this.database, item.id)].filter(Boolean);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`,
+        body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
         initialData: {
           version: 1, mode: "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
@@ -601,11 +646,24 @@ export async function executeProductCommand(action, input) {
           : `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
       });
     }
+    if (action === "continue_run") {
+      const executionId = required(input.executionId, "Execution");
+      const text = required(input.text, "Text");
+      const { uid } = runContext(this.database, executionId);
+      return this.agents.admit("bees-run", executionId, {
+        idempotencyKey: `continue:${executionId}:${Date.now()}`,
+        uid,
+        body: text
+      });
+    }
     if (action === "publish_run") {
       const executionId = required(input.executionId, "Execution");
       const { uid, data } = runContext(this.database, executionId);
       const locationId = required(input.locationId, "Location");
-      if (!data.grants.includes(locationId)) throw new Error("That location was not granted to this run");
+      const granted = data.workItemId ? outputLocation(this.database, data.workItemId) === locationId
+        : data.grants.includes(locationId);
+      if (!granted)
+        throw new Error("That location was not granted to this run");
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `publish:${executionId}:${locationId}:${randomUUID()}`, uid,
         body: `Publish the finished files under outputs/ to the granted location ${locationId}. Use bees_publish_outputs and do not modify the deliverables.`

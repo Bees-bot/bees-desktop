@@ -88,7 +88,7 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
            w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
-           p.workspace_id AS workspaceId
+           w.output_location_id AS outputLocationId, p.workspace_id AS workspaceId
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -99,7 +99,8 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
 
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
-    SELECT id, workspace_id AS workspaceId, name, description, kind
+    SELECT id, workspace_id AS workspaceId, name, description, kind,
+           output_location_id AS outputLocationId
     FROM processes WHERE id = ? AND archived_at IS NULL
   `).get(required(processId, "Process"));
   if (!row) throw new Error("Process not found");
@@ -287,6 +288,7 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS agent_dispatches;
     DROP TABLE IF EXISTS work_item_locations;
     DROP TABLE IF EXISTS process_locations;
+    DROP TABLE IF EXISTS agent_locations;
     DROP TABLE IF EXISTS device_location_mappings;
     DROP TABLE IF EXISTS team_locations;
     DROP TABLE IF EXISTS execution_links;
@@ -381,6 +383,7 @@ export function initializeProductDatabase(database) {
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
       kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'goals')),
+      output_location_id TEXT REFERENCES team_locations(id),
       archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS process_templates (
@@ -413,6 +416,7 @@ export function initializeProductDatabase(database) {
         CHECK (runtime_phase IN ('ready', 'running', 'waiting', 'paused', 'failed', 'completed', 'cancelled')),
       runtime_attempt INTEGER NOT NULL DEFAULT 0, runtime_review_cycle INTEGER NOT NULL DEFAULT 0,
       runtime_execution_id TEXT, runtime_error TEXT,
+      output_location_id TEXT REFERENCES team_locations(id),
       archived_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS agent_dispatches (
@@ -449,6 +453,12 @@ export function initializeProductDatabase(database) {
       location_id TEXT NOT NULL REFERENCES team_locations(id),
       relative_path TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (process_id, location_id, relative_path)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_locations (
+      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id) ON DELETE CASCADE,
+      location_id TEXT NOT NULL REFERENCES team_locations(id),
+      relative_path TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (agent_assignment_id, location_id, relative_path)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_proposals (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -487,6 +497,14 @@ export function initializeProductDatabase(database) {
   // Existing agents default to 'all', which is what they already had.
   if (!assignmentColumns.has("mcp_access")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_access TEXT NOT NULL DEFAULT 'all'");
   if (!assignmentColumns.has("mcp_servers_json")) database.exec("ALTER TABLE agent_assignments ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
+  const processColumns = new Set(database.prepare("PRAGMA table_info(processes)").all().map(({ name }) => name));
+  if (!processColumns.has("output_location_id")) database.exec(
+    "ALTER TABLE processes ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
+  );
+  const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
+  if (!itemColumns.has("output_location_id")) database.exec(
+    "ALTER TABLE work_items ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
+  );
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   database.exec(`
@@ -528,6 +546,7 @@ export function initializeProductDatabase(database) {
     DELETE FROM bees_search WHERE kind = 'file';
     PRAGMA user_version = 9;
   `);
+  if (version < 10) database.exec("PRAGMA user_version = 10");
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
