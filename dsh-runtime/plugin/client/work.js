@@ -2,7 +2,7 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, isDone, PageHead, request, runTitle, useSnapshot, useSubmit
+  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, PageHead, request, runTitle, useSnapshot, useSubmit
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -13,7 +13,7 @@ const UserMessage = ({ children, label }) => {
   const truncated = children.length > 280;
   return h("div", { className: "bees-convo-msg user" },
     label ? h("strong", null, label) : null,
-    h("div", null, truncated && !expanded ? `${children.slice(0, 280).trimEnd()}…` : children),
+    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
     truncated ? h("button", {
       type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
       style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }
@@ -220,7 +220,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
-        interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
+        interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
         : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
         : null,
@@ -288,7 +288,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
             ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
             h(Button, { className: "danger", onClick: archive }, "Archive"),
-            run?.status === "completed" && run.outputs?.length ? h(Button, { className: "primary", onClick: publish },
+            // The interaction card only exists while a run is waiting, so a run that failed at a
+            // sign-in wall had no way to reach this at all.
+            run ? h(Button, {
+              title: "Open the browser profile this agent uses, so you can sign in on its behalf",
+              onClick: () => act({ action: "open_agent_browser", executionId: run.id })
+            }, "Open browser") : null,
+            run?.status === "completed" && run.outputs?.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish },
               item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null)
         ),
         h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
@@ -444,20 +450,20 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const goal = kind === "goal";
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
-    h(Empty, null, "Choose one workspace before creating work."));
-  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
-    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
   const initialProcess = goal ? processes.find(({ kind }) => kind === "goals")
     : processes.find(({ id }) => id === defaultProcessId) ?? processes[0];
   const [processId, setProcessId] = useState(initialProcess?.id ?? "");
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const [outputLocationId, setOutputLocationId] = useState("");
+
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
+    h(Empty, null, "Choose one workspace before creating work."));
+
   const process = processes.find(({ id }) => id === processId) ?? initialProcess;
   const inheritedInputIds = data.processAttachments.filter(({ processId: id }) => id === process?.id).map(({ locationId }) => locationId);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
+
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const command = goal ? {
@@ -472,6 +478,9 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     };
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
+  if (!goal && !processes.length) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
+    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
   return h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"),
       h("div", null, h("h2", null, goal ? "New goal" : "New work"),
@@ -526,7 +535,7 @@ export function FilePreview({ target }) {
   );
 }
 
-function QuestionPanel({ wait, onAnswered }) {
+function QuestionPanel({ wait, onAnswered, act, executionId }) {
   const pending = useMemo(() => new PendingQuestion(wait), [wait]);
   const questions = pending.questions ?? [];
   const [index, setIndex] = useState(0);
@@ -608,6 +617,12 @@ function QuestionPanel({ wait, onAnswered }) {
     h("div", { className: "bees-answer-actions" },
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
+      // a question is the only time someone has to reach the agent's browser, so the way in lives
+      // on the question rather than on whichever panel happens to be wrapping it
+      act && executionId ? h(Button, {
+        disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
+        onClick: () => act({ action: "open_agent_browser", executionId })
+      }, "Open browser") : null,
       h(Button, { className: "primary", disabled: busy, onClick: () => continueFlow() }, busy ? "Sending…" : index < questions.length - 1 ? "Next" : "Send answer"))
   );
 }
@@ -663,7 +678,6 @@ function NeedsYouControls({ item, act, onDone }) {
 }
 
 function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled }) {
-  const [openingBrowser, setOpeningBrowser] = useState(false);
   const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -677,16 +691,8 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
     h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
-      act ? h(Button, {
-        disabled: openingBrowser, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
-        onClick: async () => {
-          setOpeningBrowser(true);
-          await act({ action: "open_agent_browser", executionId: run.id });
-          setOpeningBrowser(false);
-        }
-      }, openingBrowser ? "Opening…" : "Open browser") : null,
       h(NeedsYouControls, { item, act, onDone: onControlled }))),
-    interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered })
+    interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key))
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),

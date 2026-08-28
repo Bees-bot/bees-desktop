@@ -53,6 +53,9 @@ const temporalDestination = resolve(
 mkdirSync(dirname(destination), { recursive: true });
 copyFileSync(process.execPath, destination);
 chmodSync(destination, 0o755);
+// Copying strips nothing but leaves whoever built this node's signature on it, and this is the
+// sidecar every launch spawns. Temporal and llama-server are re-signed for the same reason.
+signMacBinary(destination, "Node");
 
 // b10153 is the first release with the `nanbeige` architecture the seeded model uses.
 const llamaRelease = "b10164";
@@ -114,6 +117,20 @@ const freeLlmVersion = "0.8.4";
 const freeLlmCommit = "6c4233b6847623328cdb8652d68e4d70d81f16e6";
 const freeLlmArchiveSha256 = "05cbaf60792f5183f74a238ca7938de93b0246e98a90ff571d243ea646e14469";
 
+/**
+ * A cached artifact counts as prepared only if the marker names both the revision and the size we
+ * last wrote. Version alone let a truncated or quarantined file through, and the next build shipped
+ * it untouched. The sha256 in the asset tables covers the download, not what came out of it.
+ */
+function preparedAlready(marker, artifact, revision) {
+  if (!existsSync(artifact) || !existsSync(marker)) return false;
+  return readFileSync(marker, "utf8").trim() === `${revision} ${statSync(artifact).size}`;
+}
+
+function markPrepared(marker, artifact, revision) {
+  writeFileSync(marker, `${revision} ${statSync(artifact).size}\n`);
+}
+
 function findFile(root, name) {
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
@@ -158,10 +175,7 @@ async function prepareTemporalRuntime() {
   const asset = temporalAssets[target];
   if (!asset) throw new Error(`No embedded Temporal runtime is configured for ${target}.`);
   const marker = resolve(desktopRoot, "src-tauri", "binaries", `.temporal-${target}.version`);
-  if (
-    existsSync(temporalDestination) && existsSync(marker) &&
-    readFileSync(marker, "utf8").trim() === temporalRelease
-  ) {
+  if (preparedAlready(marker, temporalDestination, temporalRelease)) {
     signMacBinary(temporalDestination, "Temporal");
     return;
   }
@@ -182,9 +196,14 @@ async function prepareTemporalRuntime() {
     const temporal = findFile(extracted, `temporal${extension}`);
     if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
     copyFileSync(temporal, temporalDestination);
+    // externalBin ships the binary on its own, so the licence rides along in the dsh-runtime
+    // resource instead, the way llama.cpp and FreeLLMAPI carry theirs.
+    const licence = findFile(extracted, "LICENSE");
+    if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
+    copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
     if (!target.includes("windows")) chmodSync(temporalDestination, 0o755);
     signMacBinary(temporalDestination, "Temporal");
-    writeFileSync(marker, `${temporalRelease}\n`);
+    markPrepared(marker, temporalDestination, temporalRelease);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -195,11 +214,7 @@ async function prepareFreeLlmRuntime() {
   const runtimeRoot = resolve(desktopRoot, "dsh-runtime", "freellmapi");
   const server = join(runtimeRoot, "server.mjs");
   const marker = join(runtimeRoot, ".freellmapi-version");
-  if (
-    existsSync(server) &&
-    existsSync(marker) &&
-    readFileSync(marker, "utf8").trim() === revision
-  ) return;
+  if (preparedAlready(marker, server, revision)) return;
 
   const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-freellmapi-"));
   try {
@@ -244,7 +259,7 @@ async function prepareFreeLlmRuntime() {
       logLevel: "info"
     });
     copyFileSync(join(sourceRoot, "LICENSE"), join(runtimeRoot, "LICENSE"));
-    writeFileSync(marker, `${revision}\n`);
+    markPrepared(marker, server, revision);
     writeFileSync(join(runtimeRoot, ".gitkeep"), "");
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -391,11 +406,7 @@ async function prepareLlamaRuntime() {
   const runtimeRoot = resolve(desktopRoot, "llama-runtime");
   const serverName = `llama-server${extension}`;
   const marker = join(runtimeRoot, ".llama-version");
-  if (
-    existsSync(join(runtimeRoot, serverName)) &&
-    existsSync(marker) &&
-    readFileSync(marker, "utf8").trim() === llamaRuntimeRevision
-  ) {
+  if (preparedAlready(marker, join(runtimeRoot, serverName), llamaRuntimeRevision)) {
     signMacRuntime(runtimeRoot);
     return;
   }
@@ -421,7 +432,7 @@ async function prepareLlamaRuntime() {
     }
     if (!target.includes("windows")) chmodSync(join(runtimeRoot, serverName), 0o755);
     signMacRuntime(runtimeRoot);
-    writeFileSync(marker, `${llamaRuntimeRevision}\n`);
+    markPrepared(marker, join(runtimeRoot, serverName), llamaRuntimeRevision);
     writeFileSync(join(runtimeRoot, ".gitkeep"), "");
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });

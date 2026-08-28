@@ -8,11 +8,11 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { closeAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
-import { currentIdentity, transaction } from "./product-database.js";
+import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A sign-in wall in the browser is the exception: the person can sign in for you, so call ask_user_question naming the site and wait, rather than stopping. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -450,7 +450,12 @@ export class AgentRuntime {
         detectedAt: new Date().toISOString(), status
       });
     }
-    ctx.on("session/event", (session, event) => this.onSessionEvent(session, event), { global: true });
+    // cordis emits listeners without a catch of its own, so a transient SQLITE_BUSY or one bad
+    // stored JSON row would take the whole process down mid-run instead of failing this one event.
+    ctx.on("session/event", (session, event) => {
+      try { this.onSessionEvent(session, event); }
+      catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
+    }, { global: true });
   }
 
   setProposalStore(store) {
@@ -585,7 +590,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      closeAgentBrowser(executionId);
+      this.track(closeAgentBrowser(executionId));
       return;
     }
     if (event.type === "tool/result") {
@@ -606,7 +611,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        closeAgentBrowser(executionId);
+        this.track(closeAgentBrowser(executionId));
       }
       const output = {
         sessionId,

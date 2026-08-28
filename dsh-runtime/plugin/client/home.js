@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty } from "./shared.js";
+import { ask, Button, clip, confirmAction, Empty } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 
@@ -15,7 +15,7 @@ function OutcomeWidget({ workspaceId, act, navigate }) {
     try {
       const text = outcome.trim();
       const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      const title = lines[0].length > 60 ? `${lines[0].substring(0, 57)}...` : lines[0];
+      const title = lines[0].length > 60 ? `${clip(lines[0], 57)}...` : lines[0];
       const result = await act({ action: "create_goal", workspaceId, title, description: text, priority: "normal" });
       if (result?.id) { setOutcome(""); setCreated(true); setTimeout(() => setCreated(false), 3000); navigate("goals"); }
     } catch (reason) {

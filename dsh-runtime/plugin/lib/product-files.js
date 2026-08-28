@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync
+  copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync
 } from "node:fs";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { currentIdentity, required } from "./product-database.js";
@@ -115,6 +115,10 @@ export function stageInputs(database, itemId, runDirectory, agentId = null) {
   `).all(itemId, itemId, agentId, itemId, deviceId);
   for (const location of locations) {
     if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
+    // realpathSync below reports a bare "ENOENT ... lstat <path>", which tells a person nothing
+    // about which mapped folder went missing or that a mapping is what broke their run.
+    if (!existsSync(location.localPath))
+      throw new Error(`${location.name} is mapped to ${location.localPath}, which is not on this device any more`);
     const selected = stagedLocation(location, location.relativePath);
     const suffix = location.relativePath
       ? `-${createHash("sha256").update(location.relativePath).digest("hex").slice(0, 8)}`

@@ -5,6 +5,12 @@ const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverab
 
 export const iso = () => new Date().toISOString();
 export const message = (error) => error instanceof Error ? error.message : String(error);
+/** Same thing for a person: SQLite names tables and columns, which means nothing in a form. */
+export function userMessage(error) {
+  const text = message(error);
+  if (!text.startsWith("UNIQUE constraint failed:")) return text;
+  return text.includes(".name") ? "That name is already taken here" : "That already exists";
+}
 // Tauri always sets this before it starts the harness, so a missing value is a broken launch,
 // not a case to fall back on. Falling back put the browser profile somewhere that does not survive.
 export function stateDirectory() {

@@ -10,10 +10,11 @@
       main { text-align: center; }
       .mark { margin: 0 auto 18px; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 14px; background: #f5b942; color: #17130a; font-size: 25px; font-weight: 800; }
       p { color: #a8abb0; }
+      button { margin-top: 14px; padding: 7px 14px; border: 1px solid #3a3d42; border-radius: 8px; color: inherit; background: #1c1f23; font: inherit; cursor: pointer; }
     </style>
     <script type="module" src="/src/entry.ts"></script>
   </head>
   <body>
-    <main><div class="mark">B</div><strong>Opening Bees</strong><p id="status">Starting the local runtime…</p></main>
+    <main><div class="mark">B</div><strong>Opening Bees</strong><p id="status">Starting the local runtime…</p><button id="retry" type="button" hidden>Try again</button></main>
   </body>
 </html>

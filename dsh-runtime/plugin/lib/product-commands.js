@@ -580,7 +580,7 @@ export async function executeProductCommand(action, input) {
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
           reasoningEffort,
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
-          workspaceId: workspace.id, agentPresetId: input.agentPresetId || "standard",
+          workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
           mcpAccess: "all", mcpServers: [],
           grants: []
         }
@@ -618,7 +618,7 @@ export async function executeProductCommand(action, input) {
           purpose: item.title, model: input.model || assignment?.model || null,
           reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
-          workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
+          workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
           ...mcpGrantFor(this.database, assignment?.id),
           grants
         }
@@ -628,7 +628,7 @@ export async function executeProductCommand(action, input) {
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      openAgentBrowser(executionId);
+      await openAgentBrowser(executionId);
       return { opened: true };
     }
     if (action === "stop_run") {

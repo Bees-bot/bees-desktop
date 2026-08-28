@@ -392,7 +392,7 @@ describe("DSH-owned desktop and recovery", () => {
     const runDirectory = mkdtempSync(join(tmpdir(), "bees-retry-"));
     const runtime = new AgentRuntime({
       on: () => () => undefined,
-      agentPresets: { mount: async () => undefined },
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
       agentDefaultModel: {
         currentSelection: () => ({ provider: "test-default", model: "configured-model" })
       },

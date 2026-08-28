@@ -8,7 +8,7 @@ describe("DSH stage results", () => {
     const runtime = new AgentRuntime(
       {
         on: () => () => undefined,
-        agentPresets: { mount: async () => undefined },
+        agentPresets: { defaultId: "standard", mount: async () => undefined },
       },
       database.connection,
     );
