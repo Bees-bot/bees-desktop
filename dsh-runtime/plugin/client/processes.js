@@ -132,14 +132,13 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
           } else if (pool) {
             card = h("button", { type: "button", className: "bees-hierarchy-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"));
           } else {
-            card = h("button", { type: "button", className: `bees-hierarchy-card ${creatingStageId === stage.id ? "active" : ""}`, style: { borderStyle: "dashed" }, onClick: () => { setSelectedAgentId(""); setCreatingStageId(stage.id); } },
-              h("h3", null, "+ Add or Create Agent"), h("div", { className: "bees-muted" }, "Using workspace default"));
+            card = null;
           }
 
           const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form", style: { marginTop: "8px" } },
             h("div", { className: "bees-card-actions", style: { display: "flex", gap: "6px" } },
               h("select", {
-                className: "bees-select", style: { flex: 1, fontSize: "12px", padding: "6px" }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+                className: "bees-select", style: { flex: 1, fontSize: "13px", padding: "8px" }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
                 "aria-label": `${stage.name} agent route`, onChange: (event) => {
                   if (event.target.value === "create_new") {
                     event.target.value = "";
@@ -149,15 +148,14 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
                   }
                 }
               },
-                h("option", { value: "" }, "Workspace default"),
+                h("option", { value: "" }, agent || pool ? "Remove (Use workspace default)" : "+ Add or Create Agent"),
                 h("option", { value: "create_new" }, "+ Create new agent"),
                 h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
                   h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
                 h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
-                  h("option", { value: `pool:${row.id}`, key: row.id }, row.name)))),
-              
-            ),
-            );
+                  h("option", { value: `pool:${row.id}`, key: row.id }, row.name))))
+            )
+          );
 
           return h("section", { className: "bees-column", key: stage.id },
             h("header", { className: "bees-column-head" }, stage.name),
