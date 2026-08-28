@@ -4,10 +4,10 @@ import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { addLocationFromDevice, ResourceFields } from "./location-fields.js";
 
-const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 8 }];
+const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
 const TEMPLATES_LAYOUT = [
   { kind: "about", x: 0, y: 0, w: 12, h: 2 },
-  { kind: "templates", x: 0, y: 2, w: 12, h: 8 }
+  { kind: "templates", x: 0, y: 2, w: 12, h: 10 }
 ];
 const PROCESS_DETAIL_LAYOUT = [
   { kind: "routing", x: 0, y: 0, w: 12, h: 7 },
@@ -130,7 +130,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
       
-      const routingBoard = h("div", { className: "bees-cockpit-board", style: { minHeight: "340px", flexShrink: 0, paddingBottom: "16px" } }, ...processStages.map((stage) => {
+      const routingBoard = h("div", { className: "bees-cockpit-board", style: { minHeight: "340px", flexGrow: 1, paddingBottom: "16px" } }, ...processStages.map((stage) => {
           const agent = stage.routeType === "agent" ? processAgents.find(({ id }) => id === stage.routeTargetId) : null;
           const pool = stage.routeType === "pool" ? processPools.find(({ id }) => id === stage.routeTargetId) : null;
           
@@ -190,7 +190,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process without breaking work history or database links."),
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
 
-      return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", gap: "16px", padding: "0 16px 24px" } },
+      return h("div", { className: "bees-grow", style: { display: "flex", flexDirection: "column", height: "100%", gap: "16px", padding: "0 16px 24px" } },
         h(PageHead, { setPageHeader },
           h(Button, { onClick: () => setProcessId("") }, "← Processes"),
           h("div", { className: "bees-title" }, process.name)
