@@ -104,15 +104,11 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    // Without a profile of its own the browser gets a throwaway one, so no sign-in ever survives.
-    // Headless because the agent's browsing is not a thing to watch: headed is the default and it
-    // put a window in front of whatever the person was doing on every tool call. A sign-in wall is
-    // the one time a window is wanted, and Open browser on the waiting run opens this same profile.
-    args: [
-      "-y", "@playwright/mcp@latest",
-      "--headless",
-      "--user-data-dir", "{stateDir}/browser-profile"
-    ],
+    // Attach to the browser Bees runs rather than starting a second one. Letting this server launch
+    // its own put two Chromes on one profile, and whichever left last wrote its cookie jar over the
+    // other's, so a sign-in a person had just done came back to the agent as a sign-in page. The
+    // endpoint is filled in when the server connects: the port is only known once Chrome is up.
+    args: ["-y", "@playwright/mcp@latest", "--cdp-endpoint", "{cdpEndpoint}"],
     env: [],
     headers: []
   },

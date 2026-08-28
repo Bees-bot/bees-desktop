@@ -620,6 +620,13 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS bees_account;
     PRAGMA user_version = 14;
   `);
+  // An already-installed browser server still carries the arguments that started a second Chrome.
+  if (version < 15) database.exec(`
+    UPDATE mcp_servers
+      SET args_json = '["-y","@playwright/mcp@latest","--cdp-endpoint","{cdpEndpoint}"]'
+      WHERE catalog_id = 'playwright';
+    PRAGMA user_version = 15;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

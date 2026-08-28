@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 14 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 15 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
