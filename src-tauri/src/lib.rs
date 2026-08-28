@@ -4,9 +4,11 @@ mod process;
 use getrandom::fill;
 use local_models::{
     cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status,
-    reap_orphan_llama_servers, start_local_model, stop_local_model, LocalModelManager,
+    start_local_model, stop_local_model, LocalModelManager,
 };
-use process::{available_loopback_port, reap_orphaned_sidecars, Sidecar};
+use process::{
+    available_loopback_port, reap_orphan_llama_servers, reap_orphaned_sidecars, Sidecar,
+};
 use serde::Serialize;
 use std::{
     fmt::Write as _,
@@ -14,6 +16,7 @@ use std::{
     net::TcpStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     sync::Mutex,
     thread,
     time::Duration,
@@ -31,6 +34,8 @@ struct ManagedDsh {
 }
 
 struct DshManager(Mutex<Option<ManagedDsh>>);
+
+static WATCHING_DSH: AtomicBool = AtomicBool::new(false);
 
 struct DshRuntimeInfo {
     base_url: String,
@@ -437,31 +442,33 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     })
 }
 
+/// False once the harness sidecar is gone, or once there is nothing left to watch.
+fn dsh_alive(app: &tauri::AppHandle) -> bool {
+    let Some(state) = app.try_state::<DshManager>() else {
+        return false;
+    };
+    let Ok(mut managed) = state.0.lock() else {
+        return false;
+    };
+    managed
+        .as_mut()
+        .is_some_and(|dsh| dsh.child.alive().unwrap_or(false))
+}
+
 /// The webview ends up on the harness's own URL, so a sidecar that dies leaves the window
 /// stranded on a dead page. Put it back on the start screen, which asks for the runtime again.
 fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::Url) {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(2));
-        let Some(state) = app.try_state::<DshManager>() else {
-            return;
-        };
-        let dead = {
-            let Ok(mut managed) = state.0.lock() else {
-                return;
-            };
-            match managed.as_mut() {
-                Some(dsh) => !dsh.child.alive().unwrap_or(false),
-                None => return,
-            }
-        };
-        if !dead {
-            continue;
-        }
-        if let Ok(mut managed) = state.0.lock() {
-            *managed = None;
+    // ensure_dsh_runtime returns early when the sidecar is already healthy, so without this a
+    // second call would leave another thread polling for the rest of the session.
+    if WATCHING_DSH.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    thread::spawn(move || {
+        while dsh_alive(&app) {
+            thread::sleep(Duration::from_secs(2));
         }
         let _ = window.navigate(home);
-        return;
+        WATCHING_DSH.store(false, Ordering::SeqCst);
     });
 }
 

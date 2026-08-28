@@ -43,6 +43,30 @@ pub fn reap_orphaned_sidecars(executable: &Path) -> usize {
     reaped
 }
 
+/// Remove a llama-server left behind by a previous app instance. The model manager tracks its
+/// child only in memory, so a crash orphans the server and the next launch reports "not running"
+/// and spawns a duplicate. Matched on the `--alias active` we always pass, so somebody else's
+/// llama-server is left alone; the old taskkill path matched on name only and did not honour that.
+pub fn reap_orphan_llama_servers() -> usize {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut reaped = 0;
+    for process in system.processes().values() {
+        let ours = process
+            .exe()
+            .and_then(Path::file_stem)
+            .is_some_and(|name| name == "llama-server");
+        let alias = process
+            .cmd()
+            .windows(2)
+            .any(|pair| pair[0] == "--alias" && pair[1] == "active");
+        if ours && alias && process.kill() {
+            reaped += 1;
+        }
+    }
+    reaped
+}
+
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever
 /// owns it — app state, a manager's `Option`, a map entry — is all the cleanup there is.
 pub struct Sidecar(Child);
