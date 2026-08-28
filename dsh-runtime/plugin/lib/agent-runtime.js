@@ -345,6 +345,24 @@ export function authorizeReferences(database, workspaceId, references) {
   }
 }
 
+// The bundled local provider is declared in dsh-runtime/profile/cordis.patch.yml, so it always
+// looks configured even on a machine where no model has been downloaded. The run then dies with
+// whatever the transport said, which on a first install is a bare "Connection error."
+const LOCAL_PROVIDER_PREFIX = "local-openai/";
+const LOCAL_MODEL_MODELS_URL = "http://127.0.0.1:1234/v1/models";
+
+async function finishReason(run, error) {
+  let resolved;
+  try { resolved = JSON.parse(run?.configJson ?? "{}").resolvedModel; } catch { return error; }
+  if (!String(resolved ?? "").startsWith(LOCAL_PROVIDER_PREFIX)) return error;
+  try {
+    await fetch(LOCAL_MODEL_MODELS_URL, { signal: AbortSignal.timeout(1_500) });
+    return error;
+  } catch {
+    return { message: "The local model is not running, so the agent had nothing to talk to. Download or start it under Settings → AI connections, or give this agent a different model." };
+  }
+}
+
 export class AgentRuntime {
   constructor(ctx, database) {
     this.ctx = ctx;
@@ -1141,6 +1159,9 @@ export class AgentRuntime {
 
   async finish(executionId, submissionId, sessionId, handle, result) {
     if (this.closing) return;
+    // Only on the failure path, so a healthy run never pays for this.
+    if (result.outcome === "failed")
+      result = { ...result, error: await finishReason(this.run(executionId), result.error) };
     const at = new Date().toISOString();
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
