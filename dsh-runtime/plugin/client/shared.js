@@ -43,7 +43,7 @@ export const css = `
 
 .bees-flex-widget-borderless {
   border: none !important;
-  background: transparent !important;
+  background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
   box-shadow: none !important;
 }
 .bees-flex-widget-borderless .bees-flex-widget-body {
@@ -94,7 +94,7 @@ export const css = `
   max-width: 100% !important;
   width: 100%;
   padding: 0 !important;
-  background: transparent !important;
+  background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
   border: none !important;
 }
 .bees-convo-msg-interactive > .bees-box, .bees-convo-msg-interactive > .bees-answer-card {
@@ -117,7 +117,7 @@ export const css = `
 .bees-dot-typing::after { left: 16px; animation-delay: 0s; }
 .bees-dot-typing { background: var(--dsw-alias-label-secondary); border-radius: 50%; width: 6px; left: 8px; animation: bees-typing 1.4s infinite ease-in-out both; animation-delay: -0.16s; }
 @keyframes bees-typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-.bees-convo-msg-interactive { max-width: 100%; width: 100%; padding: 0; background: transparent !important; border: none !important; }
+.bees-convo-msg-interactive { max-width: 100%; width: 100%; padding: 0; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; border: none !important; }
 .bees-convo-msg-interactive > .bees-box, .bees-convo-msg-interactive > .bees-answer-card { margin: 0; border-radius: 12px; border: 1px solid #8A6B27; background: #3D3014; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 .bees-convo-msg-interactive .bees-answer-card h2 { color: #fff; font-size: 16px; margin: 0; }
 .bees-convo-msg-interactive .bees-choice { background: #2A2A2A; border-color: #444; color: #fff; }
@@ -199,7 +199,7 @@ export const css = `
 
 .bees-column-head { font-weight: 600 !important; margin-bottom: 12px !important; display: flex !important; align-items: center !important; justify-content: space-between !important; }
 .bees-cards { display: flex !important; flex-direction: column !important; gap: 12px !important; }
-.bees-hierarchy-card { width: 100% !important; box-sizing: border-box !important; padding: 12px !important; border-radius: 8px !important; border: 1px solid var(--dsw-alias-border-l2) !important; background: transparent !important; text-align: left !important; display: block !important; }
+.bees-hierarchy-card { width: 100% !important; box-sizing: border-box !important; padding: 12px !important; border-radius: 8px !important; border: 1px solid var(--dsw-alias-border-l2) !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; text-align: left !important; display: block !important; }
 .bees-hierarchy-card h3 { font-size: 14px !important; font-weight: 600 !important; margin: 0 0 6px !important; display: -webkit-box !important; -webkit-line-clamp: 2 !important; -webkit-box-orient: vertical !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: normal !important; line-height: 1.4 !important; }
 .bees-hierarchy-card .bees-muted { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; margin-top: 4px !important; }
 
@@ -215,7 +215,7 @@ export const css = `
 
 /* Work item conversation */
 .bees-convo-panel { background: var(--dsw-specific-sidebar-fill) !important; border: 1px solid var(--dsw-alias-border-l1) !important; }
-.bees-convo-history { background: transparent !important; padding: 14px !important; gap: 12px !important; }
+.bees-convo-history { background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; padding: 14px !important; gap: 12px !important; }
 .bees-convo-msg.user { align-self: flex-end !important; background: var(--dsw-alias-interactive-bg-hover) !important; color: var(--dsw-alias-label-primary) !important; border: 1px solid var(--dsw-alias-border-l2) !important; border-radius: 14px 14px 4px 14px !important; max-width: 82% !important; padding: 10px 13px !important; margin: 0 !important; font-weight: 400 !important; }
 .bees-agent-turn { display: flex; align-items: flex-start; gap: 8px; max-width: 88%; align-self: flex-start; }
 .bees-agent-avatar { display: grid; place-items: center; flex: 0 0 28px; height: 28px; margin-top: 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); font-size: 11px; font-weight: 800; }
@@ -223,7 +223,7 @@ export const css = `
 .bees-convo-msg.agent.error { border-color: #d15353 !important; background: #a9363622 !important; }
 .bees-convo-msg.system { border: 1px solid var(--dsw-alias-border-l1) !important; background: var(--dsw-alias-button-elevated-fill) !important; border-radius: 10px !important; color: var(--dsw-alias-label-secondary) !important; padding: 8px 11px !important; max-width: 100% !important; align-self: stretch !important; margin: 0 !important; font-size: 12px !important; }
 .bees-convo-msg strong { color: var(--dsw-alias-label-secondary) !important; }
-.bees-convo-msg-interactive { border: none !important; background: transparent !important; padding: 0 !important; }
+.bees-convo-msg-interactive { border: none !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; padding: 0 !important; }
 
 .bees-tool-card { width: calc(100% - 36px); margin-left: 36px; align-self: flex-start; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-button-elevated-fill); }
 .bees-tool-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; cursor: pointer; list-style: none; }
@@ -242,11 +242,11 @@ export const css = `
 
 .bees-answer-card { background: var(--dsw-alias-button-elevated-fill) !important; border: 1px solid var(--dsw-alias-border-l2) !important; border-radius: 12px !important; box-shadow: 0 4px 12px #00000012 !important; padding: 14px !important; margin: 0 !important; }
 .bees-answer-card h2, .bees-answer-card h3 { color: var(--dsw-alias-label-primary) !important; margin: 0 0 8px !important; }
-.bees-answer-card .bees-question-detail { color: var(--dsw-alias-label-secondary) !important; font-size: 13px !important; margin-bottom: 12px !important; padding: 0 !important; background: transparent !important; }
+.bees-answer-card .bees-question-detail { color: var(--dsw-alias-label-secondary) !important; font-size: 13px !important; margin-bottom: 12px !important; padding: 0 !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; }
 .bees-answer-card .bees-choice { background: var(--dsw-alias-bg-base) !important; border: 1px solid var(--dsw-alias-border-l1) !important; color: var(--dsw-alias-label-primary) !important; }
 .bees-answer-card .bees-choice:hover { background: var(--dsw-alias-interactive-bg-hover) !important; }
 
-.bees-compact-composer { position: relative !important; display: block !important; margin: 12px !important; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
+.bees-compact-composer { position: relative !important; display: block !important; margin: 12px !important; padding: 0 !important; border: 0 !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; box-shadow: none !important; }
 .bees-compact-composer textarea { width: 100%; min-height: 66px !important; padding: 10px 48px 10px 12px !important; border: 1px solid var(--dsw-alias-border-l2) !important; border-radius: 12px !important; color: var(--dsw-alias-label-primary) !important; background: var(--dsw-alias-button-elevated-fill) !important; font: inherit !important; font-size: 13px !important; line-height: 1.4 !important; resize: vertical; }
 .bees-composer-send { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 10px; color: var(--dsw-alias-bg-base); background: var(--dsw-alias-state-business-primary, #f2b84b); font: 700 18px/1 inherit; cursor: pointer; }
 .bees-composer-send:disabled { opacity: .45; cursor: not-allowed; }

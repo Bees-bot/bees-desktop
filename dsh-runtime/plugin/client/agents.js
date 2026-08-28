@@ -175,29 +175,32 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
       : h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Agents"),
         h("div", null, h("h2", null, "New agent"), h("div", { className: "bees-muted" }, "Give it a name, a toolbox, and a model. Everything here can be changed later."))),
     
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" } },
+    h("div", { className: "bees-form-row" },
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
       h("label", null, "Description", h("input", { className: "bees-input", name: "description", placeholder: "What should this agent be used for?" }))
     ),
     
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" } },
+    h("div", { className: "bees-form-row" },
       h("label", null, "Agent preset, its skills and tools",
         h("select", { className: "bees-select", name: "presetId", required: true,
           defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
           ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))),
         h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run.")),
-      h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel })
-    ),
-    
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" } },
-      h("label", null, "Capabilities, comma separated",
-        h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" }),
-        h("span", { className: "bees-muted" }, "Optional labels for process routing.")),
       h("label", null, "Max concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 }))
     ),
     
+    h("div", { className: "bees-form-row" },
+      h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel })
+    ),
+    
+    h("div", { className: "bees-form-row", style: { alignItems: "center" } },
+      h("label", null, "Capabilities, comma separated",
+        h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" }),
+        h("span", { className: "bees-muted" }, "Optional labels for process routing.")),
+      h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing"))
+    ),
+    
     h(McpAccess, { servers }),
-    h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), " Available for routing")),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"),
       h(Button, { onClick: onCancel }, "Cancel"))
@@ -220,28 +223,31 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
   } },
     h("div", { className: "bees-row" }, h(Button, { onClick: onCancel }, cancelLabel), h("strong", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
     
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" } },
+    h("div", { className: "bees-form-row" },
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
       h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selected.description }))
     ),
     
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" } },
+    h("div", { className: "bees-form-row" },
       h("label", null, "Agent preset, its skills and tools",
         h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
           ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name))),
         h("span", { className: "bees-muted" }, "The preset decides which tools this agent can run.")),
-      h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "", systemDefault: data.systemDefaultModel })
-    ),
-    
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" } },
-      h("label", null, "Capabilities, comma separated",
-        h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" }),
-        h("span", { className: "bees-muted" }, "Optional labels for process routing.")),
       h("label", null, "Max concurrent runs (0 is unlimited)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency }))
     ),
     
+    h("div", { className: "bees-form-row" },
+      h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "", systemDefault: data.systemDefaultModel })
+    ),
+    
+    h("div", { className: "bees-form-row", style: { alignItems: "center" } },
+      h("label", null, "Capabilities, comma separated",
+        h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" }),
+        h("span", { className: "bees-muted" }, "Optional labels for process routing.")),
+      h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"))
+    ),
+    
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
-    h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing")),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
