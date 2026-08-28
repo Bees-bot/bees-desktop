@@ -106,9 +106,7 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
             .join("index.js")
             .is_file()
         || !runtime.join("freellmapi").join("server.mjs").is_file()
-        || BEES_PLUGINS
-        .iter()
-        .any(|package| {
+        || BEES_PLUGINS.iter().any(|package| {
             !runtime
                 .join("node_modules")
                 .join("@bees")
@@ -479,9 +477,10 @@ async fn ensure_dsh_runtime(
 ) -> Result<(), String> {
     let home = window.url().map_err(|error| error.to_string())?;
     let handle = app.clone();
-    let runtime = tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&handle))
-        .await
-        .map_err(|error| error.to_string())??;
+    let runtime =
+        tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&handle))
+            .await
+            .map_err(|error| error.to_string())??;
     let url: tauri::Url = format!("{}/bees-auth?token={}", runtime.base_url, runtime.token)
         .parse()
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
@@ -561,7 +560,11 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
     let quit = MenuItem::with_id(app, "quit", "Quit Bees", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     TrayIconBuilder::with_id("bees")
-        .icon(app.default_window_icon().cloned().ok_or("Bees has no window icon")?)
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .ok_or("Bees has no window icon")?,
+        )
         .tooltip("Bees is running")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {

@@ -2,10 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 const status = document.querySelector<HTMLElement>("#status");
 const retry = document.querySelector<HTMLButtonElement>("#retry");
+const starting = status?.textContent ?? "";
 
 async function openBees(): Promise<void> {
   if (retry) retry.hidden = true;
-  if (status) status.textContent = "Starting the local runtime…";
+  if (status) status.textContent = starting;
   try {
     await invoke("ensure_dsh_runtime");
   } catch (error) {
