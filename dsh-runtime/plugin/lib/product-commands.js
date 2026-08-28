@@ -583,7 +583,7 @@ export async function executeProductCommand(action, input) {
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      openAgentBrowser(executionId);
+      await openAgentBrowser(executionId);
       return { opened: true };
     }
     if (action === "stop_run") {
