@@ -164,14 +164,14 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
             h("div", { className: "bees-cards" }, card, controls));
         }));
 
-      const agentForm = creatingStage ? h("div", { className: "bees-box", style: { marginBottom: "24px" } },
-          h("h3", { style: { marginBottom: "16px" } }, `New agent for ${creatingStage.name}`),
+      const agentForm = creatingStage ? h("div", null,
+          
           h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
             } }))
-        : selectedAgent ? h("div", { className: "bees-box", style: { marginBottom: "24px" } },
-          h("h3", { style: { marginBottom: "16px" } }, `Configure ${selectedAgent.name}`),
+        : selectedAgent ? h("div", null,
+          
           h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close",
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
