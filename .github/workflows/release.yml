@@ -115,8 +115,12 @@ jobs:
         with:
           projectPath: .
           tagName: ${{ github.ref_name }}
-          # Writes the signed `latest.json` the updater endpoint points at.
-          includeUpdaterJson: true
+          # OFF until an upgrade from 0.1.1 keeps a person's data. 0.1.1 shipped with the
+          # updater plugin polling this repo's latest.json, and its pubkey matches the key
+          # above, so publishing one here auto-installs the rewrite on every 0.1.1 machine.
+          # That release read flue-state/flue.db and this one reads bees-stage1.db, so they
+          # would silently open an empty app. Nothing in 0.2.0 reads latest.json anyway.
+          includeUpdaterJson: false
           releaseName: "Bees v__VERSION__"
           releaseBody: |
             Private, local-first AI agents for organizations.
