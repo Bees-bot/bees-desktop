@@ -155,9 +155,9 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
                   h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
                 h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
                   h("option", { value: `pool:${row.id}`, key: row.id }, row.name)))),
-              h(Button, { onClick: () => setRequirements(stage), style: { padding: "6px 8px" } }, "Reqs")
+              
             ),
-            stage.requiredCapabilities.length ? h("div", { className: "bees-muted", style: { fontSize: "11px", marginTop: "4px" } }, `Reqs: ${stage.requiredCapabilities.join(", ")}`) : null);
+            );
 
           return h("section", { className: "bees-column", key: stage.id },
             h("header", { className: "bees-column-head" }, stage.name),
