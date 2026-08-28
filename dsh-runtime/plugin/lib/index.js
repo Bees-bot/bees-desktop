@@ -109,7 +109,7 @@ function register(ctx, route) {
 
 export async function apply(ctx, _config = {}, internals = {}) {
   const databasePath = process.env.BEES_DATABASE_PATH;
-  const token = process.env.BEES_DSH_TOKEN ?? "";
+  const token = process.env.BEES_DSH_TOKEN;
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
   if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
 

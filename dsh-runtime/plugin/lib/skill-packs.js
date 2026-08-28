@@ -16,7 +16,9 @@ const SKILL_NAME = /^[\p{L}\p{N}-]+$/u;
 const MAX_BYTES = 2_000_000;
 
 export function skillsRoot() {
-  return join(process.env.DSH_HOME, "skills");
+  const home = process.env.DSH_HOME;
+  if (!home) throw new Error("Bees did not provide the harness home directory");
+  return join(home, "skills");
 }
 
 /** GitHub cuts a large tree short, and a cut listing would install half a skill. */
