@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { openAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assignment, capabilities, currentIdentity, insertProcess, insertWorkspaceDefaults, iso,
-  itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStageNames,
+  itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
@@ -162,13 +163,13 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const stages = processStageNames(input.stages);
+      const stages = processStages(input.stages);
       return { id: insertProcess(this.database, workspace.id, input.name, input.description, stages) };
     });
     if (action === "create_process_template") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const id = randomUUID();
-      const stages = processStageNames(input.stages, "process template");
+      const stages = processStages(input.stages, "process template");
       this.database.prepare(`
         INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, workspace.id, required(input.name, "Template name"), String(input.description ?? ""),
@@ -217,17 +218,17 @@ export async function executeProductCommand(action, input) {
         SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
           AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
       `).get(processId)) throw new Error("Finish or cancel active automatic work before editing this process");
-      const names = processStageNames(input.stages);
+      const names = processStages(input.stages);
       const existing = this.database.prepare(`
         SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
       `).all(processId);
       const assigned = Array(names.length).fill(null);
       const used = new Set();
-      names.forEach((name, index) => {
+      names.forEach(({ name }, index) => {
         const stage = existing.find((row) => !used.has(row.id) && row.name.toLocaleLowerCase() === name.toLocaleLowerCase());
         if (stage) { assigned[index] = stage; used.add(stage.id); }
       });
-      names.forEach((_name, index) => {
+      names.forEach((_stage, index) => {
         if (assigned[index]) return;
         const stage = existing.find(({ id }) => !used.has(id));
         if (stage) { assigned[index] = stage; used.add(stage.id); }
@@ -239,15 +240,15 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("UPDATE stages SET position = -position - 1 WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
-      names.forEach((name, position) => {
+      names.forEach(({ name, instructions }, position) => {
         const driver = position === names.length - 1 ? "terminal"
           : position > 0 && /review/i.test(name) ? "review" : "agent";
         if (assigned[position]) this.database.prepare(`
-          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
-        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
+          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ?, completion_rules = ? WHERE id = ?
+        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, instructions, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages VALUES (?, ?, ?, ?, ?, '', ?, NULL)
-        `).run(randomUUID(), processId, name, position, driver, position === names.length - 1 ? 1 : 0);
+          INSERT INTO stages VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(randomUUID(), processId, name, position, driver, instructions, position === names.length - 1 ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
@@ -525,6 +526,7 @@ export async function executeProductCommand(action, input) {
     if (action === "ask_bees") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const executionId = randomUUID();
+      const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
@@ -532,7 +534,7 @@ export async function executeProductCommand(action, input) {
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
-          reasoningEffort: optionalReasoningEffort(input.reasoningEffort),
+          reasoningEffort,
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || "standard",
           mcpAccess: "all", mcpServers: [],
@@ -551,6 +553,9 @@ export async function executeProductCommand(action, input) {
       const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)
         .get(item.stageId, item.processId);
       const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
+      const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
+      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       const assignment = resolveStageAgent(this.database, {
         executionId, item, stageId: item.stageId, purpose: stagePurpose,
         // Without this the reviewer could be the same agent that produced the work.
@@ -559,8 +564,6 @@ export async function executeProductCommand(action, input) {
           WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
         `).get(item.id)?.executionId : null
       });
-      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
-      const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`,
@@ -568,7 +571,7 @@ export async function executeProductCommand(action, input) {
           version: 1, mode: "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
-          reasoningEffort: optionalReasoningEffort(input.reasoningEffort) || assignment?.reasoningEffort || null,
+          reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
           ...mcpGrantFor(this.database, assignment?.id),
@@ -576,6 +579,12 @@ export async function executeProductCommand(action, input) {
         }
       });
       return { executionId };
+    }
+    if (action === "open_agent_browser") {
+      const executionId = required(input.executionId, "Execution");
+      runContext(this.database, executionId);
+      openAgentBrowser(executionId);
+      return { opened: true };
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");

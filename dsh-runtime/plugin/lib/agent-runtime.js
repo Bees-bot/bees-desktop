@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { showAgentBrowser } from "./agent-browser.js";
+import { closeAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, transaction } from "./product-database.js";
 
@@ -14,7 +14,11 @@ const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task config
 
 Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
-const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome. You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
+const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
+
+Write the instructions for every stage yourself; a stage with no instructions leaves its agent guessing. Say which of the connected tools that stage should use and name them, what file it must leave under outputs/ and in what shape, and what would make the work wrong. Give the last review stage the specific checks that catch a bad result for this outcome. Keep each one a short paragraph an engineer would write, not a list of platitudes.
+
+You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
 
@@ -541,7 +545,6 @@ export class AgentRuntime {
         idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
       });
       this.audit("question-requested", executionId, sessionId, pending);
-      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/asked") {
@@ -564,7 +567,6 @@ export class AgentRuntime {
         idempotencyKey: `approval-asked:${sessionId}:${pending.approvalId}`
       });
       this.audit("approval-requested", executionId, sessionId, pending);
-      showAgentBrowser(true);
       return;
     }
     if (event.type === "approval/decided") {
@@ -583,7 +585,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      showAgentBrowser(false);
+      closeAgentBrowser(executionId);
       return;
     }
     if (event.type === "tool/result") {
@@ -604,7 +606,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        showAgentBrowser(false);
+        closeAgentBrowser(executionId);
       }
       const output = {
         sessionId,
@@ -655,6 +657,15 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
+  /** A planner cannot name a tool it has not been told about. */
+  connectedTools() {
+    const servers = this.database.prepare(`
+      SELECT server_name AS name, label FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
+    `).all();
+    if (!servers.length) return [];
+    return [`Tools an agent can use here, by prefix: ${servers.map(({ name, label }) => `mcp__${name}__ (${label})`).join(", ")}. Name the ones a stage needs in that stage's instructions.`];
+  }
+
   /** A folder-bound server takes its folder as its last argument; nothing else tells the model which. */
   boundFolders() {
     const bound = new Set(MCP_CATALOG.filter(({ requiresDirectory }) => requiresDirectory).map(({ id }) => id));
@@ -672,7 +683,8 @@ export class AgentRuntime {
       name: "deployment:persona", order: 0,
       text: [
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
-        String(data.instructions ?? ""), ...this.boundFolders()
+        String(data.instructions ?? ""),
+        ...(data.mode === "planning" ? this.connectedTools() : []), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
     });
     agentCtx.tools.register(defineTool({
@@ -703,7 +715,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:[...]}, or {action:'create_item',process,title,description}. A create_item must name a process created earlier in the same array."
+          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:[{name,instructions}]}, or {action:'create_item',process,title,description}. Every stage needs instructions. A create_item must name a process created earlier in the same array."
         }
       },
       output: {
@@ -961,8 +973,10 @@ export class AgentRuntime {
       await mkdir(workspace, { recursive: true });
       const uid = randomUUID();
       const at = new Date().toISOString();
+      // Temporal can redeliver an activity attempt, so two admits for one new run can both get
+      // past the check above. The loser takes the row the winner wrote rather than throwing.
       this.database.prepare(`
-        INSERT INTO execution_links
+        INSERT OR IGNORE INTO execution_links
           (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
            instance_uid, run_directory, config_json, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
