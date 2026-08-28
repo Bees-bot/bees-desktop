@@ -117,23 +117,29 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       };
       const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
-      const routing = h("div", { className: "bees-stack" },
-        h("p", { className: "bees-muted" }, "Assign an agent or pool to each stage here—including a stage named Waiting. “Needs you” is a separate queue for blocked work, not an assignable stage. Workspace defaults remain the fallback."),
-        h("div", { className: "bees-board bees-routing-board" }, ...processStages.map((stage) => {
+      
+      const routingBoard = h("div", { className: "bees-cockpit-board", style: { minHeight: "340px", flexShrink: 0, paddingBottom: "16px" } }, ...processStages.map((stage) => {
           const agent = stage.routeType === "agent" ? processAgents.find(({ id }) => id === stage.routeTargetId) : null;
           const pool = stage.routeType === "pool" ? processPools.find(({ id }) => id === stage.routeTargetId) : null;
-          const card = stage.driver === "terminal"
-            ? h("div", { className: "bees-card" }, h("span", { className: "bees-badge" }, "Terminal"),
-              h("p", null, "Work completes in this stage."))
-            : agent ? h("button", { type: "button", className: `bees-hierarchy-card ${selectedAgentId === agent.id ? "active" : ""}`,
+          
+          let card;
+          if (stage.driver === "terminal") {
+            card = h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } }, h("span", { className: "bees-badge" }, "Terminal"), h("p", { className: "bees-muted", style: { marginTop: "8px" } }, "Work completes here."));
+          } else if (agent) {
+            card = h("button", { type: "button", className: `bees-hierarchy-card ${selectedAgentId === agent.id ? "active" : ""}`,
               onClick: () => { setCreatingStageId(""); setSelectedAgentId(agent.id); } },
-              h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")))
-              : pool ? h("div", { className: "bees-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"))
-                : h(Empty, null, `No agent assigned`);
-          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form bees-routing-controls", style: { marginTop: "12px" } },
-            h("div", { className: "bees-card-actions" },
+              h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")));
+          } else if (pool) {
+            card = h("button", { type: "button", className: "bees-hierarchy-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"));
+          } else {
+            card = h("button", { type: "button", className: `bees-hierarchy-card ${creatingStageId === stage.id ? "active" : ""}`, style: { borderStyle: "dashed" }, onClick: () => { setSelectedAgentId(""); setCreatingStageId(stage.id); } },
+              h("h3", null, "+ Add or Create Agent"), h("div", { className: "bees-muted" }, "Using workspace default"));
+          }
+
+          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form", style: { marginTop: "8px" } },
+            h("div", { className: "bees-card-actions", style: { display: "flex", gap: "6px" } },
               h("select", {
-                className: "bees-select", style: { flex: 1 }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
+                className: "bees-select", style: { flex: 1, fontSize: "12px", padding: "6px" }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
                 "aria-label": `${stage.name} agent route`, onChange: (event) => {
                   if (event.target.value === "create_new") {
                     event.target.value = "";
@@ -143,30 +149,38 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
                   }
                 }
               },
-                h("option", { value: "" }, agent || pool ? "Change agent..." : "+ Pick agent"),
+                h("option", { value: "" }, "Workspace default"),
                 h("option", { value: "create_new" }, "+ Create new agent"),
                 h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
                   h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
                 h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
                   h("option", { value: `pool:${row.id}`, key: row.id }, row.name)))),
-              h(Button, { onClick: () => setRequirements(stage) }, "Requirements")
+              h(Button, { onClick: () => setRequirements(stage), style: { padding: "6px 8px" } }, "Reqs")
             ),
-            stage.requiredCapabilities.length ? h("div", { className: "bees-muted" }, `Requires: ${stage.requiredCapabilities.join(", ")}`) : null);
+            stage.requiredCapabilities.length ? h("div", { className: "bees-muted", style: { fontSize: "11px", marginTop: "4px" } }, `Reqs: ${stage.requiredCapabilities.join(", ")}`) : null);
+
           return h("section", { className: "bees-column", key: stage.id },
-            h("header", { className: "bees-column-head" }, stage.name,
-              h("span", { className: "bees-count" }, stage.driver === "terminal" ? "Done" : agent || pool ? 1 : 0)),
+            h("header", { className: "bees-column-head" }, stage.name),
             h("div", { className: "bees-cards" }, card, controls));
-        })));
-      const agentForm = creatingStage ? h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true,
-          onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
-            await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
-          } })
-        : selectedAgent ? h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close",
-          onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null;
-      const archive = process.kind === "standard" ? h("div", null,
-        h("p", { className: "bees-muted" }, "Archive hides this process without breaking work history or database links."),
+        }));
+
+      const agentForm = creatingStage ? h("div", { className: "bees-box", style: { marginBottom: "24px" } },
+          h("h3", { style: { marginBottom: "16px" } }, `New agent for ${creatingStage.name}`),
+          h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true,
+            onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
+              await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
+            } }))
+        : selectedAgent ? h("div", { className: "bees-box", style: { marginBottom: "24px" } },
+          h("h3", { style: { marginBottom: "16px" } }, `Configure ${selectedAgent.name}`),
+          h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close",
+            onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
+
+      const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },
+        h("h3", { style: { color: "#cf5b5b" } }, "Archive process"),
+        h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process without breaking work history or database links."),
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
-      return h("div", null,
+
+      return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", gap: "16px", padding: "0 16px 24px" } },
         h(PageHead, { setPageHeader },
           h(Button, { onClick: () => setProcessId("") }, "← Processes"),
           h("div", { className: "bees-title" }, process.name)
@@ -180,15 +194,9 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
           process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
           h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
         ),
-        h(GridStackPage, {
-          layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions,
-          panels: {
-            routing: { label: "Stage routing", minW: 5, minH: 4, content: routing },
-            ...(agentForm ? { agent: { label: creatingStage ? `New agent for ${creatingStage.name}` : `Configure ${selectedAgent.name}`,
-              minW: 5, minH: 6, content: agentForm } } : {}),
-            ...(archive ? { archive: { label: "Archive process", minW: 4, minH: 2, content: archive } } : {})
-          }
-        })
+        routingBoard,
+        agentForm,
+        archive
       );
     }
   }
