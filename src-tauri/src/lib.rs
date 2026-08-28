@@ -437,12 +437,42 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     })
 }
 
+/// The webview ends up on the harness's own URL, so a sidecar that dies leaves the window
+/// stranded on a dead page. Put it back on the start screen, which asks for the runtime again.
+fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::Url) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(2));
+        let Some(state) = app.try_state::<DshManager>() else {
+            return;
+        };
+        let dead = {
+            let Ok(mut managed) = state.0.lock() else {
+                return;
+            };
+            match managed.as_mut() {
+                Some(dsh) => !dsh.child.alive().unwrap_or(false),
+                None => return,
+            }
+        };
+        if !dead {
+            continue;
+        }
+        if let Ok(mut managed) = state.0.lock() {
+            *managed = None;
+        }
+        let _ = window.navigate(home);
+        return;
+    });
+}
+
 #[tauri::command]
 async fn ensure_dsh_runtime(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
-    let runtime = tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&app))
+    let home = window.url().map_err(|error| error.to_string())?;
+    let handle = app.clone();
+    let runtime = tauri::async_runtime::spawn_blocking(move || ensure_dsh_runtime_blocking(&handle))
         .await
         .map_err(|error| error.to_string())??;
     let url: tauri::Url = format!("{}/bees-auth?token={}", runtime.base_url, runtime.token)
@@ -450,7 +480,9 @@ async fn ensure_dsh_runtime(
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
     window
         .navigate(url)
-        .map_err(|error| format!("Could not open the local Bees interface: {error}"))
+        .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
+    watch_dsh(app, window, home);
+    Ok(())
 }
 
 #[tauri::command]
