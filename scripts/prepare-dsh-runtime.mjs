@@ -182,6 +182,11 @@ async function prepareTemporalRuntime() {
     const temporal = findFile(extracted, `temporal${extension}`);
     if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
     copyFileSync(temporal, temporalDestination);
+    // externalBin ships the binary on its own, so the licence rides along in the dsh-runtime
+    // resource instead, the way llama.cpp and FreeLLMAPI carry theirs.
+    const licence = findFile(extracted, "LICENSE");
+    if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
+    copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
     if (!target.includes("windows")) chmodSync(temporalDestination, 0o755);
     signMacBinary(temporalDestination, "Temporal");
     writeFileSync(marker, `${temporalRelease}\n`);

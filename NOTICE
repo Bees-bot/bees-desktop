@@ -26,6 +26,11 @@ This product includes software developed by third parties:
   Copyright (c) Tashfeen Ahmed
   Licensed under the MIT License
 
+  Temporal CLI, bundled as a sidecar
+  https://github.com/temporalio/cli
+  Copyright (c) 2024 Temporal Technologies Inc.
+  Licensed under the MIT License
+
   Tauri and Tauri plugins
   https://github.com/tauri-apps/tauri
   Licensed under either Apache License 2.0 or MIT License
