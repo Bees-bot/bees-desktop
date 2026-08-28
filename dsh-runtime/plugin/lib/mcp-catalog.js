@@ -105,7 +105,14 @@ const ENTRIES = [
     transport: "stdio",
     command: "npx",
     // Without a profile of its own the browser gets a throwaway one, so no sign-in ever survives.
-    args: ["-y", "@playwright/mcp@latest", "--user-data-dir", "{stateDir}/browser-profile"],
+    // Headless because the agent's browsing is not a thing to watch: headed is the default and it
+    // put a window in front of whatever the person was doing on every tool call. A sign-in wall is
+    // the one time a window is wanted, and Open browser on the waiting run opens this same profile.
+    args: [
+      "-y", "@playwright/mcp@latest",
+      "--headless",
+      "--user-data-dir", "{stateDir}/browser-profile"
+    ],
     env: [],
     headers: []
   },
