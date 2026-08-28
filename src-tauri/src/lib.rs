@@ -18,6 +18,8 @@ use std::{
     thread,
     time::Duration,
 };
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
 struct ManagedDsh {
@@ -99,12 +101,7 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
             .join("index.js")
             .is_file()
         || !runtime.join("freellmapi").join("server.mjs").is_file()
-        || [
-            "dsh-local-ai",
-            "dsh-free-ai",
-            "dsh-custom-ai",
-            "dsh-subscriptions",
-        ]
+        || BEES_PLUGINS
         .iter()
         .any(|package| {
             !runtime
@@ -171,14 +168,10 @@ fn link_package(source: &Path, destination: &Path) -> Result<(), String> {
 fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     let profile = home.join("profiles").join("bees");
     copy_profile(runtime, &profile)?;
-    for (scope, package) in [
-        ("@deepseek-ai", "dsh-session-persistence-sqlite"),
-        ("@bees", "dsh-plugin"),
-        ("@bees", "dsh-local-ai"),
-        ("@bees", "dsh-free-ai"),
-        ("@bees", "dsh-custom-ai"),
-        ("@bees", "dsh-subscriptions"),
-    ] {
+    let packages = [("@deepseek-ai", "dsh-session-persistence-sqlite")]
+        .into_iter()
+        .chain(BEES_PLUGINS.map(|package| ("@bees", package)));
+    for (scope, package) in packages {
         link_package(
             &runtime.join("node_modules").join(scope).join(package),
             &profile.join("node_modules").join(scope).join(package),
@@ -195,6 +188,16 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Every plugin Bees ships. The launch check and the profile links both read this, so a new
+/// plugin cannot be staged without also being verified and linked.
+const BEES_PLUGINS: [&str; 5] = [
+    "dsh-plugin",
+    "dsh-local-ai",
+    "dsh-free-ai",
+    "dsh-custom-ai",
+    "dsh-subscriptions",
+];
 
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
@@ -501,6 +504,36 @@ fn open_external_url(url: String) -> Result<(), String> {
     Err("Opening website links is not supported on this device.".to_string())
 }
 
+/// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
+/// and a second launch all route here.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// A menu-bar entry so a person can tell Bees is still working with no window on screen, and can
+/// end it deliberately. Quit goes through `app.exit`, which raises `RunEvent::Exit` and takes the
+/// sidecars down with it.
+fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let open = MenuItem::with_id(app, "open", "Open Bees", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Bees", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    TrayIconBuilder::with_id("bees")
+        .icon(app.default_window_icon().cloned().ok_or("Bees has no window icon")?)
+        .tooltip("Bees is running")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
@@ -508,11 +541,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }));
     }
     builder
@@ -524,7 +553,18 @@ pub fn run() {
             }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
+            build_tray(app.handle())?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Agents keep running with the window shut, so closing it hides the window and leaves
+            // the tray as the way back in. Quit from the tray is what actually ends the process.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             ensure_dsh_runtime,
@@ -540,6 +580,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Bees")
         .run(|handle, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                show_main_window(handle);
+            }
             // Tauri exits the process directly on quit, so the children are dropped by hand here.
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(dsh) = handle.try_state::<DshManager>() {
