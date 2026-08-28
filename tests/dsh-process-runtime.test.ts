@@ -60,6 +60,8 @@ describe("Temporal process projection", () => {
     expect(workflow).toContain('deprecatePatch("bees-durable-human-waits-v1")');
     expect(workflow).toContain('message === "Stopped by user"');
     expect(workflow).toContain('project("cancelled", message)');
+    expect(workflow).toContain('result.outcome === "blocked"');
+    expect(workflow).toContain('waitForRetry(result.summary');
   });
 
   it("keeps manual boards movable and rejects a stage from another process", () => {

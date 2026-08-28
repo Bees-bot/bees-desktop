@@ -119,6 +119,10 @@ export async function processWorkflow(input) {
         state.error = null;
         continue;
       }
+      if (purpose === "worker" && result.outcome === "blocked") {
+        await waitForRetry(result.summary || `${stage.name} is blocked`);
+        continue;
+      }
       if (purpose === "worker" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
