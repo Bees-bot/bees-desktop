@@ -303,7 +303,9 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, p
         const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
         return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
           h("h3", null, item.title), h("div", { className: "bees-lineage bees-muted" }, item.id === root.id ? "Root work item" : parentPath || "Delegated work"),
-          h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name, run?.status].filter(Boolean).join(" · ")));
+          // the item's phase and the run's status are different things; joining them read as
+          // "failed - Bees work agent - completed" on any item whose last run finished badly
+          h("div", { className: "bees-muted" }, [item.runtimePhase, routedAgent?.name].filter(Boolean).join(" · ")));
       }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
   }));
   useEffect(() => {
