@@ -314,9 +314,6 @@ describe("Bees DSH product plugin", () => {
     });
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: draft.id, executionId, purpose: "worker", instructions: "Draft it" });
     expect(stageRuns.at(-1)[1].initialData.instructions).toBe("Use the editorial voice\n\nDraft it");
-    await expect(product.command({
-      action: "set_stage_route", stageId: draft.id, targetType: null, targetId: null
-    })).rejects.toThrow("Finish or cancel active automatic work");
     const expectedReviewers = [reviewer.id, backupReviewer.id].sort();
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
       executionId: "editorial-review", candidateExecutionId: executionId,

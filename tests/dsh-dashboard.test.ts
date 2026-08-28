@@ -106,7 +106,6 @@ describe("personal dashboards", () => {
     expect(client).toContain('layoutId: "agent-pool"');
     expect(client).toContain('layoutId: "processes"');
     expect(client).toContain('layoutId: "process-templates"');
-    expect(client).toContain('layoutId: "process-detail"');
     expect(client).toContain('preferences.set("pageLayouts"');
     expect(client).toContain('className: "bees-page-actions"');
     expect(client).not.toContain('className: "bees-flex-toolbar"');

@@ -275,10 +275,6 @@ export async function executeProductCommand(action, input) {
       if (!stage) throw new Error("Stage not found");
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (stage.driver === "terminal") throw new Error("A terminal stage does not run an agent");
-      if (this.processes.isAutomatic(stage.processId) && this.database.prepare(`
-        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
-          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
-      `).get(stage.processId)) throw new Error("Finish or cancel active automatic work before changing stage routing");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
       const targetType = input.targetType || null;
       const targetId = input.targetId ? required(input.targetId, "Route target") : null;

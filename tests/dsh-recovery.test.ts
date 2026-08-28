@@ -88,8 +88,8 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('event.code !== "KeyD"');
     expect(client).toContain("event.metaKey || event.ctrlKey");
     expect(client).toContain('toggleAttribute("data-bees-debug-dsh")');
-    expect(client).toMatch(/\[data-bees-debug-dsh\] \.bees-app \{[^}]*display:none/);
-    expect(client).toMatch(/\.bees-main \{[^}]*min-width:0;min-height:0;overflow:hidden/);
+    expect(client).toMatch(/\[data-bees-debug-dsh\] \.bees-app\{[^}]*display:none/);
+    expect(client).toMatch(/\.bees-main\{[^}]*min-width:0;min-height:0;overflow:hidden/);
     expect(client).not.toContain('id: "bees-navigation"');
     expect(client).not.toContain('["dsh-settings", "DSH settings"]');
     expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
@@ -113,7 +113,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).not.toContain("window.prompt");
     expect(client).not.toContain("window.confirm");
     expect(client).toContain('document.createElement("dialog")');
-    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-convo-msg agent", style: { borderColor: "#d15353", background: "#a9363622" } }');
+    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-convo-msg agent error" }');
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
     expect(client).not.toContain('summary.origin === "subagent"');
     expect(client).not.toContain('bees-subagent-card');
