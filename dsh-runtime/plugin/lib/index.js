@@ -6,7 +6,7 @@ import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
 import { ProcessRuntime } from "./process-runtime.js";
-import { message } from "./product-database.js";
+import { userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 
 export const name = "bees";
@@ -172,7 +172,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
     try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
-    catch (error) { reply(res, 409, { error: message(error) }); }
+    catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
@@ -184,27 +184,27 @@ export async function apply(ctx, _config = {}, internals = {}) {
       if (!provider || !model) throw new Error("Choose a provider and model");
       await ctx.agentDefaultModel.saveSelection({ provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) });
       reply(res, 200, { systemDefaultModel: ctx.agentDefaultModel.currentSelection() });
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/capabilities", handler: async (req, res) => {
     try {
       if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       reply(res, 200, await capabilities.command(await body(req)));
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/references", handler: async (req, res) => {
     const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("q") ?? "";
     const workspaceId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("workspaceId") ?? "";
     try { reply(res, 200, await product.references(query, workspaceId)); }
-    catch (error) { reply(res, 409, { error: message(error) }); }
+    catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/search", handler: async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const query = url.searchParams.get("q") ?? "";
       reply(res, 200, { results: await product.search(query, url.searchParams.get("workspaceId") ?? "") });
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (_req, res) =>
     reply(res, 200, { events: product.audit() }) });
@@ -212,24 +212,24 @@ export async function apply(ctx, _config = {}, internals = {}) {
     try {
       const executionId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("executionId") ?? "";
       reply(res, 200, { history: await product.runHistory(executionId) });
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? ""));
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try { reply(res, 200, await product.command(await body(req))); }
-    catch (error) { reply(res, 409, { error: message(error) }); }
+    catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/collaboration", handler: async (req, res) => {
     try {
       if (req.method === "GET") return reply(res, 200, await connected.summary());
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       reply(res, 200, await connected.command(await body(req)));
-    } catch (error) { reply(res, 409, { error: message(error) }); }
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
 }
