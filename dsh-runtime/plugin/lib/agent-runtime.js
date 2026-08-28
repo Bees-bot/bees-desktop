@@ -8,7 +8,7 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { closeAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
-import { currentIdentity, transaction } from "./product-database.js";
+import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
@@ -450,7 +450,12 @@ export class AgentRuntime {
         detectedAt: new Date().toISOString(), status
       });
     }
-    ctx.on("session/event", (session, event) => this.onSessionEvent(session, event), { global: true });
+    // cordis emits listeners without a catch of its own, so a transient SQLITE_BUSY or one bad
+    // stored JSON row would take the whole process down mid-run instead of failing this one event.
+    ctx.on("session/event", (session, event) => {
+      try { this.onSessionEvent(session, event); }
+      catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
+    }, { global: true });
   }
 
   setProposalStore(store) {
