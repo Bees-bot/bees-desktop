@@ -2,7 +2,7 @@ import {
   h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
 } from "./runtime.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, isDone, PageHead, request, runTitle, useSnapshot, useSubmit
+  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, PageHead, request, runTitle, useSnapshot, useSubmit
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -12,7 +12,7 @@ const UserMessage = ({ children, label }) => {
   const truncated = children.length > 280;
   return h("div", { className: "bees-convo-msg user" },
     label ? h("strong", null, label) : null,
-    h("div", null, truncated && !expanded ? `${children.slice(0, 280).trimEnd()}…` : children),
+    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
     truncated ? h("button", {
       type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
       style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }

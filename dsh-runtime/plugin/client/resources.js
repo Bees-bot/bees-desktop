@@ -1,7 +1,7 @@
 import { h, useEffect, useState } from "./runtime.js";
 import { FilePreview } from "./work.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, request, runTitle
+  ask, AuditEvent, Button, clip, confirmAction, Empty, request, runTitle
 } from "./shared.js";
 
 export function FilesPage({ ctx, data, teamId, act }) {
@@ -58,13 +58,13 @@ function HarnessEvent({ event }) {
         const c = Array.isArray(d.content) ? d.content : Array.isArray(d.message?.content) ? d.message.content : null;
         if (c?.[0]?.text) {
           let t = c[0].text.replace(/\s+/g, " ");
-          parts.push(t.length > 80 ? t.slice(0, 80) + "…" : t);
+          parts.push(t.length > 80 ? clip(t, 80) + "…" : t);
         }
       }
       if (parts.length > 0) detail = parts.join(" · ");
       else {
         const str = JSON.stringify(d);
-        detail = str.length > 80 ? str.slice(0, 80) + "…" : str;
+        detail = str.length > 80 ? clip(str, 80) + "…" : str;
       }
     }
   } catch (e) {}
