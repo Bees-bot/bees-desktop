@@ -89,6 +89,7 @@ function testContext(
       }
     },
     agentPresets: {
+      defaultId: "standard",
       list: async () => [{ id: "standard", name: "Standard", description: "Contract preset", trust: "local" }],
       mount: async (_agent: unknown, id: string) => { mountedPresets.push(id); }
     },

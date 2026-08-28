@@ -17,9 +17,6 @@ const PROCESS_DETAIL_LAYOUT = [
 function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
   const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
-  if (!workspaceId) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
-    h(Empty, null, "Choose one workspace before creating a process."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
@@ -29,6 +26,9 @@ function ProcessForm({ kind, draft, workspaceId, act, onCancel, onCreated, setPa
     });
     if (created?.id) onCreated(created.id);
   });
+  if (!workspaceId) return h("div", { className: "bees-stack" },
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
+    h(Empty, null, "Choose one workspace before creating a process."));
   return h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, 
       h(Button, { onClick: onCancel }, "← Processes"),

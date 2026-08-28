@@ -160,7 +160,7 @@ export class BeesProduct {
         purpose: item.title, model: assignment?.model || null,
         reasoningEffort: assignment?.reasoningEffort || null,
         instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
-        workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
+        workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
         ...mcpGrantFor(this.database, assignment?.id),
         grants: reviewer ? [] : [...new Set(locations.map(({ id }) => id))]
       }
