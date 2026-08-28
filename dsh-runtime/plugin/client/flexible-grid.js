@@ -57,6 +57,7 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-y": widget.y,
         "gs-w": widget.w,
         "gs-h": widget.h,
+        "gs-size-to-content": panel.sizeToContent || undefined,
         "gs-min-w": panel.minW ?? 3,
         "gs-min-h": panel.minH ?? 2
       }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless && !editing ? "bees-flex-widget-borderless" : ""}` },

@@ -57,6 +57,36 @@ describe("Bees work cockpit UI", () => {
       .toBeLessThan(client.indexOf('className: "bees-tab-panel"'));
   });
 
+  it("collapses long user messages in work-item details", () => {
+    expect(client).toContain("children.length > 280");
+    expect(client).toContain('expanded ? "Show less" : "Show more"');
+    expect(client).toContain('"aria-expanded": expanded');
+    expect(client.match(/h\(UserMessage,/g)).toHaveLength(2);
+  });
+
+  it("lets the Kanban grow with the page instead of scrolling inside its widget", () => {
+    expect(client).toContain('"gs-size-to-content": panel.sizeToContent || undefined');
+    expect(client).toContain('borderless: true, sizeToContent: true');
+    expect(client).not.toContain('.bees-flex-widget-body>.bees-cockpit-board{height:100%');
+    expect(client).toContain('flex-direction: row !important');
+    expect(client).toContain('overflow-x: auto !important');
+    expect(client).toContain('gap: 12px !important');
+    expect(client).toContain('.bees-column { flex: 0 0 300px !important; background: var(--dsw-specific-sidebar-fill) !important;');
+    expect(client).toContain('.bees-cockpit-board { display: flex !important;');
+    expect(client.match(/sizeToContent: true/g)).toHaveLength(3);
+    expect(client).toContain('.bees-work-item-grid .bees-convo-history,');
+    expect(client).toContain('return h("div", { style: { display: "flex", flexDirection: "column" } },');
+  });
+
+  it("uses theme-aware conversation bubbles, expandable tool cards, and a compact composer", () => {
+    expect(client).toContain('className: `bees-tool-card ${isWorking ? "working"');
+    expect(client).toContain('className: "bees-tool-summary"');
+    expect(client).toContain('className: "bees-agent-turn"');
+    expect(client).toContain('className: "bees-composer-send"');
+    expect(client).toContain('background: var(--dsw-alias-interactive-bg-hover) !important;');
+    expect(client).not.toContain("#9F8BFF");
+  });
+
   it("renders descriptions as markdown and makes audit evidence inspectable", () => {
     expect(client).toContain('h(MarkdownText, { text: process.description })');
     expect(client).toContain('h(MarkdownText, { text: item.description })');
