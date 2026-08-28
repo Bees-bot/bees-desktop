@@ -325,25 +325,6 @@ impl ModelSpec {
     }
 }
 
-/// Kill any llama-server left running by a previous app instance. The manager tracks the child
-/// only in memory, so an app restart or crash orphans the server: the new process sees no runtime,
-/// reports "not running", and spawns a duplicate. Reaping at startup gives the manager a clean slate.
-/// Every server we launch carries `--alias active`, so that pattern won't match unrelated llama use.
-pub fn reap_orphan_llama_servers() {
-    #[cfg(windows)]
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "llama-server.exe"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    #[cfg(not(windows))]
-    let _ = Command::new("pkill")
-        .args(["-f", "llama-server.*--alias active"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
 struct ManagedLlama {
     child: Sidecar,
     port: u16,
@@ -584,6 +565,7 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
         .ok_or_else(|| "This model has no download link".to_string())?;
     let client = Client::builder()
         .user_agent("Bees local model manager")
+        .connect_timeout(Duration::from_secs(15))
         .build()
         .map_err(|error| error.to_string())?;
     let mut request = client.get(url);

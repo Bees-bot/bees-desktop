@@ -154,7 +154,6 @@ function McpAccess({ servers, access, chosen }) {
 
 export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false }) {
   const presets = data.presets.filter(({ broken }) => !broken);
-  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const created = await act({
@@ -168,6 +167,7 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
     });
     if (created?.id) await onCreated(created.id);
   });
+  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
   return h("form", { className: "bees-box bees-form bees-agent-form", onSubmit },
     inline
       ? h("div", { className: "bees-page-head" }, h("div", null, h("h2", null, "New agent"),
@@ -208,7 +208,10 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
 }
 
 export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents" }) {
-  return h("form", { className: "bees-box bees-form bees-agent-form", key: selected.id, onSubmit: async (event) => {
+  // keyed on what the model select seeds itself from, or an editor left open keeps showing the
+  // old model and saving it back over whoever changed it.
+  const key = `${selected.id}:${selected.model ?? ""}:${selected.reasoningEffort ?? ""}`;
+  return h("form", { className: "bees-box bees-form bees-agent-form", key, onSubmit: async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const saved = await act({
       action: "edit_agent_assignment", agentAssignmentId: selected.id,
@@ -255,18 +258,21 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
 }
 
 function PoolCreateForm({ workspaceId, act, onCancel, onCreated, setPageHeader }) {
-  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating a pool.");
-  return h("form", { className: "bees-box bees-form", onSubmit: async (event) => {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+  const [busy, onSubmit] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
     const created = await act({ action: "add_agent_pool", workspaceId,
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
     if (created?.id) onCreated(created.id);
-  } },
+  });
+  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating a pool.");
+  return h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Pools"),
       h("div", null, h("h2", null, "New agent pool"), h("div", { className: "bees-muted" }, "Name the interchangeable role now, then add and prioritize member agents."))),
     h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Editorial reviewers" })),
     h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", placeholder: "When should Bees route work to this pool?" })),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Create pool"), h(Button, { onClick: onCancel }, "Cancel"))
+    h("div", { className: "bees-detail-actions" },
+      h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Creating…" : "Create pool"),
+      h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
 

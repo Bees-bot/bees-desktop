@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A sign-in wall in the browser is the exception: the person can sign in for you, so call ask_user_question naming the site and wait, rather than stopping. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -345,24 +345,6 @@ export function authorizeReferences(database, workspaceId, references) {
   }
 }
 
-// The bundled local provider is declared in dsh-runtime/profile/cordis.patch.yml, so it always
-// looks configured even on a machine where no model has been downloaded. The run then dies with
-// whatever the transport said, which on a first install is a bare "Connection error."
-const LOCAL_PROVIDER_PREFIX = "local-openai/";
-const LOCAL_MODEL_MODELS_URL = "http://127.0.0.1:1234/v1/models";
-
-async function finishReason(run, error) {
-  let resolved;
-  try { resolved = JSON.parse(run?.configJson ?? "{}").resolvedModel; } catch { return error; }
-  if (!String(resolved ?? "").startsWith(LOCAL_PROVIDER_PREFIX)) return error;
-  try {
-    await fetch(LOCAL_MODEL_MODELS_URL, { signal: AbortSignal.timeout(1_500) });
-    return error;
-  } catch {
-    return { message: "The local model is not running, so the agent had nothing to talk to. Download or start it under Settings → AI connections, or give this agent a different model." };
-  }
-}
-
 export class AgentRuntime {
   constructor(ctx, database) {
     this.ctx = ctx;
@@ -608,7 +590,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      closeAgentBrowser(executionId);
+      this.track(closeAgentBrowser(executionId));
       return;
     }
     if (event.type === "tool/result") {
@@ -629,7 +611,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        closeAgentBrowser(executionId);
+        this.track(closeAgentBrowser(executionId));
       }
       const output = {
         sessionId,
@@ -1159,9 +1141,6 @@ export class AgentRuntime {
 
   async finish(executionId, submissionId, sessionId, handle, result) {
     if (this.closing) return;
-    // Only on the failure path, so a healthy run never pays for this.
-    if (result.outcome === "failed")
-      result = { ...result, error: await finishReason(this.run(executionId), result.error) };
     const at = new Date().toISOString();
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?

@@ -434,6 +434,9 @@ export function runTitle(data, run) {
     (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
 }
 
+/** Cut on characters, not code units, or a slice can land inside an emoji and render as a box. */
+export const clip = (text, limit) => [...String(text ?? "")].slice(0, limit).join("");
+
 export function workItemsFor(data, route, workspaceIds) {
   let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
   if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
