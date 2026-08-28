@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { openAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -529,6 +530,7 @@ export async function executeProductCommand(action, input) {
     if (action === "ask_bees") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const executionId = randomUUID();
+      const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
@@ -536,7 +538,7 @@ export async function executeProductCommand(action, input) {
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
-          reasoningEffort: optionalReasoningEffort(input.reasoningEffort),
+          reasoningEffort,
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || "standard",
           mcpAccess: "all", mcpServers: [],
@@ -555,6 +557,9 @@ export async function executeProductCommand(action, input) {
       const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)
         .get(item.stageId, item.processId);
       const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
+      const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
+      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       const assignment = resolveStageAgent(this.database, {
         executionId, item, stageId: item.stageId, purpose: stagePurpose,
         // Without this the reviewer could be the same agent that produced the work.
@@ -563,8 +568,6 @@ export async function executeProductCommand(action, input) {
           WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
         `).get(item.id)?.executionId : null
       });
-      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
-      const grants = [...new Set(stageInputs(this.database, item.id, runDirectory).map(({ id }) => id))];
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`,
@@ -572,7 +575,7 @@ export async function executeProductCommand(action, input) {
           version: 1, mode: "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
-          reasoningEffort: optionalReasoningEffort(input.reasoningEffort) || assignment?.reasoningEffort || null,
+          reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
           instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || "standard",
           ...mcpGrantFor(this.database, assignment?.id),
@@ -580,6 +583,12 @@ export async function executeProductCommand(action, input) {
         }
       });
       return { executionId };
+    }
+    if (action === "open_agent_browser") {
+      const executionId = required(input.executionId, "Execution");
+      runContext(this.database, executionId);
+      openAgentBrowser(executionId);
+      return { opened: true };
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
