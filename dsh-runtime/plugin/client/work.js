@@ -6,6 +6,7 @@ import {
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
+import { addLocationFromDevice, ResourceFields } from "./location-fields.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
@@ -37,6 +38,16 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
   const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
   const itemFiles = itemRuns.flatMap((row) => (row.outputs ?? []).map((name) => ({ executionId: row.id, path: `outputs/${name}` })));
+  const inputLocations = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(attachment => {
+    const loc = data.locations.find(({ id }) => id === attachment.locationId);
+    return loc ? { ...loc, relativePath: attachment.relativePath } : null;
+  }).filter(Boolean);
+  const hasFiles = itemFiles.length > 0 || inputLocations.length > 0;
+
+  useEffect(() => {
+    if (!hasFiles && activeTab === "files") setActiveTab("details");
+  }, [hasFiles, activeTab]);
+
   const [viewer, setViewer] = useState(null);
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
@@ -108,10 +119,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
     await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description, agentAssignmentId: childAgent?.id ?? null });
   };
   const publish = async () => {
-    const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
-    const choices = data.locations.filter(({ id }) => attached.includes(id));
-    const name = await ask(`Publish to:\n${choices.map(({ name }) => name).join("\n")}`);
-    const location = choices.find((row) => row.name === name);
+    let location = data.locations.find(({ id }) => id === (item.outputLocationId || process?.outputLocationId));
+    if (!location) {
+      const created = await addLocationFromDevice(ctx, act, teamId, "folder");
+      if (!created?.id) return;
+      await act({ action: "set_output_location", itemId: item.id, locationId: created.id });
+      location = { id: created.id };
+    }
     if (run && location) await act({ action: "publish_run", executionId: run.id, locationId: location.id });
   };
   const archive = async () => {
@@ -219,7 +233,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
         }},
         h("textarea", { 
           className: "bees-composer-input", 
-          placeholder: pendingRun ? "Answer above or add a note..." : activeBinding ? "Add a note or instruction..." : "No active session",
+          placeholder: pendingRun ? "Answer above or add a note..." : activeBinding ? "Add a note or instruction..." : "Agent session ended (task completed or failed)",
           disabled: !activeBinding || sending,
           value: composerText,
           rows: 2,
@@ -235,7 +249,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
         h("div", { className: "bees-tabbar" },
           h("div", { className: "bees-tabs", role: "tablist", "aria-label": "Work item details" },
             h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-            h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
+            hasFiles ? h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files") : null,
             h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
             h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Audit")
           ),
@@ -245,7 +259,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             item.runtimePhase === "failed" ? h(Button, { className: "primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null,
             ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, { onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Stop") : null,
             h(Button, { className: "danger", onClick: archive }, "Archive"),
-            run?.status === "completed" && run.outputs?.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h(Button, { className: "primary", onClick: publish }, "Publish outputs") : null)
+            run?.status === "completed" && run.outputs?.length ? h(Button, { className: "primary", onClick: publish },
+              item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null)
         ),
         h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
           activeTab === "details" ? h(React.Fragment, null,
@@ -262,17 +277,36 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, board, layo
             process?.description ? h(MarkdownText, { text: process.description }) : h("p", { className: "bees-muted" }, "No description"),
             h("h3", null, "Description"),
             item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted" }, "No description"),
-            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addSubitem }, "Delegate work"))
+            h("div", { className: "bees-detail-actions" }, h(Button, { onClick: edit }, "Edit"), h(Button, { onClick: addSubitem }, "Delegate work"), !hasFiles ? h(Button, { onClick: addFile }, "Add inputs") : null)
           ) : activeTab === "files" ? h(React.Fragment, null,
-            h("h3", null, "Inputs"),
-            h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs")),
-            h("h3", null, "Generated Files"),
-            // Every run of this item, not just the one showing: a review stage produces nothing of its own.
-            itemFiles.length ? h("div", { className: "bees-file-list" }, ...itemFiles.map(({ executionId, path }) => h(Button, {
-              key: `${executionId}:${path}`,
-              className: viewer?.executionId === executionId && viewer?.path === path ? "bees-file-chip active" : "bees-file-chip",
-              onClick: () => setViewer({ executionId, path })
-            }, path.replace("outputs/", "")))) : h("p", { className: "bees-muted" }, "No outputs generated yet."),
+            inputLocations.length ? h(React.Fragment, null,
+              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" } }, 
+                h("h3", { style: { margin: 0 } }, "Inputs"),
+                h(Button, { onClick: addFile }, "Add more inputs")
+              ),
+              h("div", { className: "bees-file-list" }, ...inputLocations.map((loc, i) => h("div", {
+                key: i,
+                className: "bees-file-chip",
+                title: loc.relativePath ? `${loc.name}/${loc.relativePath}` : loc.name
+              }, loc.relativePath ? `${loc.name}/${loc.relativePath}` : loc.name)))
+            ) : h(React.Fragment, null,
+              h("h3", null, "Inputs"),
+              h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs"))
+            ),
+            h("div", { style: { marginTop: "24px", marginBottom: "12px" } }, 
+              h("h3", { style: { margin: 0 } }, "Result folder")
+            ),
+            h("p", { className: "bees-muted" }, data.locations.find(({ id }) => id === (item.outputLocationId || process?.outputLocationId))?.name ?? "Results stay in Bees until you choose a folder."),
+            
+            itemFiles.length ? h(React.Fragment, null,
+              h("h3", { style: { marginTop: "24px", marginBottom: "12px" } }, "Generated Files"),
+              // Every run of this item, not just the one showing: a review stage produces nothing of its own.
+              h("div", { className: "bees-file-list" }, ...itemFiles.map(({ executionId, path }) => h(Button, {
+                key: `${executionId}:${path}`,
+                className: viewer?.executionId === executionId && viewer?.path === path ? "bees-file-chip active" : "bees-file-chip",
+                onClick: () => setViewer({ executionId, path })
+              }, path.replace("outputs/", ""))))
+            ) : null,
             viewer ? h(FilePreview, { target: viewer }) : null
           ) : activeTab === "runs" ? h(React.Fragment, null,
             h("h3", { className: "bees-section-title" }, "Runs"),
@@ -376,7 +410,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, preference, p
   );
 }
 
-function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated, setPageHeader }) {
+function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated, setPageHeader }) {
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const goal = kind === "goal";
@@ -386,15 +420,25 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
     h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
+  const initialProcess = goal ? processes.find(({ kind }) => kind === "goals")
+    : processes.find(({ id }) => id === defaultProcessId) ?? processes[0];
+  const [processId, setProcessId] = useState(initialProcess?.id ?? "");
+  const [inputLocationIds, setInputLocationIds] = useState([]);
+  const [outputLocationId, setOutputLocationId] = useState("");
+  const process = processes.find(({ id }) => id === processId) ?? initialProcess;
+  const inheritedInputIds = data.processAttachments.filter(({ processId: id }) => id === process?.id).map(({ locationId }) => locationId);
+  const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const command = goal ? {
       action: "create_goal", workspaceId, title: String(form.get("title") ?? ""),
-      description: String(form.get("description") ?? ""), priority: String(form.get("priority") ?? "normal")
+      description: String(form.get("description") ?? ""), priority: String(form.get("priority") ?? "normal"),
+      inputLocationIds, outputLocationId
     } : {
-      action: "create_item", processId: String(form.get("processId") ?? ""),
+      action: "create_item", processId,
       title: String(form.get("title") ?? ""), description: String(form.get("description") ?? ""),
-      priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null
+      priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null,
+      inputLocationIds, outputLocationId
     };
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
@@ -405,7 +449,9 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
           ? "Describe the outcome. Bees will plan and execute the work needed to reach it."
           : "Create the whole work item here, then Bees starts it in the process's first stage."))),
     !goal ? h("label", null, "Process", h("select", { className: "bees-select", name: "processId", required: true,
-      defaultValue: processes.some(({ id }) => id === defaultProcessId) ? defaultProcessId : processes[0]?.id },
+      value: processId, onChange: (event) => {
+        setProcessId(event.target.value); setOutputLocationId("");
+      } },
       ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name)))) : null,
     h("label", null, goal ? "Goal" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
       placeholder: goal ? "Launch the product successfully" : "Draft the launch announcement" })),
@@ -417,6 +463,9 @@ function WorkItemForm({ data, kind, workspaceId, defaultProcessId, act, onCancel
       !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", defaultValue: "" },
         h("option", { value: "" }, "Use each stage's assigned agent"),
         ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled }, agent.name)))) : null),
+    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
+      outputId: outputLocationId, onOutputId: setOutputLocationId, inheritedInputIds,
+      defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "" }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : goal ? "Create goal" : "Create work"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
@@ -738,7 +787,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""), setPageActions, setPageHeader
   });
   if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
-    data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
+    ctx, data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
   });
   const items = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
