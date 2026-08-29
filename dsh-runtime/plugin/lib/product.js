@@ -31,6 +31,7 @@ export class BeesProduct {
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
     this.agents?.setKnowledgeSearch?.((query, workspaceId) => this.search(query, workspaceId));
+    this.agents?.setKnowledgeReader?.((resultId, workspaceId) => this.readKnowledge(resultId, workspaceId));
     this.agents?.setSubitemStore?.({
       create: (input) => this.createSubitems(input),
       cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
@@ -389,16 +390,10 @@ export class BeesProduct {
   }
 
   async search(query, workspaceId) {
-    const workspace = workspaceContext(this.database, workspaceId);
+    const { workspace, locations } = this.knowledgeLocations(workspaceId);
     // FTS5 reads bare punctuation as query syntax, so each word goes in as a quoted prefix term.
     const terms = String(query ?? "").replace(/"/g, "").trim().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
-    const { deviceId } = currentIdentity(this.database);
-    const locations = this.database.prepare(`
-      SELECT l.id, l.name, l.kind, m.absolute_path AS localPath
-      FROM team_locations l JOIN device_location_mappings m ON m.location_id = l.id
-      WHERE l.team_id = ? AND l.archived_at IS NULL AND m.device_id = ?
-    `).all(workspace.teamId, deviceId);
     const items = this.database.prepare(`
       SELECT bees_search.kind, bees_search.ref_id AS id, bees_search.title,
              snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
@@ -413,6 +408,22 @@ export class BeesProduct {
     try { files = await this.knowledge.search(String(query), workspace.teamId, locations); }
     catch (error) { this.agents?.ctx?.logger?.warn?.(`bees: knowledge search unavailable: ${message(error)}`); }
     return [...items, ...files].slice(0, 50);
+  }
+
+  knowledgeLocations(workspaceId) {
+    const workspace = workspaceContext(this.database, workspaceId);
+    const { deviceId } = currentIdentity(this.database);
+    const locations = this.database.prepare(`
+      SELECT l.id, l.name, l.kind, m.absolute_path AS localPath
+      FROM team_locations l JOIN device_location_mappings m ON m.location_id = l.id
+      WHERE l.team_id = ? AND l.archived_at IS NULL AND m.device_id = ?
+    `).all(workspace.teamId, deviceId);
+    return { workspace, locations };
+  }
+
+  readKnowledge(resultId, workspaceId) {
+    const { workspace, locations } = this.knowledgeLocations(workspaceId);
+    return this.knowledge.read(resultId, workspace.teamId, locations);
   }
 
   audit() {

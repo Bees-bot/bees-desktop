@@ -8,6 +8,7 @@ export class BeesProduct {
   snapshot(): Promise<any>;
   references(query: string, workspaceId: string): Promise<any>;
   search(query: string, workspaceId: string): Promise<any[]>;
+  readKnowledge(resultId: string, workspaceId: string): any;
   audit(): any[];
   runHistory(executionId: string): Promise<any>;
   runFile(executionId: string, filePath: string): {

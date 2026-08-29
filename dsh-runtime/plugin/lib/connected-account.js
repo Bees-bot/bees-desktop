@@ -1,17 +1,24 @@
-import { insertDefaultWorkspace, transaction } from "./product-database.js";
+import {
+  currentIdentity, insertDefaultWorkspace, stableUuid, transaction
+} from "./product-database.js";
+import { syncTeamRecords } from "./team-sync.js";
 
 const defaultServer = "https://app.bees.bot";
 const sessionCredential = "BEES_ACCOUNT_SESSION";
+const connectedSeedAt = "1970-01-01T00:00:00.000Z";
 
 function message(body, status) {
   return body?.error?.message ?? body?.message ?? `Request failed (${status})`;
 }
 
 export class ConnectedAccount {
-  constructor(database, credentials, baseUrl = process.env.BEES_API_URL ?? defaultServer) {
+  constructor(database, credentials, baseUrl = process.env.BEES_API_URL ?? defaultServer, logger = console) {
     this.database = database;
     this.credentials = credentials;
     this.baseUrl = String(baseUrl).trim().replace(/\/+$/, "") || defaultServer;
+    this.logger = logger;
+    this.syncQueue = Promise.resolve();
+    this.closed = false;
   }
 
   account() {
@@ -144,7 +151,12 @@ export class ConnectedAccount {
           `).run(localUser.id, team.id, own.role, at);
           if (!this.database.prepare(
             "SELECT 1 FROM workspaces WHERE team_id = ? AND status = 'active' LIMIT 1"
-          ).get(team.id)) insertDefaultWorkspace(this.database, team.id, { at });
+          ).get(team.id)) insertDefaultWorkspace(this.database, team.id, {
+            id: stableUuid(`connected-workspace:${team.id}`), authority: "connected", at: connectedSeedAt
+          });
+          else this.database.prepare(
+            "UPDATE workspaces SET authority = 'connected' WHERE team_id = ? AND status = 'active'"
+          ).run(team.id);
         }
       }
       this.database.prepare(`
@@ -154,7 +166,76 @@ export class ConnectedAccount {
         ) AND organization_id NOT IN (SELECT value FROM json_each(?))
       `).run(localUser.id, account.userId, JSON.stringify(organizations.map(({ id }) => id)));
     });
+    await this.syncCoordination(organizations.map(({ id }) => id));
     return organizations;
+  }
+
+  syncCoordination(organizationIds = null) {
+    if (this.closed) return Promise.resolve([]);
+    const ids = organizationIds ?? this.database.prepare(
+      "SELECT organization_id AS id FROM bees_connected_organizations ORDER BY organization_id"
+    ).all().map(({ id }) => id);
+    const pending = this.syncQueue.then(async () => {
+      const results = [];
+      for (const organizationId of ids) {
+        try {
+          results.push(await syncTeamRecords(this.database, this.request.bind(this), organizationId));
+        } catch (error) {
+          this.logger.warn?.(`bees: team sync unavailable: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+      return results;
+    });
+    this.syncQueue = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  async close() {
+    this.closed = true;
+    await this.syncQueue;
+  }
+
+  claimScope(teamId) {
+    return this.database.prepare(`
+      SELECT t.organization_id AS organizationId FROM teams t
+      JOIN bees_connected_organizations c ON c.organization_id = t.organization_id
+      WHERE t.id = ?
+    `).get(teamId) ?? null;
+  }
+
+  executionClaims() {
+    const acquire = async (kind, id, teamId, occurrenceAt = "") => {
+      const scope = this.claimScope(teamId);
+      if (!scope) return { local: true };
+      const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
+      const machineId = currentIdentity(this.database).deviceId;
+      const result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
+        method: "POST", organizationId: scope.organizationId,
+        body: { teamId, machineId, permanent: kind !== "work_item" }
+      });
+      return result.acquired
+        ? {
+            claimId, teamId, machineId, organizationId: scope.organizationId,
+            token: result.token, permanent: kind !== "work_item"
+          }
+        : null;
+    };
+    const renew = async (claim) => {
+      if (claim.local) return claim;
+      const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
+        method: "POST", organizationId: claim.organizationId,
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
+      });
+      return result.acquired ? claim : null;
+    };
+    const release = async (claim) => {
+      if (claim?.local || claim?.permanent || !claim) return;
+      await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
+        method: "DELETE", organizationId: claim.organizationId,
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
+      });
+    };
+    return { acquire, renew, release };
   }
 
   async summary() {

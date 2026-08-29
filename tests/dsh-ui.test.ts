@@ -160,6 +160,17 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('setRunId(result.executionId)');
   });
 
+  it("documents scheduling behavior for end users", () => {
+    expect(client).toContain('openExternal("https://bees.bot/help/scheduling")');
+    expect(client).toContain('"Open Scheduling guide"');
+    expect(client).not.toContain("Schedules use the SKIP overlap policy");
+  });
+
+  it("links to canonical company brain and privacy guides", () => {
+    expect(client).toContain('openExternal("https://bees.bot/help/company-brain")');
+    expect(client).toContain('openExternal("https://bees.bot/help/privacy")');
+  });
+
   it("merges the requested navigation screens", () => {
     expect(client).toContain('["all-agents", "Agents, pools & presets"]');
     expect(client).toContain('agents: { label: "Agents"');

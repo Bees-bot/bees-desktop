@@ -466,6 +466,10 @@ export class AgentRuntime {
     this.knowledgeSearch = search;
   }
 
+  setKnowledgeReader(read) {
+    this.knowledgeReader = read;
+  }
+
   setSubitemStore(store) {
     this.subitemStore = store;
   }
@@ -694,7 +698,7 @@ export class AgentRuntime {
     });
     agentCtx.tools.register(defineTool({
       name: "bees_search_knowledge",
-      description: "Search work items and files in this Bees team. Results are read-only excerpts and are automatically scoped to the current run.",
+      description: "Search work items and files in this Bees team. Results are read-only excerpts and are automatically scoped to the current run. Use bees_read_knowledge with a file result id when the full source is needed.",
       parameters: {
         query: { type: "string", required: true, description: "Words or phrase to find." }
       },
@@ -710,6 +714,25 @@ export class AgentRuntime {
         if (!this.knowledgeSearch) throw new Error("Bees knowledge search is unavailable");
         const results = await this.knowledgeSearch(args.query, data.workspaceId);
         return { results_json: JSON.stringify(results) };
+      }
+    }));
+    agentCtx.tools.register(defineTool({
+      name: "bees_read_knowledge",
+      description: "Read one file returned by bees_search_knowledge, including freshness and authority metadata. Modified dates indicate freshness, not authority; prefer an explicit authority/status marker and surface unresolved conflicts. The result must belong to this Bees team.",
+      parameters: {
+        result_id: { type: "string", required: true, description: "Exact file id returned by bees_search_knowledge." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            document_json: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: value.document_json }]
+      },
+      execute: async (args) => {
+        if (!this.knowledgeReader) throw new Error("Bees knowledge reading is unavailable");
+        return { document_json: JSON.stringify(await this.knowledgeReader(args.result_id, data.workspaceId)) };
       }
     }));
     if (data.mode === "planning") agentCtx.tools.register(defineTool({

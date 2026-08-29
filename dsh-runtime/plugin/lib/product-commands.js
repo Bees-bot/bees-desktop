@@ -490,7 +490,7 @@ export async function executeProductCommand(action, input) {
         if (this.database.prepare("SELECT 1 FROM work_items WHERE stage_id = ? AND deleted_at IS NULL").get(stage.id))
           throw new Error(`Move work out of “${stage.name}” before removing it`);
       }
-      this.database.prepare("UPDATE stages SET position = -position - 1 WHERE process_id = ? AND archived_at IS NULL").run(processId);
+      this.database.prepare("UPDATE stages SET position = -rowid WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
       names.forEach(({ name }, position) => {
@@ -534,6 +534,7 @@ export async function executeProductCommand(action, input) {
       } else if (targetType) throw new Error("Stage routing must use an agent or pool");
       if (!targetType && !requiredCapabilities.length) {
         this.database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
+        this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
         return { id: stage.id };
       }
       this.database.prepare(`
@@ -545,6 +546,7 @@ export async function executeProductCommand(action, input) {
           required_capabilities_json = excluded.required_capabilities_json,
           updated_at = excluded.updated_at
       `).run(stage.id, agentId, poolId, JSON.stringify(requiredCapabilities), at, at);
+      this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
       return { id: stage.id };
     });
     if (action === "add_agent_pool") return transaction(this.database, () => {
@@ -579,6 +581,7 @@ export async function executeProductCommand(action, input) {
       if (input.remove) {
         this.database.prepare(`DELETE FROM agent_pool_members WHERE pool_id = ? AND agent_assignment_id = ?`)
           .run(poolId, agentId);
+        this.database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(at, poolId);
         return { id: poolId };
       }
       const priority = Number(input.priority ?? 100);
@@ -590,6 +593,7 @@ export async function executeProductCommand(action, input) {
         ON CONFLICT(pool_id, agent_assignment_id) DO UPDATE SET
           priority = excluded.priority, enabled = excluded.enabled
       `).run(poolId, agentId, priority, input.enabled === false ? 0 : 1);
+      this.database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(at, poolId);
       return { id: poolId };
     });
     if (action === "add_agent_assignment") {
@@ -720,6 +724,8 @@ export async function executeProductCommand(action, input) {
       const table = target.targetKind === "process" ? "process_locations" : "work_item_locations";
       this.database.prepare(`INSERT OR IGNORE INTO ${table} VALUES (?, ?, ?)`)
         .run(target.id, locationId, logicalRelativePath(input.relativePath));
+      this.database.prepare(`UPDATE ${target.targetKind === "process" ? "processes" : "work_items"}
+        SET updated_at = ? WHERE id = ?`).run(at, target.id);
       return {};
     });
     if (action === "detach_location") return transaction(this.database, () => {
@@ -727,10 +733,12 @@ export async function executeProductCommand(action, input) {
         const process = processContext(this.database, input.processId, ["admin", "member"]);
         this.database.prepare("DELETE FROM process_locations WHERE process_id = ? AND location_id = ?")
           .run(process.id, required(input.locationId, "Location"));
+        this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, process.id);
       } else {
         const item = itemContext(this.database, input.itemId, ["admin", "member"]);
         this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ? AND location_id = ?")
           .run(item.id, required(input.locationId, "Location"));
+        this.database.prepare("UPDATE work_items SET updated_at = ? WHERE id = ?").run(at, item.id);
       }
       return {};
     });

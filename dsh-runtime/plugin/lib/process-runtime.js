@@ -19,15 +19,18 @@ export class ProcessRuntime {
     this.client = options.client;
     this.logger = options.logger ?? console;
     this.workerFactory = options.workerFactory;
+    this.claims = options.claims;
+    this.claimWatchers = new Map();
   }
 
   item(workItemId) {
     const item = this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
              w.runtime_phase AS runtimePhase, w.archived_at AS archivedAt,
-             p.workspace_id AS workspaceId,
+             p.workspace_id AS workspaceId, ws.team_id AS teamId,
              EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id) AS scheduleDefinition
       FROM work_items w JOIN processes p ON p.id = w.process_id
+      JOIN workspaces ws ON ws.id = p.workspace_id
       WHERE w.id = ? AND w.deleted_at IS NULL
     `).get(workItemId);
     if (!item) throw new Error("Work item not found");
@@ -64,8 +67,9 @@ export class ProcessRuntime {
     if (!this.worker && (address || this.workerFactory)) {
       this.workerConnection = this.workerFactory ? undefined : await NativeConnection.connect({ address });
       const projectWorkItem = (state) => this.project(state);
-      const createRecurringWorkItem = async ({ recurringWorkId }) => {
-        const work = this.createRecurringWorkItem(recurringWorkId);
+      const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt }) => {
+        const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt);
+        if (!work) return null;
         const recurring = this.recurring(recurringWorkId);
         await this.refreshNextRun(recurringWorkId, this.client.schedule.getHandle(recurring.temporalScheduleId));
         return work;
@@ -106,7 +110,8 @@ export class ProcessRuntime {
       SELECT id, workspace_id AS workspaceId, process_id AS processId,
              source_work_item_id AS sourceWorkItemId, name,
              schedule_kind AS scheduleKind, schedule_json AS schedule,
-             timezone, temporal_schedule_id AS temporalScheduleId, status
+             timezone, temporal_schedule_id AS temporalScheduleId, status,
+             (SELECT team_id FROM workspaces WHERE id = recurring_work.workspace_id) AS teamId
       FROM recurring_work WHERE id = ?
     `).get(recurringWorkId);
     if (!row) throw new Error("Recurring work not found");
@@ -157,8 +162,9 @@ export class ProcessRuntime {
     try {
       const description = await handle.describe();
       const nextRunAt = description.info?.nextActionTimes?.[0]?.toISOString?.() ?? null;
-      this.database.prepare("UPDATE recurring_work SET next_run_at = ?, updated_at = ? WHERE id = ?")
-        .run(nextRunAt, iso(), recurringWorkId);
+      // next_run_at is device-local Temporal state, not shared schedule configuration.
+      this.database.prepare("UPDATE recurring_work SET next_run_at = ? WHERE id = ?")
+        .run(nextRunAt, recurringWorkId);
       return nextRunAt;
     } catch { return null; }
   }
@@ -193,9 +199,13 @@ export class ProcessRuntime {
     await this.client.schedule.getHandle(recurring.temporalScheduleId).delete();
   }
 
-  createRecurringWorkItem(recurringWorkId) {
+  async createRecurringWorkItem(recurringWorkId, occurrenceAt = "") {
+    const recurring = this.recurring(recurringWorkId);
+    const claim = this.claims
+      ? await this.claims.acquire("schedule_occurrence", recurringWorkId, recurring.teamId, occurrenceAt)
+      : { local: true };
+    if (!claim) return null;
     return transaction(this.database, () => {
-      const recurring = this.recurring(recurringWorkId);
       if (recurring.status !== "active") throw new Error("Recurring work is paused");
       const source = this.database.prepare(`
         SELECT process_id AS processId, title, description, owner,
@@ -226,6 +236,10 @@ export class ProcessRuntime {
   }
 
   async close() {
+    const claims = [...this.claimWatchers.values()];
+    this.claimWatchers.clear();
+    for (const watcher of claims) clearInterval(watcher.heartbeat);
+    await Promise.allSettled(claims.map(({ claim }) => this.claims?.release(claim)));
     this.worker?.shutdown();
     await this.running;
     await this.workerConnection?.close();
@@ -233,10 +247,29 @@ export class ProcessRuntime {
   }
 
   async reconcile() {
+    const schedules = this.database.prepare(
+      "SELECT id FROM recurring_work WHERE next_run_at IS NULL ORDER BY created_at"
+    ).all();
+    for (const settled of await Promise.allSettled(schedules.map(async ({ id }) => {
+      const recurring = this.recurring(id);
+      const handle = this.client.schedule.getHandle(recurring.temporalScheduleId);
+      try {
+        await handle.describe();
+        await this.updateRecurring(id);
+      } catch {
+        await this.createRecurring(id);
+      }
+    }))) if (settled.status === "rejected")
+      this.logger.warn?.(`bees: a recurring schedule failed to reconcile: ${message(settled.reason)}`);
     const items = this.database.prepare(`
       SELECT w.id FROM work_items w
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
-        AND w.runtime_phase = 'ready'
+        AND (w.runtime_phase = 'ready' OR (w.runtime_phase = 'running' AND EXISTS (
+          SELECT 1 FROM processes p JOIN workspaces ws ON ws.id = p.workspace_id
+          JOIN teams t ON t.id = ws.team_id
+          JOIN bees_connected_organizations c ON c.organization_id = t.organization_id
+          WHERE p.id = w.process_id
+        )))
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
     `).all();
     const interruptedWaits = this.database.prepare(`
@@ -258,23 +291,60 @@ export class ProcessRuntime {
   async startItem(workItemId) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
+    const claimKey = `work-item:${workItemId}`;
+    if (this.claimWatchers.has(claimKey)) {
+      return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
+    }
+    const claim = this.claims
+      ? await this.claims.acquire("work_item", workItemId, this.item(workItemId).teamId)
+      : { local: true };
+    if (!claim) return { automatic: true, claimed: false };
+    let handle;
     try {
-      await this.client.workflow.start("processWorkflow", {
+      handle = await this.client.workflow.start("processWorkflow", {
         taskQueue: PROCESS_TASK_QUEUE,
         workflowId: processWorkflowId(workItemId),
         args: [input]
       });
     } catch (error) {
       if (!(error instanceof WorkflowExecutionAlreadyStartedError) && error?.name !== "WorkflowExecutionAlreadyStartedError") {
+        await this.claims?.release(claim).catch(() => undefined);
         this.project({ ...input, phase: "failed", error: String(error?.message ?? error) });
         throw error;
       }
+      handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     }
     this.database.prepare(`
       UPDATE work_items SET runtime_phase = 'running', runtime_error = NULL, updated_at = ?
       WHERE id = ? AND runtime_phase = 'ready'
     `).run(new Date().toISOString(), workItemId);
-    return { automatic: true, workflowId: processWorkflowId(workItemId) };
+    this.watchClaim(claimKey, claim, handle);
+    return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
+  }
+
+  watchClaim(key, claim, handle) {
+    if (claim.local || !this.claims || typeof handle?.result !== "function") return;
+    let renewing = false;
+    const heartbeat = setInterval(async () => {
+      if (renewing) return;
+      renewing = true;
+      try {
+        if (!await this.claims.renew(claim)) await handle.cancel();
+      } catch (error) {
+        this.logger.warn?.(`bees: execution claim heartbeat failed: ${message(error)}`);
+        await handle.cancel().catch(() => undefined);
+      } finally { renewing = false; }
+    }, 20_000);
+    heartbeat.unref();
+    this.claimWatchers.set(key, { claim, heartbeat });
+    void handle.result().catch(() => undefined).finally(async () => {
+      const current = this.claimWatchers.get(key);
+      if (current?.claim !== claim) return;
+      clearInterval(heartbeat);
+      this.claimWatchers.delete(key);
+      await this.claims.release(claim).catch((error) =>
+        this.logger.warn?.(`bees: execution claim release failed: ${message(error)}`));
+    });
   }
 
   async signal(workItemId, type) {

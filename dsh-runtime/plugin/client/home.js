@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, clip, confirmAction, Empty } from "./shared.js";
+import { ask, Button, clip, confirmAction, Empty, openExternal } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 
@@ -285,6 +285,15 @@ export function GuidePage() {
       h("section", { className: "bees-box" }, h("h3", null, "Needs you = blocked work"),
         h("p", null, "This queue collects questions, approvals, failures, and other work an agent cannot continue alone."),
         h("p", { className: "bees-muted" }, "It is not a stage and you do not assign an agent to it. Assign agents on a process stage or override one on the work item."))
-    )
+    ),
+    h("section", { className: "bees-box" }, h("h3", null, "Company Brain"),
+      h("p", null, "Learn how shared company knowledge works with local indexes and execution."),
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/company-brain") }, "Open Company Brain guide")),
+    h("section", { className: "bees-box" }, h("h3", null, "Privacy: shared control, local data"),
+      h("p", null, "See exactly what Bees synchronizes and what stays on each desktop."),
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/privacy") }, "Open Privacy guide")),
+    h("section", { className: "bees-box" }, h("h3", null, "Scheduling"),
+      h("p", null, "Learn how definitions, generated occurrences, timing, approvals, specialist learning, and skipped overlaps work."),
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/scheduling") }, "Open Scheduling guide"))
   );
 }

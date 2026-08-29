@@ -100,9 +100,11 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       targetType = "pool";
       targetId = pool.id;
       reason = `${pool.name}: priority ${selected.priority}; ${selected.activeRuns} active; least recently assigned`;
+      const assignedAt = iso();
       database.prepare(`
         UPDATE agent_pool_members SET last_assigned_at = ? WHERE pool_id = ? AND agent_assignment_id = ?
-      `).run(iso(), pool.id, selected.id);
+      `).run(assignedAt, pool.id, selected.id);
+      database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(assignedAt, pool.id);
     } else {
       const role = purpose === "reviewer" ? "reviewer" : "worker";
       selected = defaultAssignment(database, stage.workspaceId, role);
