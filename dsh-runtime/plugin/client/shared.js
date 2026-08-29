@@ -4,7 +4,9 @@ import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon,
 
 export const NAVIGATION = [
   { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
-  { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [] },
+  { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [
+    ["all-work", "All work"], ["schedules", "Schedules"]
+  ] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
     ["all-agents", "Agents, pools & presets"],
     ["skills", "Skills & tools"], ["mcp", "MCP servers"]
@@ -254,6 +256,27 @@ export const css = `
 .bees-composer-send { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 10px; color: var(--dsw-alias-bg-base); background: var(--dsw-alias-state-business-primary, #f2b84b); font: 700 18px/1 inherit; cursor: pointer; }
 .bees-composer-send:disabled { opacity: .45; cursor: not-allowed; }
 
+.bees-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.55); }
+.bees-modal { width: min(620px, 100%); max-height: calc(100vh - 48px); overflow: auto; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.bees-playbook { margin: 12px 0; padding: 12px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.bees-cron-generator .cron_builder { max-width: none; color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
+.bees-cron-generator .cron_builder .cron_builder_bordering { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
+.bees-cron-generator .cron_builder .cron_builder_bordering input,
+.bees-cron-generator .cron_builder .cron_builder_bordering select { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l2); background: var(--dsw-alias-button-elevated-fill); }
+.bees-cron-generator .cron_builder .cron_builder_bordering select:disabled { color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-interactive-bg-hover); }
+.bees-cron-generator .cron_builder .nav li button { color: var(--dsw-alias-label-primary); }
+.bees-cron-generator .cron_builder .nav-tabs .nav-link:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.bees-cron-generator .cron_builder .nav-tabs .nav-link.active { border-color: var(--dsw-alias-border-l2) var(--dsw-alias-border-l2) var(--dsw-alias-bg-base); background: var(--dsw-alias-bg-base); }
+.bees-cron-generator .cron_builder .nav-tabs .nav-link.disabled { color: var(--dsw-alias-label-secondary); border-bottom-color: var(--dsw-alias-bg-base); background: var(--dsw-alias-bg-base); }
+.bees-cron-generator .cron_builder .well { border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-interactive-bg-hover); }
+.bees-cron-generator .cron_builder .dropdown-content { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-button-elevated-fill); }
+.bees-cron-generator .cron_builder .dropdown-content .dropdown-item { color: var(--dsw-alias-label-primary); }
+.bees-cron-generator .cron_builder .dropdown-content .dropdown-item:hover,
+.bees-cron-generator .cron_builder .dropdown-content .dropdown-item-selected,
+.bees-cron-generator .cron_builder .cron-builder-bg { color: var(--dsw-alias-bg-base); background: var(--dsw-alias-state-business-primary, #f2b84b); }
+.bees-notice { position: fixed; z-index: 1200; right: 24px; bottom: 24px; width: min(480px, calc(100vw - 48px)); padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-button-elevated-fill); box-shadow: 0 16px 48px rgba(0,0,0,.3); }
+.bees-notice pre { margin: 8px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 `;
 
 export async function request(path, options) {
@@ -431,6 +454,9 @@ export function PinButton({ id, label, pins, setPins }) {
 }
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
+export const isScheduleDefinition = (item) => item.kind !== "run" && Boolean(item.recurringWorkId);
+export const workItemStatus = (item) => isScheduleDefinition(item)
+  ? "scheduled" : isDone(item) ? "completed" : item.runtimePhase || "pending";
 
 export function runTitle(data, run) {
   return data.items.find(({ id }) => id === run.workItemId)?.title ??
@@ -441,8 +467,10 @@ export function runTitle(data, run) {
 export const clip = (text, limit) => [...String(text ?? "")].slice(0, limit).join("");
 
 export function workItemsFor(data, route, workspaceIds) {
-  let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId) && item.kind !== "run");
-  if (route === "goals") rows = rows.filter(({ kind }) => kind === "goal");
+  let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId));
+  rows = rows.filter((item) => route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item));
+  if (route === "goals") rows = rows.filter((item) => item.kind === "goal" ||
+    (item.kind === "run" && data.processes.find(({ id }) => id === item.processId)?.kind === "goals"));
   if (route === "waiting") rows = rows.filter((item) =>
     !isDone(item) && (["waiting", "failed"].includes(item.runtimePhase) || data.runs.some((run) =>
       run.workItemId === item.id && ["waiting_for_input", "waiting_for_approval"].includes(run.status))));

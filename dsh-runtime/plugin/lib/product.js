@@ -16,6 +16,9 @@ import { executeProductCommand } from "./product-commands.js";
 
 export { initializeProductDatabase };
 
+const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and delegate one self-contained subitem at a time when sequencing or approval matters. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
+const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
+
 export class BeesProduct {
   constructor(database, agents, processes, defaultWorkspace, services = {}) {
     this.database = database;
@@ -149,9 +152,12 @@ export class BeesProduct {
       ? " This work was delegated by another agent and ran in that caller's workspace, so files it did not write are present. Judge only what this stage was asked to produce, and never fail it for a file the caller left there."
       : "";
     const inputs = manifest ? `\n\n${manifest}` : "";
+    const goalsProtocol = item.processKind === "goals"
+      ? reviewer ? GOALS_REVIEW_PROTOCOL : GOALS_WORK_PROTOCOL
+      : "";
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || "Review the completed work."}${inputs}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do the work yourself. Unless delegation is itself an explicit requirement, only use bees_delegate_work for a large separate piece a peer can own end to end; a tool call, lookup or single-file edit is not enough, and delegate at most one peer once. When the goal explicitly requires a delegation protocol or count, follow it exactly; only the parent delegates, and it waits for each peer before launching the next. The caller waits while a peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nStage instructions: ${stage.instructions || `Complete only the ${stage.stageName || "current"} stage.`}${handoff}${feedback}${inputs}`;
+      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Review"}.${inputs}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Do the work yourself. Unless delegation is itself an explicit requirement, only use bees_delegate_work for a large separate piece a peer can own end to end; a tool call, lookup or single-file edit is not enough, and delegate at most one peer once. When the goal explicitly requires a delegation protocol or count, follow it exactly; only the parent delegates, and it waits for each peer before launching the next. The caller waits while a peer works in this same workspace, so continue from its changes already in outputs/ when it finishes. Put every final deliverable under outputs/. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -162,7 +168,7 @@ export class BeesProduct {
         agentId: assignment.id, agentName: assignment.name,
         purpose: item.title, model: assignment?.model || null,
         reasoningEffort: assignment?.reasoningEffort || null,
-        instructions: [assignment?.instructions, stage.instructions].filter(Boolean).join("\n\n"),
+        instructions: [goalsProtocol, assignment?.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
         ...mcpGrantFor(this.database, assignment?.id),
         grants: reviewer ? [] : [outputLocation(this.database, item.id)].filter(Boolean)
@@ -214,7 +220,7 @@ export class BeesProduct {
     const processIds = processes.map(({ id }) => id);
     const stages = processIds.length ? this.database.prepare(`
       SELECT id, process_id AS processId, name, position, driver,
-             completion_rules AS instructions, is_terminal AS isTerminal,
+             is_terminal AS isTerminal,
              CASE WHEN r.agent_assignment_id IS NOT NULL THEN 'agent'
                   WHEN r.agent_pool_id IS NOT NULL THEN 'pool' END AS routeType,
              coalesce(r.agent_assignment_id, r.agent_pool_id) AS routeTargetId,
@@ -232,7 +238,7 @@ export class BeesProduct {
              w.priority, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
              w.runtime_review_cycle AS runtimeReviewCycle,
              w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
-             w.output_location_id AS outputLocationId,
+             w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
              w.archived_at AS archivedAt, w.updated_at AS updatedAt,
              s.is_terminal AS completed
       FROM work_items w JOIN stages s ON s.id = w.stage_id
@@ -274,6 +280,32 @@ export class BeesProduct {
       ...row, enabled: Boolean(row.enabled), capabilities: JSON.parse(row.capabilities || "[]"),
       mcpServers: JSON.parse(row.mcpServers || "[]")
     })) : [];
+    const recurringWork = workspaceIds.length ? this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, process_id AS processId,
+             source_work_item_id AS sourceWorkItemId, name,
+             schedule_kind AS scheduleKind, schedule_json AS schedule,
+             timezone, temporal_schedule_id AS temporalScheduleId,
+             status, next_run_at AS nextRunAt, created_at AS createdAt, updated_at AS updatedAt
+      FROM recurring_work WHERE workspace_id IN (SELECT value FROM json_each(?))
+      ORDER BY created_at DESC
+    `).all(JSON.stringify(workspaceIds)).map((row) => ({
+      ...row, schedule: JSON.parse(row.schedule)
+    })) : [];
+    const specializations = recurringWork.length ? this.database.prepare(`
+      SELECT s.id, s.recurring_work_id AS recurringWorkId,
+             s.agent_assignment_id AS agentAssignmentId, s.name, s.playbook,
+             s.revision, s.created_at AS createdAt, s.updated_at AS updatedAt
+      FROM agent_specializations s
+      WHERE s.recurring_work_id IN (SELECT value FROM json_each(?))
+      ORDER BY s.updated_at DESC
+    `).all(JSON.stringify(recurringWork.map(({ id }) => id))) : [];
+    const specializationVersions = specializations.length ? this.database.prepare(`
+      SELECT id, specialization_id AS specializationId, revision, playbook, source,
+             feedback, execution_id AS executionId, created_at AS createdAt
+      FROM agent_specialization_versions
+      WHERE specialization_id IN (SELECT value FROM json_each(?))
+      ORDER BY specialization_id, revision DESC
+    `).all(JSON.stringify(specializations.map(({ id }) => id))) : [];
     const pools = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description
       FROM agent_pools WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
@@ -294,6 +326,7 @@ export class BeesProduct {
              json_extract(e.config_json, '$.purpose') AS purpose,
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
+             d.specialization_id AS specializationId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision,
              r.outcome AS resultOutcome, r.summary AS resultSummary
@@ -323,7 +356,8 @@ export class BeesProduct {
     return {
       currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
-      assignments, pools, poolMembers, presets, runs, proposals
+      assignments, pools, poolMembers, recurringWork, specializations, specializationVersions,
+      presets, runs, proposals
     };
   }
 
@@ -507,7 +541,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "locationId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "recurringWorkId", "specializationId", "locationId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;

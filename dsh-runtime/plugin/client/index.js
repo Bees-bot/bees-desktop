@@ -1,5 +1,6 @@
 import { configureRuntime, h, React } from "./runtime.js";
 import gridstackCss from "gridstack/dist/gridstack.min.css";
+import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
 
@@ -34,7 +35,7 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
-      style.textContent = `${gridstackCss}\n${css}`;
+      style.textContent = `${gridstackCss}\n${cronGeneratorCss}\n${css}`;
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
       const toggleDsh = (event) => {

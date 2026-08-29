@@ -109,8 +109,42 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain("The prior request was interrupted");
   });
 
+  it("uses explicit review decisions with isolated future-run learning", () => {
+    expect(client).toContain("function ReviewDecisionPanel");
+    expect(client).toContain('"Reject and send feedback"');
+    expect(client).toContain('`Future ${recurring.name} runs`');
+    expect(client).toContain('action: "apply_specialist_feedback"');
+    expect(client).toContain("This feedback applies to this goal only");
+    expect(client).toContain('className: "bees-notice"');
+    expect(client).toContain('h("strong", null, "Learned change")');
+    expect(client).toContain('busy === "approve" ? "Approving…" : "Approve"');
+  });
+
+  it("exposes recurring schedules and editable specialist playbooks", () => {
+    expect(client).toContain("function ScheduleForm");
+    expect(client).toContain('action: recurring ? "edit_recurring_work" : "create_recurring_work"');
+    expect(client).toContain('h(Cron, {');
+    expect(client).toContain("HEADER.MINUTES, HEADER.HOURLY, HEADER.DAILY");
+    expect(client).not.toContain('headers: ["minutes"');
+    expect(client).toContain('.bees-cron-generator .cron_builder .dropdown-content { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-button-elevated-fill); }');
+    expect(client).toContain('.bees-cron-generator .cron_builder .nav-tabs .nav-link.active');
+    expect(client).toContain("schedulable && !item.parentId");
+    expect(client).toContain("result.sourceWorkItemId");
+    expect(client).toContain('item.kind !== "run" && Boolean(item.recurringWorkId)');
+    expect(client).toContain('item.kind === "run" ? "scheduled run" : item.kind');
+    expect(client).toContain('item.kind === "run" && data.processes.find');
+    expect(client).toContain('route !== "goals" || process?.kind === "goals"');
+    expect(client).not.toContain('workspaceId) && item.kind !== "run"');
+    expect(client).toContain('"Specialist playbooks"');
+    expect(client).toContain('action: "edit_specialist_playbook"');
+    expect(client).toContain('action: "undo_specialist_playbook"');
+    expect(client).toContain('action: "reset_specialist_playbook"');
+    expect(client).toContain("Bees must be open and the device must be available");
+  });
+
   it("names work items precisely and opens runs whose work item is unavailable", () => {
-    expect(client).toContain('{ id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [] }');
+    expect(client).toContain('["all-work", "All work"], ["schedules", "Schedules"]');
+    expect(client).toContain('route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)');
     expect(client).toContain('placeholder: "Search by task name"');
     expect(client).toContain('"Filter by status"');
     expect(client).toContain('"Filter by type"');

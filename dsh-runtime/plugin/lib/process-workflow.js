@@ -1,16 +1,24 @@
 import {
   CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
-  proxyActivities, setHandler, sleep
+  executeChild, proxyActivities, setHandler, sleep
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
 
-const { projectWorkItem } = proxyActivities({
+const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
   retry: { maximumAttempts: 5 }
 });
+
+export async function recurringWorkWorkflow(input) {
+  const work = await createRecurringWorkItem(input);
+  return executeChild(processWorkflow, {
+    workflowId: `bees/work-item/${work.workItemId}`,
+    args: [work]
+  });
+}
 const dshActivities = proxyActivities({
   // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
   startToCloseTimeout: "36500 days",
@@ -99,7 +107,8 @@ export async function processWorkflow(input) {
           ...state,
           purpose,
           stageName: stage.name,
-          instructions: stage.instructions,
+          // Retained as an empty field so in-flight workflow histories from the old shape replay safely.
+          instructions: "",
           candidateExecutionId,
           feedback
         });

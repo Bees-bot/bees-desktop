@@ -67,6 +67,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const preference = usePreference(preferences);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [route, setRoute] = useState("home");
   const [scope, setScopeState] = useState("");
   const [processId, setProcessId] = useState("");
@@ -97,7 +98,15 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
   const workspaceIds = data ? (parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id)) : [];
   const act = async (command) => {
-    try { const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) }); await load(); return result; }
+    try {
+      const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
+      await load();
+      if (result?.learnedChange !== undefined) {
+        setNotice(`Updated ${result.name}:\n${result.learnedChange || "No specialist guidance"}`);
+        window.setTimeout(() => setNotice(""), 10_000);
+      }
+      return result;
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   const askBees = async (outcome) => {
@@ -267,6 +276,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     h("section", { className: "bees-main" },
       h(AppHeader, { route, routeLabel, parts, pins, setPins, ctx }),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+      notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));

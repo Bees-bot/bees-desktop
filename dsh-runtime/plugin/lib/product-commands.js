@@ -75,6 +75,107 @@ function runContext(database, executionId, roles = ["admin", "member"]) {
   return { ...run, data, item };
 }
 
+function timezoneOf(value) {
+  const timezone = required(value, "Timezone");
+  try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(); }
+  catch { throw new Error("Timezone must be a valid IANA timezone such as America/Los_Angeles"); }
+  return timezone;
+}
+
+function recurringSchedule(input) {
+  const frequency = String(input.frequency ?? "daily");
+  if (frequency === "hourly") {
+    const everyMinutes = Number(input.everyMinutes ?? 60);
+    if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 525_600)
+      throw new Error("Interval must be between 1 minute and 1 year");
+    const anchorUtc = new Date(input.anchorUtc || Date.now()).toISOString();
+    return { kind: "interval", timezone: null, value: { everyMinutes, anchorUtc } };
+  }
+  const timezone = timezoneOf(input.timezone || "UTC");
+  if (frequency === "advanced") {
+    const expression = required(input.cronExpression, "Cron expression");
+    const fields = expression.split(/\s+/);
+    if (fields.length < 5 || fields.length > 7)
+      throw new Error("Advanced schedules need a 5, 6, or 7 field cron expression");
+    return { kind: "cron", timezone, value: { expression } };
+  }
+  if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency is invalid");
+  const hour = Number(input.hour);
+  const minute = Number(input.minute);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 ||
+      !Number.isInteger(minute) || minute < 0 || minute > 59)
+    throw new Error("Schedule time is invalid");
+  const value = { frequency, hour, minute };
+  if (frequency === "weekly") {
+    const dayOfWeek = String(input.dayOfWeek ?? "MONDAY").toUpperCase();
+    if (!new Set(["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]).has(dayOfWeek))
+      throw new Error("Schedule weekday is invalid");
+    value.dayOfWeek = dayOfWeek;
+  }
+  if (frequency === "monthly") {
+    const dayOfMonth = Number(input.dayOfMonth ?? 1);
+    if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)
+      throw new Error("Schedule day must be between 1 and 31");
+    value.dayOfMonth = dayOfMonth;
+  }
+  return { kind: "calendar", timezone, value };
+}
+
+function specializationContext(database, specializationId) {
+  const row = database.prepare(`
+    SELECT s.id, s.name, s.playbook, s.revision, s.recurring_work_id AS recurringWorkId,
+           r.workspace_id AS workspaceId
+    FROM agent_specializations s JOIN recurring_work r ON r.id = s.recurring_work_id
+    WHERE s.id = ?
+  `).get(required(specializationId, "Specialist"));
+  if (!row) throw new Error("Specialist not found");
+  workspaceContext(database, row.workspaceId, ["admin", "member"]);
+  return row;
+}
+
+function savePlaybook(database, specialization, playbook, source, feedback = null, executionId = null) {
+  const next = Number(specialization.revision) + 1;
+  const text = String(playbook ?? "").trim().slice(0, 6_000);
+  const at = iso();
+  database.prepare(`
+    UPDATE agent_specializations SET playbook = ?, revision = ?, updated_at = ? WHERE id = ?
+  `).run(text, next, at, specialization.id);
+  database.prepare(`
+    INSERT INTO agent_specialization_versions
+      (id, specialization_id, revision, playbook, source, feedback, execution_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(randomUUID(), specialization.id, next, text, source,
+    feedback ? String(feedback).slice(0, 2_000) : null, executionId, at);
+  return { id: specialization.id, name: specialization.name, revision: next, playbook: text };
+}
+
+function producerSpecialization(database, executionId, itemId) {
+  const current = database.prepare(`
+    SELECT d.specialization_id AS specializationId, d.created_at AS createdAt,
+           json_extract(e.config_json, '$.stagePurpose') AS purpose
+    FROM agent_dispatches d JOIN execution_links e ON e.execution_id = d.execution_id
+    WHERE d.execution_id = ? AND d.work_item_id = ?
+  `).get(executionId, itemId);
+  if (!current) throw new Error("This run has no agent assignment");
+  if (current.purpose !== "reviewer") return current.specializationId;
+  return database.prepare(`
+    SELECT d.specialization_id AS specializationId
+    FROM agent_dispatches d JOIN execution_links e ON e.execution_id = d.execution_id
+    WHERE d.work_item_id = ? AND d.created_at <= ?
+      AND json_extract(e.config_json, '$.stagePurpose') = 'worker'
+    ORDER BY d.created_at DESC LIMIT 1
+  `).get(itemId, current.createdAt)?.specializationId;
+}
+
+function learnedPlaybook(current, feedback) {
+  const guidance = required(feedback, "Rejection reason").replace(/\s+/g, " ").slice(0, 800);
+  if (guidance.length < 3) throw new Error("Add a specific rejection reason");
+  const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
+  const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
+  return lines.slice(-12).join("\n").slice(0, 6_000);
+}
+
 export async function executeProductCommand(action, input) {
     const at = iso();
     if (action === "create_organization") return transaction(this.database, () => {
@@ -181,6 +282,130 @@ export async function executeProductCommand(action, input) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.archive(item.id, Boolean(input.restore));
     }
+    if (action === "create_recurring_work") {
+      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
+      if (item.parentId) throw new Error("Delegated child work cannot be scheduled; schedule its primary work item instead");
+      if (!this.processes.isAutomatic(item.processId))
+        throw new Error("Recurring work requires an automatic process");
+      const name = required(input.name, "Recurring work name").slice(0, 120);
+      const schedule = recurringSchedule(input);
+      const id = randomUUID();
+      const sourceWorkItemId = randomUUID();
+      const temporalScheduleId = `bees/recurring/${id}`;
+      transaction(this.database, () => {
+        const stageId = this.database.prepare(`
+          SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position LIMIT 1
+        `).get(item.processId)?.id;
+        if (!stageId) throw new Error("Process has no starting stage");
+        this.database.prepare(`
+          INSERT INTO recurring_work
+            (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
+             schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        `).run(id, item.workspaceId, item.processId, sourceWorkItemId, name, schedule.kind,
+          JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, at, at);
+        this.database.prepare(`
+          INSERT INTO work_items
+            (id, process_id, stage_id, parent_id, kind, title, description, owner,
+             agent_assignment_id, priority, output_location_id, recurring_work_id,
+             archived_at, deleted_at, created_at, updated_at)
+          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        `).run(sourceWorkItemId, item.processId, stageId, item.kind === "goal" ? "goal" : "work",
+          item.title, item.description, item.owner, item.agentAssignmentId, item.priority,
+          item.outputLocationId, id, at, at);
+        this.database.prepare(`
+          INSERT INTO work_item_locations
+          SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
+        `).run(sourceWorkItemId, item.id);
+      });
+      try {
+        const runtime = await this.processes.createRecurring(id);
+        return { id, sourceWorkItemId, ...runtime };
+      } catch (error) {
+        transaction(this.database, () => {
+          this.database.prepare("DELETE FROM work_items WHERE id = ?").run(sourceWorkItemId);
+          this.database.prepare("DELETE FROM recurring_work WHERE id = ?").run(id);
+        });
+        throw error;
+      }
+    }
+    if (action === "edit_recurring_work") {
+      const id = required(input.recurringWorkId, "Recurring work");
+      const current = this.database.prepare(`
+        SELECT r.*, p.workspace_id AS workspaceId FROM recurring_work r
+        JOIN processes p ON p.id = r.process_id WHERE r.id = ?
+      `).get(id);
+      if (!current) throw new Error("Recurring work not found");
+      workspaceContext(this.database, current.workspaceId, ["admin", "member"]);
+      const schedule = recurringSchedule(input);
+      const name = required(input.name, "Recurring work name").slice(0, 120);
+      transaction(this.database, () => {
+        this.database.prepare(`
+          UPDATE recurring_work SET name = ?, schedule_kind = ?, schedule_json = ?, timezone = ?, updated_at = ?
+          WHERE id = ?
+        `).run(name, schedule.kind, JSON.stringify(schedule.value), schedule.timezone, at, id);
+        this.database.prepare(`
+          UPDATE agent_specializations SET name = ? || ' · ' || (
+            SELECT name FROM agent_assignments WHERE id = agent_assignment_id
+          ), updated_at = ? WHERE recurring_work_id = ?
+        `).run(name, at, id);
+      });
+      try { return { id, ...await this.processes.updateRecurring(id) }; }
+      catch (error) {
+        transaction(this.database, () => {
+          this.database.prepare(`
+            UPDATE recurring_work SET name = ?, schedule_kind = ?, schedule_json = ?, timezone = ?, updated_at = ?
+            WHERE id = ?
+          `).run(current.name, current.schedule_kind, current.schedule_json, current.timezone, current.updated_at, id);
+          this.database.prepare(`
+            UPDATE agent_specializations SET name = ? || ' · ' || (
+              SELECT name FROM agent_assignments WHERE id = agent_assignment_id
+            ) WHERE recurring_work_id = ?
+          `).run(current.name, id);
+        });
+        throw error;
+      }
+    }
+    if (["pause_recurring_work", "resume_recurring_work"].includes(action)) {
+      const id = required(input.recurringWorkId, "Recurring work");
+      const recurring = this.database.prepare("SELECT workspace_id AS workspaceId FROM recurring_work WHERE id = ?").get(id);
+      if (!recurring) throw new Error("Recurring work not found");
+      workspaceContext(this.database, recurring.workspaceId, ["admin", "member"]);
+      const paused = action === "pause_recurring_work";
+      await this.processes.setRecurringPaused(id, paused);
+      this.database.prepare("UPDATE recurring_work SET status = ?, updated_at = ? WHERE id = ?")
+        .run(paused ? "paused" : "active", iso(), id);
+      return { id, status: paused ? "paused" : "active" };
+    }
+    if (action === "apply_specialist_feedback") return transaction(this.database, () => {
+      const executionId = required(input.executionId, "Execution");
+      const { item } = runContext(this.database, executionId);
+      if (!item?.recurringWorkId) throw new Error("Future-run feedback is only available for scheduled runs");
+      const specializationId = producerSpecialization(this.database, executionId, item.id);
+      if (!specializationId) throw new Error("The producing specialist could not be identified");
+      const specialization = specializationContext(this.database, specializationId);
+      if (specialization.recurringWorkId !== item.recurringWorkId)
+        throw new Error("The specialist does not belong to this recurring work");
+      const result = savePlaybook(this.database, specialization,
+        learnedPlaybook(specialization.playbook, input.feedback), "feedback", input.feedback, executionId);
+      return { ...result, learnedChange: result.playbook };
+    });
+    if (action === "edit_specialist_playbook") return transaction(this.database, () => {
+      const specialization = specializationContext(this.database, input.specializationId);
+      return savePlaybook(this.database, specialization, input.playbook, "manual");
+    });
+    if (action === "reset_specialist_playbook") return transaction(this.database, () => {
+      const specialization = specializationContext(this.database, input.specializationId);
+      return savePlaybook(this.database, specialization, "", "reset");
+    });
+    if (action === "undo_specialist_playbook") return transaction(this.database, () => {
+      const specialization = specializationContext(this.database, input.specializationId);
+      const prior = this.database.prepare(`
+        SELECT playbook FROM agent_specialization_versions
+        WHERE specialization_id = ? AND revision < ? ORDER BY revision DESC LIMIT 1
+      `).get(specialization.id, specialization.revision);
+      return savePlaybook(this.database, specialization, prior?.playbook ?? "", "undo");
+    });
     if (["pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.signal(item.id, action.replace("_item", ""));
@@ -270,30 +495,20 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("UPDATE stages SET position = -position - 1 WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
-      names.forEach(({ name, instructions }, position) => {
+      names.forEach(({ name }, position) => {
         const driver = position === names.length - 1 ? "terminal"
           : position > 0 && /review/i.test(name) ? "review" : "agent";
         if (assigned[position]) this.database.prepare(`
-          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ?, completion_rules = ? WHERE id = ?
-        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, instructions, assigned[position].id);
+          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
+        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-        `).run(randomUUID(), processId, name, position, driver, instructions, position === names.length - 1 ? 1 : 0);
+          INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
+          VALUES (?, ?, ?, ?, ?, ?, NULL)
+        `).run(randomUUID(), processId, name, position, driver, position === names.length - 1 ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
       return { id: processId };
-    });
-    if (action === "set_stage_instructions") return transaction(this.database, () => {
-      const stage = this.database.prepare(`
-        SELECT s.id, p.workspace_id AS workspaceId FROM stages s JOIN processes p ON p.id = s.process_id
-        WHERE s.id = ? AND s.archived_at IS NULL
-      `).get(required(input.stageId, "Stage"));
-      if (!stage) throw new Error("Stage not found");
-      workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
-      this.database.prepare("UPDATE stages SET completion_rules = ? WHERE id = ?")
-        .run(String(input.instructions ?? "").slice(0, 4_000), stage.id);
-      return { id: stage.id };
     });
     if (action === "set_stage_route") return transaction(this.database, () => {
       const stageId = required(input.stageId, "Stage");
@@ -617,7 +832,7 @@ export async function executeProductCommand(action, input) {
           agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
           reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
-          instructions: [assignment?.instructions, item.description].filter(Boolean).join("\n\n"),
+          instructions: assignment?.instructions || "",
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
           ...mcpGrantFor(this.database, assignment?.id),
           grants
