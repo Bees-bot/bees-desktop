@@ -1,6 +1,7 @@
 export class ConnectedAccount {
   constructor(database: any, credentials: any, baseUrl?: string, logger?: any);
   publicAccount(): { userId: string; email: string; name: string } | null;
+  authConfig(): Promise<any>;
   signIn(email: string, password: string): Promise<any>;
   signUp(name: string, email: string, password: string): Promise<any>;
   signOut(): Promise<void>;

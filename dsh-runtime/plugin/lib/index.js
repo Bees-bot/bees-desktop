@@ -5,6 +5,7 @@ import z from "@deepseek-ai/schemastery";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
+import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
 import { userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
@@ -93,6 +94,20 @@ function reply(res, status, value, headers = {}) {
   res.end(body);
 }
 
+function replyPage(res, ok, detail = "") {
+  const safe = String(detail).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>Bees</title>
+<style>body{font-family:system-ui,sans-serif;max-width:30rem;margin:5rem auto;padding:0 1rem;text-align:center}</style>
+</head><body><h2>${ok ? "Connected" : "Connection failed"}</h2><p>${safe || (ok ? "You can close this window and return to Bees." : "Return to Bees and try again.")}</p>
+<script>history.replaceState(null,"","/bees-social-callback")</script></body></html>`;
+  res.writeHead(ok ? 200 : 400, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body)
+  });
+  res.end(body);
+}
+
 async function body(req) {
   let value = "";
   for await (const chunk of req) {
@@ -115,9 +130,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
   // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
-  let agents, processes, capabilities, connected;
+  let agents, processes, capabilities, connected, googleDrive;
   ctx.effect(() => async () => {
     agents?.close();
+    googleDrive?.close();
     await connected?.close();
     await processes?.close();
     await capabilities?.close();
@@ -127,12 +143,16 @@ export async function apply(ctx, _config = {}, internals = {}) {
   initializeProductDatabase(database);
   agents = new AgentRuntime(ctx, database);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
+  googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
+  void connected.authConfig().then(({ googleDriveDesktopClientId }) =>
+    googleDrive.configure(googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims()
   });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
-    agentPresets: ctx.agentPresets
+    agentPresets: ctx.agentPresets,
+    googleDrive
   });
   capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
@@ -154,7 +174,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
   const guard = (req) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-    if (["/bees-auth", "/healthz", "/_bees_unauthorized"].includes(path)) return;
+    if ([
+      "/bees-auth", "/bees-social-callback",
+      "/healthz", "/_bees_unauthorized"
+    ].includes(path)) return;
     if (!equalSecret(tokenFrom(req), token)) req.url = "/_bees_unauthorized";
   };
   // An upgrade has no response to redirect, so an unauthorized socket is dropped instead.
@@ -182,6 +205,14 @@ export async function apply(ctx, _config = {}, internals = {}) {
     });
     res.end();
   } });
+  register(ctx, { kind: "exact", path: "/bees-social-callback", handler: async (req, res) => {
+    try {
+      await connected.completeBrowserSignIn(
+        new URL(req.url ?? "/", "http://127.0.0.1").searchParams
+      );
+      replyPage(res, true, "Signed in. You can close this window and return to Bees.");
+    } catch (error) { replyPage(res, false, userMessage(error)); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
     try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
@@ -203,6 +234,22 @@ export async function apply(ctx, _config = {}, internals = {}) {
       if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       reply(res, 200, await capabilities.command(await body(req)));
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
+  register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
+    try {
+      const config = await connected.authConfig();
+      googleDrive.configure(config.googleDriveDesktopClientId);
+      if (req.method === "GET") return reply(res, 200, { googleDrive: await googleDrive.status() });
+      if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+      const input = await body(req);
+      if (input.action === "connect_google_drive") {
+        return reply(res, 200, await googleDrive.start());
+      }
+      if (input.action === "disconnect_google_drive") {
+        return reply(res, 200, { googleDrive: await googleDrive.disconnect() });
+      }
+      throw new Error("Unknown connection action");
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/references", handler: async (req, res) => {
@@ -250,7 +297,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
         return reply(res, 200, result);
       }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
-      const result = await connected.command(await body(req));
+      const input = await body(req);
+      if (["social_start", "sso_start"].includes(input.action)) input.callbackPort = req.socket.localPort;
+      const result = await connected.command(input);
       await product.initialize();
       await processes.reconcile();
       reply(res, 200, result);

@@ -73,9 +73,11 @@ function knowledgeFile(location, relativePath) {
 }
 
 export class TeamKnowledgeSearch {
-  constructor(root) {
+  constructor(root, googleDrive = null) {
     this.root = root;
+    this.googleDrive = googleDrive;
     this.indexedAt = new Map();
+    this.exportedLocations = new Map();
     // ponytail: one queue avoids QMD's process-global config race; split by team if search throughput demands it.
     this.queue = Promise.resolve();
   }
@@ -87,7 +89,12 @@ export class TeamKnowledgeSearch {
   }
 
   async searchNow(query, teamId, locations) {
-    const indexed = locations.map(indexedLocation).filter(Boolean);
+    const exported = this.googleDrive
+      ? (await Promise.all(locations.map((location) =>
+          this.googleDrive.exportLocation(teamId, location).catch(() => null)))).filter(Boolean)
+      : [];
+    this.exportedLocations.set(teamId, exported);
+    const indexed = [...locations, ...exported].map(indexedLocation).filter(Boolean);
     if (!indexed.length) return [];
     const directory = resolve(this.root, "knowledge", stableName("team", teamId));
     mkdirSync(directory, { recursive: true });
@@ -138,7 +145,8 @@ export class TeamKnowledgeSearch {
     if (separator < 1) throw new Error("Knowledge result not found");
     const locationId = String(resultId).slice(0, separator);
     const relativePath = String(resultId).slice(separator + 1);
-    const location = locations.find(({ id }) => id === locationId);
+    const location = [...locations, ...(this.exportedLocations.get(teamId) ?? [])]
+      .find(({ id }) => id === locationId);
     if (!location || !teamId) throw new Error("Knowledge result is not available in this team");
     const path = knowledgeFile(location, relativePath);
     const stat = statSync(path);

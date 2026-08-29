@@ -1,9 +1,14 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   currentIdentity, insertDefaultWorkspace, stableUuid, transaction
 } from "./product-database.js";
 import { syncTeamRecords } from "./team-sync.js";
 
 const defaultServer = "https://app.bees.bot";
+const serverAliases = {
+  dev: "http://localhost:3000", local: "http://localhost:3000",
+  prod: defaultServer, production: defaultServer
+};
 const sessionCredential = "BEES_ACCOUNT_SESSION";
 const connectedSeedAt = "1970-01-01T00:00:00.000Z";
 
@@ -15,10 +20,12 @@ export class ConnectedAccount {
   constructor(database, credentials, baseUrl = process.env.BEES_API_URL ?? defaultServer, logger = console) {
     this.database = database;
     this.credentials = credentials;
-    this.baseUrl = String(baseUrl).trim().replace(/\/+$/, "") || defaultServer;
+    const configured = String(baseUrl).trim();
+    this.baseUrl = ((serverAliases[configured] ?? configured) || defaultServer).replace(/\/+$/, "");
     this.logger = logger;
     this.syncQueue = Promise.resolve();
     this.closed = false;
+    this.pendingSignIn = null;
   }
 
   account() {
@@ -74,6 +81,25 @@ export class ConnectedAccount {
     if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));
     const token = response.headers.get("set-auth-token");
     if (!token) throw new Error("Server did not return a session token");
+    return this.resumeSession(token, value.user);
+  }
+
+  async resumeSession(token, knownUser = null) {
+    let value = { user: knownUser };
+    if (!knownUser) {
+      let response;
+      try {
+        response = await fetch(`${this.baseUrl}/api/me`, {
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(20_000)
+        });
+      } catch {
+        throw new Error("Can't reach the Bees server");
+      }
+      value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(message(value, response.status));
+    }
+    if (!value.user?.id || !value.user?.email) throw new Error("The sign-in response was incomplete");
     await this.credentials.set(sessionCredential, token);
     this.database.prepare(`
       INSERT INTO bees_account(slot, user_id, email, name, token)
@@ -82,6 +108,53 @@ export class ConnectedAccount {
         name = excluded.name, token = ''
     `).run(value.user.id, value.user.email, value.user.name ?? value.user.email);
     return this.summary();
+  }
+
+  async authConfig() {
+    try {
+      const config = await this.request("/api/config", { authenticated: false });
+      return {
+        ...config,
+        socialProviders: [...new Set(["google", "github", ...(config.socialProviders ?? [])])],
+        ssoEnabled: true
+      };
+    } catch {
+      return {
+        socialProviders: ["google", "github"], ssoEnabled: true,
+        googleDriveDesktopClientId: ""
+      };
+    }
+  }
+
+  async startBrowserSignIn(kind, value, callbackPort) {
+    const port = Number(callbackPort);
+    if (!Number.isInteger(port) || port < 1) throw new Error("The local sign-in callback is unavailable");
+    const config = await this.authConfig();
+    if (kind === "social" && !config.socialProviders?.includes(value)) {
+      throw new Error("That sign-in provider is not configured");
+    }
+    if (kind === "sso" && !config.ssoEnabled) throw new Error("Company SSO is not configured");
+    const state = randomBytes(24).toString("hex");
+    this.pendingSignIn = { state, expiresAt: Date.now() + 5 * 60_000 };
+    const callback = `http://127.0.0.1:${port}/bees-social-callback?state=${state}`;
+    const path = kind === "sso" ? "/api/auth/desktop/sso/start" : "/api/auth/desktop/start";
+    const url = new URL(`${this.baseUrl}${path}`);
+    url.searchParams.set(kind === "sso" ? "email" : "provider", value);
+    url.searchParams.set("redirect", callback);
+    return { url: url.toString() };
+  }
+
+  async completeBrowserSignIn(params) {
+    const pending = this.pendingSignIn;
+    const offered = Buffer.from(String(params.get("state") ?? ""));
+    const expected = Buffer.from(String(pending?.state ?? ""));
+    if (!pending || pending.expiresAt < Date.now() || offered.length !== expected.length ||
+        !timingSafeEqual(offered, expected)) throw new Error("This sign-in attempt expired; try again");
+    this.pendingSignIn = null;
+    if (params.get("error")) throw new Error("Sign in was not completed");
+    const token = params.get("token");
+    if (!token) throw new Error("The server did not return a sign-in token");
+    return this.resumeSession(token);
   }
 
   signIn(email, password) {
@@ -240,10 +313,11 @@ export class ConnectedAccount {
 
   async summary() {
     const account = this.publicAccount();
-    if (!account) return { account: null, organizations: [], invitations: [] };
+    const auth = await this.authConfig();
+    if (!account) return { account: null, organizations: [], invitations: [], auth };
     const organizations = await this.sync();
     const { invitations = [] } = await this.request("/api/me/organization-invitations");
-    return { account, organizations, invitations };
+    return { account, organizations, invitations, auth };
   }
 
   async acceptInvitation(invitationId) {
@@ -259,6 +333,54 @@ export class ConnectedAccount {
       this.request(`/api/organizations/${encodeURIComponent(organizationId)}/invitations`)
     ]);
     return { memberships, invitations };
+  }
+
+  async organizationSso(organizationId) {
+    return this.request(`/api/organizations/${encodeURIComponent(organizationId)}/sso`);
+  }
+
+  async registerOrganizationSso(input) {
+    const { provider } = await this.request(`/api/organizations/${encodeURIComponent(input.organizationId)}/sso`, {
+      method: "POST",
+      body: {
+        providerId: input.providerId,
+        domain: input.domain,
+        issuer: input.issuer,
+        protocol: input.protocol,
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+        discoveryEndpoint: input.discoveryEndpoint,
+        entryPoint: input.entryPoint,
+        cert: input.cert
+      }
+    });
+    const summary = await this.organizationSso(input.organizationId);
+    return {
+      ...summary,
+      verification: provider?.domainVerificationToken ? {
+        providerId: input.providerId,
+        domain: input.domain,
+        dnsName: `_better-auth-token.${input.domain}`,
+        domainVerificationToken: provider.domainVerificationToken
+      } : null
+    };
+  }
+
+  async removeOrganizationSso(organizationId, providerId) {
+    await this.request(
+      `/api/organizations/${encodeURIComponent(organizationId)}/sso/${encodeURIComponent(providerId)}`,
+      { method: "DELETE" }
+    );
+    return this.organizationSso(organizationId);
+  }
+
+  async verifyOrganizationSso(organizationId, providerId, action) {
+    const result = await this.request(
+      `/api/organizations/${encodeURIComponent(organizationId)}/sso/${encodeURIComponent(providerId)}/verification`,
+      { method: "POST", body: { action } }
+    );
+    if (action !== "verify") return { ...await this.organizationSso(organizationId), verification: result };
+    return this.organizationSso(organizationId);
   }
 
   async inviteOrganizationMember(organizationId, email, role) {
@@ -302,10 +424,20 @@ export class ConnectedAccount {
     switch (input.action) {
       case "sign_in": return this.signIn(input.email, input.password);
       case "sign_up": return this.signUp(input.name, input.email, input.password);
+      case "social_start": return this.startBrowserSignIn("social", input.provider, input.callbackPort);
+      case "sso_start": return this.startBrowserSignIn("sso", input.email, input.callbackPort);
       case "sign_out": await this.signOut(); return this.summary();
       case "sync": return this.summary();
       case "accept_invitation": return this.acceptInvitation(input.invitationId);
       case "organization_people": return this.organizationPeople(input.organizationId);
+      case "organization_sso": return this.organizationSso(input.organizationId);
+      case "register_organization_sso": return this.registerOrganizationSso(input);
+      case "remove_organization_sso":
+        return this.removeOrganizationSso(input.organizationId, input.providerId);
+      case "request_organization_sso_verification":
+        return this.verifyOrganizationSso(input.organizationId, input.providerId, "request");
+      case "verify_organization_sso":
+        return this.verifyOrganizationSso(input.organizationId, input.providerId, "verify");
       case "invite_organization_member":
         return this.inviteOrganizationMember(input.organizationId, input.email, input.role);
       case "team_people": return this.teamPeople(input.teamId);

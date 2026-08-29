@@ -535,6 +535,48 @@ Alpha workspace knowledge`);
     rmSync(root, { recursive: true });
   });
 
+  it("indexes local Google Workspace exports with source dates", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-google-knowledge-"));
+    const pointers = join(root, "pointers");
+    const exported = join(root, "exported");
+    mkdirSync(pointers);
+    writeFileSync(join(pointers, "strategy.gdoc"), JSON.stringify({ doc_id: "google-strategy" }));
+    const googleDrive = {
+      exportLocation: vi.fn(async (_teamId: string, location: any) => {
+        mkdirSync(exported, { recursive: true });
+        writeFileSync(join(exported, "strategy.md"), `---
+source_id: google-strategy
+created_at: 2026-08-01T10:00:00.000Z
+modified_at: 2026-08-29T09:00:00.000Z
+---
+
+Current international expansion strategy`);
+        return { ...location, id: "google-export", name: `${location.name} · Google`, kind: "folder", localPath: exported };
+      })
+    };
+    const database = new NodeDatabase();
+    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agents, null, root, { googleDrive });
+    const initial = await product.snapshot();
+    await product.command({
+      action: "add_location", teamId: initial.teams[0].id,
+      name: "Executive Drive", kind: "folder", path: pointers
+    });
+
+    const result = (await product.search("international expansion", initial.workspaces[0].id))
+      .find(({ kind }) => kind === "file");
+    expect(result).toMatchObject({
+      title: "Executive Drive · Google/strategy.md",
+      sourceId: "google-strategy",
+      createdAt: "2026-08-01T10:00:00.000Z",
+      modifiedAt: "2026-08-29T09:00:00.000Z"
+    });
+    expect(product.readKnowledge(result.id, initial.workspaces[0].id).content)
+      .toContain("Current international expansion strategy");
+    expect(googleDrive.exportLocation).toHaveBeenCalledOnce();
+    rmSync(root, { recursive: true });
+  });
+
   it("keeps one connected account and mirrors its organization and team roles", async () => {
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);
@@ -606,5 +648,26 @@ Alpha workspace knowledge`);
     expect(database.prepare(`
       SELECT status FROM organization_memberships WHERE organization_id = 'remote-org'
     `).get()).toEqual({ status: "suspended" });
+  });
+
+  it("keeps supported sign-in choices visible when an older server has no public config", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
+
+    await expect(connected.authConfig()).resolves.toEqual({
+      socialProviders: ["google", "github"],
+      ssoEnabled: true,
+      googleDriveDesktopClientId: ""
+    });
+  });
+
+  it("expands the documented local server alias for browser sign-in", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const connected = new ConnectedAccount({} as never, {} as never, "dev");
+
+    await expect((connected as any).startBrowserSignIn("social", "google", 31415))
+      .resolves.toMatchObject({
+        url: expect.stringMatching(/^http:\/\/localhost:3000\/api\/auth\/desktop\/start\?/)
+      });
   });
 });

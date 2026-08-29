@@ -21,11 +21,10 @@ export const NAVIGATION = [
   { id: "knowledge", label: "Knowledge Base", icon: KnowledgeIcon, defaultChild: "search", children: [
     ["search", "Search & sources"], ["artifacts", "Artifacts"]
   ] },
-  { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai", children: [
-    ["personal-ai", "AI connections"], ["appearance", "Appearance"],
-    ["organizations", "Organizations & invitations"], ["organization-settings", "Organization"],
-    ["team-settings", "Team"],
-    ["connections", "Connections"], ["permissions", "Permissions"]
+  { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "organizations", children: [
+    ["organizations", "Account & invitations"], ["connections", "Connections"],
+    ["organization-settings", "Organization"], ["team-settings", "Team"],
+    ["personal-ai", "AI connections"], ["appearance", "Appearance"], ["permissions", "Permissions"]
   ] }
 ];
 

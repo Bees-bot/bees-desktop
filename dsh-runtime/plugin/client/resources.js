@@ -5,7 +5,25 @@ import {
 } from "./shared.js";
 import { addLocationFromDevice } from "./location-fields.js";
 
-export function FilesPage({ ctx, data, teamId, act }) {
+function DriveNotice({ onOpenConnections }) {
+  const [drive, setDrive] = useState(null);
+  useEffect(() => {
+    let active = true;
+    request("/bees-api/connections")
+      .then((value) => active && setDrive(value.googleDrive), () => active && setDrive(null));
+    return () => { active = false; };
+  }, []);
+  if (!drive) return null;
+  return h("section", { className: "bees-box" },
+    h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
+      h("div", { className: "bees-row-title" }, "Google Workspace documents"),
+      h("div", { className: "bees-muted" }, drive.connected
+        ? `Connected locally${drive.profile?.emailAddress ? ` as ${drive.profile.emailAddress}` : ""}. .gdoc, .gsheet, and .gslides pointers are exported for QMD on demand.`
+        : "Connect Google Drive on this desktop to index native Google document pointers.")),
+    h(Button, { onClick: onOpenConnections }, drive.connected ? "Manage" : "Connect")));
+}
+
+export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   const pickFolder = async () => ctx.workspaces.pickDirectory();
@@ -13,6 +31,7 @@ export function FilesPage({ ctx, data, teamId, act }) {
     ? pickFolder()
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
+    h(DriveNotice, { onOpenConnections }),
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
       h(Button, { disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
       h(Button, { className: "primary", disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
@@ -143,7 +162,7 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
   ;
 }
 
-export function KnowledgePage({ data, route, workspaceId, teamId }) {
+export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnections }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
@@ -162,7 +181,9 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
       viewer ? h(FilePreview, { target: viewer }) : null);
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
-  return h("div", { className: "bees-stack" }, h("form", { className: "bees-search", onSubmit: async (event) => {
+  return h("div", { className: "bees-stack" },
+    h(DriveNotice, { onOpenConnections }),
+    h("form", { className: "bees-search", onSubmit: async (event) => {
     event.preventDefault();
     setSearchError("");
     try { setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results ?? []); }
@@ -180,6 +201,6 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
     }),
     h("section", { className: "bees-box" }, h("h3", null, "Approved sources"),
       ...(locations.length ? locations.map((row) => h("div", { className: "bees-row", key: row.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, row.name), h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")))) : [h(Empty, { key: "empty" }, "No approved sources in this team")])),
-    h("p", { className: "bees-muted" }, "Native Google document pointers must be exported locally as text, Markdown, or HTML before QMD can index their contents."),
+    h("p", { className: "bees-muted" }, "Creation and modification dates travel with exported Google documents. Recency helps rank freshness; it does not by itself make a document authoritative."),
     h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
 }

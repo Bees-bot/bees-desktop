@@ -26,7 +26,7 @@ export class BeesProduct {
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
     this.workspaceRegistry = services.workspaceRegistry;
-    this.knowledge = new TeamKnowledgeSearch(defaultWorkspace);
+    this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));

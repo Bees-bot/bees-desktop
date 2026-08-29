@@ -504,11 +504,16 @@ fn local_model_connection(app: tauri::AppHandle) -> Result<LocalModelConnection,
 
 fn validated_external_url(url: &str) -> Result<&str, String> {
     let url = url.trim();
-    let host = url
+    let secure_host = url
         .strip_prefix("https://")
         .and_then(|rest| rest.split(['/', '?', '#']).next())
         .filter(|host| !host.is_empty() && !host.chars().any(char::is_whitespace));
-    if host.is_none() || url.chars().any(char::is_control) {
+    let loopback_host = url
+        .strip_prefix("http://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .and_then(|authority| authority.split(':').next())
+        .filter(|host| matches!(*host, "localhost" | "127.0.0.1"));
+    if (secure_host.is_none() && loopback_host.is_none()) || url.chars().any(char::is_control) {
         return Err("Bees can only open secure website links.".to_string());
     }
     Ok(url)
@@ -650,7 +655,16 @@ mod tests {
             validated_external_url(" https://console.x.ai/team/default/api-keys "),
             Ok("https://console.x.ai/team/default/api-keys")
         );
+        assert_eq!(
+            validated_external_url("http://localhost:3000/api/auth/desktop/start"),
+            Ok("http://localhost:3000/api/auth/desktop/start")
+        );
+        assert_eq!(
+            validated_external_url("http://127.0.0.1:3000/callback"),
+            Ok("http://127.0.0.1:3000/callback")
+        );
         assert!(validated_external_url("http://example.com").is_err());
+        assert!(validated_external_url("http://localhost.example.com").is_err());
         assert!(validated_external_url("https://").is_err());
         assert!(validated_external_url("https://example.com\nmalicious").is_err());
     }
