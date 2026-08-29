@@ -47,7 +47,7 @@ describe("personal dashboards", () => {
     expect(client).toContain('className: "bees-nav-dashboards"');
     expect(client).toContain('widgets: dashboard.widgets.map((widget) => ({ ...widget }))');
     expect(client).toContain('className: `bees-nav-link bees-dashboard-link');
-    expect(client).toContain('rowsForRoute: pinnedRows, preference, preferences, setPageActions');
+    expect(client).toContain('rowsForRoute, preference, preferences, setPageActions');
     expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
     expect(client).toContain('kind: "quick-actions"');
     expect(client).toContain('kind: "knowledge-sources"');
