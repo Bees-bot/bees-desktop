@@ -15,7 +15,7 @@ import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { SettingsPage } from "./settings.js";
 
-function ContextSwitcher({ data, organizationId, teamId, workspaceId, onChange, onCreateOrganization, onCreateTeam, onCreateWorkspace }) {
+function ContextSwitcher({ data, organizationId, teamId, onChange, onCreateOrganization, onCreateTeam }) {
   const [query, setQuery] = useState("");
   const root = useRef(null);
   useEffect(() => {
@@ -25,7 +25,6 @@ function ContextSwitcher({ data, organizationId, teamId, workspaceId, onChange, 
   }, []);
   const organization = data.organizations.find(({ id }) => id === organizationId);
   const team = data.teams.find(({ id }) => id === teamId);
-  const workspace = data.workspaces.find(({ id }) => id === workspaceId);
   const needle = query.trim().toLocaleLowerCase();
   const matches = ({ name }) => !needle || name.toLocaleLowerCase().includes(needle);
   const close = (event) => event.currentTarget.closest("details")?.removeAttribute("open");
@@ -38,28 +37,22 @@ function ContextSwitcher({ data, organizationId, teamId, workspaceId, onChange, 
   }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, "+"), label);
   const organizations = data.organizations.filter(matches);
   const teams = data.teams.filter((row) => row.organizationId === organizationId && matches(row));
-  const workspaces = data.workspaces.filter((row) => row.teamId === teamId && matches(row));
   return h("details", { className: "bees-context-switcher", ref: root },
     h("summary", null,
       h("div", { className: "bees-context-summary" },
         h("div", { className: "bees-context-primary" }, organization?.name ?? "Choose organization"),
-        h("div", { className: "bees-context-secondary" }, team ? `${team.name} · ${workspace?.name ?? "All workspaces"}` : "Choose team")),
+        h("div", { className: "bees-context-secondary" }, team?.name ?? "Choose team")),
       h("span", { className: "bees-context-arrow", "aria-hidden": "true" }, "▾")),
     h("div", { className: "bees-context-panel" },
-      h("input", { className: "bees-input bees-context-search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search contexts", "aria-label": "Search organizations, teams, and workspaces" }),
+      h("input", { className: "bees-input bees-context-search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search contexts", "aria-label": "Search organizations and teams" }),
       h("div", { className: "bees-context-section" },
         h("div", { className: "bees-context-label" }, "Organizations"),
         ...organizations.map((row) => option(row, row.id === organizationId, () => onChange(`organization:${row.id}`))),
         add("New organization", onCreateOrganization)),
       h("div", { className: "bees-context-section" },
         h("div", { className: "bees-context-label" }, organization ? `Teams in ${organization.name}` : "Teams"),
-        ...teams.map((row) => option(row, row.id === teamId, () => onChange(`team:${row.id}`))),
-        add("New team", onCreateTeam, !organizationId)),
-      h("div", { className: "bees-context-section" },
-        h("div", { className: "bees-context-label" }, team ? `Workspaces in ${team.name}` : "Workspaces"),
-        team && (!needle || "all workspaces".includes(needle)) ? option({ id: `all:${team.id}`, name: "All workspaces" }, !workspaceId, () => onChange(`team:${team.id}`), true) : null,
-        ...workspaces.map((row) => option(row, row.id === workspaceId, () => onChange(`workspace:${row.id}`), true)),
-        add("New workspace", onCreateWorkspace, !teamId)))
+        ...teams.map((row) => option(row, row.id === teamId, () => onChange(`team:${row.id}`), true)),
+        add("New team", onCreateTeam, !organizationId)))
   );
 }
 
@@ -87,16 +80,21 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   useEffect(() => {
     if (!data) return;
     const valid = new Set([...data.organizations.map(({ id }) => `organization:${id}`), ...data.teams.map(({ id }) => `team:${id}`), ...data.workspaces.map(({ id }) => `workspace:${id}`)]);
-    const preferred = valid.has(preference.lastScope) ? preference.lastScope
-      : data.workspaces[0] ? `workspace:${data.workspaces[0].id}` : `organization:${data.organizations[0]?.id ?? ""}`;
-    setScopeState((current) => valid.has(current) ? current : preferred);
+    const saved = scopeParts(data, preference.lastScope);
+    const preferred = saved.teamId ? `team:${saved.teamId}`
+      : valid.has(preference.lastScope) ? preference.lastScope
+        : data.teams[0] ? `team:${data.teams[0].id}` : `organization:${data.organizations[0]?.id ?? ""}`;
+    setScopeState((current) => {
+      const selected = scopeParts(data, current);
+      return selected.teamId ? `team:${selected.teamId}` : valid.has(current) ? current : preferred;
+    });
   }, [data, preference.lastScope]);
   const setScope = (next) => {
     setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
     void preferences.set("lastScope", next);
   };
   const parts = data ? scopeParts(data, scope) : { workspaceId: "", teamId: "", organizationId: "" };
-  const workspaceIds = data ? (parts.workspaceId ? [parts.workspaceId] : data.workspaces.filter(({ teamId }) => teamId === parts.teamId).map(({ id }) => id)) : [];
+  const workspaceIds = parts.workspaceId ? [parts.workspaceId] : [];
   const act = async (command) => {
     try {
       const result = await request("/bees-api/command", { method: "POST", body: JSON.stringify(command) });
@@ -134,15 +132,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const name = await ask("Team name", ""); if (!name) return;
     const result = await act({ action: "create_team", organizationId: organization.id, name });
     if (result?.id) setScope(`team:${result.id}`);
-  };
-  const createWorkspace = async () => {
-    let team = data.teams.find(({ id }) => id === parts.teamId);
-    const teams = data.teams.filter(({ organizationId }) => organizationId === parts.organizationId);
-    if (!team) { const name = await ask(`Team:\n${teams.map(({ name }) => name).join("\n")}`); team = teams.find((row) => row.name === name); }
-    if (!team) return;
-    const name = await ask("Workspace name", ""); if (!name) return;
-    const result = await act({ action: "create_workspace", teamId: team.id, name });
-    if (result?.id) setScope(`workspace:${result.id}`);
   };
   const createWork = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
   const createGoal = () => { setRoute("goals"); setWorkItemId(""); setCreating("goal"); };
@@ -204,7 +193,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }));
     if (targetRoute === "artifacts") return data.runs.filter((row) => row.workspaceId === parts.workspaceId && row.outputs.length)
       .map((row) => ({ id: row.id, label: data.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
-    if (targetRoute === "workspace-settings" && parts.workspace) return [{ id: parts.workspace.id, label: parts.workspace.name, open: openRoute }];
     if (targetRoute === "team-settings") {
       const team = data.teams.find(({ id }) => id === parts.teamId);
       return team ? [{ id: team.id, label: team.name, open: openRoute }] : [];
@@ -230,12 +218,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           : section.id === "files" ? h(FilesPage, { ctx, data, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
-                : h(SettingsPage, { ctx, data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
+                : h(SettingsPage, { ctx, data, route, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
   return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
     h("aside", { className: "bees-sidebar" },
       h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees")),
-      h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, workspaceId: parts.workspaceId,
-        onChange: setScope, onCreateOrganization: createOrganization, onCreateTeam: createTeam, onCreateWorkspace: createWorkspace }),
+      h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId,
+        onChange: setScope, onCreateOrganization: createOrganization, onCreateTeam: createTeam }),
       h("nav", { className: "bees-nav", "aria-label": "Bees navigation" },
         ...pins.map((id) => {
           const pinned = navigationItem(id);
@@ -295,7 +283,7 @@ function AppHeader({ route, routeLabel, parts, pins, setPins, ctx }) {
   return h("header", { className: "bees-top" },
     header ? header : h(React.Fragment, null,
       h("div", { className: "bees-title" }, routeLabel),
-      route !== "home" ? h("div", { className: "bees-context" }, parts.workspace?.name ?? parts.team?.name ?? parts.organization?.name ?? "") : null,
+      route !== "home" ? h("div", { className: "bees-context" }, parts.team?.name ?? parts.organization?.name ?? "") : null,
       route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null
     ),
     h("div", { className: "bees-grow" }),

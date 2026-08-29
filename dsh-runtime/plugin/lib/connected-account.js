@@ -1,4 +1,4 @@
-import { transaction } from "./product-database.js";
+import { insertDefaultWorkspace, transaction } from "./product-database.js";
 
 const defaultServer = "https://app.bees.bot";
 const sessionCredential = "BEES_ACCOUNT_SESSION";
@@ -142,6 +142,9 @@ export class ConnectedAccount {
             VALUES (?, ?, ?, 'active', ?)
             ON CONFLICT(user_id, team_id) DO UPDATE SET role = excluded.role, status = 'active'
           `).run(localUser.id, team.id, own.role, at);
+          if (!this.database.prepare(
+            "SELECT 1 FROM workspaces WHERE team_id = ? AND status = 'active' LIMIT 1"
+          ).get(team.id)) insertDefaultWorkspace(this.database, team.id, { at });
         }
       }
       this.database.prepare(`

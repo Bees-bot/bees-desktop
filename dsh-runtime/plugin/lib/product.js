@@ -78,7 +78,7 @@ export class BeesProduct {
     const data = JSON.parse(run.configJson);
     let body;
     if (!run.workItemId && data.mode === "planning") {
-      body = `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
+      body = `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${data.purpose}`;
     } else if (run.workItemId) {
       const lifecycle = this.database.prepare(`
         SELECT runtime_phase AS runtimePhase, archived_at AS archivedAt, deleted_at AS deletedAt

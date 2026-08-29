@@ -694,7 +694,7 @@ export class AgentRuntime {
     });
     agentCtx.tools.register(defineTool({
       name: "bees_search_knowledge",
-      description: "Search work items in this Bees workspace and files mapped to its team. Results are read-only excerpts and are automatically scoped to the current run.",
+      description: "Search work items and files in this Bees team. Results are read-only excerpts and are automatically scoped to the current run.",
       parameters: {
         query: { type: "string", required: true, description: "Words or phrase to find." }
       },

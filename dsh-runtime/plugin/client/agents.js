@@ -158,7 +158,7 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
 
-  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating an agent.");
+  if (!workspaceId) return h(Empty, null, "Choose a team before creating an agent.");
   
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
@@ -269,8 +269,8 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, allowOutput: false }),
-    h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this workspace should review work" : "How this agent should complete work" })),
-    h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this workspace's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
+    h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
+    h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this team's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))
   );
 }
@@ -282,7 +282,7 @@ function PoolCreateForm({ workspaceId, act, onCancel, onCreated, setPageHeader }
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
     if (created?.id) onCreated(created.id);
   });
-  if (!workspaceId) return h(Empty, null, "Choose one workspace before creating a pool.");
+  if (!workspaceId) return h(Empty, null, "Choose a team before creating a pool.");
   return h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Pools"),
       h("div", null, h("h2", null, "New agent pool"), h("div", { className: "bees-muted" }, "Name the interchangeable role now, then add and prioritize member agents."))),

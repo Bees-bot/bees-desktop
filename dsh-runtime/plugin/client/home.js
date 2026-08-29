@@ -30,7 +30,7 @@ function OutcomeWidget({ workspaceId, act, navigate }) {
   },
     h("textarea", {
       className: "bees-composer-input",
-      placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a workspace first",
+      placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a team first",
       disabled: !workspaceId || busy,
       value: outcome,
       onInput: (event) => setOutcome(event.target.value),
@@ -53,7 +53,7 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
   const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
   const cards = [...templates.map((row) => ({ ...row, isTemplate: true })), ...processes.map((row) => ({ ...row, isTemplate: false }))];
   const visibleCards = showAllTemplates ? cards : cards.slice(0, 10);
-  if (!cards.length) return h(Empty, null, workspaceId ? "No templates available." : "Choose a workspace to see templates.");
+  if (!cards.length) return h(Empty, null, workspaceId ? "No templates available." : "Choose a team to see templates.");
   return h("div", { className: "bees-home-templates" },
     ...visibleCards.map((card) => h("button", {
       className: "bees-template-card",
@@ -119,7 +119,7 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 const WIDGETS = [
   { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget },
   { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, processes, runs, and agents", w: 4, h: 5, component: QuickActionsWidget },
-  { kind: "metrics", label: "Metrics", description: "Key workspace counts", w: 12, h: 3, component: MetricsWidget },
+  { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget },
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget },
   { kind: "recent-work", label: "Recent work", description: "Latest active work items", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget },
   { kind: "all-work", label: "All work", description: "Active work items", route: "all-work", w: 6, h: 5, component: ListWidget },
@@ -127,8 +127,8 @@ const WIDGETS = [
   { kind: "completed", label: "Completed work", description: "Recently completed work", route: "completed", w: 6, h: 5, component: ListWidget },
   { kind: "templates", label: "Templates", description: "Processes and reusable templates", w: 4, h: 5, component: TemplatesWidget },
   { kind: "processes", label: "Processes", description: "Active processes", route: "all-processes", w: 6, h: 5, component: ListWidget },
-  { kind: "agents", label: "Agents", description: "Workspace agents", route: "all-agents", w: 6, h: 5, component: ListWidget },
-  { kind: "agent-pools", label: "Agent pools", description: "Workspace agent pools", route: "pools", w: 6, h: 5, component: ListWidget },
+  { kind: "agents", label: "Agents", description: "Team agents", route: "all-agents", w: 6, h: 5, component: ListWidget },
+  { kind: "agent-pools", label: "Agent pools", description: "Team agent pools", route: "pools", w: 6, h: 5, component: ListWidget },
   { kind: "agent-presets", label: "Agent presets", description: "Reusable agent presets", route: "presets", w: 6, h: 5, component: ListWidget },
   { kind: "mcp-servers", label: "MCP servers", description: "Connected MCP servers", route: "mcp", w: 6, h: 5, component: ListWidget },
   { kind: "files", label: "Files & folders", description: "Team locations", route: "locations", w: 6, h: 5, component: ListWidget },

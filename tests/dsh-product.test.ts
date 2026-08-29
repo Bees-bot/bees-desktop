@@ -23,7 +23,7 @@ describe("Bees DSH product plugin", () => {
       SELECT o.name AS organization, t.name AS team, w.name AS workspace
       FROM organizations o JOIN teams t ON t.organization_id = o.id
       JOIN workspaces w ON w.team_id = t.id
-    `).get()).toEqual({ organization: "Personal Org", team: "Team1", workspace: "My workspace" });
+    `).get()).toEqual({ organization: "Personal Org", team: "Team1", workspace: "Default workspace" });
     expect(database.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
         ('organization_memberships','team_memberships','team_locations','device_location_mappings','agent_locations')
@@ -32,13 +32,24 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 11 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
 
-    database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
+    database.exec(`
+      UPDATE organizations SET name = 'Personal';
+      UPDATE teams SET name = 'Personal';
+      UPDATE workspaces SET name = 'My workspace';
+      INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
+        SELECT 'orphan-team', o.id, 'Orphan', 0, u.id, 'active', '2026-08-28', '2026-08-28'
+        FROM organizations o CROSS JOIN users u LIMIT 1;
+    `);
     database.exec("PRAGMA user_version = 10");
     initializeProductDatabase(database);
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
-    expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
+    expect(database.prepare("SELECT name FROM teams WHERE personal = 1").get()).toEqual({ name: "Team1" });
+    expect(database.prepare("SELECT name FROM workspaces WHERE team_id = 'orphan-team'").get())
+      .toEqual({ name: "Default workspace" });
+    expect(database.prepare("SELECT count(*) AS count FROM workspaces WHERE name = 'Default workspace'").get())
+      .toEqual({ count: 2 });
     expect(database.prepare("PRAGMA table_info(stages)").all().map(({ name }: any) => name))
       .not.toContain("completion_rules");
   });
@@ -173,8 +184,13 @@ describe("Bees DSH product plugin", () => {
     const team = initial.teams[0];
     const organization = await product.command({ action: "create_organization", name: "Acme" });
     const organizationTeam = await product.command({ action: "create_team", organizationId: organization.id, name: "Marketing" });
-    expect((await product.snapshot()).organizations).toContainEqual(expect.objectContaining({ id: organization.id, name: "Acme", role: "owner" }));
-    expect((await product.snapshot()).teams).toContainEqual(expect.objectContaining({ id: organizationTeam.id, organizationId: organization.id, name: "Marketing" }));
+    const organizationSnapshot = await product.snapshot();
+    expect(organizationSnapshot.organizations).toContainEqual(expect.objectContaining({ id: organization.id, name: "Acme", role: "owner" }));
+    expect(organizationSnapshot.teams).toContainEqual(expect.objectContaining({ id: organizationTeam.id, organizationId: organization.id, name: "Marketing" }));
+    expect(organizationSnapshot.workspaces.filter(({ teamId }: any) => teamId === organizationTeam.id))
+      .toEqual([expect.objectContaining({
+        id: organizationTeam.workspaceId, name: "Default workspace"
+      })]);
     const goals = initial.processes.find(({ workspaceId, kind }: any) => workspaceId === workspace.id && kind === "goals");
     const work = initial.stages.find(({ processId, name }: any) => processId === goals.id && name === "Work");
     expect(initial.assignments).toEqual(expect.arrayContaining([
@@ -246,19 +262,10 @@ describe("Bees DSH product plugin", () => {
       spec: { calendars: [{ hour: 9, minute: 0 }], timezone: "America/Los_Angeles" }
     }));
 
-    const secondWorkspace = await product.command({ action: "create_workspace", teamId: team.id, name: "Campaigns" });
-    const secondSnapshot = await product.snapshot();
-    const secondGoals = secondSnapshot.processes.find(({ workspaceId, kind }: any) =>
-      workspaceId === secondWorkspace.id && kind === "goals");
-    const secondItem = await product.command({
-      action: "create_goal", workspaceId: secondWorkspace.id, title: "Reuse team files"
-    });
-    await product.command({ action: "attach_location", itemId: secondItem.id, locationId: location.id });
     expect((await product.snapshot()).attachments).toEqual(expect.arrayContaining([
       expect.objectContaining({ workItemId: created.id, locationId: location.id }),
-      expect.objectContaining({ workItemId: secondItem.id, locationId: location.id })
+      expect.objectContaining({ workItemId: resourcedGoal.id, locationId: location.id })
     ]));
-    expect(secondGoals).toBeTruthy();
 
     const after = await product.snapshot();
     expect(after.locations).toContainEqual(expect.objectContaining({
@@ -477,7 +484,7 @@ describe("Bees DSH product plugin", () => {
     rmSync(runRoot, { recursive: true });
   });
 
-  it("shares file knowledge within a team and isolates it from other teams", async () => {
+  it("isolates file knowledge between teams", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-knowledge-"));
     const firstFiles = join(root, "first-files");
     const secondFiles = join(root, "second-files");
@@ -491,15 +498,9 @@ describe("Bees DSH product plugin", () => {
     const initial = await product.snapshot();
     const firstWorkspace = initial.workspaces[0];
     const firstTeam = initial.teams[0];
-    const siblingWorkspace = await product.command({
-      action: "create_workspace", teamId: firstTeam.id, name: "Sibling"
-    });
     const organization = await product.command({ action: "create_organization", name: "Other org" });
     const secondTeam = await product.command({
       action: "create_team", organizationId: organization.id, name: "Other team"
-    });
-    const secondWorkspace = await product.command({
-      action: "create_workspace", teamId: secondTeam.id, name: "Other workspace"
     });
     await product.command({
       action: "add_location", teamId: firstTeam.id, name: "First", kind: "folder", path: firstFiles
@@ -511,11 +512,8 @@ describe("Bees DSH product plugin", () => {
     expect(await product.search("Alpha", firstWorkspace.id)).toContainEqual(expect.objectContaining({
       kind: "file", title: "First/alpha.md"
     }));
-    expect(await product.search("Alpha", siblingWorkspace.id)).toContainEqual(expect.objectContaining({
-      kind: "file", title: "First/alpha.md"
-    }));
     expect(await product.search("Beta", firstWorkspace.id)).toEqual([]);
-    expect(await product.search("Beta", secondWorkspace.id)).toContainEqual(expect.objectContaining({
+    expect(await product.search("Beta", secondTeam.workspaceId)).toContainEqual(expect.objectContaining({
       kind: "file", title: "Second/beta.md"
     }));
     expect(readdirSync(join(root, "knowledge"), { withFileTypes: true }).filter((entry) => entry.isDirectory()))
@@ -573,6 +571,8 @@ describe("Bees DSH product plugin", () => {
     `).get()).toEqual({ name: "Acme", role: "admin", status: "active" });
     expect(database.prepare("SELECT name FROM teams WHERE id = 'remote-team'").get())
       .toEqual({ name: "Design" });
+    expect(database.prepare("SELECT name FROM workspaces WHERE team_id = 'remote-team'").get())
+      .toEqual({ name: "Default workspace" });
     expect(seen).toContainEqual(expect.objectContaining({
       url: "https://api.example/api/teams", authorization: "Bearer session-token",
       organization: "remote-org"

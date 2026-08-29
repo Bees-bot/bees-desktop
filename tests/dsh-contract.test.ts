@@ -326,6 +326,11 @@ describe("Bees DSH public contract", () => {
       expect(client).toContain('h(PinButton, { id: route, label: routeLabel, pins, setPins })');
       expect(client).toContain('h(ContextSwitcher, {');
       expect(client).toContain('className: "bees-input bees-context-search"');
+      expect(client).toContain('"Search organizations and teams"');
+      expect(client).not.toContain('"New workspace"');
+      expect(client).not.toContain('"All workspaces"');
+      expect(client).not.toContain('"workspace-settings"');
+      expect(client).not.toContain('"Default workspace"');
       expect(client).toContain('document.addEventListener("pointerdown", dismiss, true)');
       expect(client).toContain('["light", "Light"]');
       expect(client).toContain('["dark", "Dark"]');
