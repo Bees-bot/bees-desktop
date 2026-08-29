@@ -227,9 +227,15 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/collaboration", handler: async (req, res) => {
     try {
-      if (req.method === "GET") return reply(res, 200, await connected.summary());
+      if (req.method === "GET") {
+        const result = await connected.summary();
+        await product.initialize();
+        return reply(res, 200, result);
+      }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
-      reply(res, 200, await connected.command(await body(req)));
+      const result = await connected.command(await body(req));
+      await product.initialize();
+      reply(res, 200, result);
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
 }

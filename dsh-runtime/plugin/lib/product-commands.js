@@ -3,7 +3,7 @@ import { openAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  assignment, capabilities, currentIdentity, insertProcess, insertWorkspaceDefaults, iso,
+  assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
@@ -51,7 +51,7 @@ function locationIds(database, workspaceId, values, foldersOnly = false) {
     SELECT id, kind FROM team_locations
     WHERE team_id = ? AND archived_at IS NULL AND id IN (SELECT value FROM json_each(?))
   `).all(workspace.teamId, JSON.stringify(ids));
-  if (rows.length !== ids.length) throw new Error("A selected location is unavailable to this workspace's team");
+  if (rows.length !== ids.length) throw new Error("A selected location is unavailable to this team");
   if (foldersOnly && rows.some(({ kind }) => kind !== "folder")) throw new Error("Results must be saved to a folder");
   return ids;
 }
@@ -187,33 +187,31 @@ export async function executeProductCommand(action, input) {
         .run(userId, id, at);
       return { id };
     });
-    if (action === "create_team") return transaction(this.database, () => {
+    if (action === "create_team") {
       const { userId } = currentIdentity(this.database);
       const organizationId = required(input.organizationId, "Organization");
       if (!this.database.prepare(`
         SELECT 1 FROM organization_memberships WHERE user_id = ? AND organization_id = ? AND status = 'active'
       `).get(userId, organizationId)) throw new Error("You are not a member of this organization");
+      const name = required(input.name, "Team name");
       const id = randomUUID();
-      this.database.prepare(`INSERT INTO teams VALUES (?, ?, ?, 0, ?, 'active', ?, ?)`)
-        .run(id, organizationId, required(input.name, "Team name"), userId, at, at);
-      this.database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")
-        .run(userId, id, at);
-      return { id };
-    });
-    if (action === "create_workspace") {
-      const teamId = required(input.teamId, "Team");
-      requireTeam(this.database, teamId, ["admin", "member"]);
-      const id = randomUUID();
-      const name = required(input.name, "Workspace name");
-      const path = resolve(this.defaultWorkspace, "workspaces", id);
+      const workspaceId = randomUUID();
+      const path = resolve(this.defaultWorkspace, "workspaces", workspaceId);
       mkdirSync(path, { recursive: true });
-      const dshWorkspace = this.workspaceRegistry ? await this.workspaceRegistry.create(path, name) : null;
+      const dshWorkspace = this.workspaceRegistry
+        ? await this.workspaceRegistry.create(path, DEFAULT_WORKSPACE_NAME)
+        : null;
       return transaction(this.database, () => {
-        this.database.prepare(`
-          INSERT INTO workspaces VALUES (?, ?, ?, ?, 'local', 'device', 'active', ?, ?)
-        `).run(id, teamId, dshWorkspace ? String(dshWorkspace.id) : null, name, at, at);
-        insertWorkspaceDefaults(this.database, id);
-        return { id, dshWorkspaceId: dshWorkspace ? String(dshWorkspace.id) : null };
+        this.database.prepare(`INSERT INTO teams VALUES (?, ?, ?, 0, ?, 'active', ?, ?)`)
+          .run(id, organizationId, name, userId, at, at);
+        this.database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")
+          .run(userId, id, at);
+        const workspace = insertDefaultWorkspace(this.database, id, {
+          id: workspaceId,
+          dshWorkspaceId: dshWorkspace ? String(dshWorkspace.id) : null,
+          at
+        });
+        return { id, workspaceId: workspace.id, dshWorkspaceId: workspace.dshWorkspaceId };
       });
     }
     if (["create_item", "create_run", "create_goal"].includes(action)) {
@@ -242,7 +240,7 @@ export async function executeProductCommand(action, input) {
       const assignmentId = input.agentAssignmentId ? required(input.agentAssignmentId, "Agent") : null;
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this workspace");
+      `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this team");
       const id = randomUUID();
       const parentId = action === "create_run" ? null : parentFor(this.database, id, processId, input.parentId);
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
@@ -266,7 +264,7 @@ export async function executeProductCommand(action, input) {
         : item.agentAssignmentId;
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(assignmentId, item.workspaceId)) throw new Error("Agent assignment is not in this workspace");
+      `).get(assignmentId, item.workspaceId)) throw new Error("Agent assignment is not in this team");
       this.database.prepare(`
         UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
@@ -526,12 +524,12 @@ export async function executeProductCommand(action, input) {
       let agentId = null;
       let poolId = null;
       if (targetType === "agent") {
-        if (!assignment(this.database, targetId, stage.workspaceId)) throw new Error("Agent is not in this workspace");
+        if (!assignment(this.database, targetId, stage.workspaceId)) throw new Error("Agent is not in this team");
         agentId = targetId;
       } else if (targetType === "pool") {
         if (!this.database.prepare(`
           SELECT 1 FROM agent_pools WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
-        `).get(targetId, stage.workspaceId)) throw new Error("Agent pool is not in this workspace");
+        `).get(targetId, stage.workspaceId)) throw new Error("Agent pool is not in this team");
         poolId = targetId;
       } else if (targetType) throw new Error("Stage routing must use an agent or pool");
       if (!targetType && !requiredCapabilities.length) {
@@ -577,7 +575,7 @@ export async function executeProductCommand(action, input) {
       `).get(poolId);
       if (!pool) throw new Error("Agent pool not found");
       workspaceContext(this.database, pool.workspaceId, ["admin", "member"]);
-      if (!assignment(this.database, agentId, pool.workspaceId)) throw new Error("Agent is not in this pool's workspace");
+      if (!assignment(this.database, agentId, pool.workspaceId)) throw new Error("Agent is not in this pool's team");
       if (input.remove) {
         this.database.prepare(`DELETE FROM agent_pool_members WHERE pool_id = ? AND agent_assignment_id = ?`)
           .run(poolId, agentId);
@@ -718,7 +716,7 @@ export async function executeProductCommand(action, input) {
       const locationId = required(input.locationId, "Location");
       if (!this.database.prepare(`
         SELECT 1 FROM team_locations WHERE id = ? AND team_id = ? AND archived_at IS NULL
-      `).get(locationId, workspace.teamId)) throw new Error("Location is unavailable to this workspace's team");
+      `).get(locationId, workspace.teamId)) throw new Error("Location is unavailable to this team");
       const table = target.targetKind === "process" ? "process_locations" : "work_item_locations";
       this.database.prepare(`INSERT OR IGNORE INTO ${table} VALUES (?, ?, ?)`)
         .run(target.id, locationId, logicalRelativePath(input.relativePath));
@@ -789,7 +787,7 @@ export async function executeProductCommand(action, input) {
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       await this.agents.admit("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Plan this outcome for the current Bees workspace. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
+        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,

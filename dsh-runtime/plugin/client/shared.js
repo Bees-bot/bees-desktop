@@ -24,7 +24,7 @@ export const NAVIGATION = [
   { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai", children: [
     ["personal-ai", "AI connections"], ["appearance", "Appearance"],
     ["organizations", "Organizations & invitations"], ["organization-settings", "Organization"],
-    ["team-settings", "Team"], ["workspace-settings", "Workspace"],
+    ["team-settings", "Team"],
     ["connections", "Connections"], ["permissions", "Permissions"]
   ] }
 ];
@@ -433,8 +433,11 @@ export function navigationItem(id) {
 
 export function scopeParts(data, scope) {
   const [kind, id] = String(scope).split(":");
-  const workspace = kind === "workspace" ? data.workspaces.find((row) => row.id === id) : null;
-  const teamId = workspace?.teamId ?? (kind === "team" ? id : "");
+  const selectedWorkspace = kind === "workspace" ? data.workspaces.find((row) => row.id === id) : null;
+  const teamId = selectedWorkspace?.teamId ?? (kind === "team" ? id : "");
+  const workspace = selectedWorkspace ?? (teamId
+    ? data.workspaces.find((row) => row.teamId === teamId)
+    : null);
   const team = data.teams.find((row) => row.id === teamId);
   const organizationId = team?.organizationId ?? (kind === "organization" ? id : "");
   const organization = data.organizations.find((row) => row.id === organizationId);

@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
+export const DEFAULT_WORKSPACE_NAME = "Default workspace";
+
 export const iso = () => new Date().toISOString();
 export const message = (error) => error instanceof Error ? error.message : String(error);
 /** Same thing for a person: SQLite names tables and columns, which means nothing in a form. */
@@ -76,8 +78,8 @@ export function workspaceContext(database, workspaceId, roles = ["admin", "membe
     SELECT id, team_id AS teamId, name, dsh_workspace_id AS dshWorkspaceId,
            authority, hosting, status
     FROM workspaces WHERE id = ? AND status = 'active'
-  `).get(required(workspaceId, "Workspace"));
-  if (!row) throw new Error("Workspace not found");
+  `).get(required(workspaceId, "Team"));
+  if (!row) throw new Error("Team not found");
   return { ...row, membership: requireTeam(database, row.teamId, roles) };
 }
 
@@ -257,6 +259,18 @@ export function insertWorkspaceDefaults(database, workspaceId) {
     database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
       .run(randomUUID(), workspaceId, name, description, JSON.stringify(stages), at, at);
   ensureAgentDefaults(database, workspaceId);
+}
+
+export function insertDefaultWorkspace(database, teamId, {
+  id = randomUUID(), dshWorkspaceId = null, at = iso()
+} = {}) {
+  database.prepare(`
+    INSERT INTO workspaces
+      (id, team_id, dsh_workspace_id, name, authority, hosting, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'local', 'device', 'active', ?, ?)
+  `).run(id, teamId, dshWorkspaceId, DEFAULT_WORKSPACE_NAME, at, at);
+  insertWorkspaceDefaults(database, id);
+  return { id, dshWorkspaceId };
 }
 
 export function initializeProductDatabase(database) {
@@ -564,11 +578,20 @@ export function initializeProductDatabase(database) {
     PRAGMA user_version = 9;
   `);
   if (version < 11) database.exec("PRAGMA user_version = 11");
+  if (version < 12) database.exec(`
+    UPDATE workspaces SET name = '${DEFAULT_WORKSPACE_NAME}' WHERE name = 'My workspace';
+    PRAGMA user_version = 12;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
     `);
+    for (const { id } of database.prepare(`
+      SELECT id FROM teams WHERE status = 'active' AND NOT EXISTS (
+        SELECT 1 FROM workspaces WHERE team_id = teams.id AND status = 'active'
+      )
+    `).all()) insertDefaultWorkspace(database, id);
     for (const { id } of database.prepare("SELECT id FROM workspaces WHERE status = 'active'").all())
       ensureAgentDefaults(database, id);
     database.exec(`
@@ -597,10 +620,7 @@ export function initializeProductDatabase(database) {
       .run(teamId, organizationId, userId, at, at);
     database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")
       .run(userId, teamId, at);
-    database.prepare(`
-      INSERT INTO workspaces VALUES (?, ?, NULL, 'My workspace', 'local', 'device', 'active', ?, ?)
-    `).run(workspaceId, teamId, at, at);
-    insertWorkspaceDefaults(database, workspaceId);
+    insertDefaultWorkspace(database, teamId, { id: workspaceId, at });
   });
 }
 /**

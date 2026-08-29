@@ -108,8 +108,8 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       selected = defaultAssignment(database, stage.workspaceId, role);
       targetType = "workspace-default";
       targetId = role;
-      reason = `Workspace ${role} fallback`;
-      if (!accepts(selected)) throw new Error(`The workspace ${role} agent is disabled, incompatible, or not independent`);
+      reason = `Team ${role} fallback`;
+      if (!accepts(selected)) throw new Error(`The team ${role} agent is disabled, incompatible, or not independent`);
       ensureAgentCapacity(database, selected, selected.name);
     }
     const specialization = specializationFor(database, item.recurringWorkId, selected);
@@ -144,4 +144,3 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     };
   });
 }
-

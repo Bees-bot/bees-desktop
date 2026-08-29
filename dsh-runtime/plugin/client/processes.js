@@ -23,7 +23,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
-    h(Empty, null, "Choose one workspace before creating a process."));
+    h(Empty, null, "Choose a team before creating a process."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
@@ -160,7 +160,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
                   }
                 }
               },
-                h("option", { value: "" }, agent || pool ? "Remove (Use workspace default)" : "+ Add or Create Agent"),
+                h("option", { value: "" }, agent || pool ? "Remove (Use team default)" : "+ Add or Create Agent"),
                 h("option", { value: "create_new" }, "+ Create new agent"),
                 h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
                   h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),

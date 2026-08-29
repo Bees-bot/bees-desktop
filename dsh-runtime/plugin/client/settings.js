@@ -22,7 +22,7 @@ function AppearanceSettings({ ctx }) {
   const [snapshot, setSnapshot] = useState(() => theme.getTheme());
   useEffect(() => ctx.on("theme/change", setSnapshot), [ctx]);
   return h("section", { className: "bees-box" }, h("h3", null, "Appearance"),
-    h("p", { className: "bees-muted" }, "This preference applies across organizations and workspaces on this device."),
+    h("p", { className: "bees-muted" }, "This preference applies across organizations and teams on this device."),
     h("div", { className: "bees-segmented" }, ...["system", "light", "dark"].map((id) =>
       h(Button, { key: id, className: snapshot.preference === id ? "active" : "", "aria-pressed": snapshot.preference === id,
         onClick: () => { theme.setTheme(id); setSnapshot(theme.getTheme()); } }, id[0].toUpperCase() + id.slice(1)))));
@@ -172,18 +172,14 @@ function TeamSettings({ team, organization }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function SettingsPage({ ctx, data, route, workspaceId, teamId, organizationId, modelSettings, preferences, reload }) {
-  const workspace = data.workspaces.find(({ id }) => id === workspaceId);
+export function SettingsPage({ ctx, data, route, teamId, organizationId, modelSettings, preferences, reload }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const organization = data.organizations.find(({ id }) => id === organizationId);
   if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload });
   if (route === "appearance") return h(AppearanceSettings, { ctx });
   if (route === "organizations") return h(OrganizationsSettings, { reload });
   if (route === "connections") return h(Empty, null, "No external tool connections are configured in this Bees profile.");
-  if (route === "workspace-settings") return workspace ? h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, workspace.name), h("p", { className: "bees-muted" }, `${workspace.authority === "local" ? "Private on this device" : "Connected"} · ${workspace.hosting}`), h("p", { className: "bees-muted" }, workspace.dshWorkspaceId ? "Runtime ready" : "Runtime initializing"))) : h(Empty, null, "Choose a workspace to view workspace settings");
   if (route === "team-settings") return h(TeamSettings, { team, organization });
   if (route === "organization-settings") return h(OrganizationSettings, { organization });
   return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
 }
-
-

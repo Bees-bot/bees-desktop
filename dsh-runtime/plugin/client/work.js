@@ -155,7 +155,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const assignment = assignments.find(({ id }) => id === item.agentAssignmentId);
   const routeAgent = assignments.find(({ id }) => id === stage?.routeTargetId);
   const routePool = data.pools.find(({ id }) => id === stage?.routeTargetId);
-  const routeLabel = routeAgent?.name ?? routePool?.name ?? `Workspace ${stage?.driver === "review" ? "reviewer" : "worker"}`;
+  const routeLabel = routeAgent?.name ?? routePool?.name ?? `Team ${stage?.driver === "review" ? "reviewer" : "worker"}`;
   const processStages = data.stages.filter(({ processId }) => processId === item.processId);
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
     processStages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
@@ -589,7 +589,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
-    h(Empty, null, "Choose one workspace before creating work."));
+    h(Empty, null, "Choose a team before creating work."));
 
   const process = processes.find(({ id }) => id === processId) ?? initialProcess;
   const inheritedInputIds = data.processAttachments.filter(({ processId: id }) => id === process?.id).map(({ locationId }) => locationId);
