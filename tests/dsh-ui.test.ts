@@ -109,6 +109,12 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain("The prior request was interrupted");
   });
 
+  it("omits archived work from every Needs you list", () => {
+    expect(client).toContain("const activeRuns = data.runs.filter");
+    expect(client).toContain("!isDone(data.items.find(({ id }) => id === run.workItemId) ?? {})");
+    expect(client).toContain("const blocked = activeRuns.filter");
+  });
+
   it("uses explicit review decisions with isolated future-run learning", () => {
     expect(client).toContain("function ReviewDecisionPanel");
     expect(client).toContain('"Reject and send feedback"');

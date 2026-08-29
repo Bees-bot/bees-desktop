@@ -916,7 +916,9 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   const [handled, setHandled] = useState(() => new Set());
   const [handledRuns, setHandledRuns] = useState(() => new Set());
   const seen = new Set();
-  const rows = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) && run.sessionId)
+  const activeRuns = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
+    !isDone(data.items.find(({ id }) => id === run.workItemId) ?? {}));
+  const rows = activeRuns.filter((run) => run.sessionId)
     .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
     .filter(({ run }) => ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
   const rowKey = rows.map(({ run, session }) => `${run.id}:${session?.pendingInteraction ?? "none"}`).join("|");
@@ -930,7 +932,7 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
     (selected?.session?.pendingInteraction === "plan-review" ? pending.kind === "question" : pending.kind === selected?.session?.pendingInteraction))
     ?? session?.pending?.find((pending) => !handled.has(pending.key));
   const actionableRunIds = new Set(rows.map(({ run }) => run.id));
-  const blocked = data.runs.filter((run) => workspaceIds.includes(run.workspaceId) &&
+  const blocked = activeRuns.filter((run) =>
     ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !actionableRunIds.has(run.id));
   const answered = (key, candidates = rows) => {
     setHandled((current) => new Set(current).add(key));
