@@ -46,7 +46,7 @@ flow without a network connection:
 
 1. launch with no account and create a team plus two workspaces;
 2. map one team folder and reference it from work in both workspaces;
-3. pin and unpin a navigation section and switch team/workspace scope;
+3. navigate between sections and switch team/workspace scope;
 4. use Ask Bees to create and apply a process proposal;
 5. run and schedule the process with two configured provider routes;
 6. approve publication to a granted location;

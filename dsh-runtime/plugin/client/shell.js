@@ -2,8 +2,8 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
-  ask, headerEmitter, NAVIGATION, navigationItem, PinButton, request, scopeParts,
-  runTitle, sectionFor, ThemeToggle, usePreference, workItemsFor
+  ask, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor,
+  ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { BookIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
@@ -154,8 +154,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
   const section = sectionFor(route);
   const routeLabel = route === "home" ? activeDashboard.name : section.children.find(([id]) => id === route)?.[1] ?? section.label;
-  const pins = (preference.pins ?? []).filter((id) => navigationItem(id));
-  const setPins = (next) => preferences.set("pins", next);
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
   const openNeedsYou = (id) => {
@@ -165,7 +163,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : "work");
   };
-  const pinnedRows = (targetRoute) => {
+  const rowsForRoute = (targetRoute) => {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
     if (target.id === "work") return workItemsFor(data, targetRoute, workspaceIds)
@@ -205,7 +203,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const page = route === "home" ? h(Home, {
     ctx, data, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
-    rowsForRoute: pinnedRows, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
+    rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? route === "waiting"
@@ -225,25 +223,14 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId,
         onChange: setScope, onCreateOrganization: createOrganization, onCreateTeam: createTeam }),
       h("nav", { className: "bees-nav", "aria-label": "Bees navigation" },
-        ...pins.map((id) => {
-          const pinned = navigationItem(id);
-          return h("div", { className: "bees-nav-group", key: `pin:${id}` },
-            h("div", { className: `bees-nav-group-head ${route === pinned.route ? "active" : ""}` },
-              h("button", { className: `bees-nav-link ${route === pinned.route ? "active" : ""}`, "aria-current": route === pinned.route ? "page" : null, onClick: () => navigate(pinned.route) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(pinned.icon)), h("span", null, pinned.label)),
-              h(PinButton, { id: pinned.id, label: pinned.label, pins, setPins })),
-            ...pinnedRows(pinned.route).map((row) => h("button", { className: "bees-nav-link bees-nav-record", title: row.label, key: `${pinned.id}:${row.id}`, onClick: row.open }, row.label))
-          );
-        }),
         h("div", { className: "bees-nav-standard" }, ...NAVIGATION.map((item, idx) => h(React.Fragment, { key: item.id },
           idx === 4 ? h("div", { className: "bees-nav-separator" }) : null,
           h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
             h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, "aria-current": section.id === item.id ? "page" : null, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
-            h(PinButton, { id: item.id, label: item.label, pins, setPins }),
             item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
               ...item.children.map(([child, label]) =>
                 h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
-                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, "aria-current": route === child ? "page" : null, onClick: () => navigate(child) }, label),
-                  h(PinButton, { id: child, label, pins, setPins }))
+                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, "aria-current": route === child ? "page" : null, onClick: () => navigate(child) }, label))
               )
             ) : null
           ),
@@ -262,7 +249,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       )
     ),
     h("section", { className: "bees-main" },
-      h(AppHeader, { route, routeLabel, parts, pins, setPins, ctx }),
+      h(AppHeader, { route, routeLabel, parts, ctx }),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
@@ -270,7 +257,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   ));
 }
 
-function AppHeader({ route, routeLabel, parts, pins, setPins, ctx }) {
+function AppHeader({ route, routeLabel, parts, ctx }) {
   const [header, setHeader] = useState(null);
   const [actions, setActions] = useState(null);
   useEffect(() => {
@@ -283,8 +270,7 @@ function AppHeader({ route, routeLabel, parts, pins, setPins, ctx }) {
   return h("header", { className: "bees-top" },
     header ? header : h(React.Fragment, null,
       h("div", { className: "bees-title" }, routeLabel),
-      route !== "home" ? h("div", { className: "bees-context" }, parts.team?.name ?? parts.organization?.name ?? "") : null,
-      route !== "home" ? h(PinButton, { id: route, label: routeLabel, pins, setPins }) : null
+      route !== "home" ? h("div", { className: "bees-context" }, parts.team?.name ?? parts.organization?.name ?? "") : null
     ),
     h("div", { className: "bees-grow" }),
     actions,

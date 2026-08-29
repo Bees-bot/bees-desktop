@@ -320,10 +320,10 @@ describe("Bees DSH public contract", () => {
       expect(pluginHost).toContain("systemDefaultModel: ctx.agentDefaultModel.currentSelection()");
       expect(pluginHost).toContain('path: "/bees-api/system-default-model"');
       expect(pluginHost).toContain("ctx.agentDefaultModel.saveSelection");
-      expect(client).toContain('NAVIGATION.find((item) => item.id === id || item.defaultChild === id || item.children.some(([child]) => child === id))');
-      expect(client).toContain('h(PinButton, { id: child, label, pins, setPins })');
-      expect(client).toContain('...pinnedRows(pinned.route).map');
-      expect(client).toContain('h(PinButton, { id: route, label: routeLabel, pins, setPins })');
+      expect(pluginHost).not.toContain("pins: z.array");
+      expect(client).not.toContain("PinButton");
+      expect(client).not.toContain('preferences.set("pins"');
+      expect(client).not.toContain("bees-nav-pin");
       expect(client).toContain('h(ContextSwitcher, {');
       expect(client).toContain('className: "bees-input bees-context-search"');
       expect(client).toContain('"Search organizations and teams"');

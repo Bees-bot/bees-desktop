@@ -38,7 +38,6 @@ const DashboardPreference = z.object({
 });
 
 const BeesUiSettings = z.object({
-  pins: z.array(z.string()).default([]),
   lastScope: z.string().default(""),
   activeDashboardId: z.string().default("home"),
   dashboards: z.array(DashboardPreference).default([]),
