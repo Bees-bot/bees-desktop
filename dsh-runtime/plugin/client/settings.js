@@ -1,9 +1,9 @@
 import {
   CustomAiSettings, ExternalLocalAiSettings, FreeAiSettings, h, LocalAiSettings,
-  SubscriptionSettings, useEffect, useState
+  React, SubscriptionSettings, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, Button, collaboration, confirmAction, Empty, openExternal
+  ask, Button, collaboration, confirmAction, Empty, openExternal, request
 } from "./shared.js";
 import { SystemDefaultSettings } from "./agents.js";
 
@@ -28,7 +28,7 @@ function AppearanceSettings({ ctx }) {
         onClick: () => { theme.setTheme(id); setSnapshot(theme.getTheme()); } }, id[0].toUpperCase() + id.slice(1)))));
 }
 
-function OrganizationsSettings({ reload }) {
+function AccountSettings({ reload }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("sign_in");
@@ -38,6 +38,22 @@ function OrganizationsSettings({ reload }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   useEffect(() => { void refresh(); }, []);
+  const browserAuth = async (action, values) => {
+    setBusy(true);
+    try {
+      const { url } = await collaboration(action, values);
+      await openExternal(url);
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const next = await collaboration();
+        if (next.account) {
+          setData(next); setError(""); await reload(); return;
+        }
+      }
+      throw new Error("Sign in was not completed");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
   const auth = async (event) => {
     event.preventDefault(); setBusy(true);
     const formElement = event.currentTarget;
@@ -53,8 +69,19 @@ function OrganizationsSettings({ reload }) {
   };
   if (!data) return h(Empty, null, error || "Loading account…");
   if (!data.account) return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, mode === "sign_in" ? "Sign in" : "Create account"),
+    h("section", { className: "bees-box" }, h("h3", null, "Account"),
       h("p", { className: "bees-muted" }, "Sign in to see organization invitations and manage connected organizations."),
+      data.auth?.socialProviders?.length ? h("div", { className: "bees-form-row" },
+        ...data.auth.socialProviders.map((provider) => h(Button, {
+          key: provider, disabled: busy,
+          onClick: () => browserAuth("social_start", { provider })
+        }, `Continue with ${{ google: "Google", github: "GitHub" }[provider] ?? provider}`))) : null,
+      data.auth?.ssoEnabled ? h(Button, { disabled: busy, onClick: async () => {
+        const email = await ask("Work email for company SSO", "");
+        if (email) await browserAuth("sso_start", { email });
+      } }, "Continue with company SSO") : null,
+      h("hr"),
+      h("h3", null, mode === "sign_in" ? "Sign in with email" : "Create account with email"),
       h("div", { className: "bees-segmented" },
         h(Button, { className: mode === "sign_in" ? "active" : "", onClick: () => setMode("sign_in") }, "Sign in"),
         h(Button, { className: mode === "sign_up" ? "active" : "", onClick: () => setMode("sign_up") }, "Create account")),
@@ -88,16 +115,79 @@ function OrganizationsSettings({ reload }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
+function ConnectionsSettings() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const refresh = async () => {
+    try { setData(await request("/bees-api/connections")); setError(""); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  useEffect(() => { void refresh(); }, []);
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const { url } = await request("/bees-api/connections", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "connect_google_drive" })
+      });
+      await openExternal(url);
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const next = await request("/bees-api/connections");
+        if (next.googleDrive?.connected) { setData(next); setError(""); return; }
+      }
+      throw new Error("Google Drive connection was not completed");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  const disconnect = async () => {
+    setBusy(true);
+    try {
+      setData(await request("/bees-api/connections", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "disconnect_google_drive" })
+      }));
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  if (!data) return h(Empty, null, error || "Loading connections…");
+  const drive = data.googleDrive;
+  return h("div", { className: "bees-stack" },
+    h("section", { className: "bees-box" }, h("h3", null, "Google Drive"),
+      h("p", { className: "bees-muted" },
+        "Read-only access exports Google Docs, Sheets, and Slides pointer files into a local QMD cache. Documents and the index are not uploaded to Bees."),
+      drive.connected
+        ? h("div", { className: "bees-row" },
+            h("div", { className: "bees-row-main" },
+              h("div", { className: "bees-row-title" }, drive.profile?.displayName || drive.profile?.emailAddress || "Connected"),
+              h("div", { className: "bees-muted" }, [
+                drive.profile?.emailAddress || "Google Drive · read only · this device",
+                drive.lastExportedAt ? `last exported ${new Date(drive.lastExportedAt).toLocaleString()}` : "exports on first knowledge search"
+              ].join(" · "))),
+            h(Button, { className: "danger", disabled: busy, onClick: disconnect }, "Disconnect"))
+        : h(Button, { className: "primary", disabled: busy || !drive.available, onClick: connect },
+            busy ? "Connecting…" : drive.available ? "Connect Google Drive" : "Not configured by server")),
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+}
+
 function OrganizationSettings({ organization }) {
   const [people, setPeople] = useState(null);
+  const [sso, setSso] = useState(null);
+  const [protocol, setProtocol] = useState("oidc");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     setPeople(null);
     setError("");
     if (organization?.connected && ["owner", "admin"].includes(organization.role)) {
-      collaboration("organization_people", { organizationId: organization.id })
-        .then((value) => active && setPeople(value))
+      Promise.all([
+        collaboration("organization_people", { organizationId: organization.id }),
+        collaboration("organization_sso", { organizationId: organization.id })
+      ]).then(([nextPeople, nextSso]) => {
+        if (active) { setPeople(nextPeople); setSso(nextSso); }
+      })
         .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
     }
     return () => { active = false; };
@@ -112,6 +202,41 @@ function OrganizationSettings({ organization }) {
     try { setPeople(await collaboration("invite_organization_member", { organizationId: organization.id,
       email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); formElement.reset(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  const registerSso = async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      setSso(await collaboration("register_organization_sso", {
+        organizationId: organization.id,
+        protocol,
+        providerId: String(form.get("providerId") ?? ""),
+        domain: String(form.get("domain") ?? ""),
+        issuer: String(form.get("issuer") ?? ""),
+        clientId: String(form.get("clientId") ?? ""),
+        clientSecret: String(form.get("clientSecret") ?? ""),
+        discoveryEndpoint: String(form.get("discoveryEndpoint") ?? ""),
+        entryPoint: String(form.get("entryPoint") ?? ""),
+        cert: String(form.get("cert") ?? "")
+      }));
+      setError(""); event.currentTarget.reset();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  const removeSso = async (providerId) => {
+    if (!await confirmAction(`Remove enterprise sign-in provider “${providerId}”?`)) return;
+    try {
+      setSso(await collaboration("remove_organization_sso", { organizationId: organization.id, providerId }));
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  const verification = async (providerId, action) => {
+    try {
+      setSso(await collaboration(
+        action === "verify" ? "verify_organization_sso" : "request_organization_sso_verification",
+        { organizationId: organization.id, providerId }
+      ));
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   if (!people) return h(Empty, null, error || "Loading organization members…");
   return h("div", { className: "bees-stack" },
@@ -128,6 +253,42 @@ function OrganizationSettings({ organization }) {
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.email),
           h("div", { className: "bees-muted" }, `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
         h("span", { className: "bees-badge" }, invitation.role)))),
+    organization.role === "owner" ? h("section", { className: "bees-box" }, h("h3", null, "Enterprise authentication"),
+      h("p", { className: "bees-muted" },
+        "Configure one OIDC or SAML identity provider for each company email domain. Successful login creates or restores an ordinary Bees organization membership."),
+      sso?.verification ? h("div", { className: "bees-box" },
+        h("strong", null, "Verify company domain"),
+        h("p", { className: "bees-muted" }, `Add this DNS TXT record, then verify: ${sso.verification.dnsName}`),
+        h("code", null, sso.verification.domainVerificationToken),
+        h("div", { className: "bees-form-row" },
+          h(Button, { onClick: () => verification(sso.verification.providerId, "verify") }, "Verify DNS"))) : null,
+      ...(sso?.providers?.length ? sso.providers.map((provider) => h("div", {
+        className: "bees-row", key: provider.providerId
+      }, h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, provider.providerId),
+        h("div", { className: "bees-muted" }, `${provider.protocol.toUpperCase()} · ${provider.domain} · ${provider.domainVerified ? "verified" : "DNS verification required"}`),
+        h("div", { className: "bees-muted" }, provider.protocol === "saml"
+          ? `ACS: ${provider.samlAcsUrl} · Metadata: ${provider.samlMetadataUrl}`
+          : `Redirect URI: ${provider.oidcRedirectUrl}`)),
+      !provider.domainVerified ? h(Button, { onClick: () => verification(provider.providerId, "request") }, "DNS record") : null,
+      h(Button, { className: "danger", onClick: () => removeSso(provider.providerId) }, "Remove"))) : []),
+      h("div", { className: "bees-segmented" },
+        h(Button, { className: protocol === "oidc" ? "active" : "", onClick: () => setProtocol("oidc") }, "OIDC"),
+        h(Button, { className: protocol === "saml" ? "active" : "", onClick: () => setProtocol("saml") }, "SAML")),
+      h("form", { className: "bees-form", onSubmit: registerSso },
+        h("label", null, "Provider id", h("input", { className: "bees-input", name: "providerId", placeholder: "acme-okta", pattern: "[a-z0-9][a-z0-9-]*", required: true })),
+        h("label", null, "Company email domain", h("input", { className: "bees-input", name: "domain", placeholder: "acme.com", required: true })),
+        h("label", null, "Issuer", h("input", { className: "bees-input", name: "issuer", type: "url", required: true })),
+        protocol === "oidc" ? h(React.Fragment, null,
+          h("label", null, "Client id", h("input", { className: "bees-input", name: "clientId", required: true })),
+          h("label", null, "Client secret", h("input", { className: "bees-input", name: "clientSecret", type: "password", required: true })),
+          h("label", null, "Discovery URL (optional)", h("input", { className: "bees-input", name: "discoveryEndpoint", type: "url" })))
+          : h(React.Fragment, null,
+            h("label", null, "IdP sign-in URL", h("input", { className: "bees-input", name: "entryPoint", type: "url", required: true })),
+            h("label", null, "IdP signing certificate", h("textarea", { className: "bees-input", name: "cert", rows: 6, required: true }))),
+        h(Button, { type: "submit", className: "primary" }, "Add identity provider")))
+      : h("section", { className: "bees-box" }, h("h3", null, "Enterprise authentication"),
+          h("p", { className: "bees-muted" }, "Only the organization owner can configure company SSO.")),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -177,8 +338,8 @@ export function SettingsPage({ ctx, data, route, teamId, organizationId, modelSe
   const organization = data.organizations.find(({ id }) => id === organizationId);
   if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload });
   if (route === "appearance") return h(AppearanceSettings, { ctx });
-  if (route === "organizations") return h(OrganizationsSettings, { reload });
-  if (route === "connections") return h(Empty, null, "No external tool connections are configured in this Bees profile.");
+  if (route === "organizations") return h(AccountSettings, { reload });
+  if (route === "connections") return h(ConnectionsSettings);
   if (route === "team-settings") return h(TeamSettings, { team, organization });
   if (route === "organization-settings") return h(OrganizationSettings, { organization });
   return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));

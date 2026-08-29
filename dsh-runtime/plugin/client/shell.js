@@ -213,9 +213,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
         : section.id === "agents" ? h(AgentsPage, { ctx, data, servers: capabilities.data?.servers ?? [], workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
-          : section.id === "files" ? h(FilesPage, { ctx, data, teamId: parts.teamId, act })
+          : section.id === "files" ? h(FilesPage, { ctx, data, teamId: parts.teamId, act, onOpenConnections: () => navigate("connections") })
             : section.id === "activity" ? h(ActivityPage, { data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
-              : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
+              : section.id === "knowledge" ? h(KnowledgePage, { data, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
                 : h(SettingsPage, { ctx, data, route, teamId: parts.teamId, organizationId: parts.organizationId, modelSettings, preferences, reload: load });
   return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
     h("aside", { className: "bees-sidebar" },
