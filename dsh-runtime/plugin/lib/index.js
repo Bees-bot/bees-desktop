@@ -115,9 +115,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
   // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
-  let agents, processes, capabilities;
+  let agents, processes, capabilities, connected;
   ctx.effect(() => async () => {
     agents?.close();
+    await connected?.close();
     await processes?.close();
     await capabilities?.close();
     database.close();
@@ -125,17 +126,29 @@ export async function apply(ctx, _config = {}, internals = {}) {
   ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
   agents = new AgentRuntime(ctx, database);
-  processes = new ProcessRuntime(database, { client: internals.temporalClient, logger: ctx.logger });
+  connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
+  processes = new ProcessRuntime(database, {
+    client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims()
+  });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets
   });
-  const connected = new ConnectedAccount(database, ctx.credentials);
   capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
   await product.recoverRuns();
   await capabilities.initialize();
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
+  const syncTick = async () => {
+    await connected.syncCoordination();
+    await product.initialize();
+    await processes.reconcile();
+  };
+  const syncTimer = setInterval(() => void syncTick().catch((error) =>
+    ctx.logger.warn?.(`bees: background team sync failed: ${userMessage(error)}`)), 15_000);
+  syncTimer.unref();
+  ctx.effect(() => () => clearInterval(syncTimer), "bees team sync");
+  void syncTick().catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
   if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
@@ -221,7 +234,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
-    try { reply(res, 200, await product.command(await body(req))); }
+    try {
+      reply(res, 200, await product.command(await body(req)));
+      void connected.syncCoordination().catch((error) =>
+        ctx.logger.warn?.(`bees: team sync after change failed: ${userMessage(error)}`));
+    }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/collaboration", handler: async (req, res) => {
@@ -229,11 +246,13 @@ export async function apply(ctx, _config = {}, internals = {}) {
       if (req.method === "GET") {
         const result = await connected.summary();
         await product.initialize();
+        await processes.reconcile();
         return reply(res, 200, result);
       }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const result = await connected.command(await body(req));
       await product.initialize();
+      await processes.reconcile();
       reply(res, 200, result);
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });

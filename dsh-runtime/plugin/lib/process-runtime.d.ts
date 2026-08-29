@@ -3,7 +3,9 @@ export declare function processWorkflowId(workItemId: string): string;
 export declare function recurringScheduleId(recurringWorkId: string): string;
 
 export declare class ProcessRuntime {
-  constructor(database: any, options?: { client?: any; logger?: any; workerFactory?: (options: any) => Promise<any> });
+  constructor(database: any, options?: {
+    client?: any; logger?: any; workerFactory?: (options: any) => Promise<any>; claims?: any;
+  });
   item(workItemId: string): any;
   stages(processId: string): any[];
   input(workItemId: string): any;
@@ -15,7 +17,7 @@ export declare class ProcessRuntime {
   updateRecurring(recurringWorkId: string): Promise<any>;
   setRecurringPaused(recurringWorkId: string, paused: boolean): Promise<void>;
   deleteRecurring(recurringWorkId: string): Promise<void>;
-  createRecurringWorkItem(recurringWorkId: string): any;
+  createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string): Promise<any>;
   close(): Promise<void>;
   reconcile(): Promise<void>;
   startItem(workItemId: string): Promise<any>;

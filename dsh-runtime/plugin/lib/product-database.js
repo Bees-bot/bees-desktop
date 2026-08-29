@@ -176,8 +176,7 @@ export function activeAgentRuns(database, agentId) {
   `).get(agentId)?.count ?? 0);
 }
 
-function ensureAgentDefaults(database, workspaceId) {
-  const at = iso();
+function ensureAgentDefaults(database, workspaceId, at = iso()) {
   if (!defaultAssignment(database, workspaceId, "worker")) {
     const existing = database.prepare(`
       SELECT id FROM agent_assignments WHERE workspace_id = ? AND name = 'Bees work agent' LIMIT 1
@@ -206,8 +205,9 @@ function ensureAgentDefaults(database, workspaceId) {
   }
 }
 
-export function insertProcess(database, workspaceId, name, description, stages, kind = "standard", id = randomUUID()) {
-  const at = iso();
+export function insertProcess(
+  database, workspaceId, name, description, stages, kind = "standard", id = randomUUID(), at = iso()
+) {
   database.prepare(`
     INSERT INTO processes (id, workspace_id, name, description, kind, archived_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
@@ -222,7 +222,7 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     const driver = (typeof stage === "string" ? null : stage.driver)
       ?? (position === stages.length - 1 ? "terminal"
         : position > 0 && /review/i.test(name) ? "review" : "agent");
-    insert.run(randomUUID(), id, name, position, driver, driver === "terminal" ? 1 : 0);
+    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver, driver === "terminal" ? 1 : 0);
   });
   return id;
 }
@@ -248,28 +248,27 @@ const STARTER_TEMPLATES = [
     ["Outline", "Write", "Edit", "Publish"]]
 ];
 
-export function insertWorkspaceDefaults(database, workspaceId) {
+export function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     { name: "Work", driver: "agent" },
     { name: "Review", driver: "review" },
     { name: "Done", driver: "terminal" }
-  ], "goals");
-  const at = iso();
+  ], "goals", stableUuid(`${workspaceId}:goals`), at);
   for (const [name, description, stages] of STARTER_TEMPLATES)
     database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
-      .run(randomUUID(), workspaceId, name, description, JSON.stringify(stages), at, at);
-  ensureAgentDefaults(database, workspaceId);
+      .run(stableUuid(`${workspaceId}:template:${name}`), workspaceId, name, description, JSON.stringify(stages), at, at);
+  ensureAgentDefaults(database, workspaceId, at);
 }
 
 export function insertDefaultWorkspace(database, teamId, {
-  id = randomUUID(), dshWorkspaceId = null, at = iso()
+  id = randomUUID(), dshWorkspaceId = null, authority = "local", at = iso()
 } = {}) {
   database.prepare(`
     INSERT INTO workspaces
       (id, team_id, dsh_workspace_id, name, authority, hosting, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'local', 'device', 'active', ?, ?)
-  `).run(id, teamId, dshWorkspaceId, DEFAULT_WORKSPACE_NAME, at, at);
-  insertWorkspaceDefaults(database, id);
+    VALUES (?, ?, ?, ?, ?, 'device', 'active', ?, ?)
+  `).run(id, teamId, dshWorkspaceId, DEFAULT_WORKSPACE_NAME, authority, at, at);
+  insertWorkspaceDefaults(database, id, at);
   return { id, dshWorkspaceId };
 }
 
@@ -354,6 +353,10 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS bees_connected_organizations (
       organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
       account_user_id TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_sync_cursors (
+      organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+      cursor TEXT NOT NULL DEFAULT '0', synced_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -582,6 +585,7 @@ export function initializeProductDatabase(database) {
     UPDATE workspaces SET name = '${DEFAULT_WORKSPACE_NAME}' WHERE name = 'My workspace';
     PRAGMA user_version = 12;
   `);
+  if (version < 13) database.exec("PRAGMA user_version = 13");
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

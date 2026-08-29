@@ -32,7 +32,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -490,7 +490,14 @@ describe("Bees DSH product plugin", () => {
     const secondFiles = join(root, "second-files");
     mkdirSync(firstFiles);
     mkdirSync(secondFiles);
-    writeFileSync(join(firstFiles, "alpha.md"), "Alpha workspace knowledge");
+    writeFileSync(join(firstFiles, "alpha.md"), `---
+source_id: google-doc-123
+created_at: 2026-08-01T10:00:00.000Z
+modified_at: 2026-08-28T11:30:00.000Z
+authority: current
+supersedes: alpha-v1
+---
+Alpha workspace knowledge`);
     writeFileSync(join(secondFiles, "beta.md"), "Beta private team knowledge");
     const database = new NodeDatabase();
     const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
@@ -509,9 +516,16 @@ describe("Bees DSH product plugin", () => {
       action: "add_location", teamId: secondTeam.id, name: "Second", kind: "folder", path: secondFiles
     });
 
-    expect(await product.search("Alpha", firstWorkspace.id)).toContainEqual(expect.objectContaining({
-      kind: "file", title: "First/alpha.md"
-    }));
+    const alpha = (await product.search("Alpha", firstWorkspace.id)).find(({ kind }) => kind === "file");
+    expect(alpha).toMatchObject({
+      kind: "file", title: "First/alpha.md", sourceId: "google-doc-123", authority: "current",
+      createdAt: "2026-08-01T10:00:00.000Z", modifiedAt: "2026-08-28T11:30:00.000Z",
+      supersedes: "alpha-v1"
+    });
+    expect(product.readKnowledge(alpha.id, firstWorkspace.id)).toMatchObject({
+      id: alpha.id, title: "First/alpha.md", authority: "current", truncated: false,
+      content: expect.stringContaining("Alpha workspace knowledge")
+    });
     expect(await product.search("Beta", firstWorkspace.id)).toEqual([]);
     expect(await product.search("Beta", secondTeam.workspaceId)).toContainEqual(expect.objectContaining({
       kind: "file", title: "Second/beta.md"
@@ -547,6 +561,10 @@ describe("Bees DSH product plugin", () => {
             ? { teams: [{ id: "remote-team", name: "Design" }] }
             : url.endsWith("/api/teams/remote-team/members")
               ? { members: [{ id: "member-1", teamId: "remote-team", userId: "remote-user", role: "admin" }] }
+              : url.includes("/api/sync/pull")
+                ? { records: [], cursor: "0" }
+                : url.endsWith("/api/sync/push")
+                  ? { cursor: "0" }
               : url.endsWith("/api/me/organization-invitations")
                 ? { invitations: [] }
                 : { candidates: [] };
@@ -573,10 +591,15 @@ describe("Bees DSH product plugin", () => {
       .toEqual({ name: "Design" });
     expect(database.prepare("SELECT name FROM workspaces WHERE team_id = 'remote-team'").get())
       .toEqual({ name: "Default workspace" });
+    expect(database.prepare(`
+      SELECT min(created_at) AS createdAt FROM agent_assignments
+      WHERE workspace_id = (SELECT id FROM workspaces WHERE team_id = 'remote-team')
+    `).get()).toEqual({ createdAt: "1970-01-01T00:00:00.000Z" });
     expect(seen).toContainEqual(expect.objectContaining({
       url: "https://api.example/api/teams", authorization: "Bearer session-token",
       organization: "remote-org"
     }));
+    expect(seen.some(({ url }) => url.includes("/api/sync/pull"))).toBe(true);
 
     await connected.signOut();
     expect(connected.publicAccount()).toBeNull();

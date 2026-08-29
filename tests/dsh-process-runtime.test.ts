@@ -5,7 +5,7 @@ import {
 } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { NodeDatabase } from "./node-database.js";
 
-function harness(options: { workerFactory?: (options: any) => Promise<any> } = {}) {
+function harness(options: { workerFactory?: (options: any) => Promise<any>; claims?: any } = {}) {
   const database = new NodeDatabase();
   const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
   const starts: any[] = [];
@@ -122,7 +122,7 @@ describe("Temporal process projection", () => {
       action: { type: "startWorkflow", workflowType: "recurringWorkWorkflow" },
       policies: { overlap: "SKIP", catchupWindow: "1 minute" }
     });
-    const input = state.runtime.createRecurringWorkItem("morning-news");
+    const input = await state.runtime.createRecurringWorkItem("morning-news");
     expect(input).toMatchObject({ processId: goal.processId, stageId: goal.stageId });
     expect(state.database.connection.prepare(`
       SELECT kind, recurring_work_id AS recurringWorkId FROM work_items WHERE id = ?
@@ -149,6 +149,22 @@ describe("Temporal process projection", () => {
     })]);
     expect(state.database.connection.prepare("SELECT runtime_phase FROM work_items WHERE id = 'goal'").get())
       .toEqual({ runtime_phase: "running" });
+  });
+
+  it("does not start work whose shared lease belongs to another desktop", async () => {
+    const state = harness({ claims: {
+      acquire: async () => null,
+      renew: async () => null,
+      release: async () => undefined
+    } });
+    insertGoal(state, "shared-goal");
+    await expect(state.runtime.startItem("shared-goal")).resolves.toEqual({
+      automatic: true, claimed: false
+    });
+    expect(state.starts).toEqual([]);
+    expect(state.database.connection.prepare(
+      "SELECT runtime_phase AS phase FROM work_items WHERE id = 'shared-goal'"
+    ).get()).toEqual({ phase: "ready" });
   });
 
   it("retries a heartbeat-interrupted human wait during reconciliation", async () => {

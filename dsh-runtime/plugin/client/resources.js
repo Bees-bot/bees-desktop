@@ -170,8 +170,16 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
   } },
     h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")),
     searchError ? h("p", { className: "bees-error" }, searchError) : null,
-    ...results.map((result) => h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, result.title), h("div", { className: "bees-muted" }, result.excerpt)))),
+    ...results.map((result) => {
+      const source = [result.authority ? `Authority: ${result.authority}` : "",
+        result.modifiedAt ? `Updated ${new Date(result.modifiedAt).toLocaleString()}` : ""].filter(Boolean).join(" · ");
+      return h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, result.title),
+        source ? h("div", { className: "bees-muted" }, source) : null,
+        h("div", { className: "bees-muted" }, result.excerpt)));
+    }),
     h("section", { className: "bees-box" }, h("h3", null, "Approved sources"),
       ...(locations.length ? locations.map((row) => h("div", { className: "bees-row", key: row.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, row.name), h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")))) : [h(Empty, { key: "empty" }, "No approved sources in this team")])),
+    h("p", { className: "bees-muted" }, "Native Google document pointers must be exported locally as text, Markdown, or HTML before QMD can index their contents."),
     h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
 }

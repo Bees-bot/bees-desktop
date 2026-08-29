@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync } from "node:fs";
-import { basename, dirname, extname, resolve } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, extname, resolve, sep } from "node:path";
 import { createStore, extractSnippet } from "@tobilu/qmd";
 import { TEXT_EXTENSIONS } from "./product-files.js";
 
@@ -31,6 +31,45 @@ function indexedLocation(location) {
   } catch {
     return null;
   }
+}
+
+function frontmatter(body) {
+  if (!body.startsWith("---\n") && !body.startsWith("---\r\n")) return {};
+  const end = body.indexOf("\n---", 4);
+  if (end < 0 || end > 10_000) return {};
+  const values = {};
+  for (const line of body.slice(4, end).split(/\r?\n/)) {
+    const match = /^([a-zA-Z][a-zA-Z0-9_-]*):\s*(.*?)\s*$/.exec(line);
+    if (match) values[match[1].toLocaleLowerCase().replaceAll("-", "_")] = match[2].replace(/^['"]|['"]$/g, "");
+  }
+  return values;
+}
+
+function validTime(value, fallback) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback.toISOString();
+}
+
+function metadata(body, stat) {
+  const source = frontmatter(body);
+  return {
+    createdAt: validTime(source.created_at ?? source.createdtime, stat.birthtime),
+    modifiedAt: validTime(source.modified_at ?? source.modifiedtime, stat.mtime),
+    authority: source.authority ?? source.status ?? null,
+    supersedes: source.supersedes ?? null,
+    sourceId: source.source_id ?? source.google_doc_id ?? null
+  };
+}
+
+function knowledgeFile(location, relativePath) {
+  if (String(relativePath).replaceAll("\\", "/").split("/").some((part) => part.startsWith(".")))
+    throw new Error("Hidden knowledge files are not readable");
+  const root = realpathSync(location.localPath);
+  const selected = location.kind === "file" ? root : realpathSync(resolve(root, relativePath));
+  if (location.kind === "folder" && selected !== root && !selected.startsWith(`${root}${sep}`))
+    throw new Error("The knowledge result left its mapped folder");
+  if (!TEXT_EXTENSIONS.has(extname(selected).toLowerCase())) throw new Error("That knowledge file is not readable text");
+  return selected;
 }
 
 export class TeamKnowledgeSearch {
@@ -72,11 +111,17 @@ export class TeamKnowledgeSearch {
           const relativePath = result.filepath.startsWith(prefix)
             ? result.filepath.slice(prefix.length)
             : result.displayPath.slice(name.length + 1);
+          let source = {};
+          try {
+            const path = knowledgeFile(location, relativePath);
+            source = metadata(result.body, statSync(path));
+          } catch { /* A search excerpt is still useful if a file changed after indexing. */ }
           return {
             kind: "file",
             id: `${location.id}:${relativePath}`,
             title: `${location.name}/${relativePath}`,
             excerpt: extractSnippet(result.body, query, 240).snippet.replace(/\s+/g, " ").trim(),
+            ...source,
             score: result.score
           };
         });
@@ -86,5 +131,23 @@ export class TeamKnowledgeSearch {
     } finally {
       await store.close();
     }
+  }
+
+  read(resultId, teamId, locations) {
+    const separator = String(resultId).indexOf(":");
+    if (separator < 1) throw new Error("Knowledge result not found");
+    const locationId = String(resultId).slice(0, separator);
+    const relativePath = String(resultId).slice(separator + 1);
+    const location = locations.find(({ id }) => id === locationId);
+    if (!location || !teamId) throw new Error("Knowledge result is not available in this team");
+    const path = knowledgeFile(location, relativePath);
+    const stat = statSync(path);
+    if (stat.size > 1_000_000) throw new Error("Knowledge documents must be smaller than 1 MB");
+    const body = readFileSync(path, "utf8");
+    return {
+      kind: "file", id: resultId, title: `${location.name}/${relativePath}`,
+      content: body.slice(0, 200_000), truncated: body.length > 200_000,
+      ...metadata(body, stat)
+    };
   }
 }

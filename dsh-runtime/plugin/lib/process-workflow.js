@@ -1,6 +1,6 @@
 import {
   CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
-  executeChild, proxyActivities, setHandler, sleep
+  executeChild, proxyActivities, setHandler, sleep, workflowInfo
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
@@ -13,7 +13,10 @@ const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
 });
 
 export async function recurringWorkWorkflow(input) {
-  const work = await createRecurringWorkItem(input);
+  const work = await createRecurringWorkItem({
+    ...input, occurrenceAt: workflowInfo().startTime.toISOString().slice(0, 19) + "Z"
+  });
+  if (!work) return { skipped: true };
   return executeChild(processWorkflow, {
     workflowId: `bees/work-item/${work.workItemId}`,
     args: [work]
