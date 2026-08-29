@@ -32,17 +32,15 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 10 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 11 });
 
     database.exec("UPDATE organizations SET name = 'Personal'; UPDATE teams SET name = 'Personal'");
-    database.exec("UPDATE stages SET completion_rules = 'Old goal instructions' WHERE name IN ('Work', 'Review'); PRAGMA user_version = 7");
+    database.exec("PRAGMA user_version = 10");
     initializeProductDatabase(database);
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
     expect(database.prepare("SELECT name FROM teams").get()).toEqual({ name: "Team1" });
-    expect(database.prepare("SELECT completion_rules AS instructions FROM stages WHERE name = 'Work'").get())
-      .toEqual({ instructions: expect.stringContaining("next safe wave") });
-    expect(database.prepare("SELECT completion_rules AS instructions FROM stages WHERE name = 'Review'").get())
-      .toEqual({ instructions: expect.stringContaining("stop condition") });
+    expect(database.prepare("PRAGMA table_info(stages)").all().map(({ name }: any) => name))
+      .not.toContain("completion_rules");
   });
 
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
@@ -152,10 +150,20 @@ describe("Bees DSH product plugin", () => {
     const stageRuns: any[] = [];
     (agents as any).executeStage = async (...args: any[]) => { stageRuns.push(args); return { outcome: "candidate", summary: "Ready" }; };
     const temporalStarts: any[] = [];
+    const scheduleCreates: any[] = [];
+    const scheduleHandle = {
+      describe: async () => ({ info: { nextActionTimes: [new Date("2026-08-24T16:00:00.000Z")] } }),
+      update: async () => undefined, pause: async () => undefined,
+      unpause: async () => undefined, delete: async () => undefined
+    };
     const processes = new ProcessRuntime(database.connection, { client: {
       workflow: {
         start: async (name: string, options: any) => { temporalStarts.push({ name, ...options }); },
         getHandle: () => ({ signal: async () => undefined, cancel: async () => undefined })
+      },
+      schedule: {
+        create: async (options: any) => { scheduleCreates.push(options); return scheduleHandle; },
+        getHandle: () => scheduleHandle
       }
     } });
     const product = new BeesProduct(database.connection, agents, processes, runRoot);
@@ -212,6 +220,31 @@ describe("Bees DSH product plugin", () => {
       action: "attach_location", itemId: created.id, locationId: location.id, relativePath: "../outside"
     })).rejects.toThrow("cannot leave");
     await product.command({ action: "attach_location", itemId: created.id, locationId: location.id });
+    const delegated = await product.command({
+      action: "create_item", processId: goals.id, parentId: created.id, title: "Delegated research"
+    });
+    await expect(product.command({
+      action: "create_recurring_work", itemId: delegated.id, name: "Child schedule",
+      frequency: "daily", hour: 9, minute: 0, timezone: "America/Los_Angeles"
+    })).rejects.toThrow("child work cannot be scheduled");
+    const recurring = await product.command({
+      action: "create_recurring_work", itemId: created.id, name: "Daily Stage 1",
+      frequency: "daily", hour: 9, minute: 0, timezone: "America/Los_Angeles"
+    });
+    const scheduled = await product.snapshot();
+    expect(scheduled.items).toContainEqual(expect.objectContaining({
+      id: recurring.sourceWorkItemId, parentId: null, stageId: work.id,
+      title: "Ship Stage 1", runtimePhase: "ready", recurringWorkId: recurring.id
+    }));
+    expect(scheduled.items.some(({ parentId }: any) => parentId === recurring.sourceWorkItemId)).toBe(false);
+    expect(scheduled.attachments).toContainEqual(expect.objectContaining({
+      workItemId: recurring.sourceWorkItemId, locationId: location.id
+    }));
+    expect(temporalStarts.some(({ workflowId }) => workflowId === `bees/work-item/${recurring.sourceWorkItemId}`)).toBe(false);
+    expect(scheduleCreates).toContainEqual(expect.objectContaining({
+      scheduleId: `bees/recurring/${recurring.id}`,
+      spec: { calendars: [{ hour: 9, minute: 0 }], timezone: "America/Los_Angeles" }
+    }));
 
     const secondWorkspace = await product.command({ action: "create_workspace", teamId: team.id, name: "Campaigns" });
     const secondSnapshot = await product.snapshot();
@@ -334,7 +367,7 @@ describe("Bees DSH product plugin", () => {
       name: "Content writer", capabilities: ["writing"], instructions: "Use a changed voice"
     });
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: draft.id, executionId, purpose: "worker", instructions: "Draft it" });
-    expect(stageRuns.at(-1)[1].initialData.instructions).toBe("Use the editorial voice\n\nDraft it");
+    expect(stageRuns.at(-1)[1].initialData.instructions).toBe("Use the editorial voice");
     const expectedReviewers = [reviewer.id, backupReviewer.id].sort();
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
       executionId: "editorial-review", candidateExecutionId: executionId,

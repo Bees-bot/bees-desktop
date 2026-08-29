@@ -5,11 +5,17 @@ import {
 } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { NodeDatabase } from "./node-database.js";
 
-function harness() {
+function harness(options: { workerFactory?: (options: any) => Promise<any> } = {}) {
   const database = new NodeDatabase();
   const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
   const starts: any[] = [];
   const signals: any[] = [];
+  const schedules: any[] = [];
+  const scheduleHandle = {
+    describe: async () => ({ info: { nextActionTimes: [new Date("2026-01-02T17:00:00.000Z")] } }),
+    update: async () => undefined, pause: async () => undefined, unpause: async () => undefined,
+    delete: async () => undefined
+  };
   const client = {
     workflow: {
       start: async (name: string, options: any) => { starts.push({ name, ...options }); },
@@ -17,10 +23,14 @@ function harness() {
         signal: async (name: string) => { signals.push({ workflowId, name }); },
         cancel: async () => { signals.push({ workflowId, name: "cancel" }); }
       })
+    },
+    schedule: {
+      create: async (options: any) => { schedules.push(options); return scheduleHandle; },
+      getHandle: () => scheduleHandle
     }
   };
-  const runtime = new ProcessRuntime(database.connection, { client });
-  return { database, workspaceId, runtime, starts, signals };
+  const runtime = new ProcessRuntime(database.connection, { client, ...options });
+  return { database, workspaceId, runtime, starts, signals, schedules };
 }
 
 function insertManual(state: ReturnType<typeof harness>) {
@@ -28,8 +38,8 @@ function insertManual(state: ReturnType<typeof harness>) {
   state.database.connection.exec(`
     INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at)
       VALUES ('manual', '${state.workspaceId}', 'Manual', '', 'standard', '${at}', '${at}');
-    INSERT INTO stages VALUES ('ready', 'manual', 'Ready', 0, 'manual', '', 0, NULL);
-    INSERT INTO stages VALUES ('done', 'manual', 'Done', 1, 'manual', '', 1, NULL);
+    INSERT INTO stages VALUES ('ready', 'manual', 'Ready', 0, 'manual', 0, NULL);
+    INSERT INTO stages VALUES ('done', 'manual', 'Done', 1, 'manual', 1, NULL);
     INSERT INTO work_items
       (id, process_id, stage_id, title, created_at, updated_at)
       VALUES ('one', 'manual', 'ready', 'One', '${at}', '${at}');
@@ -51,6 +61,24 @@ function insertGoal(state: ReturnType<typeof harness>, id = "goal") {
 }
 
 describe("Temporal process projection", () => {
+  it("starts the process worker when a shared Temporal client is injected", async () => {
+    let workerOptions: any;
+    const state = harness({ workerFactory: async (options) => {
+      workerOptions = options;
+      return { run: async () => undefined };
+    } });
+    await state.runtime.start(async () => ({ outcome: "completed" }));
+    expect(workerOptions).toMatchObject({
+      namespace: "default",
+      taskQueue: PROCESS_TASK_QUEUE,
+      activities: {
+        createRecurringWorkItem: expect.any(Function),
+        projectWorkItem: expect.any(Function),
+        runDshStage: expect.any(Function)
+      }
+    });
+  });
+
   it("keeps human waits open and treats user stops as cancellation", () => {
     const workflow = readFileSync(new URL(
       "../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url
@@ -71,6 +99,34 @@ describe("Temporal process projection", () => {
     const goals = state.database.connection.prepare("SELECT id FROM processes WHERE kind = 'goals'").get()!;
     const otherStage = state.database.connection.prepare("SELECT id FROM stages WHERE process_id = ? LIMIT 1").get(String(goals.id))!;
     expect(() => state.runtime.move("one", String(otherStage.id))).toThrow("does not belong");
+  });
+
+  it("creates Temporal schedules and fresh work items for recurring work", async () => {
+    const state = harness();
+    const goal = insertGoal(state, "source-goal");
+    state.database.connection.prepare(`
+      INSERT INTO recurring_work
+        (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
+         schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
+      VALUES ('morning-news', ?, ?, 'source-goal', 'Daily news', 'calendar',
+        '{"frequency":"daily","hour":9,"minute":0}', 'America/Los_Angeles',
+        'bees/recurring/morning-news', 'active', '2026-01-01', '2026-01-01')
+    `).run(state.workspaceId, goal.processId);
+
+    await state.runtime.reconcile();
+    expect(state.starts).toEqual([]);
+    await state.runtime.createRecurring("morning-news");
+    expect(state.schedules[0]).toMatchObject({
+      scheduleId: "bees/recurring/morning-news",
+      spec: { calendars: [{ hour: 9, minute: 0 }], timezone: "America/Los_Angeles" },
+      action: { type: "startWorkflow", workflowType: "recurringWorkWorkflow" },
+      policies: { overlap: "SKIP", catchupWindow: "1 minute" }
+    });
+    const input = state.runtime.createRecurringWorkItem("morning-news");
+    expect(input).toMatchObject({ processId: goal.processId, stageId: goal.stageId });
+    expect(state.database.connection.prepare(`
+      SELECT kind, recurring_work_id AS recurringWorkId FROM work_items WHERE id = ?
+    `).get(input.workItemId)).toEqual({ kind: "run", recurringWorkId: "morning-news" });
   });
 
   it("starts one derived Temporal workflow for an automatic goal", async () => {

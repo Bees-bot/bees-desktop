@@ -28,6 +28,9 @@
     "@temporalio/workflow": "1.22.0",
     "@tobilu/qmd": "2.5.3",
     "better-sqlite3": "12.10.0",
-    "gridstack": "13.2.0"
+    "gridstack": "13.2.0",
+    "react": "18.3.1",
+    "react-cron-generator": "2.6.0",
+    "react-dom": "18.3.1"
   }
 }

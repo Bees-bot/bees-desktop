@@ -1,8 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 
-const GOALS_WORK_INSTRUCTIONS = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and delegate one self-contained subitem at a time when sequencing or approval matters. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
-const GOALS_REVIEW_INSTRUCTIONS = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
-
 export const iso = () => new Date().toISOString();
 export const message = (error) => error instanceof Error ? error.message : String(error);
 /** Same thing for a person: SQLite names tables and columns, which means nothing in a form. */
@@ -88,7 +85,9 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
            w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
-           w.output_location_id AS outputLocationId, p.workspace_id AS workspaceId
+           w.owner, w.priority,
+           w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
+           p.workspace_id AS workspaceId, p.kind AS processKind
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -212,8 +211,8 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, at, at);
   const insert = database.prepare(`
-    INSERT INTO stages (id, process_id, name, position, driver, completion_rules, is_terminal, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+    INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
     const name = required(typeof stage === "string" ? stage : stage.name, "Stage");
@@ -221,18 +220,15 @@ export function insertProcess(database, workspaceId, name, description, stages, 
     const driver = (typeof stage === "string" ? null : stage.driver)
       ?? (position === stages.length - 1 ? "terminal"
         : position > 0 && /review/i.test(name) ? "review" : "agent");
-    insert.run(randomUUID(), id, name, position, driver,
-      String((typeof stage === "string" ? "" : stage.instructions) ?? ""),
-      driver === "terminal" ? 1 : 0);
+    insert.run(randomUUID(), id, name, position, driver, driver === "terminal" ? 1 : 0);
   });
   return id;
 }
 
-/** A stage is a name, or a name with the instructions its agent runs on. */
+/** Stages describe process structure. Agent guidance belongs to agents and specialists. */
 export function processStages(value, label = "process") {
   const stages = (Array.isArray(value) ? value : []).map((entry) => ({
-    name: required(typeof entry === "string" ? entry : entry?.name, "Stage"),
-    instructions: String((typeof entry === "string" ? "" : entry?.instructions) ?? "").slice(0, 4_000)
+    name: required(typeof entry === "string" ? entry : entry?.name, "Stage")
   }));
   if (stages.length < 2 || stages.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
   if (new Set(stages.map(({ name }) => name.toLocaleLowerCase())).size !== stages.length)
@@ -252,14 +248,8 @@ const STARTER_TEMPLATES = [
 
 export function insertWorkspaceDefaults(database, workspaceId) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
-    {
-      name: "Work", driver: "agent",
-      instructions: GOALS_WORK_INSTRUCTIONS
-    },
-    {
-      name: "Review", driver: "review",
-      instructions: GOALS_REVIEW_INSTRUCTIONS
-    },
+    { name: "Work", driver: "agent" },
+    { name: "Review", driver: "review" },
     { name: "Done", driver: "terminal" }
   ], "goals");
   const at = iso();
@@ -395,7 +385,6 @@ export function initializeProductDatabase(database) {
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
       name TEXT NOT NULL, position INTEGER NOT NULL,
       driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'review', 'terminal')),
-      completion_rules TEXT NOT NULL DEFAULT '',
       is_terminal INTEGER NOT NULL DEFAULT 0, archived_at TEXT, UNIQUE(process_id, position)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stage_routes (
@@ -405,6 +394,17 @@ export function initializeProductDatabase(database) {
       required_capabilities_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       CHECK (agent_assignment_id IS NULL OR agent_pool_id IS NULL)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS recurring_work (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+      source_work_item_id TEXT NOT NULL, name TEXT NOT NULL,
+      schedule_kind TEXT NOT NULL CHECK (schedule_kind IN ('interval', 'calendar', 'cron')),
+      schedule_json TEXT NOT NULL, timezone TEXT,
+      temporal_schedule_id TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
+      next_run_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(workspace_id, name)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS work_items (
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
@@ -417,7 +417,23 @@ export function initializeProductDatabase(database) {
       runtime_attempt INTEGER NOT NULL DEFAULT 0, runtime_review_cycle INTEGER NOT NULL DEFAULT 0,
       runtime_execution_id TEXT, runtime_error TEXT,
       output_location_id TEXT REFERENCES team_locations(id),
+      recurring_work_id TEXT REFERENCES recurring_work(id),
       archived_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_specializations (
+      id TEXT PRIMARY KEY, recurring_work_id TEXT NOT NULL REFERENCES recurring_work(id) ON DELETE CASCADE,
+      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, playbook TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(recurring_work_id, agent_assignment_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_specialization_versions (
+      id TEXT PRIMARY KEY,
+      specialization_id TEXT NOT NULL REFERENCES agent_specializations(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, playbook TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('feedback', 'manual', 'undo', 'reset')),
+      feedback TEXT, execution_id TEXT, created_at TEXT NOT NULL,
+      UNIQUE(specialization_id, revision)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS agent_dispatches (
       execution_id TEXT PRIMARY KEY,
@@ -426,6 +442,7 @@ export function initializeProductDatabase(database) {
       target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'pool', 'workspace-default')),
       target_id TEXT NOT NULL,
       agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id),
+      specialization_id TEXT REFERENCES agent_specializations(id),
       reason TEXT NOT NULL, agent_revision TEXT NOT NULL,
       agent_config_json TEXT NOT NULL, created_at TEXT NOT NULL
     ) STRICT;
@@ -483,6 +500,8 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_items_stage ON work_items(stage_id, updated_at);
     CREATE INDEX IF NOT EXISTS bees_pool_members_agent ON agent_pool_members(agent_assignment_id, pool_id);
     CREATE INDEX IF NOT EXISTS bees_dispatches_item ON agent_dispatches(work_item_id, created_at);
+    CREATE INDEX IF NOT EXISTS bees_recurring_source ON recurring_work(source_work_item_id);
+    CREATE INDEX IF NOT EXISTS bees_specializations_recurring ON agent_specializations(recurring_work_id);
     CREATE INDEX IF NOT EXISTS bees_locations_team ON team_locations(team_id, name);
   `);
   const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
@@ -505,8 +524,16 @@ export function initializeProductDatabase(database) {
   if (!itemColumns.has("output_location_id")) database.exec(
     "ALTER TABLE work_items ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
   );
+  if (!itemColumns.has("recurring_work_id")) database.exec(
+    "ALTER TABLE work_items ADD COLUMN recurring_work_id TEXT REFERENCES recurring_work(id)"
+  );
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
+  if (!dispatchColumns.has("specialization_id")) database.exec(
+    "ALTER TABLE agent_dispatches ADD COLUMN specialization_id TEXT REFERENCES agent_specializations(id)"
+  );
+  const stageColumns = new Set(database.prepare("PRAGMA table_info(stages)").all().map(({ name }) => name));
+  if (stageColumns.has("completion_rules")) database.exec("ALTER TABLE stages DROP COLUMN completion_rules");
   database.exec(`
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
@@ -532,21 +559,11 @@ export function initializeProductDatabase(database) {
     END;
     PRAGMA user_version = 8;
   `);
-  if (version < 8) {
-    database.prepare(`
-      UPDATE stages SET completion_rules = ? WHERE name = 'Work' AND archived_at IS NULL
-        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
-    `).run(GOALS_WORK_INSTRUCTIONS);
-    database.prepare(`
-      UPDATE stages SET completion_rules = ? WHERE name = 'Review' AND archived_at IS NULL
-        AND process_id IN (SELECT id FROM processes WHERE kind = 'goals' AND archived_at IS NULL)
-    `).run(GOALS_REVIEW_INSTRUCTIONS);
-  }
   if (version < 9) database.exec(`
     DELETE FROM bees_search WHERE kind = 'file';
     PRAGMA user_version = 9;
   `);
-  if (version < 10) database.exec("PRAGMA user_version = 10");
+  if (version < 11) database.exec("PRAGMA user_version = 11");
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

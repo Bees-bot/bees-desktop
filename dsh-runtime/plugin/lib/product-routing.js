@@ -1,6 +1,7 @@
 import {
   activeAgentRuns, agentCapabilities, assignment, capabilities, defaultAssignment, iso, transaction
 } from "./product-database.js";
+import { randomUUID } from "node:crypto";
 
 export class AgentCapacityError extends Error {}
 
@@ -11,11 +12,32 @@ function ensureAgentCapacity(database, agent, label) {
   return activeRuns;
 }
 
+function specializationFor(database, recurringWorkId, agent) {
+  if (!recurringWorkId) return null;
+  let row = database.prepare(`
+    SELECT s.id, s.name, s.playbook, s.revision, s.updated_at AS updatedAt
+    FROM agent_specializations s
+    WHERE s.recurring_work_id = ? AND s.agent_assignment_id = ?
+  `).get(recurringWorkId, agent.id);
+  if (row) return row;
+  const recurring = database.prepare("SELECT name FROM recurring_work WHERE id = ?").get(recurringWorkId);
+  if (!recurring) throw new Error("Recurring work not found");
+  const at = iso();
+  const id = randomUUID();
+  database.prepare(`
+    INSERT INTO agent_specializations
+      (id, recurring_work_id, agent_assignment_id, name, playbook, revision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, '', 0, ?, ?)
+  `).run(id, recurringWorkId, agent.id, `${recurring.name} · ${agent.name}`, at, at);
+  row = { id, name: `${recurring.name} · ${agent.name}`, playbook: "", revision: 0, updatedAt: at };
+  return row;
+}
+
 export function resolveStageAgent(database, { executionId, item, stageId, purpose, candidateExecutionId }) {
   const prior = database.prepare(`
     SELECT d.agent_assignment_id AS agentAssignmentId, d.target_type AS targetType,
            d.target_id AS targetId, d.reason, d.agent_revision AS agentRevision,
-           d.agent_config_json AS agentConfig
+           d.specialization_id AS specializationId, d.agent_config_json AS agentConfig
     FROM agent_dispatches d WHERE d.execution_id = ?
   `).get(executionId);
   if (prior) return { ...JSON.parse(prior.agentConfig), ...prior };
@@ -90,9 +112,16 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       if (!accepts(selected)) throw new Error(`The workspace ${role} agent is disabled, incompatible, or not independent`);
       ensureAgentCapacity(database, selected, selected.name);
     }
+    const specialization = specializationFor(database, item.recurringWorkId, selected);
+    const effectiveInstructions = [selected.instructions, specialization?.playbook].filter(Boolean).join("\n\n");
     const agentConfig = JSON.stringify({
       id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,
-      name: selected.name, instructions: selected.instructions, model: selected.model,
+      name: selected.name, instructions: effectiveInstructions, baseInstructions: selected.instructions,
+      specializationId: specialization?.id ?? null,
+      specializationName: specialization?.name ?? null,
+      specialistPlaybook: specialization?.playbook ?? "",
+      specialistRevision: specialization?.revision ?? null,
+      model: selected.model,
       reasoningEffort: selected.reasoningEffort,
       capabilities: selected.capabilities, enabled: selected.enabled,
       maxConcurrency: selected.maxConcurrency, updatedAt: selected.updatedAt
@@ -100,15 +129,19 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     database.prepare(`
       INSERT INTO agent_dispatches
         (execution_id, work_item_id, stage_id, target_type, target_id,
-         agent_assignment_id, reason, agent_revision, agent_config_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(executionId, item.id, stage.id, targetType, targetId, selected.id, reason,
-      selected.updatedAt, agentConfig, iso());
+         agent_assignment_id, specialization_id, reason, agent_revision, agent_config_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(executionId, item.id, stage.id, targetType, targetId, selected.id, specialization?.id ?? null,
+      reason, `${selected.updatedAt}:${specialization?.revision ?? 0}`, agentConfig, iso());
     return {
-      ...selected, agentAssignmentId: selected.id, targetType, targetId, reason,
-      agentRevision: selected.updatedAt
+      ...selected, instructions: effectiveInstructions,
+      specializationId: specialization?.id ?? null,
+      specializationName: specialization?.name ?? null,
+      specialistPlaybook: specialization?.playbook ?? "",
+      specialistRevision: specialization?.revision ?? null,
+      agentAssignmentId: selected.id, targetType, targetId, reason,
+      agentRevision: `${selected.updatedAt}:${specialization?.revision ?? 0}`
     };
   });
 }
-
 
