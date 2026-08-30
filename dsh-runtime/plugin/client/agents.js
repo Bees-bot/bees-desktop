@@ -1,7 +1,7 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
-import { ResourceFields } from "./location-fields.js";
+import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
@@ -153,7 +153,7 @@ function McpAccess({ servers, access, chosen }) {
       servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")) : null);
 }
 
-export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false }) {
+export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false, processId = null }) {
   const presets = data.presets.filter(({ broken }) => !broken);
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
@@ -207,15 +207,16 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
     ),
     
     h(McpAccess, { servers }),
+    h("p", { className: "bees-muted" }, "Process and work inputs are included automatically when this agent runs."),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false }),
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
 
-export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents" }) {
+export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents", processId = null }) {
   const [inputLocationIds, setInputLocationIds] = useState(() =>
     data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId));
   const teamId = data.workspaces.find(({ id }) => id === selected.workspaceId)?.teamId;
@@ -267,8 +268,9 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
     ),
     
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
+    h("p", { className: "bees-muted" }, "Process and work inputs are included automatically when this agent runs."),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false }),
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this team's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))

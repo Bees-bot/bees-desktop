@@ -77,8 +77,8 @@ export function stageLocation(location, destination) {
   });
 }
 
-function stagedLocation(location, relativePath) {
-  const relativeName = String(relativePath ?? "").trim();
+export function stagedLocation(location, relativePath) {
+  const relativeName = logicalRelativePath(relativePath);
   if (!relativeName) return location;
   if (location.kind === "file") throw new Error(`${location.name} is already a file and cannot use a child path`);
   const root = realpathSync(location.localPath);

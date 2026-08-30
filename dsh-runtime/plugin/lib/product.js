@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
-  processStages, required, workspaceContext
+  processStages, required, requireTeam, workspaceContext
 } from "./product-database.js";
 import {
   inputManifest, logicalRelativePath, outputFiles, outputLocation, previewFiles, stageInputs,
-  stageLocation, TEXT_EXTENSIONS
+  mappedLocation, stagedLocation, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
@@ -441,6 +441,33 @@ export class BeesProduct {
     if (!row) throw new Error("Run not found");
     workspaceContext(this.database, row.workspaceId);
     return this.agents.history(id);
+  }
+
+  locationFile(locationId, filePath = "") {
+    const location = mappedLocation(this.database, required(locationId, "Location"));
+    if (!location) throw new Error("Location is unavailable");
+    requireTeam(this.database, location.teamId, ["admin", "member", "viewer"]);
+    if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
+    const logical = logicalRelativePath(filePath);
+    if (logical.split("/").some((part) => part.startsWith(".")))
+      throw new Error("Hidden files cannot be previewed");
+    const selected = stagedLocation(location, logical);
+    if (selected.kind === "folder") {
+      const entries = readdirSync(selected.localPath, { withFileTypes: true })
+        .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
+        .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+      return { name: location.name, path: logical, truncated: entries.length > 200,
+        entries: entries.slice(0, 200).map((entry) => ({ name: entry.name,
+          path: [logical, entry.name].filter(Boolean).join("/"), kind: entry.isDirectory() ? "folder" : "file" })) };
+    }
+    const path = selected.localPath;
+    const extension = extname(path).toLowerCase();
+    if (!TEXT_EXTENSIONS.has(extension)) throw new Error("This file type cannot be previewed as text");
+    const stat = lstatSync(path);
+    if (!stat.isFile()) throw new Error("The file is unavailable");
+    if (stat.size > 1_000_000) throw new Error("The file is too large to preview (1 MB limit)");
+    return { name: basename(path), path: logical || basename(path),
+      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text", content: readFileSync(path, "utf8") };
   }
 
   runFile(executionId, filePath) {

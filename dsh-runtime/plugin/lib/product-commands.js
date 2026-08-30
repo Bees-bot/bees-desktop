@@ -729,15 +729,16 @@ export async function executeProductCommand(action, input) {
       return {};
     });
     if (action === "detach_location") return transaction(this.database, () => {
+      const relativePath = Object.hasOwn(input, "relativePath") ? logicalRelativePath(input.relativePath) : null;
       if (input.processId) {
         const process = processContext(this.database, input.processId, ["admin", "member"]);
-        this.database.prepare("DELETE FROM process_locations WHERE process_id = ? AND location_id = ?")
-          .run(process.id, required(input.locationId, "Location"));
+        this.database.prepare("DELETE FROM process_locations WHERE process_id = ? AND location_id = ? AND (? IS NULL OR relative_path = ?)")
+          .run(process.id, required(input.locationId, "Location"), relativePath, relativePath);
         this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, process.id);
       } else {
         const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-        this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ? AND location_id = ?")
-          .run(item.id, required(input.locationId, "Location"));
+        this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ? AND location_id = ? AND (? IS NULL OR relative_path = ?)")
+          .run(item.id, required(input.locationId, "Location"), relativePath, relativePath);
         this.database.prepare("UPDATE work_items SET updated_at = ? WHERE id = ?").run(at, item.id);
       }
       return {};

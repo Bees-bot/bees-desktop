@@ -7,7 +7,7 @@ import {
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
-import { addLocationFromDevice, ResourceFields } from "./location-fields.js";
+import { addLocationFromDevice, AttachedResourceFields, FilePreview, inheritedInputs, ResourceFields } from "./location-fields.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
@@ -163,20 +163,17 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     recurring.sourceWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
   const itemFiles = itemRuns.flatMap((row) => (row.outputs ?? []).map((name) => ({ executionId: row.id, path: `outputs/${name}` })));
-  const inputLocations = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(attachment => {
-    const loc = data.locations.find(({ id }) => id === attachment.locationId);
-    return loc ? { ...loc, relativePath: attachment.relativePath } : null;
-  }).filter(Boolean);
-  const hasFiles = itemFiles.length > 0 || inputLocations.length > 0;
+  const inputReferences = data.attachments.filter(({ workItemId }) => workItemId === item.id);
+  const resolvedAgentId = itemRuns.find((row) => row.dispatchStageId === item.stageId)?.resolvedAgentId
+    ?? (stage?.driver !== "review" ? assignment?.id : null) ?? (stage?.routeType === "agent" ? routeAgent?.id
+      : !stage?.routeType ? assignments.find(({ systemRole }) => systemRole === (stage?.driver === "review" ? "reviewer" : "worker"))?.id : null);
+  const inherited = inheritedInputs(data, process?.id, resolvedAgentId);
 
   const [viewer, setViewer] = useState(null);
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
   const [scheduleEditor, setScheduleEditor] = useState(false);
 
-  useEffect(() => {
-    if (!hasFiles && activeTab === "files") setActiveTab("details");
-  }, [hasFiles, activeTab]);
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
   const [audit, setAudit] = useState([]);
@@ -194,7 +191,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
-    setActiveTab("details"); setComposerText(""); setSending(false); setScheduleEditor(false);
+    setActiveTab("details"); setViewer(null); setComposerText(""); setSending(false); setScheduleEditor(false);
   }, [item.id]);
   useEffect(() => {
     let active = true;
@@ -237,14 +234,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     const nextAgent = assignments.find(({ name }) => name === agentName);
     if (agentName && !nextAgent) return;
     await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: nextAgent?.id ?? null });
-  };
-  const addFile = async () => {
-    const attached = data.attachments.filter(({ workItemId }) => workItemId === item.id).map(({ locationId }) => locationId);
-    const available = data.locations.filter(({ teamId: id, archivedAt, id: locationId }) => id === teamId && !archivedAt && !attached.includes(locationId));
-    const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
-    const location = available.find((row) => row.name === name); if (!location) return;
-    const relativePath = location.kind === "folder" ? await ask("Relative file or folder inside this location (optional)", "") : "";
-    if (relativePath !== null) await act({ action: "attach_location", itemId: item.id, locationId: location.id, relativePath });
   };
   const addSubitem = async () => {
     const title = await ask("Delegated work title", ""); if (!title) return;
@@ -434,7 +423,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     // 1. TABS HEADER
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-      hasFiles ? h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files") : null,
+      h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Recurring${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Audit")
@@ -460,7 +449,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           !item.archivedAt ? h("button", { className: "bees-btn-secondary", onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
           run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
           !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive") : null,
-          run?.status === "completed" && run.outputs?.length && data.attachments.some(({ workItemId }) => workItemId === item.id) ? h("button", { className: "bees-btn-primary", onClick: publish },
+          run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
             item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
         )
       ),
@@ -496,28 +485,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "auto", paddingTop: "8px" } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", {className: "bees-btn-icon"}, "✎"), "Edit item"),
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", {className: "bees-btn-icon"}, "⑆"), "Delegate work"),
-          !hasFiles ? h("button", { className: "bees-btn-secondary", onClick: addFile }, h("span", {className: "bees-btn-icon"}, "＋"), "Add inputs") : null
+          h("button", { className: "bees-btn-secondary", onClick: () => setActiveTab("files") }, "Files & folders")
         )
       ) : activeTab === "files" ? h(React.Fragment, null,
-        inputLocations.length ? h(React.Fragment, null,
-          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" } }, 
-            h("h3", { style: { margin: 0 } }, "Inputs"),
-            h(Button, { onClick: addFile }, "Add more inputs")
-          ),
-          h("div", { className: "bees-file-list" }, ...inputLocations.map((loc, i) => h("div", {
-            key: i,
-            className: "bees-file-chip",
-            title: loc.relativePath ? `${loc.name}/${loc.relativePath}` : loc.name
-          }, loc.relativePath ? `${loc.name}/${loc.relativePath}` : loc.name)))
-        ) : h(React.Fragment, null,
-          h("h3", null, "Inputs"),
-          h("div", { className: "bees-detail-actions", style: { marginBottom: "12px" } }, h(Button, { onClick: addFile }, "Add inputs"))
-        ),
-        h("div", { style: { marginTop: "24px", marginBottom: "12px" } }, 
-          h("h3", { style: { margin: 0 } }, "Result folder")
-        ),
-        h("p", { className: "bees-muted" }, data.locations.find(({ id }) => id === (item.outputLocationId || process?.outputLocationId))?.name ?? "Results stay in Bees until you choose a folder."),
-        
+        h(AttachedResourceFields, { key: item.id, ctx, data, teamId, act, owner: { itemId: item.id },
+          references: inputReferences, inherited, outputId: item.outputLocationId ?? "",
+          defaultOutputId: process?.outputLocationId, defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "",
+          disabled: Boolean(item.archivedAt) }),
+        h("p", { className: "bees-muted" }, "Input changes apply to future runs. Previews show the current source files."),
         itemFiles.length ? h(React.Fragment, null,
           h("h3", { style: { marginTop: "24px", marginBottom: "12px" } }, "Generated Files"),
           h("div", { className: "bees-file-list" }, ...itemFiles.map(({ executionId, path }) => h(Button, {
@@ -642,13 +617,17 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
   const [processId, setProcessId] = useState(initialProcess?.id ?? "");
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const [outputLocationId, setOutputLocationId] = useState("");
+  const [agentId, setAgentId] = useState("");
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
     h(Empty, null, "Choose a team before creating work."));
 
   const process = processes.find(({ id }) => id === processId) ?? initialProcess;
-  const inheritedInputIds = data.processAttachments.filter(({ processId: id }) => id === process?.id).map(({ locationId }) => locationId);
+  const firstStage = data.stages.find(({ processId }) => processId === process?.id);
+  const routedAgentId = (firstStage?.driver !== "review" ? agentId : "") || (firstStage?.routeType === "agent" ? firstStage.routeTargetId
+    : !firstStage?.routeType ? assignments.find(({ systemRole }) => systemRole === (firstStage?.driver === "review" ? "reviewer" : "worker"))?.id : null);
+  const inherited = inheritedInputs(data, process?.id, routedAgentId);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
 
   const [busy, onSubmit] = useSubmit(async (event) => {
@@ -686,12 +665,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     h("div", { className: "bees-form-row" },
       h("label", null, "Priority", h("select", { className: "bees-select", name: "priority", defaultValue: "normal" },
         h("option", { value: "low" }, "Low"), h("option", { value: "normal" }, "Normal"), h("option", { value: "high" }, "High"))),
-      !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", defaultValue: "" },
+      !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", value: agentId, onChange: (event) => setAgentId(event.target.value) },
         h("option", { value: "" }, "Use each stage's assigned agent"),
         ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled }, agent.name)))) : null),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
-      outputId: outputLocationId, onOutputId: setOutputLocationId, inheritedInputIds,
-      defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "" }),
+      outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
+      defaultOutputId: process?.outputLocationId, defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "" }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : goal ? "Create goal" : "Create work"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
@@ -703,24 +682,7 @@ function displayOption(label) {
   return { label: text.replace(/\s*\(recommended\)\s*$/i, ""), recommended };
 }
 
-export function FilePreview({ target }) {
-  const [file, setFile] = useState(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let current = true;
-    setFile(null); setError("");
-    const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
-    request(`/bees-api/run-file?${query}`).then((value) => { if (current) setFile(value); })
-      .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)); });
-    return () => { current = false; };
-  }, [target.executionId, target.path]);
-  return h("section", { className: "bees-file-preview", "aria-label": "File contents" },
-    h("div", { className: "bees-file-preview-head" }, h("strong", null, file?.path ?? target.path)),
-    error ? h("div", { className: "bees-error", role: "alert" }, error)
-      : !file ? h("div", { className: "bees-loading" }, "Opening file…")
-        : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content)
-  );
-}
+export { FilePreview };
 
 function reviewOptions(questions) {
   if (questions.length !== 1 || questions[0].multiSelect === true) return null;

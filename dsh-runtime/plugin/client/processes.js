@@ -2,7 +2,7 @@ import { h, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
-import { addLocationFromDevice, ResourceFields } from "./location-fields.js";
+import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
 const TEMPLATES_LAYOUT = [
@@ -83,20 +83,9 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
     const process = processes.find(({ id }) => id === processId);
     if (process) {
       const attached = data.processAttachments.filter((row) => row.processId === process.id);
-      const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
       const processStages = data.stages.filter(({ processId }) => processId === process.id);
       const processAgents = data.assignments.filter(({ workspaceId }) => workspaceId === process.workspaceId);
       const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
-      const attach = async () => {
-        const available = locations.filter((location) => !attached.some(({ locationId }) => locationId === location.id));
-        const name = await ask(`Team location:\n${available.map(({ name }) => name).join("\n")}`);
-        const location = available.find((row) => row.name === name);
-        if (!location) return;
-        const relativePath = location.kind === "folder"
-          ? await ask("Relative file or folder inside this location (optional)", "")
-          : "";
-        if (relativePath !== null) await act({ action: "attach_location", processId: process.id, locationId: location.id, relativePath });
-      };
       const setStageRoute = async (stage, value) => {
         const separator = value.indexOf(":");
         await act({
@@ -119,10 +108,6 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         const name = await ask("Template name", process.name); if (!name) return;
         await act({ action: "save_process_template", processId: process.id, name });
       };
-      const chooseOutput = async () => {
-        const created = await addLocationFromDevice(ctx, act, teamId, "folder");
-        if (created?.id) await act({ action: "set_output_location", processId: process.id, locationId: created.id });
-      };
       const archiveProcess = async () => {
         if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
         if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
@@ -130,7 +115,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
       
-      const routingBoard = h("div", { className: "bees-cockpit-board", style: { minHeight: "340px", flexGrow: 1, paddingBottom: "16px" } }, ...processStages.map((stage) => {
+      const routingBoard = h("div", { className: "bees-cockpit-board bees-routing-board" }, ...processStages.map((stage) => {
           const agent = stage.routeType === "agent" ? processAgents.find(({ id }) => id === stage.routeTargetId) : null;
           const pool = stage.routeType === "pool" ? processPools.find(({ id }) => id === stage.routeTargetId) : null;
           
@@ -176,13 +161,13 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
 
       const agentForm = creatingStage ? h("div", null,
           
-          h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true,
+          h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
             } }))
         : selectedAgent ? h("div", null,
           
-          h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close",
+          h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close", processId: process.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
       const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },
@@ -196,15 +181,13 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
           h("div", { className: "bees-title" }, process.name)
         ),
         h(PageHead, { setPageHeader: setPageActions },
-          ...attached.map(({ locationId, relativePath }) => {
-            const location = locations.find(({ id }) => id === locationId);
-            return location ? h(Button, { key: `${locationId}:${relativePath}`, onClick: () => act({ action: "detach_location", processId: process.id, locationId }) }, `$[${location.name}]${relativePath ? `/${relativePath}` : ""} ×`) : null;
-          }),
-          h(Button, { onClick: attach, disabled: !locations.some((location) => !attached.some(({ locationId }) => locationId === location.id)) }, "Add files"),
-          h(Button, { onClick: chooseOutput }, process.outputLocationId ? "Change result folder" : "Choose result folder"),
           process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
           h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
         ),
+        h("details", { className: "bees-box" },
+          h("summary", null, `Files & folders · ${attached.length} inputs`),
+          h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
+            owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "" })),
         routingBoard,
         agentForm,
         archive

@@ -11,6 +11,7 @@ export class BeesProduct {
   readKnowledge(resultId: string, workspaceId: string): any;
   audit(): any[];
   runHistory(executionId: string): Promise<any>;
+  locationFile(locationId: string, filePath?: string): any;
   runFile(executionId: string, filePath: string): {
     name: string; path: string; format: "markdown" | "text"; content: string;
   };
