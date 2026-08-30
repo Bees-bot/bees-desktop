@@ -35,7 +35,7 @@ function agentModelLabel(group, model) {
   return model.name === model.id ? model.id : `${model.name} (${model.id})`;
 }
 
-function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true }) {
+export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true, refreshKey = 0 }) {
   const [catalog, setCatalog] = useState({ groups: [], failures: [], loading: true, error: "" });
   const [route, setRoute] = useState(value);
   const [reasoningEffort, setReasoningEffort] = useState(effort);
@@ -49,7 +49,7 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
         error: reason instanceof Error ? reason.message : String(reason) });
     });
     return () => { mounted = false; };
-  }, [ctx]);
+  }, [ctx, refreshKey]);
   const groups = [...catalog.groups].sort((left, right) =>
     left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   const codex = groups.find(({ id }) => id === "openai-codex");
@@ -59,7 +59,7 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
   });
   const routes = new Set(groups.flatMap((group) => group.models.map((model) => `${group.id}/${model.id}`)));
   for (const channel of channels) routes.add(channel.route);
-  const preserveCurrent = value && (catalog.loading || catalog.error || !routes.has(value));
+  const preserveCurrent = route && (catalog.loading || catalog.error || !routes.has(route));
   const selectedModel = channels.find((channel) => channel.route === route)?.model ?? groups.flatMap(({ id, models }) =>
     models.map((model) => ({ ...model, route: `${id}/${model.id}` }))).find((model) => model.route === route);
   const efforts = selectedModel?.reasoning?.efforts ?? [];
@@ -77,8 +77,8 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
     } },
       allowSystemDefault ? h("option", { value: "" }, catalog.loading ? `${systemDefaultLabel} (loading available models…)` : systemDefaultLabel)
         : !route ? h("option", { value: "", disabled: true }, catalog.loading ? "Loading available models…" : "Choose a model") : null,
-      preserveCurrent ? h("option", { value }, catalog.loading ? `Current: ${value}`
-        : catalog.error ? `Current: ${value} (catalog unavailable)` : `Current: ${value} (unavailable)`) : null,
+      preserveCurrent ? h("option", { value: route }, catalog.loading ? `Current: ${route}`
+        : catalog.error ? `Current: ${route} (catalog unavailable)` : `Current: ${route} (unavailable)`) : null,
       ...groups.flatMap((group) => [
         h("option", { value: `__provider_${group.id}`, disabled: true, key: `provider:${group.id}` }, group.name),
         ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
@@ -132,11 +132,11 @@ export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
 
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-function McpAccess({ servers, access, chosen }) {
+export function McpAccess({ servers, access, chosen, label = "MCP servers this agent may use" }) {
   const [mode, setMode] = useState(access ?? "all");
   const picked = new Set(chosen ?? []);
   return h(React.Fragment, null,
-    h("label", null, "MCP servers this agent may use",
+    h("label", null, label,
       h("select", { className: "bees-select", name: "mcpAccess", value: mode,
         onChange: (event) => setMode(event.target.value) },
         h("option", { value: "all" }, "Every connected server"),

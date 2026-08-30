@@ -7,7 +7,7 @@ import {
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
-import { addLocationFromDevice, AttachedResourceFields, FilePreview, inheritedInputs, ResourceFields } from "./location-fields.js";
+import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles } from "./location-fields.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
@@ -162,14 +162,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const recurringWork = (data.recurringWork ?? []).filter((recurring) =>
     recurring.sourceWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
-  const itemFiles = itemRuns.flatMap((row) => (row.outputs ?? []).map((name) => ({ executionId: row.id, path: `outputs/${name}` })));
   const inputReferences = data.attachments.filter(({ workItemId }) => workItemId === item.id);
   const resolvedAgentId = itemRuns.find((row) => row.dispatchStageId === item.stageId)?.resolvedAgentId
     ?? (stage?.driver !== "review" ? assignment?.id : null) ?? (stage?.routeType === "agent" ? routeAgent?.id
       : !stage?.routeType ? assignments.find(({ systemRole }) => systemRole === (stage?.driver === "review" ? "reviewer" : "worker"))?.id : null);
   const inherited = inheritedInputs(data, process?.id, resolvedAgentId);
 
-  const [viewer, setViewer] = useState(null);
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
   const [scheduleEditor, setScheduleEditor] = useState(false);
@@ -191,7 +189,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
-    setActiveTab("details"); setViewer(null); setComposerText(""); setSending(false); setScheduleEditor(false);
+    setActiveTab("details"); setComposerText(""); setSending(false); setScheduleEditor(false);
   }, [item.id]);
   useEffect(() => {
     let active = true;
@@ -488,20 +486,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           h("button", { className: "bees-btn-secondary", onClick: () => setActiveTab("files") }, "Files & folders")
         )
       ) : activeTab === "files" ? h(React.Fragment, null,
-        h(AttachedResourceFields, { key: item.id, ctx, data, teamId, act, owner: { itemId: item.id },
+        item.runSettings && Object.keys(item.runSettings).length ? h("section", { className: "bees-callout" },
+          h("h3", null, "Goal run settings"),
+          Object.hasOwn(item.runSettings, "model") ? h("p", null, `Model: ${item.runSettings.model || "System default"}${item.runSettings.reasoningEffort ? ` · ${item.runSettings.reasoningEffort} effort` : ""}`) : null,
+          item.runSettings.mcpAccess ? h("p", null, `Connected tools: ${item.runSettings.mcpAccess === "none" ? "None" : item.runSettings.mcpAccess === "listed" ? "Selected connections only" : "Workflow defaults"}`) : null,
+          h("p", { className: "bees-muted" }, "Applies to work, review, and delegated tasks. Each agent's tool restrictions still apply.")) : null,
+        h(WorkFiles, { key: item.id, data, runs: itemRuns,
           references: inputReferences, inherited, outputId: item.outputLocationId ?? "",
-          defaultOutputId: process?.outputLocationId, defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "",
-          disabled: Boolean(item.archivedAt) }),
-        h("p", { className: "bees-muted" }, "Input changes apply to future runs. Previews show the current source files."),
-        itemFiles.length ? h(React.Fragment, null,
-          h("h3", { style: { marginTop: "24px", marginBottom: "12px" } }, "Generated Files"),
-          h("div", { className: "bees-file-list" }, ...itemFiles.map(({ executionId, path }) => h(Button, {
-            key: `${executionId}:${path}`,
-            className: viewer?.executionId === executionId && viewer?.path === path ? "bees-file-chip active" : "bees-file-chip",
-            onClick: () => setViewer({ executionId, path })
-          }, path.replace("outputs/", ""))))
-        ) : null,
-        viewer ? h(FilePreview, { target: viewer }) : null
+          defaultOutputId: process?.outputLocationId })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Runs"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },

@@ -23,7 +23,7 @@ const require = createRequire(new URL("../dsh-runtime/package.json", import.meta
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { configureRuntime } = require("./plugin/client/runtime.js");
-const { ResourceFields, AttachedResourceFields, inheritedInputs } = require("./plugin/client/location-fields.js");
+const { ResourceFields, AttachedResourceFields, inheritedInputs, WorkFiles, FilePreview } = require("./plugin/client/location-fields.js");
 configureRuntime((id: string) => id === "react" ? React : {});
 
 it("shows inherited subpaths and unmapped selections without saving them as direct inputs", async () => {
@@ -54,4 +54,48 @@ it("shows inherited subpaths and unmapped selections without saving them as dire
   });
   await fields.props.onInputIds(["folder", "missing"]);
   expect(commands).toEqual([{ action: "attach_location", itemId: "item", locationId: "missing" }]);
+});
+
+it("shows work locations read-only and groups generated files by run and directory", () => {
+  const data = { locations: [
+    { id: "input", name: "Briefs", kind: "folder", mapped: true, localPath: "/shared/briefs" },
+    { id: "output", name: "Reports", kind: "folder", mapped: true, localPath: "/shared/reports" }
+  ] };
+  const markup = renderToStaticMarkup(React.createElement(WorkFiles, {
+    data, references: [{ locationId: "input", relativePath: "quarterly" }, { locationId: "missing" }],
+    inherited: [{ locationId: "input", relativePath: "quarterly", source: "Process" }],
+    defaultOutputId: "output", runs: [
+      { id: "new", status: "completed", updatedAt: 1, outputs: ["analysis/summary.md", "analysis\\data\\totals.csv", "summary.md"] },
+      { id: "old", status: "completed", updatedAt: 0, outputs: ["summary.md"] }
+    ]
+  }));
+  expect(markup).toContain("/shared/briefs/quarterly");
+  expect(markup).toContain("Work item + Process");
+  expect(markup.match(/<strong>Briefs\/quarterly<\/strong>/g)).toHaveLength(1);
+  expect(markup).toContain("/shared/reports");
+  expect(markup).toContain("From process");
+  expect(markup).toContain("Unavailable input");
+  expect(markup).toContain('disabled=""');
+  expect(markup).not.toMatch(/<select|<input|Add folder|Add file|Remove/);
+  expect(markup).toContain("Run 2 · completed · 3 files");
+  expect(markup).toContain("Run 1 · completed · 1 file");
+  expect(markup).toContain("<summary>analysis/</summary>");
+  expect(markup).toContain("<summary>data/</summary>");
+  expect(markup).toContain('title="analysis/data/totals.csv"');
+  expect(markup.match(/>summary.md<\/button>/g)).toHaveLength(3);
+  expect(client).toContain("h(WorkFiles, { key: item.id, data, runs: itemRuns");
+});
+
+it("shows missing destinations and empty runs without configuration controls", () => {
+  const props = { data: { locations: [] }, references: [], runs: [] };
+  const markup = renderToStaticMarkup(React.createElement(WorkFiles, props));
+  expect(markup).toContain("No input files or folders selected.");
+  expect(markup).toContain("Bees only — no output folder selected.");
+  expect(markup).toContain("Generated files will appear here");
+  const missing = renderToStaticMarkup(React.createElement(WorkFiles, { ...props, outputId: "missing" }));
+  expect(missing).toContain("Unavailable output folder");
+  expect(missing).not.toContain("Bees only");
+  const preview = renderToStaticMarkup(React.createElement(FilePreview, { target: { executionId: "run", path: "outputs/report.md" } }));
+  expect(preview).toContain(">Full screen</button>");
+  expect(preview).toContain('<dialog class="bees-file-dialog" aria-label="Full-screen file preview">');
 });

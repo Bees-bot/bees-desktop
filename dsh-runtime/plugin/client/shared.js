@@ -35,6 +35,19 @@ const THEMES = [
 ];
 
 export const css = `
+.bees-app [hidden]{display:none!important}
+.bees-ask-setup{max-width:1040px;margin:0 auto;padding:12px 0 32px;min-width:0}
+.bees-ask-heading{padding:24px 0 20px}.bees-ask-heading h1{font-size:28px;margin:6px 0 10px}.bees-ask-heading h1:focus{outline:none}
+.bees-ask-fields{border:0;margin:0;padding:0;display:grid;gap:16px;min-width:0}
+.bees-ask-fields h2{font-size:17px;margin:0}.bees-ask-fields p{margin:0;line-height:1.5}
+.bees-ask-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.bees-ask-columns>.bees-box{min-width:0;align-content:start;overflow-wrap:anywhere}
+.bees-ask-toggle{display:flex!important;align-items:center;gap:8px;font-weight:500}
+.bees-ask-stages{display:grid;gap:10px;padding:12px;border-radius:8px;background:var(--dsw-alias-bg-base)}
+.bees-ask-stages>div{display:grid;gap:4px}
+.bees-ask-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 0}
+.bees-ask-footer .bees-btn{flex-shrink:0}.bees-ask-fields .bees-textarea{min-height:96px}
+@media(max-width:760px){.bees-ask-columns{grid-template-columns:1fr}.bees-ask-footer{align-items:stretch;flex-direction:column}.bees-ask-heading h1{font-size:24px}}
 .bees-flex-widget-borderless .bees-column {
   border: none !important;
 }
@@ -839,6 +852,33 @@ export const css = `
 .bees-notice { position: fixed; z-index: 1200; right: 24px; bottom: 24px; width: min(480px, calc(100vw - 48px)); padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-button-elevated-fill); box-shadow: 0 16px 48px rgba(0,0,0,.3); }
 .bees-notice pre { margin: 8px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+.bees-work-files{min-width:0;display:grid;gap:12px}
+.bees-work-files>h3{font-size:13px;margin:8px 0 0}
+.bees-work-files>p{margin:0}
+.bees-work-files>.bees-resource-list{grid-template-columns:minmax(0,1fr)}
+.bees-file-location{display:grid;gap:3px;min-width:0;flex:1;overflow-wrap:anywhere}
+.bees-file-location .bees-muted{font-size:12px;white-space:normal}
+.bees-output-directory{padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;max-height:360px;overflow:auto}
+.bees-output-directory summary{padding:6px;cursor:pointer;overflow-wrap:anywhere}
+.bees-output-directory>details>summary{font-weight:600}
+.bees-output-directory>details>summary>span{display:block;font-size:11px;font-weight:400;margin-left:16px}
+.bees-file-tree{list-style:none;margin:0;padding-left:16px;border-left:1px solid var(--dsw-alias-border-l1)}
+.bees-file-tree>li{min-width:0}
+.bees-directory-file{display:block;width:100%;padding:7px 8px;border:0;border-radius:6px;text-align:left;color:inherit;background:transparent;font:inherit;overflow-wrap:anywhere;cursor:pointer}
+.bees-directory-file:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.bees-directory-file.active{background:#f2b84b22;box-shadow:inset 2px 0 #f2b84b}
+.bees-file-preview{display:flex;flex-direction:column;overflow:hidden}
+.bees-file-preview-head{flex-shrink:0}
+.bees-file-preview-head>.bees-btn{flex-shrink:0}
+.bees-file-preview-body{min-height:0;min-width:0;flex:1;overflow:auto;overflow-wrap:anywhere}
+.bees-work-files .bees-resource-list,.bees-file-dialog .bees-resource-list{grid-template-columns:minmax(0,1fr)}
+.bees-work-files>.bees-file-preview{height:65vh;min-height:400px;max-height:800px;box-sizing:border-box}
+.bees-file-dialog{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;box-sizing:border-box;margin:0;padding:20px;border:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font:inherit}
+.bees-file-dialog[open]{display:flex;flex-direction:column}
+.bees-file-dialog::backdrop{background:#0009}
+.bees-file-dialog pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
+.bees-file-dialog .bees-resource-list .bees-btn{text-align:left;white-space:normal;overflow-wrap:anywhere}
+.bees-file-tree summary:focus-visible,.bees-directory-file:focus-visible,.bees-file-preview-body:focus-visible{outline:2px solid #f2b84b;outline-offset:-2px}
 `;
 
 export async function request(path, options) {

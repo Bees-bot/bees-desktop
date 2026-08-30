@@ -1,4 +1,4 @@
-import { h, MarkdownText, useEffect, useState } from "./runtime.js";
+import { h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request } from "./shared.js";
 
 export async function addLocationFromDevice(ctx, act, teamId, kind) {
@@ -143,6 +143,74 @@ export function AttachedResourceFields({ owner, references, ...props }) {
   });
 }
 
+// Viewing work never changes its inputs or output destination.
+export function WorkFiles({ data, references, inherited = [], outputId, defaultOutputId, runs }) {
+  const [viewer, setViewer] = useState(null);
+  const inputs = new Map();
+  for (const ref of [...references, ...inherited]) {
+    const key = JSON.stringify([ref.locationId, ref.relativePath || ""]);
+    const row = inputs.get(key) ?? { ...ref, key, sources: new Set() };
+    row.sources.add(ref.source || "Work item");
+    inputs.set(key, row);
+  }
+  const locationRow = ({ locationId, relativePath = "", sources }, fallback) => {
+    const location = data.locations.find(({ id }) => id === locationId);
+    const label = `${location?.name || fallback}${relativePath ? `/${relativePath}` : ""}`;
+    const path = location?.localPath ? `${location.localPath}${relativePath ? `/${relativePath}` : ""}` : "Not mapped on this device";
+    return h("div", { className: "bees-resource-option", key: JSON.stringify([locationId, relativePath]) },
+      h("div", { className: "bees-file-location" }, h("strong", null, label),
+        h("span", { className: "bees-muted" }, [...sources].join(" + ")),
+        h("span", { className: "bees-muted", title: path }, location?.archivedAt ? `Archived · ${path}` : path)),
+      h(Button, { disabled: !location?.mapped || Boolean(location.archivedAt), "aria-label": `View ${label}`,
+        onClick: () => setViewer({ locationId, path: relativePath }) }, "View"));
+  };
+  const outputRuns = runs.filter((run) => run.outputs?.length);
+  return h("section", { className: "bees-work-files", "aria-label": "Work files" },
+    h("h3", null, "Input files & folders"),
+    inputs.size ? h("div", { className: "bees-resource-list" },
+      ...[...inputs.values()].map((ref) => locationRow(ref, "Unavailable input")))
+      : h("p", { className: "bees-muted" }, "No input files or folders selected."),
+    h("h3", null, "Output folder"),
+    outputId || defaultOutputId ? locationRow({ locationId: outputId || defaultOutputId,
+      sources: [outputId ? "Selected for this work" : "From process"] }, "Unavailable output folder")
+      : h("p", { className: "bees-muted" }, "Bees only — no output folder selected."),
+    h("p", { className: "bees-muted" }, "Folder previews show current files. Generated files stay in Bees; publishing saves a copy to the output folder."),
+    h("h3", null, "Generated files"),
+    outputRuns.length ? h("div", { className: "bees-output-directory" }, ...outputRuns.map((run, index) =>
+      h("details", { key: run.id, open: index === 0 },
+        h("summary", null, `Run ${runs.length - runs.indexOf(run)} · ${run.status} · ${run.outputs.length} ${run.outputs.length === 1 ? "file" : "files"}`,
+          h("span", { className: "bees-muted" }, new Date(run.updatedAt).toLocaleString())),
+        h(OutputDirectory, { files: [...new Set(run.outputs.map((path) => path.replaceAll("\\", "/")))], executionId: run.id, viewer, onOpen: setViewer }))))
+      : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."),
+    viewer ? h(FilePreview, { target: viewer })
+      : outputRuns.length ? h("p", { className: "bees-muted" }, "Select a file to read its contents.") : null);
+}
+
+function OutputDirectory({ files, executionId, viewer, onOpen, prefix = "" }) {
+  const folders = new Map();
+  const leaves = [];
+  for (const path of files) {
+    const name = path.slice(prefix.length);
+    const slash = name.indexOf("/");
+    if (slash === -1) leaves.push(path);
+    else {
+      const folder = name.slice(0, slash);
+      if (!folders.has(folder)) folders.set(folder, []);
+      folders.get(folder).push(path);
+    }
+  }
+  return h("ul", { className: "bees-file-tree" },
+    ...[...folders.keys()].sort().map((name) => h("li", { key: `folder:${name}` },
+      h("details", { open: true }, h("summary", null, `${name}/`),
+        h(OutputDirectory, { files: folders.get(name), executionId, viewer, onOpen, prefix: `${prefix}${name}/` })))),
+    ...leaves.sort().map((name) => {
+      const path = `outputs/${name}`;
+      const selected = viewer?.executionId === executionId && viewer?.path === path;
+      return h("li", { key: `file:${name}` }, h(Button, { className: `bees-directory-file${selected ? " active" : ""}`,
+        title: name, "aria-pressed": selected, onClick: () => onOpen({ executionId, path }) }, name.slice(prefix.length)));
+    }));
+}
+
 export function FilePreview({ target }) {
   return h(FileContents, { key: JSON.stringify(target), target });
 }
@@ -151,6 +219,11 @@ function FileContents({ target }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(target.path);
+  const dialog = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (expanded) dialog.current.showModal();
+  }, [expanded]);
   useEffect(() => {
     let current = true;
     setFile(null); setError("");
@@ -161,17 +234,28 @@ function FileContents({ target }) {
       .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { current = false; };
   }, [target.executionId, target.locationId, path]);
-  return h("section", { className: "bees-file-preview", "aria-label": "File contents" },
-    h("div", { className: "bees-file-preview-head" }, h("strong", null, file?.path || file?.name || path),
-      target.locationId && path !== target.path ? h(Button, {
-        onClick: () => setPath(path.split("/").slice(0, -1).join("/"))
-      }, "Back") : null),
-    error ? h("div", { className: "bees-error", role: "alert" }, error)
+  const title = file?.path || file?.name || path || "Folder";
+  const contents = error ? h("div", { className: "bees-error", role: "alert" }, error)
       : !file ? h("div", { className: "bees-loading" }, "Opening file…")
         : file.entries ? h("div", { className: "bees-resource-list" },
           ...file.entries.map((entry) => h(Button, { key: entry.path, title: entry.path,
             onClick: () => setPath(entry.path) }, `${entry.name}${entry.kind === "folder" ? "/" : ""}`)),
           !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
-          : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content));
+          : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content);
+  const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h("strong", { title }, title),
+    target.locationId && path !== target.path ? h(Button, {
+      onClick: () => setPath(path.split("/").slice(0, -1).join("/"))
+    }, "Back") : null,
+    fullScreen ? h(Button, { autoFocus: true, onClick: () => dialog.current.close() }, "Close full screen")
+      : h(Button, { onClick: () => setExpanded(true) }, "Full screen"));
+  return h(React.Fragment, null,
+    h("section", { className: "bees-file-preview", "aria-label": "File contents" }, header(false),
+      h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, contents)),
+    h("dialog", { ref: dialog, className: "bees-file-dialog", "aria-label": "Full-screen file preview",
+      onKeyDown: (event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.current.close(); }
+      },
+      onClose: () => setExpanded(false) }, expanded ? h(React.Fragment, null, header(true),
+      h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, contents)) : null));
 }

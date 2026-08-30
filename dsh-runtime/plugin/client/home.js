@@ -1,28 +1,14 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, clip, confirmAction, Empty, openExternal } from "./shared.js";
+import { ask, Button, confirmAction, Empty, openExternal } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
+import { AskBeesSetup } from "./ask-bees.js";
 
-function OutcomeWidget({ workspaceId, act, navigate }) {
-  const [outcome, setOutcome] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [created, setCreated] = useState(false);
-  const submit = async () => {
+function OutcomeWidget({ workspaceId, outcome, setOutcome, configureGoal }) {
+  const submit = () => {
     if (!workspaceId || !outcome.trim()) return;
-    setBusy(true); setError("");
-    try {
-      const text = outcome.trim();
-      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      const title = lines[0].length > 60 ? `${clip(lines[0], 57)}...` : lines[0];
-      const result = await act({ action: "create_goal", workspaceId, title, description: text, priority: "normal" });
-      if (result?.id) { setOutcome(""); setCreated(true); setTimeout(() => setCreated(false), 3000); navigate("goals"); }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-    }
+    configureGoal();
   };
   return h("form", {
     className: "bees-composer bees-dashboard-composer",
@@ -31,7 +17,8 @@ function OutcomeWidget({ workspaceId, act, navigate }) {
     h("textarea", {
       className: "bees-composer-input",
       placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a team first",
-      disabled: !workspaceId || busy,
+      disabled: !workspaceId,
+      "aria-label": "What would you like Bees to do?",
       value: outcome,
       onInput: (event) => setOutcome(event.target.value),
       onKeyDown: (event) => {
@@ -40,10 +27,9 @@ function OutcomeWidget({ workspaceId, act, navigate }) {
         }
       }
     }),
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot" },
-      h("span", { className: "bees-composer-hint" }, "Press ⌘ + Enter to start"),
-      h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() || busy }, busy ? "Starting..." : "Ask Bees"))
+      h("span", { className: "bees-composer-hint" }, "Next: review model, tools & folders · ⌘ / Ctrl + Enter"),
+      h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() }, "Ask Bees"))
   );
 }
 
@@ -201,7 +187,9 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createGoal, createProcess, createRun, createAgent }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createGoal, createProcess, createRun, createAgent, capabilities, modelSettings, reload }) {
+  const [outcome, setOutcome] = useState("");
+  const [setup, setSetup] = useState("");
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
@@ -232,9 +220,11 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createGoal, createProcess, createRun, createAgent };
+  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createGoal, createProcess, createRun, createAgent,
+    outcome, setOutcome, configureGoal: () => setSetup("review") };
 
   useEffect(() => {
+    if (setup === "review") { setPageActions(null); return; }
     setPageActions(h("div", { className: "bees-page-actions" },
       h(Button, { onClick: createDashboard, disabled: dashboards.length >= 20 }, "+ Dashboard"),
       editing ? h("details", { className: "bees-dashboard-add" },
@@ -249,16 +239,21 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
       editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit")));
     return () => setPageActions(null);
-  }, [editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
+  }, [setup, editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
 
-  return h("div", { className: "bees-dashboard" },
+  return h("div", null,
+    setup ? h("div", { hidden: setup !== "review" }, h(AskBeesSetup, {
+      ctx, data, workspaceId, outcome, onOutcome: setOutcome, act, capabilities, modelSettings, preferences, reload,
+      active: setup === "review", onBack: () => setSetup("closed"), onStarted: openWorkItem
+    })) : null,
+    h("div", { className: "bees-dashboard", hidden: setup === "review" },
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,
       editing,
       widgetProps,
       onLayout: (layout) => saveDashboard(applyDashboardLayout(dashboard, layout)),
       onRemove: (kind) => saveDashboard({ ...dashboard, widgets: dashboard.widgets.filter((widget) => widget.kind !== kind) })
-    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Edit to add widgets.")
+    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Edit to add widgets."))
   );
 }
 

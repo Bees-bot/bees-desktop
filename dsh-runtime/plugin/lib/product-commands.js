@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
-  itemContext, mcpGrantFor, optionalReasoningEffort, parentFor, processContext, processStages,
+  itemContext, mcpGrantFor, normalizeRunSettings, optionalReasoningEffort, parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
@@ -243,6 +243,9 @@ export async function executeProductCommand(action, input) {
       `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this team");
       const id = randomUUID();
       const parentId = action === "create_run" ? null : parentFor(this.database, id, processId, input.parentId);
+      const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
+      const settings = normalizeRunSettings(parent?.runSettings ?? input.runSettings ?? {});
+      if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
@@ -251,6 +254,15 @@ export async function executeProductCommand(action, input) {
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
         input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
+      this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
+        .run(JSON.stringify(settings), id);
+      if (parent) {
+        // Inherit before startItem: the first delegated run must see the same context and limits.
+        this.database.prepare(`INSERT OR IGNORE INTO work_item_locations
+          SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?`).run(id, parent.id);
+        this.database.prepare("UPDATE work_items SET output_location_id = coalesce(output_location_id, ?) WHERE id = ?")
+          .run(parent.outputLocationId, id);
+      }
       return { id };
       });
       // The row is already committed; throwing here would have the caller retry and create a second item.
@@ -315,6 +327,8 @@ export async function executeProductCommand(action, input) {
           INSERT INTO work_item_locations
           SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
         `).run(sourceWorkItemId, item.id);
+        this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
+          .run(JSON.stringify(item.runSettings), sourceWorkItemId);
       });
       try {
         const runtime = await this.processes.createRecurring(id);
@@ -841,7 +855,7 @@ export async function executeProductCommand(action, input) {
           reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
           instructions: assignment?.instructions || "",
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
-          ...mcpGrantFor(this.database, assignment?.id),
+          ...mcpGrantFor(this.database, assignment?.id, item.runSettings),
           grants
         }
       });

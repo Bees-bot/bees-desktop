@@ -217,10 +217,10 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"Model default (recommended)"');
     expect(client).toContain('name: "reasoningEffort"');
     expect(client).toContain('left.name.localeCompare(right.name, undefined, { sensitivity: "base" })');
-    expect(client).toContain('`Current: ${value} (unavailable)`');
+    expect(client).toContain('`Current: ${route} (unavailable)`');
     expect(client).toContain('key: `provider:${group.id}` }, group.name');
     expect(client).not.toContain('h("optgroup", { label: group.name');
-    expect(client.match(/h\(AgentModelSelect,/g)).toHaveLength(3);
+    expect(client.match(/h\(AgentModelSelect,/g)).toHaveLength(4);
     expect(client).not.toContain('"Model route (optional provider/model)"');
   });
 

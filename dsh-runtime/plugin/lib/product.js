@@ -171,7 +171,7 @@ export class BeesProduct {
         reasoningEffort: assignment?.reasoningEffort || null,
         instructions: [goalsProtocol, assignment?.instructions].filter(Boolean).join("\n\n"),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
-        ...mcpGrantFor(this.database, assignment?.id),
+        ...mcpGrantFor(this.database, assignment?.id, item.runSettings),
         grants: reviewer ? [] : [outputLocation(this.database, item.id)].filter(Boolean)
       }
     }, signal);
@@ -236,7 +236,7 @@ export class BeesProduct {
     const items = processIds.length ? this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.parent_id AS parentId,
              w.kind, w.title, w.description, w.owner, w.agent_assignment_id AS agentAssignmentId,
-             w.priority, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
+             w.priority, w.run_settings_json AS runSettingsJson, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
              w.runtime_review_cycle AS runtimeReviewCycle,
              w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
              w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
@@ -245,7 +245,9 @@ export class BeesProduct {
       FROM work_items w JOIN stages s ON s.id = w.stage_id
       WHERE w.process_id IN (SELECT value FROM json_each(?)) AND w.deleted_at IS NULL
       ORDER BY w.updated_at DESC
-    `).all(JSON.stringify(processIds)).map((row) => ({ ...row, completed: Boolean(row.completed) })) : [];
+    `).all(JSON.stringify(processIds)).map(({ runSettingsJson, ...row }) => ({
+      ...row, runSettings: JSON.parse(runSettingsJson), completed: Boolean(row.completed)
+    })) : [];
     const locations = allowedTeams.length ? this.database.prepare(`
       SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
              l.archived_at AS archivedAt, m.absolute_path AS localPath
@@ -556,10 +558,6 @@ export class BeesProduct {
         processId: parent.processId, parentId: parent.id, title, description,
         agentAssignmentId: parent.agentAssignmentId
       });
-      this.database.prepare(`
-        INSERT OR IGNORE INTO work_item_locations
-        SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
-      `).run(child.id, parent.id);
       created.push(child);
     }
     return created;
