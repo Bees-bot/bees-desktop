@@ -53,8 +53,8 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('role: "tablist"');
     expect(client).toContain('role: "tabpanel"');
     expect(client).toContain('className: "bees-tab-actions"');
-    expect(client.indexOf('className: "bees-tab-actions"'))
-      .toBeLessThan(client.indexOf('className: "bees-tab-panel"'));
+    expect(client.indexOf('className: "bees-tab-panel"'))
+      .toBeLessThan(client.indexOf('className: "bees-tab-actions"'));
   });
 
   it("collapses long user messages in work-item details", () => {
