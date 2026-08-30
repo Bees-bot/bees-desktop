@@ -282,6 +282,7 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS bees_proposals;
     DROP TABLE IF EXISTS bees_connected_organizations;
     DROP TABLE IF EXISTS bees_account;
+    DROP TABLE IF EXISTS bees_sign_in_attempts;
     DROP TABLE IF EXISTS bees_run_checkpoints;
     DROP TABLE IF EXISTS bees_stage_results;
     DROP TABLE IF EXISTS dsh_deliveries;
@@ -349,6 +350,9 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS bees_account (
       slot INTEGER PRIMARY KEY CHECK (slot = 1), user_id TEXT NOT NULL,
       email TEXT NOT NULL, name TEXT NOT NULL, token TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_sign_in_attempts (
+      state TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_connected_organizations (
       organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,

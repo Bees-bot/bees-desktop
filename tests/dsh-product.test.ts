@@ -661,13 +661,80 @@ Current international expansion strategy`);
     });
   });
 
+  it("keeps a valid account signed in when older coordination routes are missing", async () => {
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    database.prepare("INSERT INTO bees_account VALUES (1, 'remote-user', 'you@example.com', 'You', '')").run();
+    const credentials = { resolve: async () => ({ value: "session-token" }) };
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) =>
+      new Response(JSON.stringify({ message: "Route not found" }), {
+        status: String(input).endsWith("/api/config") ? 401 : 404,
+        headers: { "content-type": "application/json" }
+      })));
+    const connected = new ConnectedAccount(database, credentials as never, "https://api.example", {
+      warn: vi.fn()
+    });
+
+    await expect(connected.summary()).resolves.toMatchObject({
+      account: { userId: "remote-user", email: "you@example.com", name: "You" },
+      organizations: [], invitations: []
+    });
+  });
+
   it("expands the documented local server alias for browser sign-in", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
-    const connected = new ConnectedAccount({} as never, {} as never, "dev");
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    const connected = new ConnectedAccount(database, {} as never, "dev");
 
     await expect((connected as any).startBrowserSignIn("social", "google", 31415))
       .resolves.toMatchObject({
         url: expect.stringMatching(/^http:\/\/localhost:3000\/api\/auth\/desktop\/start\?/)
       });
+  });
+
+  it("ignores the legacy API URL when choosing the account server", async () => {
+    vi.stubEnv("BEES_API_URL", "dev");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    const connected = new ConnectedAccount(database, {} as never);
+
+    await expect((connected as any).startBrowserSignIn("social", "google", 31415))
+      .resolves.toMatchObject({
+        url: expect.stringMatching(/^https:\/\/app\.bees\.bot\/api\/auth\/desktop\/start\?/)
+      });
+  });
+
+  it("keeps a one-time browser sign-in valid across a runtime restart", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    const first = new ConnectedAccount(database, {} as never, "https://api.example");
+    const { url } = await (first as any).startBrowserSignIn("social", "google", 31415);
+    const callback = new URL(new URL(url).searchParams.get("redirect")!);
+    callback.searchParams.set("error", "auth");
+
+    const restarted = new ConnectedAccount(database, {} as never, "https://api.example");
+    await expect((restarted as any).completeBrowserSignIn(callback.searchParams))
+      .rejects.toThrow("Sign in was not completed");
+    await expect((restarted as any).completeBrowserSignIn(callback.searchParams))
+      .rejects.toThrow("This sign-in attempt expired; try again");
+  });
+
+  it("accepts the deployed server's legacy malformed callback query", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    const connected = new ConnectedAccount(database, {} as never, "https://api.example");
+    const { url } = await (connected as any).startBrowserSignIn("social", "google", 31415);
+    const callback = new URL(new URL(url).searchParams.get("redirect")!);
+    const state = callback.searchParams.get("state");
+    callback.search = `?state=${state}?token=legacy-session`;
+    const resume = vi.spyOn(connected as any, "resumeSession").mockResolvedValue({ account: {} });
+
+    await expect((connected as any).completeBrowserSignIn(callback.searchParams))
+      .resolves.toEqual({ account: {} });
+    expect(resume).toHaveBeenCalledWith("legacy-session");
   });
 });

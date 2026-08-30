@@ -302,7 +302,7 @@ const RUNTIME_ENVIRONMENT: [&str; 5] = [
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
-    "BEES_API_URL",
+    "BEES_ACCOUNT_API_URL",
 ];
 
 fn inherit_environment(command: &mut Command, keys: &[&str]) {
