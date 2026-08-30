@@ -14,7 +14,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri:dev
 ```
 
-`BEES_API_URL=dev npm run tauri:dev` remains harmless, but the Stage 1 local desktop does not call the Bees server. Tauri opens its built bootstrap and starts a loopback-only DSH sidecar; do not start `npm run dev` separately.
+The legacy `BEES_API_URL=dev` prefix remains harmless. To test account features against a local Bees server, use `BEES_ACCOUNT_API_URL=dev npm run tauri:dev`; otherwise account features use `https://app.bees.bot`.
 
 Build an installer with `npm run tauri:build`.
 

@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   currentIdentity, insertDefaultWorkspace, stableUuid, transaction
 } from "./product-database.js";
@@ -16,8 +16,12 @@ function message(body, status) {
   return body?.error?.message ?? body?.message ?? `Request failed (${status})`;
 }
 
+function responseError(body, status) {
+  return Object.assign(new Error(message(body, status)), { status });
+}
+
 export class ConnectedAccount {
-  constructor(database, credentials, baseUrl = process.env.BEES_API_URL ?? defaultServer, logger = console) {
+  constructor(database, credentials, baseUrl = process.env.BEES_ACCOUNT_API_URL ?? defaultServer, logger = console) {
     this.database = database;
     this.credentials = credentials;
     const configured = String(baseUrl).trim();
@@ -25,7 +29,6 @@ export class ConnectedAccount {
     this.logger = logger;
     this.syncQueue = Promise.resolve();
     this.closed = false;
-    this.pendingSignIn = null;
   }
 
   account() {
@@ -61,7 +64,7 @@ export class ConnectedAccount {
       throw new Error("Can't reach the Bees server");
     }
     const value = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(message(value, response.status));
+    if (!response.ok) throw responseError(value, response.status);
     return value;
   }
 
@@ -135,7 +138,9 @@ export class ConnectedAccount {
     }
     if (kind === "sso" && !config.ssoEnabled) throw new Error("Company SSO is not configured");
     const state = randomBytes(24).toString("hex");
-    this.pendingSignIn = { state, expiresAt: Date.now() + 5 * 60_000 };
+    this.database.prepare("DELETE FROM bees_sign_in_attempts WHERE expires_at < ?").run(Date.now());
+    this.database.prepare("INSERT INTO bees_sign_in_attempts(state, expires_at) VALUES (?, ?)")
+      .run(state, Date.now() + 10 * 60_000);
     const callback = `http://127.0.0.1:${port}/bees-social-callback?state=${state}`;
     const path = kind === "sso" ? "/api/auth/desktop/sso/start" : "/api/auth/desktop/start";
     const url = new URL(`${this.baseUrl}${path}`);
@@ -145,14 +150,24 @@ export class ConnectedAccount {
   }
 
   async completeBrowserSignIn(params) {
-    const pending = this.pendingSignIn;
-    const offered = Buffer.from(String(params.get("state") ?? ""));
-    const expected = Buffer.from(String(pending?.state ?? ""));
-    if (!pending || pending.expiresAt < Date.now() || offered.length !== expected.length ||
-        !timingSafeEqual(offered, expected)) throw new Error("This sign-in attempt expired; try again");
-    this.pendingSignIn = null;
-    if (params.get("error")) throw new Error("Sign in was not completed");
-    const token = params.get("token");
+    let state = String(params.get("state") ?? "");
+    let token = params.get("token");
+    let callbackError = params.get("error");
+    // The deployed server used to append `?token=` even though the callback already
+    // had `?state=`. Accept that malformed query until every server runs the fixed route.
+    const legacy = !token && !callbackError
+      ? state.match(/^([0-9a-f]{48})\?(token|error)=(.*)$/s)
+      : null;
+    if (legacy) {
+      state = legacy[1];
+      if (legacy[2] === "token") token = legacy[3];
+      else callbackError = legacy[3];
+    }
+    const accepted = this.database.prepare(`
+      DELETE FROM bees_sign_in_attempts WHERE state = ? AND expires_at >= ? RETURNING state
+    `).get(state, Date.now());
+    if (!accepted) throw new Error("This sign-in attempt expired; try again");
+    if (callbackError) throw new Error("Sign in was not completed");
     if (!token) throw new Error("The server did not return a sign-in token");
     return this.resumeSession(token);
   }
@@ -315,8 +330,15 @@ export class ConnectedAccount {
     const account = this.publicAccount();
     const auth = await this.authConfig();
     if (!account) return { account: null, organizations: [], invitations: [], auth };
-    const organizations = await this.sync();
-    const { invitations = [] } = await this.request("/api/me/organization-invitations");
+    let organizations = [];
+    let invitations = [];
+    try {
+      organizations = await this.sync();
+      ({ invitations = [] } = await this.request("/api/me/organization-invitations"));
+    } catch (error) {
+      if (error?.status !== 404) throw error;
+      this.logger.warn?.("bees: production coordination routes are not deployed yet");
+    }
     return { account, organizations, invitations, auth };
   }
 
