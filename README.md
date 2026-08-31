@@ -11,12 +11,27 @@ npm ci
 npm run check
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
-npm run tauri:dev
+make bees
 ```
 
-`npm run tauri:dev` connects account features to `http://localhost:3000`. Production builds connect to `https://app.bees.bot`.
+Run these commands from this repository:
 
-Build an installer with `npm run tauri:build`.
+```sh
+make bees     # Start the desktop app with https://app.bees.bot (also: make prod or make)
+make server   # Start the local API and PostgreSQL from ../bees-server
+make dev      # In another terminal, start the desktop app with http://localhost:3000
+make build    # Build the desktop release installer
+```
+
+`make server` requires Docker and the sibling server's dependencies installed (`npm --prefix ../bees-server ci`). It runs the server's existing development command, which starts PostgreSQL, applies migrations, and starts the API. `Ctrl-C` stops the API; PostgreSQL remains running until `npm --prefix ../bees-server run db:dev:stop`.
+
+`bees`, `prod`, and `dev` launch the app in development mode; `prod` selects the deployed API and does not deploy anything. Fully quit Bees before switching servers because the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
+
+`npm run tauri:dev` also uses the deployed API by default. Set `BEES_ACCOUNT_API_URL` to override it.
+
+Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app.
+
+Build an installer with `make build` (or `npm run tauri:build`).
 
 DSH releases are upgraded as one pinned set through the
 [DSH upgrade checklist](docs/dsh-upgrade-checklist.md).

@@ -373,7 +373,7 @@ function applyItem(database, record) {
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
        priority, runtime_phase, runtime_attempt, runtime_review_cycle, runtime_error,
        output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, stage_id = excluded.stage_id,
       parent_id = NULL, kind = excluded.kind, title = excluded.title, description = excluded.description,
       owner = excluded.owner, agent_assignment_id = excluded.agent_assignment_id,

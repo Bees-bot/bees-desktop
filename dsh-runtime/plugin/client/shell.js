@@ -307,7 +307,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
                 : h(SettingsPage, { ctx, data: viewData, route, teamId: parts.teamId,
-                    organizationId: parts.organizationId, connectionId, modelSettings, preferences, reload: load });
+                    organizationId: parts.organizationId, connectionId, modelSettings, preferences, reload: load,
+                    openOrganization: async (organization) => {
+                      await load();
+                      setScope(`organization:${organization.id}`, organization.connectionId);
+                      navigate("organization-settings");
+                    } });
   return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
     h("aside", { className: "bees-sidebar" },
       h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees")),
