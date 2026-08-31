@@ -798,6 +798,33 @@ Current international expansion strategy`);
     `).get()).toEqual({ status: "suspended" });
   });
 
+  it("deletes a local organization and its teams through the product command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-local-organization-"));
+    const database = new NodeDatabase();
+    database.connection.exec("PRAGMA foreign_keys = ON");
+    database.connection.exec(`
+      CREATE TABLE dsh_audit_events (
+        id TEXT PRIMARY KEY, event_type TEXT NOT NULL, execution_id TEXT, session_id TEXT,
+        metadata_json TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+    `);
+    const product = new BeesProduct(database.connection, null, null, root);
+    const organization = await product.command({ action: "create_organization", name: "Local Co" });
+    const team = await product.command({
+      action: "create_team", organizationId: organization.id, name: "Local team"
+    });
+
+    await product.command({ action: "delete_organization", organizationId: organization.id });
+
+    expect(database.connection.prepare("SELECT 1 FROM organizations WHERE id = ?").get(organization.id))
+      .toBeUndefined();
+    expect(database.connection.prepare("SELECT 1 FROM teams WHERE id = ?").get(team.id))
+      .toBeUndefined();
+    expect(database.connection.prepare("SELECT 1 FROM workspaces WHERE id = ?").get(team.workspaceId))
+      .toBeUndefined();
+    rmSync(root, { recursive: true });
+  });
+
   it("keeps two identities connected to the same organization independently", async () => {
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);
@@ -906,17 +933,24 @@ Current international expansion strategy`);
     };
     const organizations: any[] = [];
     const teams: any[] = [];
-    const seen: Array<{ url: string; method: string; authorization: string | null }> = [];
+    const seen: Array<{
+      url: string; method: string; authorization: string | null; organization: string | null;
+    }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      const authorization = new Headers(init?.headers).get("authorization");
-      seen.push({ url, method, authorization });
+      const headers = new Headers(init?.headers);
+      const authorization = headers.get("authorization");
+      seen.push({
+        url, method, authorization, organization: headers.get("x-organization-id")
+      });
       let body: any = {};
       if (url.endsWith("/api/organizations") && method === "POST") {
         const organization = { id: "new-org", name: "New Co", role: "owner" };
         organizations.push(organization);
         body = { organization };
+      } else if (url.endsWith("/api/workspaces") && method === "DELETE") {
+        organizations.length = 0; teams.length = 0; body = { ok: true };
       } else if (url.endsWith("/api/organizations")) body = { organizations };
       else if (url.endsWith("/api/teams") && method === "POST") {
         const team = { id: "new-team", name: "Operations" };
@@ -943,11 +977,21 @@ Current international expansion strategy`);
     `).get()).toEqual({ accountUserId: "creator", name: "Operations" });
     expect(seen).toContainEqual({
       url: "https://api.example/api/organizations", method: "POST",
-      authorization: "Bearer creator-token"
+      authorization: "Bearer creator-token", organization: null
     });
     expect(seen).toContainEqual({
       url: "https://api.example/api/teams", method: "POST",
-      authorization: "Bearer creator-token"
+      authorization: "Bearer creator-token", organization: "new-org"
+    });
+
+    await connected.command({
+      action: "delete_organization", organizationId: "new-org",
+      connectionId: organization.connectionId
+    });
+    expect(connected.connections()).toEqual([]);
+    expect(seen).toContainEqual({
+      url: "https://api.example/api/workspaces", method: "DELETE",
+      authorization: "Bearer creator-token", organization: "new-org"
     });
   });
 

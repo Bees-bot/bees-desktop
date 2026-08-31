@@ -192,11 +192,12 @@ function ConnectionsSettings() {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-function OrganizationSettings({ organization, connectionId }) {
+function OrganizationSettings({ organization, connectionId, reload }) {
   const [people, setPeople] = useState(null);
   const [sso, setSso] = useState(null);
   const [protocol, setProtocol] = useState("oidc");
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     let active = true;
     setPeople(null);
@@ -213,11 +214,6 @@ function OrganizationSettings({ organization, connectionId }) {
     }
     return () => { active = false; };
   }, [organization?.id, organization?.connected, organization?.role, connectionId]);
-  if (!organization) return h(Empty, null, "Choose an organization");
-  if (!organization.connected) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
-    h("p", { className: "bees-muted" }, "This organization is local to this device. Connect an account to invite members."));
-  if (!["owner", "admin"].includes(organization.role)) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
-    h("p", { className: "bees-muted" }, `Your role is ${organization.role}. Only organization administrators can invite members.`));
   const invite = async (event) => {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
     try { setPeople(await collaboration("invite_organization_member", {
@@ -263,6 +259,44 @@ function OrganizationSettings({ organization, connectionId }) {
       setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
+  const deleteOrganization = async () => {
+    const name = await ask(
+      `Delete ${organization.name} permanently?\nThis deletes every team and its Bees data. Files in folders outside Bees stay on disk. Type the organization name to confirm.`,
+      ""
+    );
+    if (name === null) return;
+    if (name !== organization.name) { setError("The organization name did not match"); return; }
+    setDeleting(true);
+    try {
+      if (organization.connected) await collaboration("delete_organization", {
+        organizationId: organization.id, connectionId
+      });
+      else await request("/bees-api/command", {
+        method: "POST", body: JSON.stringify({
+          action: "delete_organization", organizationId: organization.id
+        })
+      });
+      setError("");
+      await reload();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setDeleting(false); }
+  };
+  const dangerZone = organization?.role === "owner" ? h("section", {
+    className: "bees-box bees-danger-zone"
+  },
+  h("h3", null, "Delete organization"),
+  h("p", { className: "bees-muted" },
+    "Permanently deletes this organization and every team from Bees. Files in folders outside Bees stay on disk."),
+  h(Button, { className: "danger", disabled: deleting, onClick: deleteOrganization },
+    deleting ? "Deleting…" : "Delete organization")) : null;
+  if (!organization) return h(Empty, null, "Choose an organization");
+  if (!organization.connected) return h("div", { className: "bees-stack" },
+    h("section", { className: "bees-box" }, h("h3", null, organization.name),
+      h("p", { className: "bees-muted" }, "This organization and its teams are local to this device.")),
+    dangerZone,
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+  if (!["owner", "admin"].includes(organization.role)) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
+    h("p", { className: "bees-muted" }, `Your role is ${organization.role}. Only organization administrators can invite members.`));
   if (!people) return h(Empty, null, error || "Loading organization members…");
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, `${organization.name} members`),
@@ -314,6 +348,7 @@ function OrganizationSettings({ organization, connectionId }) {
         h(Button, { type: "submit", className: "primary" }, "Add identity provider")))
       : h("section", { className: "bees-box" }, h("h3", null, "Enterprise authentication"),
           h("p", { className: "bees-muted" }, "Only the organization owner can configure company SSO.")),
+    dangerZone,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -375,6 +410,6 @@ export function SettingsPage({
   if (route === "organizations") return h(AccountSettings, { reload, openOrganization });
   if (route === "connections") return h(ConnectionsSettings);
   if (route === "team-settings") return h(TeamSettings, { team, organization, connectionId });
-  if (route === "organization-settings") return h(OrganizationSettings, { organization, connectionId });
+  if (route === "organization-settings") return h(OrganizationSettings, { organization, connectionId, reload });
   return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
 }

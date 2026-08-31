@@ -585,6 +585,17 @@ export class ConnectedAccount {
     };
   }
 
+  async deleteOrganization(organizationId, connectionId) {
+    const connection = this.connections().find(({ id }) => id === connectionId);
+    if (!connection || connection.organizationId !== organizationId) {
+      throw new Error("Choose the organization connection to delete");
+    }
+    await this.request("/api/workspaces", {
+      method: "DELETE", organizationId, connectionId
+    });
+    return this.summary();
+  }
+
   async createTeam(name, connectionId) {
     const connection = this.connections().find(({ id }) => id === connectionId);
     if (!connection) throw new Error("Choose an organization connection");
@@ -622,6 +633,7 @@ export class ConnectedAccount {
       case "add_team_member":
         return this.addTeamMember(input.teamId, input.userId, input.role, input.connectionId);
       case "create_organization": return this.createOrganization(input.name, input.accountUserId);
+      case "delete_organization": return this.deleteOrganization(input.organizationId, input.connectionId);
       case "create_team": return this.createTeam(input.name, input.connectionId);
       default: throw new Error("Unknown collaboration action");
     }
