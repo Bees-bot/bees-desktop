@@ -14,7 +14,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri:dev
 ```
 
-The legacy `BEES_API_URL=dev` prefix remains harmless. To test account features against a local Bees server, use `BEES_ACCOUNT_API_URL=dev npm run tauri:dev`; otherwise account features use `https://app.bees.bot`.
+`npm run tauri:dev` connects account features to `http://localhost:3000`. Production builds connect to `https://app.bees.bot`.
 
 Build an installer with `npm run tauri:build`.
 

@@ -160,7 +160,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   await capabilities.initialize();
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
   const syncTick = async () => {
-    await connected.syncCoordination();
+    await connected.sync();
     await product.initialize();
     await processes.reconcile();
   };
