@@ -210,6 +210,22 @@ export async function executeProductCommand(action, input) {
         .run(userId, id, at);
       return { id };
     });
+    if (action === "delete_organization") return transaction(this.database, () => {
+      const { userId } = currentIdentity(this.database);
+      const id = required(input.organizationId, "Organization");
+      const organization = this.database.prepare(`
+        SELECT om.role, EXISTS (
+          SELECT 1 FROM bees_connections WHERE organization_id = o.id
+        ) AS connected
+        FROM organizations o JOIN organization_memberships om ON om.organization_id = o.id
+        WHERE o.id = ? AND om.user_id = ? AND om.status = 'active'
+      `).get(id, userId);
+      if (!organization) throw new Error("Organization not found");
+      if (organization.connected) throw new Error("Delete connected organizations through their owner account");
+      if (organization.role !== "owner") throw new Error("Only the organization owner can delete it");
+      this.database.prepare("DELETE FROM organizations WHERE id = ?").run(id);
+      return { id };
+    });
     if (action === "create_team") {
       const { userId } = currentIdentity(this.database);
       const organizationId = required(input.organizationId, "Organization");
