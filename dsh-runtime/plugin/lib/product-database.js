@@ -88,6 +88,7 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
            w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
            w.owner, w.priority, w.run_settings_json AS runSettingsJson,
+           w.account_user_id AS accountUserId,
            w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
            p.workspace_id AS workspaceId, p.kind AS processKind
     FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -347,19 +348,29 @@ export function initializeProductDatabase(database) {
       status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
       PRIMARY KEY (user_id, team_id)
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS bees_account (
-      slot INTEGER PRIMARY KEY CHECK (slot = 1), user_id TEXT NOT NULL,
-      email TEXT NOT NULL, name TEXT NOT NULL, token TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS bees_accounts (
+      user_id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_sign_in_attempts (
       state TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS bees_connected_organizations (
-      organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
-      account_user_id TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS bees_connections (
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      account_user_id TEXT NOT NULL REFERENCES bees_accounts(user_id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(organization_id, account_user_id)
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS bees_sync_cursors (
-      organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS bees_connection_teams (
+      connection_id TEXT NOT NULL REFERENCES bees_connections(id) ON DELETE CASCADE,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY(connection_id, team_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_connection_sync_cursors (
+      connection_id TEXT PRIMARY KEY REFERENCES bees_connections(id) ON DELETE CASCADE,
       cursor TEXT NOT NULL DEFAULT '0', synced_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS workspaces (
@@ -427,6 +438,12 @@ export function initializeProductDatabase(database) {
       next_run_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(workspace_id, name)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_recurring_executors (
+      recurring_work_id TEXT NOT NULL REFERENCES recurring_work(id) ON DELETE CASCADE,
+      account_user_id TEXT NOT NULL,
+      temporal_schedule_id TEXT NOT NULL UNIQUE, next_run_at TEXT,
+      PRIMARY KEY(recurring_work_id, account_user_id)
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS work_items (
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
       stage_id TEXT NOT NULL REFERENCES stages(id), parent_id TEXT REFERENCES work_items(id),
@@ -439,6 +456,7 @@ export function initializeProductDatabase(database) {
       runtime_execution_id TEXT, runtime_error TEXT,
       output_location_id TEXT REFERENCES team_locations(id),
       recurring_work_id TEXT REFERENCES recurring_work(id),
+      account_user_id TEXT,
       archived_at TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS agent_specializations (
@@ -551,6 +569,9 @@ export function initializeProductDatabase(database) {
   if (!itemColumns.has("recurring_work_id")) database.exec(
     "ALTER TABLE work_items ADD COLUMN recurring_work_id TEXT REFERENCES recurring_work(id)"
   );
+  if (!itemColumns.has("account_user_id")) database.exec(
+    "ALTER TABLE work_items ADD COLUMN account_user_id TEXT"
+  );
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   if (!dispatchColumns.has("specialization_id")) database.exec(
@@ -593,6 +614,12 @@ export function initializeProductDatabase(database) {
     PRAGMA user_version = 12;
   `);
   if (version < 13) database.exec("PRAGMA user_version = 13");
+  if (version < 14) database.exec(`
+    DROP TABLE IF EXISTS bees_sync_cursors;
+    DROP TABLE IF EXISTS bees_connected_organizations;
+    DROP TABLE IF EXISTS bees_account;
+    PRAGMA user_version = 14;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

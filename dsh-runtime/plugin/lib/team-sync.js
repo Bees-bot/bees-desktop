@@ -20,7 +20,7 @@ function inputLocations(database, table, owner, id) {
   `).all(id);
 }
 
-function teamRecords(database, organizationId) {
+function teamRecords(database, organizationId, connectionId = "") {
   const records = [];
   for (const row of database.prepare(`
     SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
@@ -121,7 +121,8 @@ function teamRecords(database, organizationId) {
            i.agent_assignment_id AS agentId, i.priority, i.runtime_phase AS runtimePhase,
            i.runtime_attempt AS runtimeAttempt, i.runtime_review_cycle AS runtimeReviewCycle,
            i.runtime_error AS runtimeError, i.output_location_id AS outputLocationId,
-           i.recurring_work_id AS recurringWorkId, i.run_settings_json AS runSettingsJson, i.archived_at AS archivedAt,
+           i.recurring_work_id AS recurringWorkId, i.run_settings_json AS runSettingsJson,
+           i.account_user_id AS accountUserId, i.archived_at AS archivedAt,
            i.deleted_at AS deletedAt, i.created_at AS createdAt, i.updated_at AS updatedAt
     FROM work_items i JOIN processes p ON p.id = i.process_id
     JOIN workspaces w ON w.id = p.workspace_id JOIN teams t ON t.id = w.team_id
@@ -132,13 +133,17 @@ function teamRecords(database, organizationId) {
     agentId: row.agentId, priority: row.priority, runtimePhase: row.runtimePhase,
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
-    recurringWorkId: row.recurringWorkId,
+    recurringWorkId: row.recurringWorkId, accountUserId: row.accountUserId,
     ...(row.runSettingsJson !== "{}" ? { runSettings: json(row.runSettingsJson, {}) } : {}),
     inputLocations: inputLocations(database, "work_item_locations", "work_item_id", row.id),
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }, Boolean(row.deletedAt)));
-  return records;
+  if (!connectionId) return records;
+  const teamIds = new Set(database.prepare(`
+    SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?
+  `).all(connectionId).map(({ teamId }) => teamId));
+  return records.filter(({ payload }) => teamIds.has(payload.teamId));
 }
 
 function workspaceFor(database, teamId, at) {
@@ -367,7 +372,7 @@ function applyItem(database, record) {
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
        priority, runtime_phase, runtime_attempt, runtime_review_cycle, runtime_error,
-       output_location_id, recurring_work_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
+       output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
     VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, stage_id = excluded.stage_id,
       parent_id = NULL, kind = excluded.kind, title = excluded.title, description = excluded.description,
@@ -375,12 +380,13 @@ function applyItem(database, record) {
       priority = excluded.priority, runtime_phase = excluded.runtime_phase,
       runtime_attempt = excluded.runtime_attempt, runtime_review_cycle = excluded.runtime_review_cycle,
       runtime_error = excluded.runtime_error, output_location_id = excluded.output_location_id,
-      recurring_work_id = excluded.recurring_work_id, archived_at = excluded.archived_at,
-      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at, run_settings_json = excluded.run_settings_json
-  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,
+      recurring_work_id = excluded.recurring_work_id, account_user_id = excluded.account_user_id,
+      archived_at = excluded.archived_at,
+      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at, run_settings_json = excluded.run_settings_json       
+  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,         
     p.agentId, p.priority, p.runtimePhase, p.runtimeAttempt, p.runtimeReviewCycle, p.runtimeError,
-    p.outputLocationId, p.recurringWorkId, p.archivedAt,
-    record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));
+    p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
+    record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
 }
 
@@ -422,22 +428,22 @@ async function pullAll(request, organizationId, cursor) {
   return { cursor: next, records };
 }
 
-export async function syncTeamRecords(database, request, organizationId) {
+export async function syncTeamRecords(database, request, organizationId, connectionId) {
   const saved = database.prepare(
-    "SELECT cursor FROM bees_sync_cursors WHERE organization_id = ?"
-  ).get(organizationId)?.cursor ?? "0";
+    "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
+  ).get(connectionId)?.cursor ?? "0";
   const incoming = await pullAll(request, organizationId, saved);
   applyTeamRecords(database, organizationId, incoming.records);
-  const outgoing = teamRecords(database, organizationId);
+  const outgoing = teamRecords(database, organizationId, connectionId);
   for (let index = 0; index < outgoing.length; index += 500) await request("/api/sync/push", {
     method: "POST", organizationId, body: { records: outgoing.slice(index, index + 500) }
   });
   const settled = await pullAll(request, organizationId, saved);
   applyTeamRecords(database, organizationId, settled.records);
   database.prepare(`
-    INSERT INTO bees_sync_cursors VALUES (?, ?, ?)
-    ON CONFLICT(organization_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
-  `).run(organizationId, settled.cursor, new Date().toISOString());
+    INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
+    ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
+  `).run(connectionId, settled.cursor, new Date().toISOString());
   return { pushed: outgoing.length, pulled: settled.records.length, cursor: settled.cursor };
 }
 

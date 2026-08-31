@@ -179,27 +179,44 @@ export class BeesProduct {
 
   async snapshot() {
     const { userId, deviceId } = currentIdentity(this.database);
+    const accounts = this.database.prepare(`
+      SELECT user_id AS userId, email, name FROM bees_accounts ORDER BY created_at, user_id
+    `).all();
     const organizations = this.database.prepare(`
       SELECT o.id, o.name, o.personal, om.role,
-             connected.organization_id IS NOT NULL AS connected
-      FROM organizations o JOIN organization_memberships om ON om.organization_id = o.id
-      LEFT JOIN bees_connected_organizations connected ON connected.organization_id = o.id
-      WHERE om.user_id = ? AND om.status = 'active' AND o.status = 'active' ORDER BY o.created_at
+             EXISTS (SELECT 1 FROM bees_connections c WHERE c.organization_id = o.id) AS connected
+      FROM organizations o
+      LEFT JOIN organization_memberships om ON om.organization_id = o.id AND om.user_id = ?
+      WHERE o.status = 'active' AND (
+        om.status = 'active'
+        OR EXISTS (SELECT 1 FROM bees_connections c WHERE c.organization_id = o.id)
+      ) ORDER BY o.created_at
     `).all(userId).map((row) => ({
       ...row, personal: Boolean(row.personal), connected: Boolean(row.connected)
     }));
     const teams = this.database.prepare(`
       SELECT DISTINCT t.id, t.organization_id AS organizationId, t.name, t.personal,
-             CASE WHEN connected.organization_id IS NOT NULL THEN tm.role
-               ELSE coalesce(tm.role, CASE WHEN om.role IN ('owner','admin') THEN 'admin' END)
-             END AS role
-      FROM teams t JOIN organization_memberships om ON om.organization_id = t.organization_id
+             coalesce(tm.role, CASE WHEN om.role IN ('owner','admin') THEN 'admin' END) AS role
+      FROM teams t JOIN organizations o ON o.id = t.organization_id
+      LEFT JOIN organization_memberships om ON om.organization_id = t.organization_id AND om.user_id = ?
       LEFT JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = ? AND tm.status = 'active'
-      LEFT JOIN bees_connected_organizations connected ON connected.organization_id = t.organization_id
-      WHERE om.user_id = ? AND om.status = 'active' AND t.status = 'active'
-        AND (tm.user_id IS NOT NULL OR om.role IN ('owner','admin'))
+      WHERE t.status = 'active' AND (
+        (om.status = 'active' AND (tm.user_id IS NOT NULL OR om.role IN ('owner','admin')))
+        OR EXISTS (SELECT 1 FROM bees_connection_teams ct WHERE ct.team_id = t.id)
+      )
       ORDER BY t.created_at
     `).all(userId, userId).map((row) => ({ ...row, personal: Boolean(row.personal) }));
+    const connections = this.database.prepare(`
+      SELECT c.id, c.organization_id AS organizationId, c.account_user_id AS accountUserId,
+             c.role, o.name AS organizationName, a.email, a.name AS accountName
+      FROM bees_connections c JOIN organizations o ON o.id = c.organization_id
+      JOIN bees_accounts a ON a.user_id = c.account_user_id
+      ORDER BY o.name, a.email
+    `).all();
+    const connectionTeams = this.database.prepare(`
+      SELECT connection_id AS connectionId, team_id AS teamId, role
+      FROM bees_connection_teams ORDER BY connection_id, team_id
+    `).all();
     const allowedTeams = teams.map(({ id }) => id);
     const workspaces = allowedTeams.length ? this.database.prepare(`
       SELECT id, team_id AS teamId, dsh_workspace_id AS dshWorkspaceId, name, authority, hosting, status
@@ -240,6 +257,7 @@ export class BeesProduct {
              w.runtime_review_cycle AS runtimeReviewCycle,
              w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
              w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
+             w.account_user_id AS accountUserId,
              w.archived_at AS archivedAt, w.updated_at AS updatedAt,
              s.is_terminal AS completed
       FROM work_items w JOIN stages s ON s.id = w.stage_id
@@ -294,6 +312,13 @@ export class BeesProduct {
     `).all(JSON.stringify(workspaceIds)).map((row) => ({
       ...row, schedule: JSON.parse(row.schedule)
     })) : [];
+    const recurringExecutors = recurringWork.length ? this.database.prepare(`
+      SELECT recurring_work_id AS recurringWorkId, account_user_id AS accountUserId,
+             temporal_schedule_id AS temporalScheduleId, next_run_at AS nextRunAt
+      FROM bees_recurring_executors
+      WHERE recurring_work_id IN (SELECT value FROM json_each(?))
+      ORDER BY recurring_work_id, account_user_id
+    `).all(JSON.stringify(recurringWork.map(({ id }) => id))) : [];
     const specializations = recurringWork.length ? this.database.prepare(`
       SELECT s.id, s.recurring_work_id AS recurringWorkId,
              s.agent_assignment_id AS agentAssignmentId, s.name, s.playbook,
@@ -357,9 +382,11 @@ export class BeesProduct {
       }) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
-      currentUserId: userId, currentDeviceId: deviceId, organizations, teams, workspaces,
+      currentUserId: userId, currentDeviceId: deviceId,
+      accounts, organizations, connections, connectionTeams, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
-      assignments, pools, poolMembers, recurringWork, specializations, specializationVersions,
+      assignments, pools, poolMembers, recurringWork, recurringExecutors,
+      specializations, specializationVersions,
       presets, runs, proposals
     };
   }
@@ -556,7 +583,7 @@ export class BeesProduct {
       `).get(parent.id, title);
       const child = existing ?? await this.command({ action: "create_item",
         processId: parent.processId, parentId: parent.id, title, description,
-        agentAssignmentId: parent.agentAssignmentId
+        agentAssignmentId: parent.agentAssignmentId, accountUserId: parent.accountUserId
       });
       created.push(child);
     }

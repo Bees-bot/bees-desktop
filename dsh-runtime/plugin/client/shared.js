@@ -913,7 +913,7 @@ export const collaboration = (action, values = {}) => request("/bees-api/collabo
   method: "POST", body: JSON.stringify({ action, ...values })
 } : undefined);
 
-function dialogValue(label, initial, confirmOnly = false, inputType = "text") {
+function dialogValue(label, initial, confirmOnly = false, inputType = "text", options = null) {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "bees-prompt";
@@ -922,11 +922,17 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text") {
     const title = document.createElement("label");
     title.textContent = label;
     form.append(title);
-    const input = confirmOnly ? null : document.createElement("input");
+    const input = confirmOnly ? null : document.createElement(options ? "select" : "input");
     if (input) {
       input.className = "bees-input";
-      input.type = inputType;
-      input.value = initial;
+      if (options) for (const option of options) {
+        const element = document.createElement("option");
+        element.value = option.value;
+        element.textContent = option.label;
+        input.append(element);
+      }
+      else input.type = inputType;
+      input.value = initial || options?.[0]?.value || "";
       input.setAttribute("aria-label", label.split("\n")[0]);
       form.append(input);
     }
@@ -949,11 +955,12 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text") {
       dialog.remove();
       resolve(value);
     }, { once: true });
-    requestAnimationFrame(() => { dialog.showModal(); input?.focus(); input?.select(); });
+    requestAnimationFrame(() => { dialog.showModal(); input?.focus(); input?.select?.(); });
   });
 }
 
 export const ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
+export const choose = (label, options) => dialogValue(label, "", false, "text", options);
 export const confirmAction = (label) => dialogValue(label, "", true);
 export const Button = ({ children, className = "", ...props }) =>
   h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);
@@ -1026,17 +1033,39 @@ export function sectionFor(child) {
   return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
-export function scopeParts(data, scope) {
+export function scopeParts(data, scope, connectionId = "") {
   const [kind, id] = String(scope).split(":");
+  const connection = connectionId
+    ? data.connections?.find((row) => row.id === connectionId) ?? null
+    : null;
   const selectedWorkspace = kind === "workspace" ? data.workspaces.find((row) => row.id === id) : null;
   const teamId = selectedWorkspace?.teamId ?? (kind === "team" ? id : "");
   const workspace = selectedWorkspace ?? (teamId
     ? data.workspaces.find((row) => row.teamId === teamId)
     : null);
-  const team = data.teams.find((row) => row.id === teamId);
+  const connectionTeam = connection && teamId
+    ? data.connectionTeams?.find((row) => row.connectionId === connection.id && row.teamId === teamId)
+    : null;
+  const rawTeam = data.teams.find((row) => row.id === teamId);
+  const localTeam = rawTeam && !(data.connections ?? []).some((row) =>
+    row.organizationId === rawTeam.organizationId);
+  const team = rawTeam && (connection ? connectionTeam : localTeam)
+    ? { ...rawTeam, role: connectionTeam?.role ?? rawTeam.role }
+    : null;
   const organizationId = team?.organizationId ?? (kind === "organization" ? id : "");
-  const organization = data.organizations.find((row) => row.id === organizationId);
-  return { workspaceId: workspace?.id ?? "", teamId, organizationId, workspace, team, organization };
+  const rawOrganization = data.organizations.find((row) => row.id === organizationId);
+  const localOrganization = rawOrganization && !(data.connections ?? []).some((row) =>
+    row.organizationId === rawOrganization.id);
+  const organization = rawOrganization && (connection
+    ? connection.organizationId === organizationId
+    : localOrganization)
+    ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
+    : null;
+  return {
+    workspaceId: team ? workspace?.id ?? "" : "", teamId: team?.id ?? "",
+    organizationId: organization?.id ?? "", workspace: team ? workspace : null,
+    team, organization, connection, accountUserId: connection?.accountUserId ?? null
+  };
 }
 
 export function Empty({ children }) { return h("div", { className: "bees-empty" }, children); }

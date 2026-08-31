@@ -115,7 +115,6 @@ describe("Temporal process projection", () => {
 
     await state.runtime.reconcile();
     expect(state.starts).toEqual([]);
-    await state.runtime.createRecurring("morning-news");
     expect(state.schedules[0]).toMatchObject({
       scheduleId: "bees/recurring/morning-news",
       spec: { calendars: [{ hour: 9, minute: 0 }], timezone: "America/Los_Angeles" },
@@ -127,6 +126,62 @@ describe("Temporal process projection", () => {
     expect(state.database.connection.prepare(`
       SELECT kind, recurring_work_id AS recurringWorkId FROM work_items WHERE id = ?
     `).get(input.workItemId)).toEqual({ kind: "run", recurringWorkId: "morning-news" });
+  });
+
+  it("creates one schedule per identity and binds each occurrence to that identity", async () => {
+    const claimed: any[] = [];
+    const state = harness({ claims: {
+      acquire: async (...args: any[]) => { claimed.push(args); return { local: true }; },
+      renew: async () => null,
+      release: async () => undefined
+    } });
+    const goal = insertGoal(state, "shared-source");
+    const team = state.database.connection.prepare(`
+      SELECT t.id, t.organization_id AS organizationId FROM workspaces w
+      JOIN teams t ON t.id = w.team_id WHERE w.id = ?
+    `).get(state.workspaceId)!;
+    state.database.connection.exec(`
+      INSERT INTO bees_accounts VALUES
+        ('user-a', 'a@acme.com', 'A', '2026-01-01', '2026-01-01'),
+        ('user-b', 'b@acme.com', 'B', '2026-01-01', '2026-01-01');
+    `);
+    state.database.connection.prepare(`
+      INSERT INTO bees_connections VALUES
+        ('connection-a', ?, 'user-a', 'member', '2026-01-01', '2026-01-01'),
+        ('connection-b', ?, 'user-b', 'member', '2026-01-01', '2026-01-01')
+    `).run(String(team.organizationId), String(team.organizationId));
+    state.database.connection.prepare(`
+      INSERT INTO bees_connection_teams VALUES
+        ('connection-a', ?, 'member', '2026-01-01', '2026-01-01'),
+        ('connection-b', ?, 'member', '2026-01-01', '2026-01-01')
+    `).run(String(team.id), String(team.id));
+    state.database.connection.prepare(`
+      INSERT INTO recurring_work
+        (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
+         schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
+      VALUES ('shared-schedule', ?, ?, 'shared-source', 'Shared', 'interval',
+        '{"everyMinutes":60,"anchorUtc":"2026-01-01T00:00:00.000Z"}', NULL,
+        'bees/recurring/shared-schedule', 'active', '2026-01-01', '2026-01-01')
+    `).run(state.workspaceId, goal.processId);
+
+    await state.runtime.reconcile();
+    expect(state.schedules.map(({ scheduleId }) => scheduleId).sort()).toEqual([
+      "bees/recurring/shared-schedule/identity/user-a",
+      "bees/recurring/shared-schedule/identity/user-b"
+    ]);
+    expect(state.schedules.map(({ action }) => action.args[0].accountUserId).sort())
+      .toEqual(["user-a", "user-b"]);
+
+    const work = await state.runtime.createRecurringWorkItem(
+      "shared-schedule", "2026-01-01T01:00:00Z", "user-a"
+    );
+    expect(claimed).toContainEqual([
+      "schedule_occurrence", "shared-schedule", String(team.id),
+      "2026-01-01T01:00:00Z", "user-a"
+    ]);
+    expect(state.database.connection.prepare(`
+      SELECT account_user_id AS accountUserId FROM work_items WHERE id = ?
+    `).get(work.workItemId)).toEqual({ accountUserId: "user-a" });
   });
 
   it("starts one derived Temporal workflow for an automatic goal", async () => {

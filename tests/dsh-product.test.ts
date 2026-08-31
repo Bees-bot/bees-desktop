@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 14 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -798,6 +798,159 @@ Current international expansion strategy`);
     `).get()).toEqual({ status: "suspended" });
   });
 
+  it("keeps two identities connected to the same organization independently", async () => {
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    const tokens = new Map<string, string>();
+    const credentials = {
+      resolve: async (ref: string) => tokens.has(ref) ? { value: tokens.get(ref), source: "test" } : undefined,
+      set: async (ref: string, value: string) => { tokens.set(ref, value); },
+      unset: async (ref: string) => { tokens.delete(ref); }
+    };
+    const authorizations: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get("authorization") ?? "";
+      if (authorization) authorizations.push(authorization);
+      const userId = authorization === "Bearer token-b" ? "user-b" : "user-a";
+      const body = url.endsWith("/api/config")
+        ? { socialProviders: ["google"], ssoEnabled: true }
+        : url.endsWith("/api/organizations")
+          ? { organizations: [{
+              id: "shared-org", name: "Acme", role: userId === "user-a" ? "admin" : "member"
+            }] }
+          : url.endsWith("/api/teams")
+            ? { teams: [{ id: "shared-team", name: "Executive" }] }
+            : url.endsWith("/api/teams/shared-team/members")
+              ? { members: [
+                  { id: "member-a", teamId: "shared-team", userId: "user-a", role: "admin" },
+                  { id: "member-b", teamId: "shared-team", userId: "user-b", role: "member" }
+                ] }
+              : url.includes("/api/sync/pull") ? { records: [], cursor: "0" }
+                : url.endsWith("/api/sync/push") ? { cursor: "0" }
+                  : url.endsWith("/api/me/organization-invitations") ? { invitations: [] }
+                    : {};
+      return new Response(JSON.stringify(body), {
+        status: 200, headers: { "content-type": "application/json" }
+      });
+    }));
+
+    const connected = new ConnectedAccount(database, credentials, "https://api.example");
+    await connected.resumeSession("token-a", { id: "user-a", email: "a@acme.com", name: "A" });
+    const summary = await connected.resumeSession(
+      "token-b", { id: "user-b", email: "b@acme.com", name: "B" }
+    );
+
+    expect(summary.accounts).toEqual([
+      { userId: "user-a", email: "a@acme.com", name: "A" },
+      { userId: "user-b", email: "b@acme.com", name: "B" }
+    ]);
+    expect(summary.organizations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "shared-org", accountUserId: "user-a", role: "admin" }),
+      expect.objectContaining({ id: "shared-org", accountUserId: "user-b", role: "member" })
+    ]));
+    expect(database.prepare(`
+      SELECT c.account_user_id AS accountUserId, ct.role FROM bees_connections c
+      JOIN bees_connection_teams ct ON ct.connection_id = c.id
+      WHERE ct.team_id = 'shared-team' ORDER BY c.account_user_id
+    `).all()).toEqual([
+      { accountUserId: "user-a", role: "admin" },
+      { accountUserId: "user-b", role: "member" }
+    ]);
+    expect(new Set(authorizations)).toEqual(new Set(["Bearer token-a", "Bearer token-b"]));
+    expect([...tokens.keys()].every((ref) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(ref))).toBe(true);
+
+    const root = mkdtempSync(join(tmpdir(), "bees-identities-"));
+    database.exec(`
+      CREATE TABLE dsh_audit_events (
+        id TEXT PRIMARY KEY, event_type TEXT NOT NULL, execution_id TEXT, session_id TEXT,
+        metadata_json TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+    `);
+    const product = new BeesProduct(database, null, {
+      startItem: async () => ({ automatic: false })
+    } as never, root);
+    const workspaceId = String(database.prepare(`
+      SELECT id FROM workspaces WHERE team_id = 'shared-team' LIMIT 1
+    `).get()!.id);
+    const created = await product.command({
+      action: "create_goal", workspaceId, title: "A-owned goal",
+      connectionId: summary.organizations.find(({ accountUserId }: any) =>
+        accountUserId === "user-a").connectionId
+    });
+    expect(database.prepare(`
+      SELECT account_user_id AS accountUserId FROM work_items WHERE id = ?
+    `).get(created.id)).toEqual({ accountUserId: "user-a" });
+    rmSync(root, { recursive: true });
+
+    await connected.signOut("user-a");
+    expect(connected.accounts()).toEqual([
+      expect.objectContaining({ userId: "user-b", email: "b@acme.com" })
+    ]);
+    expect(connected.connections()).toEqual([
+      expect.objectContaining({ organizationId: "shared-org", accountUserId: "user-b" })
+    ]);
+  });
+
+  it("creates shared organizations and teams through the selected identity", async () => {
+    const database = new DatabaseSync(":memory:");
+    initializeProductDatabase(database);
+    database.prepare(`
+      INSERT INTO bees_accounts VALUES
+        ('creator', 'creator@acme.com', 'Creator', '2026-01-01', '2026-01-01')
+    `).run();
+    const credentials = {
+      resolve: async (ref: string) => ref === "BEES_ACCOUNT_SESSION_63726561746f72"
+        ? { value: "creator-token", source: "test" } : undefined,
+      unset: async () => undefined
+    };
+    const organizations: any[] = [];
+    const teams: any[] = [];
+    const seen: Array<{ url: string; method: string; authorization: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const authorization = new Headers(init?.headers).get("authorization");
+      seen.push({ url, method, authorization });
+      let body: any = {};
+      if (url.endsWith("/api/organizations") && method === "POST") {
+        const organization = { id: "new-org", name: "New Co", role: "owner" };
+        organizations.push(organization);
+        body = { organization };
+      } else if (url.endsWith("/api/organizations")) body = { organizations };
+      else if (url.endsWith("/api/teams") && method === "POST") {
+        const team = { id: "new-team", name: "Operations" };
+        teams.push(team);
+        body = { team };
+      } else if (url.endsWith("/api/teams")) body = { teams };
+      else if (url.endsWith("/api/teams/new-team/members")) body = {
+        members: [{ id: "creator-member", userId: "creator", role: "admin" }]
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200, headers: { "content-type": "application/json" }
+      });
+    }));
+    const connected = new ConnectedAccount(database, credentials as never, "https://api.example");
+
+    const organization = await connected.createOrganization("New Co", "creator");
+    expect(organization).toMatchObject({ id: "new-org", accountUserId: "creator" });
+    const team = await connected.createTeam("Operations", organization.connectionId);
+    expect(team).toEqual({ id: "new-team", connectionId: organization.connectionId });
+    expect(database.prepare(`
+      SELECT c.account_user_id AS accountUserId, t.name FROM bees_connections c
+      JOIN bees_connection_teams ct ON ct.connection_id = c.id
+      JOIN teams t ON t.id = ct.team_id WHERE t.id = 'new-team'
+    `).get()).toEqual({ accountUserId: "creator", name: "Operations" });
+    expect(seen).toContainEqual({
+      url: "https://api.example/api/organizations", method: "POST",
+      authorization: "Bearer creator-token"
+    });
+    expect(seen).toContainEqual({
+      url: "https://api.example/api/teams", method: "POST",
+      authorization: "Bearer creator-token"
+    });
+  });
+
   it("keeps supported sign-in choices visible when an older server has no public config", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
     const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
@@ -812,7 +965,10 @@ Current international expansion strategy`);
   it("keeps a valid account signed in when older coordination routes are missing", async () => {
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);
-    database.prepare("INSERT INTO bees_account VALUES (1, 'remote-user', 'you@example.com', 'You', '')").run();
+    database.prepare(`
+      INSERT INTO bees_accounts VALUES
+        ('remote-user', 'you@example.com', 'You', '2026-01-01', '2026-01-01')
+    `).run();
     const credentials = { resolve: async () => ({ value: "session-token" }) };
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) =>
       new Response(JSON.stringify({ message: "Route not found" }), {
@@ -829,28 +985,15 @@ Current international expansion strategy`);
     });
   });
 
-  it("expands the documented local server alias for browser sign-in", async () => {
+  it("uses the explicit development server for browser sign-in", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);
-    const connected = new ConnectedAccount(database, {} as never, "dev");
+    const connected = new ConnectedAccount(database, {} as never, "http://localhost:3000");
 
     await expect((connected as any).startBrowserSignIn("social", "google", 31415))
       .resolves.toMatchObject({
         url: expect.stringMatching(/^http:\/\/localhost:3000\/api\/auth\/desktop\/start\?/)
-      });
-  });
-
-  it("ignores the legacy API URL when choosing the account server", async () => {
-    vi.stubEnv("BEES_API_URL", "dev");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
-    const database = new DatabaseSync(":memory:");
-    initializeProductDatabase(database);
-    const connected = new ConnectedAccount(database, {} as never);
-
-    await expect((connected as any).startBrowserSignIn("social", "google", 31415))
-      .resolves.toMatchObject({
-        url: expect.stringMatching(/^https:\/\/app\.bees\.bot\/api\/auth\/desktop\/start\?/)
       });
   });
 

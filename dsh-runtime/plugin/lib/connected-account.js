@@ -5,11 +5,9 @@ import {
 import { syncTeamRecords } from "./team-sync.js";
 
 const defaultServer = "https://app.bees.bot";
-const serverAliases = {
-  dev: "http://localhost:3000", local: "http://localhost:3000",
-  prod: defaultServer, production: defaultServer
-};
-const sessionCredential = "BEES_ACCOUNT_SESSION";
+const legacySessionCredential = "BEES_ACCOUNT_SESSION";
+const sessionCredential = (userId) =>
+  `${legacySessionCredential}_${Buffer.from(String(userId), "utf8").toString("hex")}`;
 const connectedSeedAt = "1970-01-01T00:00:00.000Z";
 
 function message(body, status) {
@@ -25,17 +23,29 @@ export class ConnectedAccount {
     this.database = database;
     this.credentials = credentials;
     const configured = String(baseUrl).trim();
-    this.baseUrl = ((serverAliases[configured] ?? configured) || defaultServer).replace(/\/+$/, "");
+    this.baseUrl = (configured || defaultServer).replace(/\/+$/, "");
     this.logger = logger;
     this.syncQueue = Promise.resolve();
     this.closed = false;
+    if (typeof this.credentials.unset === "function") void Promise.resolve(
+      this.credentials.unset(legacySessionCredential)
+    ).catch(() => undefined);
   }
 
-  account() {
-    const row = this.database.prepare(
-      "SELECT user_id AS userId, email, name FROM bees_account WHERE slot = 1"
-    ).get();
-    return row ?? null;
+  accounts() {
+    return this.database.prepare(`
+      SELECT user_id AS userId, email, name, created_at AS createdAt, updated_at AS updatedAt
+      FROM bees_accounts ORDER BY created_at, user_id
+    `).all();
+  }
+
+  account(userId = "") {
+    return userId
+      ? this.database.prepare(`
+          SELECT user_id AS userId, email, name, created_at AS createdAt, updated_at AS updatedAt
+          FROM bees_accounts WHERE user_id = ?
+        `).get(userId) ?? null
+      : this.accounts()[0] ?? null;
   }
 
   publicAccount() {
@@ -43,18 +53,44 @@ export class ConnectedAccount {
     return row ? { userId: row.userId, email: row.email, name: row.name } : null;
   }
 
-  async request(path, { method = "GET", body, organizationId, authenticated = true } = {}) {
-    const account = this.account();
+  connections() {
+    return this.database.prepare(`
+      SELECT c.id, c.organization_id AS organizationId, c.account_user_id AS accountUserId,
+             c.role, o.name AS organizationName, a.email, a.name AS accountName
+      FROM bees_connections c JOIN organizations o ON o.id = c.organization_id
+      JOIN bees_accounts a ON a.user_id = c.account_user_id
+      ORDER BY o.name, a.email
+    `).all();
+  }
+
+  accountForConnection(connectionId) {
+    const row = this.database.prepare(`
+      SELECT account_user_id AS accountUserId FROM bees_connections WHERE id = ?
+    `).get(connectionId);
+    if (!row) throw new Error("Organization connection not found");
+    return row.accountUserId;
+  }
+
+  async tokenFor(userId) {
+    const token = await this.credentials.resolve(sessionCredential(userId));
+    return token?.value ?? null;
+  }
+
+  async request(path, {
+    method = "GET", body, organizationId, accountUserId = "", connectionId = "", authenticated = true
+  } = {}) {
+    const userId = accountUserId || (connectionId ? this.accountForConnection(connectionId) : this.account()?.userId);
+    const account = userId ? this.account(userId) : null;
     if (authenticated && !account) throw new Error("Sign in to manage connected organizations");
-    const token = account ? await this.credentials.resolve(sessionCredential) : null;
-    if (authenticated && !token?.value) throw new Error("Your Bees session expired; sign in again");
+    const token = account ? await this.tokenFor(account.userId) : null;
+    if (authenticated && !token) throw new Error(`The session for ${account?.email ?? "this account"} expired; sign in again`);
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers: {
           "content-type": "application/json",
-          ...(token?.value ? { authorization: `Bearer ${token.value}` } : {}),
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
           ...(organizationId ? { "x-organization-id": organizationId } : {})
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -103,13 +139,14 @@ export class ConnectedAccount {
       if (!response.ok) throw new Error(message(value, response.status));
     }
     if (!value.user?.id || !value.user?.email) throw new Error("The sign-in response was incomplete");
-    await this.credentials.set(sessionCredential, token);
+    const at = new Date().toISOString();
+    await this.credentials.set(sessionCredential(value.user.id), token);
     this.database.prepare(`
-      INSERT INTO bees_account(slot, user_id, email, name, token)
-      VALUES (1, ?, ?, ?, '')
-      ON CONFLICT(slot) DO UPDATE SET user_id = excluded.user_id, email = excluded.email,
-        name = excluded.name, token = ''
-    `).run(value.user.id, value.user.email, value.user.name ?? value.user.email);
+      INSERT INTO bees_accounts(user_id, email, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET email = excluded.email, name = excluded.name,
+        updated_at = excluded.updated_at
+    `).run(value.user.id, value.user.email, value.user.name ?? value.user.email, at, at);
     return this.summary();
   }
 
@@ -180,30 +217,76 @@ export class ConnectedAccount {
     return this.authenticate("/api/auth/sign-up/email", { name, email, password });
   }
 
-  async signOut() {
-    const account = this.account();
-    await this.credentials.unset(sessionCredential);
+  async signOut(userId = this.account()?.userId) {
+    const account = userId ? this.account(userId) : null;
     if (!account) return;
-    this.database.prepare(`
-      UPDATE organization_memberships SET status = 'suspended'
-      WHERE user_id = (SELECT id FROM users ORDER BY created_at LIMIT 1)
-        AND organization_id IN (
-          SELECT organization_id FROM bees_connected_organizations WHERE account_user_id = ?
-        )
-    `).run(account.userId);
-    this.database.prepare("DELETE FROM bees_account WHERE slot = 1").run();
+    const affected = this.database.prepare(
+      "SELECT organization_id AS id FROM bees_connections WHERE account_user_id = ?"
+    ).all(account.userId).map(({ id }) => id);
+    await this.credentials.unset(sessionCredential(account.userId));
+    if (this.accounts().length === 1) await this.credentials.unset(legacySessionCredential);
+    this.database.prepare("DELETE FROM bees_accounts WHERE user_id = ?").run(account.userId);
+    this.refreshLocalAccess(affected);
   }
 
-  async sync() {
-    const account = this.account();
-    if (!account) return [];
-    const { organizations = [] } = await this.request("/api/organizations");
+  refreshLocalAccess(affectedOrganizationIds = []) {
+    const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
+    if (!localUser) return;
+    const organizationRank = { member: 1, admin: 2, owner: 3 };
+    const teamRank = { member: 1, admin: 2 };
+    const connections = this.connections();
+    for (const organizationId of new Set(connections.map(({ organizationId }) => organizationId))) {
+      const role = connections.filter((row) => row.organizationId === organizationId)
+        .map(({ role }) => role).sort((a, b) => organizationRank[b] - organizationRank[a])[0];
+      this.database.prepare(`
+        INSERT INTO organization_memberships(user_id, organization_id, role, status, created_at)
+        VALUES (?, ?, ?, 'active', ?)
+        ON CONFLICT(user_id, organization_id) DO UPDATE SET role = excluded.role, status = 'active'
+      `).run(localUser.id, organizationId, role, new Date().toISOString());
+    }
+    for (const organizationId of affectedOrganizationIds) if (!connections.some(
+      (row) => row.organizationId === organizationId
+    )) this.database.prepare(`
+      UPDATE organization_memberships SET status = 'suspended'
+      WHERE user_id = ? AND organization_id = ? AND EXISTS (
+        SELECT 1 FROM organizations WHERE id = ? AND personal = 0
+      )
+    `).run(localUser.id, organizationId, organizationId);
+    const teams = this.database.prepare(`
+      SELECT ct.team_id AS teamId, ct.role FROM bees_connection_teams ct
+      JOIN bees_connections c ON c.id = ct.connection_id
+    `).all();
+    for (const teamId of new Set(teams.map(({ teamId }) => teamId))) {
+      const role = teams.filter((row) => row.teamId === teamId)
+        .map(({ role }) => role).sort((a, b) => teamRank[b] - teamRank[a])[0];
+      this.database.prepare(`
+        INSERT INTO team_memberships(user_id, team_id, role, status, created_at)
+        VALUES (?, ?, ?, 'active', ?)
+        ON CONFLICT(user_id, team_id) DO UPDATE SET role = excluded.role, status = 'active'
+      `).run(localUser.id, teamId, role, new Date().toISOString());
+    }
+    this.database.prepare(`
+      UPDATE team_memberships SET status = 'suspended' WHERE user_id = ?
+        AND team_id IN (SELECT t.id FROM teams t JOIN organizations o ON o.id = t.organization_id WHERE o.personal = 0)
+        AND team_id NOT IN (SELECT team_id FROM bees_connection_teams)
+    `).run(localUser.id);
+  }
+
+  async syncAccount(account) {
+    const oldOrganizationIds = this.database.prepare(
+      "SELECT organization_id AS id FROM bees_connections WHERE account_user_id = ?"
+    ).all(account.userId).map(({ id }) => id);
+    const { organizations = [] } = await this.request("/api/organizations", { accountUserId: account.userId });
     // Read the whole remote picture first: a half-applied sync leaves memberships no later pass repairs.
     const remote = await Promise.all(organizations.map(async (organization) => {
-      const { teams = [] } = await this.request("/api/teams", { organizationId: organization.id });
+      const { teams = [] } = await this.request("/api/teams", {
+        organizationId: organization.id, accountUserId: account.userId
+      });
       return { organization, teams: await Promise.all(teams.map(async (team) => ({
         team,
-        members: await this.request(`/api/teams/${team.id}/members`, { organizationId: organization.id })
+        members: await this.request(`/api/teams/${team.id}/members`, {
+          organizationId: organization.id, accountUserId: account.userId
+        })
           .then(({ members }) => members).catch(() => [])
       }))) };
     }));
@@ -216,15 +299,14 @@ export class ConnectedAccount {
           VALUES (?, ?, 0, ?, 'active', ?, ?)
           ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
         `).run(organization.id, organization.name, localUser.id, at, at);
+        const connectionId = stableUuid(`bees-connection:${organization.id}:${account.userId}`);
         this.database.prepare(`
-          INSERT INTO organization_memberships(user_id, organization_id, role, status, created_at)
-          VALUES (?, ?, ?, 'active', ?)
-          ON CONFLICT(user_id, organization_id) DO UPDATE SET role = excluded.role, status = 'active'
-        `).run(localUser.id, organization.id, organization.role ?? "member", at);
-        this.database.prepare(`
-          INSERT INTO bees_connected_organizations(organization_id, account_user_id)
-          VALUES (?, ?) ON CONFLICT(organization_id) DO UPDATE SET account_user_id = excluded.account_user_id
-        `).run(organization.id, account.userId);
+          INSERT INTO bees_connections(id, organization_id, account_user_id, role, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(organization_id, account_user_id) DO UPDATE SET
+            role = excluded.role, updated_at = excluded.updated_at
+        `).run(connectionId, organization.id, account.userId, organization.role ?? "member", at, at);
+        this.database.prepare("DELETE FROM bees_connection_teams WHERE connection_id = ?").run(connectionId);
         for (const { team, members } of teams) {
           this.database.prepare(`
             INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
@@ -232,11 +314,11 @@ export class ConnectedAccount {
             ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
           `).run(team.id, organization.id, team.name, localUser.id, at, at);
           const own = members.find(({ userId }) => userId === account.userId);
-          if (own) this.database.prepare(`
-            INSERT INTO team_memberships(user_id, team_id, role, status, created_at)
-            VALUES (?, ?, ?, 'active', ?)
-            ON CONFLICT(user_id, team_id) DO UPDATE SET role = excluded.role, status = 'active'
-          `).run(localUser.id, team.id, own.role, at);
+          const role = own?.role ?? (["owner", "admin"].includes(organization.role) ? "admin" : "member");
+          this.database.prepare(`
+            INSERT INTO bees_connection_teams(connection_id, team_id, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(connectionId, team.id, role, at, at);
           if (!this.database.prepare(
             "SELECT 1 FROM workspaces WHERE team_id = ? AND status = 'active' LIMIT 1"
           ).get(team.id)) insertDefaultWorkspace(this.database, team.id, {
@@ -248,28 +330,42 @@ export class ConnectedAccount {
         }
       }
       this.database.prepare(`
-        UPDATE organization_memberships SET status = 'suspended'
-        WHERE user_id = ? AND organization_id IN (
-          SELECT organization_id FROM bees_connected_organizations WHERE account_user_id = ?
-        ) AND organization_id NOT IN (SELECT value FROM json_each(?))
-      `).run(localUser.id, account.userId, JSON.stringify(organizations.map(({ id }) => id)));
+        DELETE FROM bees_connections WHERE account_user_id = ?
+          AND organization_id NOT IN (SELECT value FROM json_each(?))
+      `).run(account.userId, JSON.stringify(organizations.map(({ id }) => id)));
     });
-    await this.syncCoordination(organizations.map(({ id }) => id));
+    this.refreshLocalAccess([...oldOrganizationIds, ...organizations.map(({ id }) => id)]);
     return organizations;
   }
 
-  syncCoordination(organizationIds = null) {
+  async sync() {
+    const results = [];
+    for (const account of this.accounts()) {
+      try { results.push(...await this.syncAccount(account)); }
+      catch (error) {
+        if (error?.status === 401) await this.signOut(account.userId);
+        else this.logger.warn?.(`bees: account sync unavailable for ${account.email}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    await this.syncCoordination();
+    return results;
+  }
+
+  syncCoordination(connectionIds = null) {
     if (this.closed) return Promise.resolve([]);
-    const ids = organizationIds ?? this.database.prepare(
-      "SELECT organization_id AS id FROM bees_connected_organizations ORDER BY organization_id"
-    ).all().map(({ id }) => id);
+    const connections = this.connections().filter(({ id }) => !connectionIds || connectionIds.includes(id));
     const pending = this.syncQueue.then(async () => {
       const results = [];
-      for (const organizationId of ids) {
+      for (const connection of connections) {
         try {
-          results.push(await syncTeamRecords(this.database, this.request.bind(this), organizationId));
+          const request = (path, options = {}) => this.request(path, {
+            ...options, accountUserId: connection.accountUserId
+          });
+          results.push(await syncTeamRecords(
+            this.database, request, connection.organizationId, connection.id
+          ));
         } catch (error) {
-          this.logger.warn?.(`bees: team sync unavailable: ${error instanceof Error ? error.message : error}`);
+          this.logger.warn?.(`bees: team sync unavailable for ${connection.email}: ${error instanceof Error ? error.message : error}`);
         }
       }
       return results;
@@ -283,35 +379,42 @@ export class ConnectedAccount {
     await this.syncQueue;
   }
 
-  claimScope(teamId) {
-    return this.database.prepare(`
-      SELECT t.organization_id AS organizationId FROM teams t
-      JOIN bees_connected_organizations c ON c.organization_id = t.organization_id
-      WHERE t.id = ?
+  claimScope(teamId, accountUserId = "") {
+    if (!accountUserId) return this.database.prepare(`
+      SELECT t.organization_id AS organizationId, NULL AS connectionId
+      FROM teams t JOIN organizations o ON o.id = t.organization_id
+      WHERE t.id = ? AND o.personal = 1
     `).get(teamId) ?? null;
+    return this.database.prepare(`
+      SELECT t.organization_id AS organizationId, c.id AS connectionId
+      FROM teams t JOIN bees_connection_teams ct ON ct.team_id = t.id
+      JOIN bees_connections c ON c.id = ct.connection_id
+      WHERE t.id = ? AND c.account_user_id = ?
+    `).get(teamId, accountUserId) ?? null;
   }
 
   executionClaims() {
-    const acquire = async (kind, id, teamId, occurrenceAt = "") => {
-      const scope = this.claimScope(teamId);
-      if (!scope) return { local: true };
+    const acquire = async (kind, id, teamId, occurrenceAt = "", accountUserId = "") => {
+      const scope = this.claimScope(teamId, accountUserId);
+      if (!scope) return null;
+      if (!scope.connectionId) return { local: true, accountUserId: "" };
       const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
       const machineId = currentIdentity(this.database).deviceId;
       const result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
-        method: "POST", organizationId: scope.organizationId,
+        method: "POST", organizationId: scope.organizationId, accountUserId,
         body: { teamId, machineId, permanent: kind !== "work_item" }
       });
       return result.acquired
         ? {
             claimId, teamId, machineId, organizationId: scope.organizationId,
-            token: result.token, permanent: kind !== "work_item"
+            accountUserId, token: result.token, permanent: kind !== "work_item"
           }
         : null;
     };
     const renew = async (claim) => {
       if (claim.local) return claim;
       const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
-        method: "POST", organizationId: claim.organizationId,
+        method: "POST", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
         body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
       });
       return result.acquired ? claim : null;
@@ -319,7 +422,7 @@ export class ConnectedAccount {
     const release = async (claim) => {
       if (claim?.local || claim?.permanent || !claim) return;
       await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
-        method: "DELETE", organizationId: claim.organizationId,
+        method: "DELETE", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
         body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
       });
     };
@@ -327,43 +430,65 @@ export class ConnectedAccount {
   }
 
   async summary() {
-    const account = this.publicAccount();
+    let accounts = this.accounts().map(({ userId, email, name }) => ({ userId, email, name }));
     const auth = await this.authConfig();
-    if (!account) return { account: null, organizations: [], invitations: [], auth };
-    let organizations = [];
+    if (!accounts.length) return {
+      account: null, accounts: [], connections: [], organizations: [], invitations: [], auth
+    };
     let invitations = [];
     try {
-      organizations = await this.sync();
-      ({ invitations = [] } = await this.request("/api/me/organization-invitations"));
+      await this.sync();
+      accounts = this.accounts().map(({ userId, email, name }) => ({ userId, email, name }));
+      for (const account of accounts) {
+        const result = await this.request("/api/me/organization-invitations", {
+          accountUserId: account.userId
+        });
+        invitations.push(...(result.invitations ?? []).map((invitation) => ({
+          ...invitation, accountUserId: account.userId, accountEmail: account.email
+        })));
+      }
     } catch (error) {
       if (error?.status !== 404) throw error;
       this.logger.warn?.("bees: production coordination routes are not deployed yet");
     }
-    return { account, organizations, invitations, auth };
+    const connections = this.connections();
+    return {
+      account: accounts[0] ?? null, accounts, connections,
+      organizations: connections.map((connection) => ({
+        id: connection.organizationId,
+        name: connection.organizationName,
+        role: connection.role,
+        connectionId: connection.id,
+        accountUserId: connection.accountUserId,
+        accountEmail: connection.email
+      })),
+      invitations, auth
+    };
   }
 
-  async acceptInvitation(invitationId) {
+  async acceptInvitation(invitationId, accountUserId) {
     await this.request(`/api/me/organization-invitations/${encodeURIComponent(invitationId)}/accept`, {
-      method: "POST"
+      method: "POST", accountUserId
     });
     return this.summary();
   }
 
-  async organizationPeople(organizationId) {
+  async organizationPeople(organizationId, connectionId) {
     const [{ memberships = [] }, { invitations = [] }] = await Promise.all([
-      this.request(`/api/organizations/${encodeURIComponent(organizationId)}/members`),
-      this.request(`/api/organizations/${encodeURIComponent(organizationId)}/invitations`)
+      this.request(`/api/organizations/${encodeURIComponent(organizationId)}/members`, { connectionId }),
+      this.request(`/api/organizations/${encodeURIComponent(organizationId)}/invitations`, { connectionId })
     ]);
     return { memberships, invitations };
   }
 
-  async organizationSso(organizationId) {
-    return this.request(`/api/organizations/${encodeURIComponent(organizationId)}/sso`);
+  async organizationSso(organizationId, connectionId) {
+    return this.request(`/api/organizations/${encodeURIComponent(organizationId)}/sso`, { connectionId });
   }
 
   async registerOrganizationSso(input) {
     const { provider } = await this.request(`/api/organizations/${encodeURIComponent(input.organizationId)}/sso`, {
       method: "POST",
+      connectionId: input.connectionId,
       body: {
         providerId: input.providerId,
         domain: input.domain,
@@ -376,7 +501,7 @@ export class ConnectedAccount {
         cert: input.cert
       }
     });
-    const summary = await this.organizationSso(input.organizationId);
+    const summary = await this.organizationSso(input.organizationId, input.connectionId);
     return {
       ...summary,
       verification: provider?.domainVerificationToken ? {
@@ -388,48 +513,51 @@ export class ConnectedAccount {
     };
   }
 
-  async removeOrganizationSso(organizationId, providerId) {
+  async removeOrganizationSso(organizationId, providerId, connectionId) {
     await this.request(
       `/api/organizations/${encodeURIComponent(organizationId)}/sso/${encodeURIComponent(providerId)}`,
-      { method: "DELETE" }
+      { method: "DELETE", connectionId }
     );
-    return this.organizationSso(organizationId);
+    return this.organizationSso(organizationId, connectionId);
   }
 
-  async verifyOrganizationSso(organizationId, providerId, action) {
+  async verifyOrganizationSso(organizationId, providerId, action, connectionId) {
     const result = await this.request(
       `/api/organizations/${encodeURIComponent(organizationId)}/sso/${encodeURIComponent(providerId)}/verification`,
-      { method: "POST", body: { action } }
+      { method: "POST", body: { action }, connectionId }
     );
-    if (action !== "verify") return { ...await this.organizationSso(organizationId), verification: result };
-    return this.organizationSso(organizationId);
+    if (action !== "verify") return {
+      ...await this.organizationSso(organizationId, connectionId), verification: result
+    };
+    return this.organizationSso(organizationId, connectionId);
   }
 
-  async inviteOrganizationMember(organizationId, email, role) {
+  async inviteOrganizationMember(organizationId, email, role, connectionId) {
     await this.request(`/api/organizations/${encodeURIComponent(organizationId)}/invitations`, {
       method: "POST",
+      connectionId,
       body: { email, role }
     });
-    return this.organizationPeople(organizationId);
+    return this.organizationPeople(organizationId, connectionId);
   }
 
-  async teamPeople(teamId) {
+  async teamPeople(teamId, connectionId) {
     const team = this.database.prepare(
       "SELECT organization_id AS organizationId FROM teams WHERE id = ?"
     ).get(teamId);
     if (!team) throw new Error("Team not found");
     const [{ members = [] }, { candidates = [] }] = await Promise.all([
       this.request(`/api/teams/${encodeURIComponent(teamId)}/members`, {
-        organizationId: team.organizationId
+        organizationId: team.organizationId, connectionId
       }),
       this.request(`/api/teams/${encodeURIComponent(teamId)}/candidates`, {
-        organizationId: team.organizationId
+        organizationId: team.organizationId, connectionId
       })
     ]);
     return { members, candidates };
   }
 
-  async addTeamMember(teamId, userId, role) {
+  async addTeamMember(teamId, userId, role, connectionId) {
     const team = this.database.prepare(
       "SELECT organization_id AS organizationId FROM teams WHERE id = ?"
     ).get(teamId);
@@ -437,9 +565,35 @@ export class ConnectedAccount {
     await this.request(`/api/teams/${encodeURIComponent(teamId)}/members`, {
       method: "POST",
       organizationId: team.organizationId,
+      connectionId,
       body: { userId, role }
     });
-    return this.teamPeople(teamId);
+    return this.teamPeople(teamId, connectionId);
+  }
+
+  async createOrganization(name, accountUserId) {
+    const account = this.account(accountUserId);
+    if (!account) throw new Error("Choose a signed-in account");
+    const { organization } = await this.request("/api/organizations", {
+      method: "POST", accountUserId, body: { name }
+    });
+    await this.syncAccount(account);
+    return {
+      id: organization.id,
+      connectionId: stableUuid(`bees-connection:${organization.id}:${accountUserId}`),
+      accountUserId
+    };
+  }
+
+  async createTeam(name, connectionId) {
+    const connection = this.connections().find(({ id }) => id === connectionId);
+    if (!connection) throw new Error("Choose an organization connection");
+    const { team } = await this.request("/api/teams", {
+      method: "POST", organizationId: connection.organizationId,
+      accountUserId: connection.accountUserId, body: { name }
+    });
+    await this.syncAccount(this.account(connection.accountUserId));
+    return { id: team.id, connectionId };
   }
 
   async command(input) {
@@ -448,22 +602,27 @@ export class ConnectedAccount {
       case "sign_up": return this.signUp(input.name, input.email, input.password);
       case "social_start": return this.startBrowserSignIn("social", input.provider, input.callbackPort);
       case "sso_start": return this.startBrowserSignIn("sso", input.email, input.callbackPort);
-      case "sign_out": await this.signOut(); return this.summary();
+      case "sign_out": await this.signOut(input.accountUserId); return this.summary();
       case "sync": return this.summary();
-      case "accept_invitation": return this.acceptInvitation(input.invitationId);
-      case "organization_people": return this.organizationPeople(input.organizationId);
-      case "organization_sso": return this.organizationSso(input.organizationId);
+      case "accept_invitation": return this.acceptInvitation(input.invitationId, input.accountUserId);
+      case "organization_people": return this.organizationPeople(input.organizationId, input.connectionId);
+      case "organization_sso": return this.organizationSso(input.organizationId, input.connectionId);
       case "register_organization_sso": return this.registerOrganizationSso(input);
       case "remove_organization_sso":
-        return this.removeOrganizationSso(input.organizationId, input.providerId);
+        return this.removeOrganizationSso(input.organizationId, input.providerId, input.connectionId);
       case "request_organization_sso_verification":
-        return this.verifyOrganizationSso(input.organizationId, input.providerId, "request");
+        return this.verifyOrganizationSso(input.organizationId, input.providerId, "request", input.connectionId);
       case "verify_organization_sso":
-        return this.verifyOrganizationSso(input.organizationId, input.providerId, "verify");
+        return this.verifyOrganizationSso(input.organizationId, input.providerId, "verify", input.connectionId);
       case "invite_organization_member":
-        return this.inviteOrganizationMember(input.organizationId, input.email, input.role);
-      case "team_people": return this.teamPeople(input.teamId);
-      case "add_team_member": return this.addTeamMember(input.teamId, input.userId, input.role);
+        return this.inviteOrganizationMember(
+          input.organizationId, input.email, input.role, input.connectionId
+        );
+      case "team_people": return this.teamPeople(input.teamId, input.connectionId);
+      case "add_team_member":
+        return this.addTeamMember(input.teamId, input.userId, input.role, input.connectionId);
+      case "create_organization": return this.createOrganization(input.name, input.accountUserId);
+      case "create_team": return this.createTeam(input.name, input.connectionId);
       default: throw new Error("Unknown collaboration action");
     }
   }

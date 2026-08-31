@@ -9,7 +9,8 @@ import { iso, message, transaction } from "./product-database.js";
 
 export const PROCESS_TASK_QUEUE = "bees-processes-v1";
 export const processWorkflowId = (workItemId) => `bees/work-item/${workItemId}`;
-export const recurringScheduleId = (recurringWorkId) => `bees/recurring/${recurringWorkId}`;
+export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
+  `bees/recurring/${recurringWorkId}${accountUserId ? `/identity/${accountUserId}` : ""}`;
 
 const automaticDrivers = new Set(["agent", "review", "terminal"]);
 
@@ -27,6 +28,7 @@ export class ProcessRuntime {
     const item = this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
              w.runtime_phase AS runtimePhase, w.archived_at AS archivedAt,
+             w.account_user_id AS accountUserId,
              p.workspace_id AS workspaceId, ws.team_id AS teamId,
              EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id) AS scheduleDefinition
       FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -48,7 +50,10 @@ export class ProcessRuntime {
     const item = this.item(workItemId);
     const stages = this.stages(item.processId);
     if (!stages.length) throw new Error("Process has no stages");
-    return { workItemId: item.id, processId: item.processId, stageId: item.stageId, stages, maxAttempts: 3 };
+    return {
+      workItemId: item.id, processId: item.processId, stageId: item.stageId,
+      accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3
+    };
   }
 
   isAutomatic(processId) {
@@ -67,11 +72,13 @@ export class ProcessRuntime {
     if (!this.worker && (address || this.workerFactory)) {
       this.workerConnection = this.workerFactory ? undefined : await NativeConnection.connect({ address });
       const projectWorkItem = (state) => this.project(state);
-      const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt }) => {
-        const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt);
+      const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt, accountUserId = "" }) => {
+        const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt, accountUserId);
         if (!work) return null;
-        const recurring = this.recurring(recurringWorkId);
-        await this.refreshNextRun(recurringWorkId, this.client.schedule.getHandle(recurring.temporalScheduleId));
+        const recurring = this.recurring(recurringWorkId, accountUserId);
+        await this.refreshNextRun(
+          recurringWorkId, accountUserId, this.client.schedule.getHandle(recurring.temporalScheduleId)
+        );
         return work;
       };
       const runDshStage = async (stage) => {
@@ -105,7 +112,7 @@ export class ProcessRuntime {
     await this.reconcile();
   }
 
-  recurring(recurringWorkId) {
+  recurring(recurringWorkId, accountUserId = "") {
     const row = this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, process_id AS processId,
              source_work_item_id AS sourceWorkItemId, name,
@@ -115,7 +122,27 @@ export class ProcessRuntime {
       FROM recurring_work WHERE id = ?
     `).get(recurringWorkId);
     if (!row) throw new Error("Recurring work not found");
-    return { ...row, schedule: JSON.parse(row.schedule) };
+    return {
+      ...row, accountUserId, temporalScheduleId: recurringScheduleId(row.id, accountUserId),
+      schedule: JSON.parse(row.schedule)
+    };
+  }
+
+  executorAccounts(recurringWorkId) {
+    const connected = this.database.prepare(`
+      SELECT DISTINCT c.account_user_id AS accountUserId
+      FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
+      JOIN bees_connection_teams ct ON ct.team_id = w.team_id
+      JOIN bees_connections c ON c.id = ct.connection_id
+      WHERE r.id = ? ORDER BY c.account_user_id
+    `).all(recurringWorkId).map(({ accountUserId }) => accountUserId);
+    if (connected.length) return connected;
+    const local = this.database.prepare(`
+      SELECT 1 FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
+      JOIN teams t ON t.id = w.team_id JOIN organizations o ON o.id = t.organization_id
+      WHERE r.id = ? AND o.personal = 1
+    `).get(recurringWorkId);
+    return local ? [""] : [];
   }
 
   scheduleSpec(recurring) {
@@ -150,59 +177,123 @@ export class ProcessRuntime {
       spec: this.scheduleSpec(recurring),
       action: {
         type: "startWorkflow", workflowType: "recurringWorkWorkflow",
-        taskQueue: PROCESS_TASK_QUEUE, args: [{ recurringWorkId: recurring.id }]
+        taskQueue: PROCESS_TASK_QUEUE,
+        args: [{ recurringWorkId: recurring.id, accountUserId: recurring.accountUserId }]
       },
       policies: { overlap: "SKIP", catchupWindow: "1 minute", pauseOnFailure: true },
       state: { paused: recurring.status === "paused" },
-      memo: { recurringWorkId: recurring.id, name: recurring.name }
+      memo: {
+        recurringWorkId: recurring.id,
+        accountUserId: recurring.accountUserId,
+        name: recurring.name
+      }
     };
   }
 
-  async refreshNextRun(recurringWorkId, handle) {
+  async refreshNextRun(recurringWorkId, accountUserId, handle) {
     try {
       const description = await handle.describe();
       const nextRunAt = description.info?.nextActionTimes?.[0]?.toISOString?.() ?? null;
-      // next_run_at is device-local Temporal state, not shared schedule configuration.
-      this.database.prepare("UPDATE recurring_work SET next_run_at = ? WHERE id = ?")
-        .run(nextRunAt, recurringWorkId);
+      this.database.prepare(`
+        UPDATE bees_recurring_executors SET next_run_at = ?
+        WHERE recurring_work_id = ? AND account_user_id = ?
+      `).run(nextRunAt, recurringWorkId, accountUserId);
+      this.refreshAggregateNextRun(recurringWorkId);
       return nextRunAt;
     } catch { return null; }
   }
 
-  async createRecurring(recurringWorkId) {
-    const recurring = this.recurring(recurringWorkId);
-    const handle = await this.client.schedule.create(this.scheduleOptions(recurring));
-    return { nextRunAt: await this.refreshNextRun(recurring.id, handle) };
+  refreshAggregateNextRun(recurringWorkId) {
+    this.database.prepare(`
+      UPDATE recurring_work SET next_run_at = (
+        SELECT min(next_run_at) FROM bees_recurring_executors WHERE recurring_work_id = ?
+      ) WHERE id = ?
+    `).run(recurringWorkId, recurringWorkId);
   }
 
-  async updateRecurring(recurringWorkId) {
-    const recurring = this.recurring(recurringWorkId);
+  async ensureRecurringExecutor(recurringWorkId, accountUserId) {
+    const recurring = this.recurring(recurringWorkId, accountUserId);
+    const existing = this.database.prepare(`
+      SELECT 1 FROM bees_recurring_executors
+      WHERE recurring_work_id = ? AND account_user_id = ?
+    `).get(recurring.id, accountUserId);
+    this.database.prepare(`
+      INSERT INTO bees_recurring_executors
+        (recurring_work_id, account_user_id, temporal_schedule_id, next_run_at)
+      VALUES (?, ?, ?, NULL)
+      ON CONFLICT(recurring_work_id, account_user_id) DO UPDATE SET
+        temporal_schedule_id = excluded.temporal_schedule_id
+    `).run(recurring.id, accountUserId, recurring.temporalScheduleId);
     const handle = this.client.schedule.getHandle(recurring.temporalScheduleId);
     const options = this.scheduleOptions(recurring);
-    await handle.update((previous) => ({
-      spec: options.spec, action: previous.action, policies: options.policies,
-      state: { ...previous.state, paused: recurring.status === "paused" }
-    }));
-    return { nextRunAt: await this.refreshNextRun(recurring.id, handle) };
+    if (!existing) await this.client.schedule.create(options);
+    else try {
+      await handle.describe();
+      await handle.update((previous) => ({
+        spec: options.spec, action: options.action, policies: options.policies,
+        state: { ...previous.state, paused: recurring.status === "paused" },
+        memo: options.memo
+      }));
+    } catch {
+      await this.client.schedule.create(options);
+    }
+    return this.refreshNextRun(recurring.id, accountUserId, handle);
+  }
+
+  async reconcileRecurring(recurringWorkId) {
+    const eligible = new Set(this.executorAccounts(recurringWorkId));
+    const existing = this.database.prepare(`
+      SELECT account_user_id AS accountUserId, temporal_schedule_id AS temporalScheduleId
+      FROM bees_recurring_executors WHERE recurring_work_id = ?
+    `).all(recurringWorkId);
+    for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
+      await this.client.schedule.getHandle(executor.temporalScheduleId).delete().catch(() => undefined);
+      this.database.prepare(`
+        DELETE FROM bees_recurring_executors WHERE recurring_work_id = ? AND account_user_id = ?
+      `).run(recurringWorkId, executor.accountUserId);
+    }
+    const nextRuns = [];
+    for (const accountUserId of eligible)
+      nextRuns.push(await this.ensureRecurringExecutor(recurringWorkId, accountUserId));
+    this.refreshAggregateNextRun(recurringWorkId);
+    return { nextRunAt: nextRuns.filter(Boolean).sort()[0] ?? null };
+  }
+
+  createRecurring(recurringWorkId) {
+    return this.reconcileRecurring(recurringWorkId);
+  }
+
+  updateRecurring(recurringWorkId) {
+    return this.reconcileRecurring(recurringWorkId);
   }
 
   async setRecurringPaused(recurringWorkId, paused) {
-    const recurring = this.recurring(recurringWorkId);
-    const handle = this.client.schedule.getHandle(recurring.temporalScheduleId);
-    if (paused) await handle.pause("Paused in Bees");
-    else await handle.unpause("Resumed in Bees");
-    await this.refreshNextRun(recurring.id, handle);
+    for (const executor of this.database.prepare(`
+      SELECT account_user_id AS accountUserId, temporal_schedule_id AS temporalScheduleId
+      FROM bees_recurring_executors WHERE recurring_work_id = ?
+    `).all(recurringWorkId)) {
+      const handle = this.client.schedule.getHandle(executor.temporalScheduleId);
+      if (paused) await handle.pause("Paused in Bees");
+      else await handle.unpause("Resumed in Bees");
+      await this.refreshNextRun(recurringWorkId, executor.accountUserId, handle);
+    }
   }
 
   async deleteRecurring(recurringWorkId) {
-    const recurring = this.recurring(recurringWorkId);
-    await this.client.schedule.getHandle(recurring.temporalScheduleId).delete();
+    const executors = this.database.prepare(`
+      SELECT temporal_schedule_id AS temporalScheduleId
+      FROM bees_recurring_executors WHERE recurring_work_id = ?
+    `).all(recurringWorkId);
+    await Promise.all(executors.map(({ temporalScheduleId }) =>
+      this.client.schedule.getHandle(temporalScheduleId).delete()));
   }
 
-  async createRecurringWorkItem(recurringWorkId, occurrenceAt = "") {
-    const recurring = this.recurring(recurringWorkId);
+  async createRecurringWorkItem(recurringWorkId, occurrenceAt = "", accountUserId = "") {
+    const recurring = this.recurring(recurringWorkId, accountUserId);
     const claim = this.claims
-      ? await this.claims.acquire("schedule_occurrence", recurringWorkId, recurring.teamId, occurrenceAt)
+      ? await this.claims.acquire(
+          "schedule_occurrence", recurringWorkId, recurring.teamId, occurrenceAt, accountUserId
+        )
       : { local: true };
     if (!claim) return null;
     return transaction(this.database, () => {
@@ -223,10 +314,10 @@ export class ProcessRuntime {
       this.database.prepare(`
         INSERT INTO work_items
           (id, process_id, stage_id, kind, title, description, owner, agent_assignment_id,
-           priority, output_location_id, recurring_work_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'run', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           priority, output_location_id, recurring_work_id, account_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, 'run', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, source.processId, stageId, source.title, source.description, source.owner,
-        source.agentAssignmentId, source.priority, source.outputLocationId, recurring.id, at, at);
+        source.agentAssignmentId, source.priority, source.outputLocationId, recurring.id, accountUserId || null, at, at);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
         .run(source.runSettingsJson, id);
       this.database.prepare(`
@@ -250,28 +341,28 @@ export class ProcessRuntime {
 
   async reconcile() {
     const schedules = this.database.prepare(
-      "SELECT id FROM recurring_work WHERE next_run_at IS NULL ORDER BY created_at"
+      "SELECT id FROM recurring_work ORDER BY created_at"
     ).all();
     for (const settled of await Promise.allSettled(schedules.map(async ({ id }) => {
-      const recurring = this.recurring(id);
-      const handle = this.client.schedule.getHandle(recurring.temporalScheduleId);
-      try {
-        await handle.describe();
-        await this.updateRecurring(id);
-      } catch {
-        await this.createRecurring(id);
-      }
+      await this.reconcileRecurring(id);
     }))) if (settled.status === "rejected")
       this.logger.warn?.(`bees: a recurring schedule failed to reconcile: ${message(settled.reason)}`);
     const items = this.database.prepare(`
       SELECT w.id FROM work_items w
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
-        AND (w.runtime_phase = 'ready' OR (w.runtime_phase = 'running' AND EXISTS (
+        AND w.runtime_phase IN ('ready', 'running')
+        AND EXISTS (
           SELECT 1 FROM processes p JOIN workspaces ws ON ws.id = p.workspace_id
-          JOIN teams t ON t.id = ws.team_id
-          JOIN bees_connected_organizations c ON c.organization_id = t.organization_id
-          WHERE p.id = w.process_id
-        )))
+          JOIN teams t ON t.id = ws.team_id JOIN organizations o ON o.id = t.organization_id
+          WHERE p.id = w.process_id AND (
+            (o.personal = 1 AND w.account_user_id IS NULL)
+            OR EXISTS (
+              SELECT 1 FROM bees_connections c
+              JOIN bees_connection_teams ct ON ct.connection_id = c.id AND ct.team_id = t.id
+              WHERE c.account_user_id = w.account_user_id
+            )
+          )
+        )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
     `).all();
     const interruptedWaits = this.database.prepare(`
@@ -298,7 +389,9 @@ export class ProcessRuntime {
       return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
     }
     const claim = this.claims
-      ? await this.claims.acquire("work_item", workItemId, this.item(workItemId).teamId)
+      ? await this.claims.acquire(
+          "work_item", workItemId, this.item(workItemId).teamId, "", input.accountUserId ?? ""
+        )
       : { local: true };
     if (!claim) return { automatic: true, claimed: false };
     let handle;
