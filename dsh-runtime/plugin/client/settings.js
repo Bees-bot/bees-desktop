@@ -41,12 +41,13 @@ function AccountSettings({ reload }) {
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
+      const before = new Set((data?.accounts ?? []).map(({ userId }) => userId));
       const { url } = await collaboration(action, values);
       await openExternal(url);
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         const next = await collaboration();
-        if (next.account) {
+        if ((next.accounts ?? []).some(({ userId }) => !before.has(userId))) {
           setData(next); setError(""); await reload(); return;
         }
       }
@@ -68,9 +69,16 @@ function AccountSettings({ reload }) {
     finally { setBusy(false); }
   };
   if (!data) return h(Empty, null, error || "Loading account…");
-  if (!data.account) return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, "Account"),
-      h("p", { className: "bees-muted" }, "Sign in to see organization invitations and manage connected organizations."),
+  const run = async (action, values = {}) => {
+    setBusy(true);
+    try { setData(await collaboration(action, values)); setError(""); await reload(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  return h("div", { className: "bees-stack" },
+    h("section", { className: "bees-box" }, h("h3", null, "Add account"),
+      h("p", { className: "bees-muted" },
+        "Each account stays signed in. Its organizations sync and run background work without switching."),
       data.auth?.socialProviders?.length ? h("div", { className: "bees-form-row" },
         ...data.auth.socialProviders.map((provider) => h(Button, {
           key: provider, disabled: busy,
@@ -89,28 +97,37 @@ function AccountSettings({ reload }) {
         mode === "sign_up" ? h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true })) : null,
         h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
         h("label", null, "Password", h("input", { className: "bees-input", name: "password", type: "password", minLength: 8, required: true })),
-        h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Connecting…" : mode === "sign_in" ? "Sign in" : "Create account"))),
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
-  const run = async (action, values = {}) => {
-    setBusy(true);
-    try { setData(await collaboration(action, values)); setError(""); await reload(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
-  return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, data.account.name || data.account.email),
-      h("p", { className: "bees-muted" }, data.account.email),
-      h("div", { className: "bees-form-row" }, h(Button, { disabled: busy, onClick: () => run("sync") }, "Refresh"),
-        h(Button, { className: "danger", disabled: busy, onClick: () => run("sign_out") }, "Sign out"))),
+        h(Button, { type: "submit", className: "primary", disabled: busy },
+          busy ? "Connecting…" : mode === "sign_in" ? "Add account" : "Create account"))),
+    h("section", { className: "bees-box" }, h("h3", null, "Signed-in accounts"),
+      h("div", { className: "bees-form-row" },
+        h(Button, { disabled: busy || !(data.accounts ?? []).length, onClick: () => run("sync") }, "Refresh all")),
+      ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
+        className: "bees-row", key: account.userId
+      }, h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, account.name || account.email),
+        h("div", { className: "bees-muted" }, account.email)),
+      h(Button, { className: "danger", disabled: busy,
+        onClick: () => run("sign_out", { accountUserId: account.userId }) }, "Sign out")))
+        : [h(Empty, { key: "empty" }, "No accounts signed in")])),
     h("section", { className: "bees-box" }, h("h3", null, "Organizations"),
-      ...(data.organizations.length ? data.organizations.map((organization) => h("div", { className: "bees-row", key: organization.id },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, organization.name), h("div", { className: "bees-muted" }, organization.role))))
+      ...(data.organizations.length ? data.organizations.map((organization) => h("div", {
+        className: "bees-row", key: organization.connectionId
+      }, h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, organization.name),
+        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`))))
         : [h(Empty, { key: "empty" }, "No connected organizations yet")])),
     h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
-      ...(data.invitations.length ? data.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
+      ...(data.invitations.length ? data.invitations.map((invitation) => h("div", {
+        className: "bees-row", key: `${invitation.accountUserId}:${invitation.id}`
+      },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.organizationName),
-          h("div", { className: "bees-muted" }, `${invitation.role} · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
-        h(Button, { className: "primary", disabled: busy, onClick: () => run("accept_invitation", { invitationId: invitation.id }) }, "Accept")))
+          h("div", { className: "bees-muted" },
+            `${invitation.accountEmail} · ${invitation.role} · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
+        h(Button, { className: "primary", disabled: busy,
+          onClick: () => run("accept_invitation", {
+            invitationId: invitation.id, accountUserId: invitation.accountUserId
+          }) }, "Accept")))
         : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
@@ -172,7 +189,7 @@ function ConnectionsSettings() {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-function OrganizationSettings({ organization }) {
+function OrganizationSettings({ organization, connectionId }) {
   const [people, setPeople] = useState(null);
   const [sso, setSso] = useState(null);
   const [protocol, setProtocol] = useState("oidc");
@@ -183,15 +200,15 @@ function OrganizationSettings({ organization }) {
     setError("");
     if (organization?.connected && ["owner", "admin"].includes(organization.role)) {
       Promise.all([
-        collaboration("organization_people", { organizationId: organization.id }),
-        collaboration("organization_sso", { organizationId: organization.id })
+        collaboration("organization_people", { organizationId: organization.id, connectionId }),
+        collaboration("organization_sso", { organizationId: organization.id, connectionId })
       ]).then(([nextPeople, nextSso]) => {
         if (active) { setPeople(nextPeople); setSso(nextSso); }
       })
         .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
     }
     return () => { active = false; };
-  }, [organization?.id]);
+  }, [organization?.id, connectionId]);
   if (!organization) return h(Empty, null, "Choose an organization");
   if (!organization.connected) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
     h("p", { className: "bees-muted" }, "This organization is local to this device. Connect an account to invite members."));
@@ -199,7 +216,8 @@ function OrganizationSettings({ organization }) {
     h("p", { className: "bees-muted" }, `Your role is ${organization.role}. Only organization administrators can invite members.`));
   const invite = async (event) => {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    try { setPeople(await collaboration("invite_organization_member", { organizationId: organization.id,
+    try { setPeople(await collaboration("invite_organization_member", {
+      organizationId: organization.id, connectionId,
       email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); formElement.reset(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
@@ -209,6 +227,7 @@ function OrganizationSettings({ organization }) {
     try {
       setSso(await collaboration("register_organization_sso", {
         organizationId: organization.id,
+        connectionId,
         protocol,
         providerId: String(form.get("providerId") ?? ""),
         domain: String(form.get("domain") ?? ""),
@@ -225,7 +244,9 @@ function OrganizationSettings({ organization }) {
   const removeSso = async (providerId) => {
     if (!await confirmAction(`Remove enterprise sign-in provider “${providerId}”?`)) return;
     try {
-      setSso(await collaboration("remove_organization_sso", { organizationId: organization.id, providerId }));
+      setSso(await collaboration("remove_organization_sso", {
+        organizationId: organization.id, providerId, connectionId
+      }));
       setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
@@ -233,7 +254,7 @@ function OrganizationSettings({ organization }) {
     try {
       setSso(await collaboration(
         action === "verify" ? "verify_organization_sso" : "request_organization_sso_verification",
-        { organizationId: organization.id, providerId }
+        { organizationId: organization.id, providerId, connectionId }
       ));
       setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
@@ -292,7 +313,7 @@ function OrganizationSettings({ organization }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-function TeamSettings({ team, organization }) {
+function TeamSettings({ team, organization, connectionId }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -300,12 +321,12 @@ function TeamSettings({ team, organization }) {
     setPeople(null);
     setError("");
     if (team && organization?.connected && team.role === "admin") {
-      collaboration("team_people", { teamId: team.id })
+      collaboration("team_people", { teamId: team.id, connectionId })
         .then((value) => active && setPeople(value))
         .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
     }
     return () => { active = false; };
-  }, [team?.id]);
+  }, [team?.id, connectionId]);
   if (!team) return h(Empty, null, "Choose a team");
   if (!organization?.connected) return h("section", { className: "bees-box" }, h("h3", null, team.name),
     h("p", { className: "bees-muted" }, "This team is local to this device."));
@@ -314,7 +335,7 @@ function TeamSettings({ team, organization }) {
   if (!people) return h(Empty, null, error || "Loading team members…");
   const add = async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    try { setPeople(await collaboration("add_team_member", { teamId: team.id,
+    try { setPeople(await collaboration("add_team_member", { teamId: team.id, connectionId,
       userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
@@ -333,14 +354,23 @@ function TeamSettings({ team, organization }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function SettingsPage({ ctx, data, route, teamId, organizationId, modelSettings, preferences, reload }) {
-  const team = data.teams.find(({ id }) => id === teamId);
-  const organization = data.organizations.find(({ id }) => id === organizationId);
+export function SettingsPage({
+  ctx, data, route, teamId, organizationId, connectionId, modelSettings, preferences, reload
+}) {
+  const connection = data.connections?.find(({ id }) => id === connectionId);
+  const connectionTeam = data.connectionTeams?.find((row) =>
+    row.connectionId === connectionId && row.teamId === teamId);
+  const rawTeam = data.teams.find(({ id }) => id === teamId);
+  const rawOrganization = data.organizations.find(({ id }) => id === organizationId);
+  const team = rawTeam ? { ...rawTeam, role: connectionTeam?.role ?? rawTeam.role } : null;
+  const organization = rawOrganization
+    ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
+    : null;
   if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload });
   if (route === "appearance") return h(AppearanceSettings, { ctx });
   if (route === "organizations") return h(AccountSettings, { reload });
   if (route === "connections") return h(ConnectionsSettings);
-  if (route === "team-settings") return h(TeamSettings, { team, organization });
-  if (route === "organization-settings") return h(OrganizationSettings, { organization });
+  if (route === "team-settings") return h(TeamSettings, { team, organization, connectionId });
+  if (route === "organization-settings") return h(OrganizationSettings, { organization, connectionId });
   return h("div", { className: "bees-grid" }, h("section", { className: "bees-box" }, h("h3", null, "Organization role"), h("p", null, organization?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Team role"), h("p", null, team?.role ?? "None")), h("section", { className: "bees-box" }, h("h3", null, "Runtime enforcement"), h("p", { className: "bees-muted" }, "Membership and role checks protect domain commands. Bees approval protects publication and protected tools.")));
 }

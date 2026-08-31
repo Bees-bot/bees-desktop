@@ -62,6 +62,29 @@ function replaceLocations(database, table, ownerColumn, ownerId, ids) {
   ids.forEach((id) => insert.run(ownerId, id));
 }
 
+/** Work is owned by the active org+identity connection, not by whichever account was added first. */
+function executionAccount(database, teamId, input) {
+  const local = database.prepare(`
+    SELECT o.personal FROM teams t JOIN organizations o ON o.id = t.organization_id
+    WHERE t.id = ?
+  `).get(teamId);
+  if (!local) throw new Error("Team not found");
+  if (local.personal) return null;
+  const row = input.connectionId
+    ? database.prepare(`
+        SELECT c.account_user_id AS accountUserId FROM bees_connections c
+        JOIN bees_connection_teams ct ON ct.connection_id = c.id
+        WHERE c.id = ? AND ct.team_id = ?
+      `).get(input.connectionId, teamId)
+    : database.prepare(`
+        SELECT c.account_user_id AS accountUserId FROM bees_connections c
+        JOIN bees_connection_teams ct ON ct.connection_id = c.id
+        WHERE c.account_user_id = ? AND ct.team_id = ?
+      `).get(input.accountUserId ?? "", teamId);
+  if (!row) throw new Error("Choose an account that can access this team");
+  return row.accountUserId;
+}
+
 /** A run is only reachable through the work item or workspace that owns it. */
 function runContext(database, executionId, roles = ["admin", "member"]) {
   const run = database.prepare(`
@@ -227,7 +250,8 @@ export async function executeProductCommand(action, input) {
         SELECT id, workspace_id AS workspaceId FROM processes WHERE id = ? AND archived_at IS NULL
       `).get(processId);
       if (!process) throw new Error("Process not found");
-      workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      const workspace = workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      const accountUserId = executionAccount(this.database, workspace.teamId, input);
       const inputLocationIds = locationIds(this.database, process.workspaceId, input.inputLocationIds);
       const outputLocationId = locationIds(this.database, process.workspaceId,
         input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
@@ -246,10 +270,12 @@ export async function executeProductCommand(action, input) {
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
-          agent_assignment_id, priority, output_location_id, archived_at, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+          agent_assignment_id, priority, output_location_id, account_user_id,
+          archived_at, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
-        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId, at, at);
+        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId,
+        accountUserId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
       return { id };
       });
@@ -769,7 +795,8 @@ export async function executeProductCommand(action, input) {
         if (change.action === "create_item" && !processId)
           throw new Error("The proposed work item's process was not created earlier in this proposal");
         const result = await this.execute(change.action, {
-          ...change, processId: processId ?? change.processId, workspaceId: proposal.workspaceId
+          ...change, processId: processId ?? change.processId, workspaceId: proposal.workspaceId,
+          connectionId: input.connectionId, accountUserId: input.accountUserId
         });
         results.push(result);
         if (change.action === "create_process")

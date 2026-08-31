@@ -1,6 +1,6 @@
 export declare const PROCESS_TASK_QUEUE = "bees-processes-v1";
 export declare function processWorkflowId(workItemId: string): string;
-export declare function recurringScheduleId(recurringWorkId: string): string;
+export declare function recurringScheduleId(recurringWorkId: string, accountUserId?: string): string;
 
 export declare class ProcessRuntime {
   constructor(database: any, options?: {
@@ -11,13 +11,13 @@ export declare class ProcessRuntime {
   input(workItemId: string): any;
   isAutomatic(processId: string): boolean;
   start(runStage: (stage: any, signal?: AbortSignal) => Promise<any>): Promise<void>;
-  recurring(recurringWorkId: string): any;
+  recurring(recurringWorkId: string, accountUserId?: string): any;
   scheduleSpec(recurring: any): any;
   createRecurring(recurringWorkId: string): Promise<any>;
   updateRecurring(recurringWorkId: string): Promise<any>;
   setRecurringPaused(recurringWorkId: string, paused: boolean): Promise<void>;
   deleteRecurring(recurringWorkId: string): Promise<void>;
-  createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string): Promise<any>;
+  createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string, accountUserId?: string): Promise<any>;
   close(): Promise<void>;
   reconcile(): Promise<void>;
   startItem(workItemId: string): Promise<any>;
