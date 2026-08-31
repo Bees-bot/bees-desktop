@@ -68,7 +68,7 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
   );
 }
 
-export function GridStackPage({ layoutId, defaults, panels, preference, preferences, setPageActions, className = "", resizeAlways = false }) {
+export function GridStackPage({ layoutId, defaults, panels, preference, preferences, setPageActions, pageActions, className = "", resizeAlways = false }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => setEditing(false), [layoutId]);
   const layouts = preference.pageLayouts ?? EMPTY_PAGE_LAYOUTS;
@@ -78,10 +78,11 @@ export function GridStackPage({ layoutId, defaults, panels, preference, preferen
   });
   useEffect(() => {
     setPageActions(h("div", { className: "bees-page-actions" },
+      pageActions,
       editing ? h(Button, { onClick: () => preferences.set("pageLayouts", { ...layouts, [layoutId]: [] }) }, "Reset") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")));
     return () => setPageActions(null);
-  }, [editing, layoutId, layouts, preferences, setPageActions]);
+  }, [editing, layoutId, layouts, preferences, setPageActions, pageActions]);
   return h("div", { className: "bees-flex-page" },
     h(FlexibleGrid, { layout, editing, resizeAlways, onLayout: save, panels, className: `bees-page-grid ${className}`.trim() })
   );

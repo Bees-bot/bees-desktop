@@ -28,7 +28,7 @@ function AppearanceSettings({ ctx }) {
         onClick: () => { theme.setTheme(id); setSnapshot(theme.getTheme()); } }, id[0].toUpperCase() + id.slice(1)))));
 }
 
-function AccountSettings({ reload }) {
+function AccountSettings({ reload, openOrganization }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("sign_in");
@@ -115,7 +115,10 @@ function AccountSettings({ reload }) {
         className: "bees-row", key: organization.connectionId
       }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, organization.name),
-        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`))))
+        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`)),
+      ["owner", "admin"].includes(organization.role) ? h(Button, {
+        onClick: () => openOrganization(organization)
+      }, "Invite members") : null))
         : [h(Empty, { key: "empty" }, "No connected organizations yet")])),
     h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
       ...(data.invitations.length ? data.invitations.map((invitation) => h("div", {
@@ -197,18 +200,19 @@ function OrganizationSettings({ organization, connectionId }) {
   useEffect(() => {
     let active = true;
     setPeople(null);
+    setSso(null);
     setError("");
     if (organization?.connected && ["owner", "admin"].includes(organization.role)) {
       Promise.all([
-        collaboration("organization_people", { organizationId: organization.id, connectionId }),
+        collaboration("organization_people", { organizationId: organization.id, connectionId })
+          .then((nextPeople) => { if (active) setPeople(nextPeople); }),
         collaboration("organization_sso", { organizationId: organization.id, connectionId })
-      ]).then(([nextPeople, nextSso]) => {
-        if (active) { setPeople(nextPeople); setSso(nextSso); }
-      })
+          .then((nextSso) => { if (active) setSso(nextSso); })
+      ])
         .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
     }
     return () => { active = false; };
-  }, [organization?.id, connectionId]);
+  }, [organization?.id, organization?.connected, organization?.role, connectionId]);
   if (!organization) return h(Empty, null, "Choose an organization");
   if (!organization.connected) return h("section", { className: "bees-box" }, h("h3", null, organization.name),
     h("p", { className: "bees-muted" }, "This organization is local to this device. Connect an account to invite members."));
@@ -355,7 +359,7 @@ function TeamSettings({ team, organization, connectionId }) {
 }
 
 export function SettingsPage({
-  ctx, data, route, teamId, organizationId, connectionId, modelSettings, preferences, reload
+  ctx, data, route, teamId, organizationId, connectionId, modelSettings, preferences, reload, openOrganization
 }) {
   const connection = data.connections?.find(({ id }) => id === connectionId);
   const connectionTeam = data.connectionTeams?.find((row) =>
@@ -368,7 +372,7 @@ export function SettingsPage({
     : null;
   if (route === "personal-ai") return h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload });
   if (route === "appearance") return h(AppearanceSettings, { ctx });
-  if (route === "organizations") return h(AccountSettings, { reload });
+  if (route === "organizations") return h(AccountSettings, { reload, openOrganization });
   if (route === "connections") return h(ConnectionsSettings);
   if (route === "team-settings") return h(TeamSettings, { team, organization, connectionId });
   if (route === "organization-settings") return h(OrganizationSettings, { organization, connectionId });
