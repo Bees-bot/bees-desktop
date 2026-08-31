@@ -291,6 +291,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     return [];
   };
   const page = route === "home" ? h(Home, {
+    key: parts.workspaceId, capabilities, modelSettings, reload: load,
     ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })

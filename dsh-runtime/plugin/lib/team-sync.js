@@ -1,4 +1,4 @@
-import { stableUuid, transaction } from "./product-database.js";
+import { normalizeRunSettings, stableUuid, transaction } from "./product-database.js";
 
 const TYPES = ["team_location", "agent", "agent_pool", "team_process", "recurring_work", "team_work_item"];
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
@@ -121,8 +121,8 @@ function teamRecords(database, organizationId, connectionId = "") {
            i.agent_assignment_id AS agentId, i.priority, i.runtime_phase AS runtimePhase,
            i.runtime_attempt AS runtimeAttempt, i.runtime_review_cycle AS runtimeReviewCycle,
            i.runtime_error AS runtimeError, i.output_location_id AS outputLocationId,
-           i.recurring_work_id AS recurringWorkId, i.account_user_id AS accountUserId,
-           i.archived_at AS archivedAt,
+           i.recurring_work_id AS recurringWorkId, i.run_settings_json AS runSettingsJson,
+           i.account_user_id AS accountUserId, i.archived_at AS archivedAt,
            i.deleted_at AS deletedAt, i.created_at AS createdAt, i.updated_at AS updatedAt
     FROM work_items i JOIN processes p ON p.id = i.process_id
     JOIN workspaces w ON w.id = p.workspace_id JOIN teams t ON t.id = w.team_id
@@ -134,6 +134,7 @@ function teamRecords(database, organizationId, connectionId = "") {
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
     recurringWorkId: row.recurringWorkId, accountUserId: row.accountUserId,
+    ...(row.runSettingsJson !== "{}" ? { runSettings: json(row.runSettingsJson, {}) } : {}),
     inputLocations: inputLocations(database, "work_item_locations", "work_item_id", row.id),
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
@@ -363,11 +364,15 @@ function applyRecurring(database, record) {
 function applyItem(database, record) {
   if (!newer(database, "work_items", record.recordId, record.version)) return;
   const p = record.payload;
+  // Older clients omit settings. Do not let their metadata updates erase a goal's restrictions.
+  const priorSettings = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
+    .get(record.recordId)?.settings;
+  const settings = normalizeRunSettings(p.runSettings ?? json(priorSettings, {}));
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
        priority, runtime_phase, runtime_attempt, runtime_review_cycle, runtime_error,
-       output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at)
+       output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
     VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, stage_id = excluded.stage_id,
       parent_id = NULL, kind = excluded.kind, title = excluded.title, description = excluded.description,
@@ -377,11 +382,11 @@ function applyItem(database, record) {
       runtime_error = excluded.runtime_error, output_location_id = excluded.output_location_id,
       recurring_work_id = excluded.recurring_work_id, account_user_id = excluded.account_user_id,
       archived_at = excluded.archived_at,
-      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at
-  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,
+      deleted_at = excluded.deleted_at, updated_at = excluded.updated_at, run_settings_json = excluded.run_settings_json       
+  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,         
     p.agentId, p.priority, p.runtimePhase, p.runtimeAttempt, p.runtimeReviewCycle, p.runtimeError,
-    p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,
-    record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt);
+    p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
+    record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
 }
 

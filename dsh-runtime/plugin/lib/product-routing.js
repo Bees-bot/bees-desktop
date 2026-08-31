@@ -115,6 +115,9 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       ensureAgentCapacity(database, selected, selected.name);
     }
     const specialization = specializationFor(database, item.recurringWorkId, selected);
+    if (Object.hasOwn(item.runSettings ?? {}, "model")) selected = {
+      ...selected, model: item.runSettings.model, reasoningEffort: item.runSettings.reasoningEffort
+    };
     const effectiveInstructions = [selected.instructions, specialization?.playbook].filter(Boolean).join("\n\n");
     const agentConfig = JSON.stringify({
       id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,

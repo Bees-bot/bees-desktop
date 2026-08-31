@@ -273,6 +273,12 @@ export async function apply(ctx, _config = {}, internals = {}) {
       reply(res, 200, { history: await product.runHistory(executionId) });
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
+  register(ctx, { kind: "exact", path: "/bees-api/location-file", handler: (req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      reply(res, 200, product.locationFile(url.searchParams.get("locationId") ?? "", url.searchParams.get("path") ?? ""));
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");

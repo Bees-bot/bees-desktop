@@ -301,7 +301,7 @@ export class ProcessRuntime {
       const source = this.database.prepare(`
         SELECT process_id AS processId, title, description, owner,
                agent_assignment_id AS agentAssignmentId, priority,
-               output_location_id AS outputLocationId
+               output_location_id AS outputLocationId, run_settings_json AS runSettingsJson
         FROM work_items WHERE id = ? AND deleted_at IS NULL
       `).get(recurring.sourceWorkItemId);
       if (!source) throw new Error("The recurring work definition is unavailable");
@@ -317,8 +317,9 @@ export class ProcessRuntime {
            priority, output_location_id, recurring_work_id, account_user_id, created_at, updated_at)
         VALUES (?, ?, ?, 'run', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, source.processId, stageId, source.title, source.description, source.owner,
-        source.agentAssignmentId, source.priority, source.outputLocationId, recurring.id,
-        accountUserId || null, at, at);
+        source.agentAssignmentId, source.priority, source.outputLocationId, recurring.id, accountUserId || null, at, at);
+      this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
+        .run(source.runSettingsJson, id);
       this.database.prepare(`
         INSERT INTO work_item_locations
         SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?

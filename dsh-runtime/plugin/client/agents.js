@@ -1,7 +1,7 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
-import { ResourceFields } from "./location-fields.js";
+import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
@@ -35,7 +35,7 @@ function agentModelLabel(group, model) {
   return model.name === model.id ? model.id : `${model.name} (${model.id})`;
 }
 
-function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true }) {
+export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true, refreshKey = 0 }) {
   const [catalog, setCatalog] = useState({ groups: [], failures: [], loading: true, error: "" });
   const [route, setRoute] = useState(value);
   const [reasoningEffort, setReasoningEffort] = useState(effort);
@@ -49,7 +49,7 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
         error: reason instanceof Error ? reason.message : String(reason) });
     });
     return () => { mounted = false; };
-  }, [ctx]);
+  }, [ctx, refreshKey]);
   const groups = [...catalog.groups].sort((left, right) =>
     left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   const codex = groups.find(({ id }) => id === "openai-codex");
@@ -59,7 +59,7 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
   });
   const routes = new Set(groups.flatMap((group) => group.models.map((model) => `${group.id}/${model.id}`)));
   for (const channel of channels) routes.add(channel.route);
-  const preserveCurrent = value && (catalog.loading || catalog.error || !routes.has(value));
+  const preserveCurrent = route && (catalog.loading || catalog.error || !routes.has(route));
   const selectedModel = channels.find((channel) => channel.route === route)?.model ?? groups.flatMap(({ id, models }) =>
     models.map((model) => ({ ...model, route: `${id}/${model.id}` }))).find((model) => model.route === route);
   const efforts = selectedModel?.reasoning?.efforts ?? [];
@@ -77,8 +77,8 @@ function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSy
     } },
       allowSystemDefault ? h("option", { value: "" }, catalog.loading ? `${systemDefaultLabel} (loading available models…)` : systemDefaultLabel)
         : !route ? h("option", { value: "", disabled: true }, catalog.loading ? "Loading available models…" : "Choose a model") : null,
-      preserveCurrent ? h("option", { value }, catalog.loading ? `Current: ${value}`
-        : catalog.error ? `Current: ${value} (catalog unavailable)` : `Current: ${value} (unavailable)`) : null,
+      preserveCurrent ? h("option", { value: route }, catalog.loading ? `Current: ${route}`
+        : catalog.error ? `Current: ${route} (catalog unavailable)` : `Current: ${route} (unavailable)`) : null,
       ...groups.flatMap((group) => [
         h("option", { value: `__provider_${group.id}`, disabled: true, key: `provider:${group.id}` }, group.name),
         ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
@@ -132,11 +132,11 @@ export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
 
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-function McpAccess({ servers, access, chosen }) {
+export function McpAccess({ servers, access, chosen, label = "MCP servers this agent may use" }) {
   const [mode, setMode] = useState(access ?? "all");
   const picked = new Set(chosen ?? []);
   return h(React.Fragment, null,
-    h("label", null, "MCP servers this agent may use",
+    h("label", null, label,
       h("select", { className: "bees-select", name: "mcpAccess", value: mode,
         onChange: (event) => setMode(event.target.value) },
         h("option", { value: "all" }, "Every connected server"),
@@ -153,7 +153,7 @@ function McpAccess({ servers, access, chosen }) {
       servers.length ? null : h("span", { className: "bees-muted" }, "Nothing to pick yet.")) : null);
 }
 
-export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false }) {
+export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false, processId = null }) {
   const presets = data.presets.filter(({ broken }) => !broken);
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
@@ -207,15 +207,16 @@ export function AgentCreateForm({ ctx, data, servers, workspaceId, act, onCancel
     ),
     
     h(McpAccess, { servers }),
+    h("p", { className: "bees-muted" }, "Process and work inputs are included automatically when this agent runs."),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false }),
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
 
-export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents" }) {
+export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onSaved, cancelLabel = "← Agents", processId = null }) {
   const [inputLocationIds, setInputLocationIds] = useState(() =>
     data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId));
   const teamId = data.workspaces.find(({ id }) => id === selected.workspaceId)?.teamId;
@@ -267,8 +268,9 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
     ),
     
     h(McpAccess, { servers, access: selected.mcpAccess, chosen: selected.mcpServers }),
+    h("p", { className: "bees-muted" }, "Process and work inputs are included automatically when this agent runs."),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false }),
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
     h("p", { className: "bees-muted" }, selected.systemRole ? "Bees keeps the runtime completion protocol protected. These instructions customize how this team's built-in agent performs its role." : "These instructions are mounted with the selected DSH preset."),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"))

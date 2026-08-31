@@ -1,5 +1,6 @@
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -86,6 +87,149 @@ describe("Bees DSH product plugin", () => {
     expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
     expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");
     rmSync(root, { recursive: true });
+  });
+
+  it("browses mapped inputs before runs and rejects unavailable or escaped files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-location-preview-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const product = new BeesProduct(database.connection, agents, null, root);
+      const initial = await product.snapshot();
+      const teamId = initial.teams[0].id;
+      const folder = join(root, "approved");
+      mkdirSync(join(folder, "nested"), { recursive: true });
+      writeFileSync(join(folder, "nested", "brief.md"), "# Brief");
+      writeFileSync(join(folder, ".hidden.md"), "hidden");
+      writeFileSync(join(folder, "large.txt"), "x".repeat(1_000_001));
+      writeFileSync(join(folder, "image.png"), "binary");
+      writeFileSync(join(root, "private.md"), "private");
+      symlinkSync(join(root, "private.md"), join(folder, "escape.md"));
+      const location = await product.command({ action: "add_location", teamId, name: "Inputs", kind: "folder", path: folder });
+      expect(product.locationFile(location.id).entries.map((row: any) => row.name))
+        .toEqual(["nested", "image.png", "large.txt"]);
+      expect(product.locationFile(location.id, "nested").entries)
+        .toEqual([{ name: "brief.md", path: "nested/brief.md", kind: "file" }]);
+      expect(product.locationFile(location.id, "nested/brief.md"))
+        .toMatchObject({ format: "markdown", content: "# Brief" });
+      for (const path of ["../private.md", "/private.md", "escape.md", ".hidden.md", "large.txt", "image.png"])
+        expect(() => product.locationFile(location.id, path)).toThrow();
+      const file = await product.command({ action: "add_location", teamId, name: "Brief", kind: "file", path: join(folder, "nested", "brief.md") });
+      expect(product.locationFile(file.id).content).toBe("# Brief");
+      expect(() => product.locationFile(file.id, "other.md")).toThrow("already a file");
+      await product.command({ action: "unmap_location", locationId: file.id });
+      expect(() => product.locationFile(file.id)).toThrow("not mapped");
+      database.connection.prepare("UPDATE team_memberships SET status = 'removed' WHERE team_id = ?").run(teamId);
+      database.connection.prepare("UPDATE organization_memberships SET status = 'removed'").run();
+      expect(() => product.locationFile(location.id)).toThrow("permission");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("stages process, work, and agent inputs once and follows process changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-inherited-inputs-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
+      const initial = await product.snapshot();
+      const { id: workspaceId } = initial.workspaces[0];
+      const { id: teamId } = initial.teams[0];
+      writeFileSync(join(root, "process.md"), "process");
+      writeFileSync(join(root, "agent.md"), "agent");
+      writeFileSync(join(root, "work.md"), "work");
+      const locations = [];
+      for (const name of ["process", "agent", "work"])
+        locations.push(await product.command({ action: "add_location", teamId, name, kind: "file", path: join(root, `${name}.md`) }));
+      const workflow = await product.command({ action: "create_process", workspaceId, name: "Attachments", stages: ["Draft", "Done"], inputLocationIds: [locations[0].id] });
+      const agent = await product.command({ action: "add_agent_assignment", workspaceId, presetId: "standard", name: "Writer", inputLocationIds: [locations[0].id, locations[1].id] });
+      const work = await product.command({ action: "create_item", processId: workflow.id, title: "Write", inputLocationIds: [locations[2].id] });
+      const { stageInputs } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-files.js");
+      const first = stageInputs(database.connection, work.id, join(root, "run-1"), agent.id);
+      expect(first.map((row: any) => row.name)).toEqual(["agent", "process", "work"]);
+      for (const row of first)
+        expect(readFileSync(join(root, "run-1", row.stagedPath, `${row.name}.md`), "utf8")).toBe(row.name);
+      await product.command({ action: "detach_location", processId: workflow.id, locationId: locations[0].id });
+      expect(stageInputs(database.connection, work.id, join(root, "run-2"), null).map((row: any) => row.name)).toEqual(["work"]);
+      expect((await product.snapshot()).attachments.filter((row: any) => row.workItemId === work.id))
+        .toEqual([{ workItemId: work.id, locationId: locations[2].id, relativePath: "" }]);
+      const folder = await product.command({ action: "add_location", teamId, name: "Folder", kind: "folder", path: root });
+      for (const owner of [{ itemId: work.id }, { processId: workflow.id }]) {
+        for (const relativePath of ["process.md", "agent.md"])
+          await product.command({ ...owner, action: "attach_location", locationId: folder.id, relativePath });
+        await product.command({ ...owner, action: "detach_location", locationId: folder.id, relativePath: "process.md" });
+        const snapshot = await product.snapshot();
+        const refs = owner.itemId ? snapshot.attachments : snapshot.processAttachments;
+        expect(refs.filter((row: any) => row.locationId === folder.id).map((row: any) => row.relativePath)).toEqual(["agent.md"]);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("keeps goal model and tool settings isolated and inherits them before delegated work starts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-goal-setup-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const starts: any[] = [];
+      const product = new BeesProduct(database.connection, agents, { startItem: async (id: string) => {
+        starts.push({ item: database.connection.prepare("SELECT * FROM work_items WHERE id = ?").get(id),
+          inputs: database.connection.prepare("SELECT * FROM work_item_locations WHERE work_item_id = ?").all(id) });
+        return {};
+      } }, root);
+      const initial = await product.snapshot();
+      const workspaceId = initial.workspaces[0].id;
+      const teamId = initial.teams[0].id;
+      const process = initial.processes.find((row: any) => row.kind === "goals");
+      const stages = initial.stages.filter((row: any) => row.processId === process.id && !row.isTerminal);
+      writeFileSync(join(root, "brief.md"), "approved context");
+      const input = await product.command({ action: "add_location", teamId, name: "Brief", kind: "file", path: join(root, "brief.md") });
+      const output = await product.command({ action: "add_location", teamId, name: "Results", kind: "folder", path: root });
+      const settings = { model: "test/goal-model", reasoningEffort: "high", mcpAccess: "none", mcpServers: [] };
+      const goal = await product.command({ action: "create_goal", workspaceId, title: "Research", runSettings: settings,
+        inputLocationIds: [input.id], outputLocationId: output.id });
+      expect(JSON.parse(starts[0].item.run_settings_json)).toEqual(settings);
+      expect(starts[0].inputs).toHaveLength(1);
+      for (const stage of stages) await product.runProcessStage({ executionId: `goal-${stage.id}`, workItemId: goal.id,
+        stageId: stage.id, stageName: stage.name, purpose: stage.driver === "review" ? "reviewer" : "worker" }, undefined);
+      const configs = execute.mock.calls.map((call: any) => call[1].initialData);
+      expect(configs).toHaveLength(2);
+      for (const config of configs) expect(config).toMatchObject(settings);
+      expect(configs[0].agentId).not.toBe(configs[1].agentId);
+      expect(configs.find((config: any) => config.mode === "review").grants).toEqual([]);
+      const child = (await product.createSubitems({ parentId: goal.id, items: [{ title: "Research sources" }] }))[0];
+      expect(JSON.parse(starts[1].item.run_settings_json)).toEqual(settings);
+      expect(starts[1].inputs.map((row: any) => row.location_id)).toEqual([input.id]);
+      expect(starts[1].item.output_location_id).toBe(output.id);
+      const snapshot = await product.snapshot();
+      expect(snapshot.items.find((row: any) => row.id === child.id).runSettings).toEqual(settings);
+      expect(snapshot.assignments).toEqual(initial.assignments);
+      const ordinary = await product.command({ action: "create_goal", workspaceId, title: "Unchanged defaults" });
+      expect((await product.snapshot()).items.find((row: any) => row.id === ordinary.id).runSettings).toEqual({});
+      const system = await product.command({ action: "create_goal", workspaceId, title: "System model", runSettings: { model: null } });
+      expect((await product.snapshot()).items.find((row: any) => row.id === system.id).runSettings)
+        .toEqual({ model: null, reasoningEffort: null });
+      const count = snapshot.items.length + 2;
+      for (const runSettings of [[], { model: "bad-route" }, { model: 42 }, { mcpAccess: "invalid" },
+        { mcpAccess: "listed", mcpServers: [] }, { reasoningEffort: "high" }, { grants: [output.id] }]) {
+        await expect(product.command({ action: "create_goal", workspaceId, title: "Invalid", runSettings })).rejects.toThrow();
+      }
+      expect((await product.snapshot()).items).toHaveLength(count);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("intersects a goal's selected connections with the agent policy", async () => {
+    const database = new NodeDatabase();
+    database.connection.exec(`INSERT INTO mcp_servers (id, server_name, label, transport, enabled, created_at)
+      VALUES ('a', 'alpha', 'Alpha', 'stdio', 1, ''), ('b', 'beta', 'Beta', 'stdio', 1, ''), ('off', 'offline', 'Offline', 'stdio', 0, '');`);
+    const { mcpGrantFor } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-database.js");
+    const agent = String(database.connection.prepare("SELECT id FROM agent_assignments LIMIT 1").get()!.id);
+    const selected = { mcpAccess: "listed", mcpServers: ["a", "b", "off"] };
+    expect(mcpGrantFor(database.connection, agent, selected)).toEqual({ mcpAccess: "listed", mcpServers: ["alpha", "beta"] });
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'listed', mcp_servers_json = '[\"b\"]' WHERE id = ?").run(agent);
+    expect(mcpGrantFor(database.connection, agent, selected)).toEqual({ mcpAccess: "listed", mcpServers: ["beta"] });
+    expect(mcpGrantFor(database.connection, agent, { mcpAccess: "none" })).toEqual({ mcpAccess: "none", mcpServers: [] });
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'none' WHERE id = ?").run(agent);
+    expect(mcpGrantFor(database.connection, agent, { mcpAccess: "all" })).toEqual({ mcpAccess: "none", mcpServers: [] });
   });
 
   it("restarts a standalone planning question without changing its waiting state", async () => {
@@ -210,7 +354,7 @@ describe("Bees DSH product plugin", () => {
 
     const created = await product.command({
       action: "create_goal", workspaceId: workspace.id, title: "Ship Stage 1",
-      description: "Make DSH the product runtime"
+      description: "Make DSH the product runtime", runSettings: { model: "test/goal", mcpAccess: "none" }
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
       id: created.id, stageId: work.id, kind: "goal", title: "Ship Stage 1", runtimePhase: "running",
@@ -250,7 +394,8 @@ describe("Bees DSH product plugin", () => {
     const scheduled = await product.snapshot();
     expect(scheduled.items).toContainEqual(expect.objectContaining({
       id: recurring.sourceWorkItemId, parentId: null, stageId: work.id,
-      title: "Ship Stage 1", runtimePhase: "ready", recurringWorkId: recurring.id
+      title: "Ship Stage 1", runtimePhase: "ready", recurringWorkId: recurring.id,
+      runSettings: { model: "test/goal", reasoningEffort: null, mcpAccess: "none", mcpServers: [] }
     }));
     expect(scheduled.items.some(({ parentId }: any) => parentId === recurring.sourceWorkItemId)).toBe(false);
     expect(scheduled.attachments).toContainEqual(expect.objectContaining({
@@ -261,6 +406,9 @@ describe("Bees DSH product plugin", () => {
       scheduleId: `bees/recurring/${recurring.id}`,
       spec: { calendars: [{ hour: 9, minute: 0 }], timezone: "America/Los_Angeles" }
     }));
+    const occurrence = await processes.createRecurringWorkItem(recurring.id);
+    expect((await product.snapshot()).items.find((item: any) => item.id === occurrence.workItemId)?.runSettings)
+      .toEqual({ model: "test/goal", reasoningEffort: null, mcpAccess: "none", mcpServers: [] });
 
     expect((await product.snapshot()).attachments).toEqual(expect.arrayContaining([
       expect.objectContaining({ workItemId: created.id, locationId: location.id }),

@@ -104,6 +104,8 @@ describe("team coordination projection", () => {
       VALUES (?, ?, ?, 'work', 'Write brief', '', ?, ?, ?, ?, ?)
     `).run(itemId, processId, workStageId, agentId, locationId, recurringId, at, at);
     source.connection.prepare("INSERT INTO work_item_locations VALUES (?, ?, '')").run(itemId, locationId);
+    const runSettings = { model: "test/careful", reasoningEffort: "high", mcpAccess: "none", mcpServers: [] };
+    source.connection.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?").run(JSON.stringify(runSettings), itemId);
 
     const records = teamRecords(source.connection, organizationId);
     expect(records.map(({ recordType }) => recordType)).toEqual(expect.arrayContaining([
@@ -127,5 +129,18 @@ describe("team coordination projection", () => {
       .toEqual({ kind: "calendar" });
     expect(target.connection.prepare("SELECT title FROM work_items WHERE id = ?").get(itemId))
       .toEqual({ title: "Write brief" });
+    expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
+      .toEqual(runSettings);
+    const legacy = structuredClone(records.find((record) => record.recordType === "team_work_item")!);
+    delete (legacy.payload as any).runSettings;
+    legacy.version += 1000;
+    legacy.payload.updatedAt = new Date(legacy.version).toISOString();
+    applyTeamRecords(target.connection, organizationId, [legacy]);
+    expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
+      .toEqual(runSettings);
+    const invalid = structuredClone(legacy);
+    invalid.version += 1000;
+    (invalid.payload as any).runSettings = { mcpAccess: "everything" };
+    expect(() => applyTeamRecords(target.connection, organizationId, [invalid])).toThrow("Choose all, none, or listed");
   });
 });

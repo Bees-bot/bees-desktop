@@ -87,7 +87,8 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
            w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
-           w.owner, w.priority, w.account_user_id AS accountUserId,
+           w.owner, w.priority, w.run_settings_json AS runSettingsJson,
+           w.account_user_id AS accountUserId,
            w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
            p.workspace_id AS workspaceId, p.kind AS processKind
     FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -95,7 +96,7 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   `).get(required(itemId, "Work item"));
   if (!row) throw new Error("Work item not found");
   workspaceContext(database, row.workspaceId, roles);
-  return row;
+  return { ...row, runSettings: JSON.parse(row.runSettingsJson || "{}") };
 }
 
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
@@ -559,6 +560,9 @@ export function initializeProductDatabase(database) {
     "ALTER TABLE processes ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
   );
   const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
+  if (!itemColumns.has("run_settings_json")) database.exec(
+    "ALTER TABLE work_items ADD COLUMN run_settings_json TEXT NOT NULL DEFAULT '{}'"
+  );
   if (!itemColumns.has("output_location_id")) database.exec(
     "ALTER TABLE work_items ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
   );
@@ -663,17 +667,46 @@ export function initializeProductDatabase(database) {
  * Read by id at dispatch, not carried through routing: a rerun reuses its recorded agent config,
  * which would pin a policy the owner has since changed.
  */
-export function mcpGrantFor(database, agentAssignmentId) {
+export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   const row = database.prepare(`
     SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
   `).get(required(agentAssignmentId, "Agent"));
   if (!row) throw new Error("Agent not found");
-  if (row.access !== "listed") return { mcpAccess: row.access, mcpServers: [] };
+  if (row.access === "none" || runSettings.mcpAccess === "none") return { mcpAccess: "none", mcpServers: [] };
+  if (row.access !== "listed" && runSettings.mcpAccess !== "listed") return { mcpAccess: row.access, mcpServers: [] };
+  // A goal can narrow an agent's tool access, never widen its configured policy.
+  const servers = row.access === "listed" ? JSON.parse(row.servers) : runSettings.mcpServers;
+  const allowed = runSettings.mcpAccess === "listed"
+    ? servers.filter((id) => runSettings.mcpServers.includes(id)) : servers;
   return {
     mcpAccess: "listed",
     mcpServers: database.prepare(`
       SELECT server_name AS name FROM mcp_servers
       WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
-    `).all(row.servers).map(({ name }) => name)
+    `).all(JSON.stringify(allowed)).map(({ name }) => name)
   };
+}
+
+/** Goal overrides travel with work; validate remote metadata as well as local commands. */
+export function normalizeRunSettings(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Run settings must be an object");
+  for (const key of Object.keys(value))
+    if (!["model", "reasoningEffort", "mcpAccess", "mcpServers"].includes(key)) throw new Error(`Unknown run setting: ${key}`);
+  const settings = {};
+  if (Object.hasOwn(value, "model")) {
+    if (value.model !== null && (typeof value.model !== "string" || value.model.length > 512 || !/^[^/\s]+\/\S+$/.test(value.model)))
+      throw new Error("Choose a valid provider/model or the system default");
+    settings.model = value.model;
+    settings.reasoningEffort = optionalReasoningEffort(value.reasoningEffort);
+  } else if (value.reasoningEffort) throw new Error("Choose a model before setting reasoning effort");
+  if (Object.hasOwn(value, "mcpAccess")) {
+    if (!["all", "none", "listed"].includes(value.mcpAccess)) throw new Error("Choose all, none, or listed MCP servers");
+    if (value.mcpServers !== undefined && (!Array.isArray(value.mcpServers) || value.mcpServers.length > 128 ||
+        value.mcpServers.some((id) => typeof id !== "string" || !id || id.length > 128)))
+      throw new Error("Choose valid MCP server identifiers");
+    settings.mcpAccess = value.mcpAccess;
+    settings.mcpServers = value.mcpAccess === "listed" ? [...new Set(value.mcpServers ?? [])] : [];
+    if (value.mcpAccess === "listed" && !settings.mcpServers.length) throw new Error("Choose at least one MCP server, or pick none");
+  } else if (value.mcpServers !== undefined) throw new Error("Choose a tool access policy");
+  return settings;
 }
