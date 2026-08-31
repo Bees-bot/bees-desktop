@@ -1,4 +1,4 @@
-import { h, useState } from "./runtime.js";
+import { h, useState, React } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
@@ -71,14 +71,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       if (!wasTemplate) setProcessId(id);
     }
   });
-  const edit = async (process) => {
-    const name = await ask("Process name", process.name); if (!name) return;
-    const description = await ask("Description", process.description) ?? process.description;
-    const current = data.stages.filter(({ processId }) => processId === process.id).map(({ name }) => name);
-    const listed = await ask("Stages, comma separated", current.join(", ")); if (listed === null) return;
-    const stages = listed.split(",").map((value) => value.trim()).filter(Boolean);
-    await act({ action: "edit_process", processId: process.id, name, description, stages });
-  };
+
   if (processId) {
     const process = processes.find(({ id }) => id === processId);
     if (process) {
@@ -86,6 +79,22 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const processStages = data.stages.filter(({ processId }) => processId === process.id);
       const processAgents = data.assignments.filter(({ workspaceId }) => workspaceId === process.workspaceId);
       const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
+      
+      const editProcess = async () => {
+        const name = await ask("Process name", process.name); if (!name) return;
+        const description = await ask("Description", process.description) ?? process.description;
+        const current = data.stages.filter(({ processId }) => processId === process.id).map(({ name }) => name);
+        const listed = await ask("Stages, comma separated", current.join(", ")); if (listed === null) return;
+        const stages = listed.split(",").map((value) => value.trim()).filter(Boolean);
+        await act({ action: "edit_process", processId: process.id, name, description, stages });
+      };
+      
+      const copyProcess = async () => {
+        const name = await ask("New process name", process.name + " Copy"); if (!name) return;
+        const result = await act({ action: "copy_process", processId: process.id, name });
+        if (result?.id) setProcessId(result.id);
+      };
+
       const setStageRoute = async (stage, value) => {
         const separator = value.indexOf(":");
         await act({
@@ -175,23 +184,35 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process without breaking work history or database links."),
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
 
-      return h("div", { className: "bees-grow", style: { display: "flex", flexDirection: "column", height: "100%", gap: "16px", padding: "0 16px 24px" } },
+      const pageActions = h(React.Fragment, null,
+          h(Button, { onClick: editProcess }, "Edit process"),
+          process.kind === "standard" ? h(Button, { onClick: copyProcess }, "Copy process") : null,
+          process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
+      );
+
+      const routingPanel = h("div", null,
         h(PageHead, { setPageHeader },
           h(Button, { onClick: () => setProcessId("") }, "← Processes"),
           h("div", { className: "bees-title" }, process.name)
         ),
-        h(PageHead, { setPageHeader: setPageActions },
-          process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
-        ),
-        h("details", { className: "bees-box" },
+        h("details", { className: "bees-box", style: { marginBottom: "16px" } },
           h("summary", null, `Files & folders · ${attached.length} inputs`),
           h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
             owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "" })),
-        routingBoard,
-        agentForm,
-        archive
+        routingBoard
       );
+
+      const agentPanel = agentForm || h(Empty, null, "Select an agent to view or edit");
+
+      return h(GridStackPage, {
+        layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
+        panels: {
+          routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
+          agent: { label: "Agent Settings", minW: 6, minH: 4, content: agentPanel },
+          archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
+        }
+      });
     }
   }
   if (route === "templates") {
@@ -219,10 +240,8 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
   const processList = h("div", null,
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
-      return h("div", { className: "bees-row", key: process.id },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))),
-        h(Button, { onClick: () => setProcessId(process.id) }, "Open"),
-        h(Button, { onClick: () => edit(process) }, "Edit"));
+      return h("div", { className: "bees-row", style: { cursor: "pointer" }, key: process.id, onClick: () => setProcessId(process.id) },
+        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))));
     }) : [h(Empty, { key: "empty" }, "No processes yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,

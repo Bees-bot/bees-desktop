@@ -469,6 +469,62 @@ export async function executeProductCommand(action, input) {
         JSON.stringify(stages), at, at);
       return { id };
     });
+    if (action === "copy_process") return transaction(this.database, () => {
+      const processId = required(input.processId, "Process");
+      const process = processContext(this.database, processId, ["admin", "member"]);
+      const workspaceId = process.workspaceId;
+      const name = required(input.name, "New process name");
+
+      // Duplicate process agents assigned to stages
+      const stages = this.database.prepare(`SELECT * FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position`).all(processId);
+      const stageRoutes = this.database.prepare(`SELECT * FROM stage_routes WHERE stage_id IN (SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL)`).all(processId);
+      
+      const uniqueAgentIds = [...new Set(stageRoutes.filter(r => r.agent_assignment_id).map(r => r.agent_assignment_id))];
+      const oldToNewAgentId = {};
+      for (const oldAgentId of uniqueAgentIds) {
+        const agent = this.database.prepare(`SELECT * FROM agent_assignments WHERE id = ?`).get(oldAgentId);
+        if (!agent) continue;
+        
+        // Don't duplicate workspace-wide default agents (they must be unique per role)
+        if (agent.system_role !== null) {
+          oldToNewAgentId[oldAgentId] = oldAgentId;
+          continue;
+        }
+
+        const newAgentId = randomUUID();
+        let newName = agent.name + " (Copy)";
+        let counter = 1;
+        while (this.database.prepare("SELECT 1 FROM agent_assignments WHERE workspace_id = ? AND name = ?").get(workspaceId, newName)) {
+          counter++;
+          newName = `${agent.name} (Copy ${counter})`;
+        }
+        
+        this.database.prepare(`
+          INSERT INTO agent_assignments (id, workspace_id, preset_id, name, description, instructions, model, reasoning_effort, system_role, capabilities_json, enabled, max_concurrency, created_at, updated_at, mcp_access, mcp_servers_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(newAgentId, workspaceId, agent.preset_id, newName, agent.description, agent.instructions, agent.model, agent.reasoning_effort, agent.system_role, agent.capabilities_json, agent.enabled, agent.max_concurrency, at, at, agent.mcp_access, agent.mcp_servers_json);
+        this.database.prepare(`INSERT INTO agent_locations (agent_assignment_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM agent_locations WHERE agent_assignment_id = ?`).run(newAgentId, oldAgentId);
+        oldToNewAgentId[oldAgentId] = newAgentId;
+      }
+
+      // Duplicate the process
+      const newProcessId = randomUUID();
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, process.kind, name, process.description, process.output_location_id, at, at);
+      this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
+
+      // Duplicate the stages and routes
+      for (const stage of stages) {
+        const newStageId = randomUUID();
+        this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.is_terminal);
+        const route = stageRoutes.find(r => r.stage_id === stage.id);
+        if (route) {
+          const mappedAgentId = route.agent_assignment_id ? (oldToNewAgentId[route.agent_assignment_id] || route.agent_assignment_id) : null;
+          this.database.prepare(`INSERT INTO stage_routes (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(newStageId, mappedAgentId, route.agent_pool_id, route.required_capabilities_json, at, at);
+        }
+      }
+
+      return { id: newProcessId };
+    });
     if (action === "save_process_template") return transaction(this.database, () => {
       const process = processContext(this.database, input.processId, ["admin", "member"]);
       const source = this.database.prepare("SELECT name, description FROM processes WHERE id = ?").get(process.id);
