@@ -127,9 +127,9 @@ describe("Bees work cockpit UI", () => {
 
   it("uses one agent interaction card in Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(1);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
-    expect(client).toContain('"aria-expanded": live.run.id === selected?.run.id');
+    expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');
     expect(client).toContain("function NeedsYouControls");
     expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
@@ -187,8 +187,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"Filter by status"');
     expect(client).toContain('"Filter by type"');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
-    expect(client).toContain('openLabel: selected.item ? "Open work" : "Open run"');
-    expect(client).toContain('item ? () => openWorkItem(item.id) : () => openRun(run.id)');
     expect(client).toContain('setRunId(result.executionId)');
   });
 
