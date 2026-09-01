@@ -912,42 +912,43 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
   const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const listedItemIds = new Set();
-  const records = rowsForRoute("waiting").map((row) => {
-    listedItemIds.add(row.id);
-    return { id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) };
-  });
-  for (const live of queue.rows) if (!live.item || !listedItemIds.has(live.item.id)) {
-    records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
+  const records = rowsForRoute("waiting")
+    .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
+    .filter((record) => record.live);
+    
+  for (const live of queue.rows) {
+    if (!live.item || !listedItemIds.has(live.item.id)) {
+      records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
+    }
   }
+  
   const visibleRecords = records.slice(0, limit);
-  const visibleLiveRows = visibleRecords.flatMap(({ live }) => live ? [live] : []);
-  const selected = visibleLiveRows.find(({ run }) => run.id === queue.selectedId);
+  const selected = visibleRecords.find(({ live }) => live.run.id === queue.selectedId)?.live;
   const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);
+
   return h("div", { className: "bees-dashboard-needs" },
     visibleRecords.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
       const { live } = record;
-      const isSelected = Boolean(live && selected && live.run.id === selected.run.id);
-      const panelId = live ? `bees-dashboard-need-${live.run.id}` : undefined;
+      const isSelected = Boolean(selected && live.run.id === selected.run.id);
+      const panelId = `bees-dashboard-need-${live.run.id}`;
       return h(React.Fragment, { key: record.id },
         h("div", { className: "bees-dashboard-need-row" },
           h("button", {
             type: "button", className: `bees-dashboard-row ${isSelected ? "active" : ""}`,
-            title: record.label, ...(live ? {
-              "aria-expanded": isSelected, "aria-controls": panelId,
-              onClick: () => select(live.run.id)
-            } : { onClick: record.open })
+            title: record.label, "aria-expanded": isSelected, "aria-controls": panelId,
+            onClick: () => select(live.run.id)
           }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
-            h("span", { className: "bees-badge" }, live ? interactionName(live.session?.pendingInteraction) : "Blocked")),
-          h("button", {
+            h("span", { className: "bees-badge" }, interactionName(live.session?.pendingInteraction))),
+          record.open ? h("button", {
             type: "button", className: "bees-dashboard-launch", title: `Open ${record.label}`,
             "aria-label": `Open ${record.label}`, onClick: record.open
-          }, "↗")),
+          }, "↗") : null),
         isSelected ? h("div", { className: "bees-dashboard-needs-answer", id: panelId },
           h(AgentInteractionPanel, {
             run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
             session: queue.session, interaction: queue.interaction, handled: queue.handled,
-            onAnswered: (key) => queue.answered(key, visibleLiveRows), act,
-            onControlled: () => queue.answered(`control:${selected.run.id}`, visibleLiveRows)
+            onAnswered: (key) => queue.answered(key, visibleRecords.map(r => r.live)), act,
+            onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null
       );
     })) : h(Empty, null, "Nothing needs you right now.")
