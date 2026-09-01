@@ -602,8 +602,10 @@ export function initializeProductDatabase(database) {
       WHEN lower(name) LIKE '%review%' THEN 'review'
       ELSE 'agent'
     END;
-    PRAGMA user_version = 8;
   `);
+  // This runs on every init, and init runs twice per boot. Setting the version in here put every
+  // install back to 8 after the migrations below had run, so they ran again on every start.
+  if (version < 8) database.exec("PRAGMA user_version = 8");
   if (version < 9) database.exec(`
     DELETE FROM bees_search WHERE kind = 'file';
     PRAGMA user_version = 9;
