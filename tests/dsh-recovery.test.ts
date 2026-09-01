@@ -68,6 +68,10 @@ describe("DSH-owned desktop and recovery", () => {
     expect(entry).not.toContain("/bees-auth?token=");
     expect(tauri).toContain('"{}/bees-auth?token={}"');
     expect(tauri).toContain(".navigate(url)");
+    expect(tauri).toContain("model_id: Option<String>");
+    expect(localAiClient).toContain('status?.state === "starting"');
+    expect(readFileSync(new URL("../src-tauri/src/local_models.rs", import.meta.url), "utf8"))
+      .toContain("starts: Mutex<HashMap<String, Arc<AtomicBool>>>");
     expect(tauri).toContain('body.contains(r#""product":"bees""#)');
     expect(profile).toMatch(/id: ui-settings-models\n  disabled: true/);
     expect(profile).toContain("local-openai:");

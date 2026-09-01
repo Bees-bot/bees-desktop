@@ -6,13 +6,29 @@ import {
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { drive } from "@googleapis/drive";
 import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
+import { knowledgeMarkdown, officeMarkdown } from "./document-extractor.js";
 
 const tokenCredential = "BEES_GOOGLE_DRIVE_OAUTH";
 const profileCredential = "BEES_GOOGLE_DRIVE_PROFILE";
+const requiredScopes = [
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/forms.body.readonly"
+];
 const pointerFormats = {
-  ".gdoc": { mimeType: "text/markdown", extension: ".md", type: "document" },
-  ".gsheet": { mimeType: "text/csv", extension: ".csv", type: "spreadsheet" },
-  ".gslides": { mimeType: "text/plain", extension: ".txt", type: "presentation" }
+  ".gdoc": {
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    fileType: "docx", type: "document"
+  },
+  ".gsheet": {
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    fileType: "xlsx", type: "spreadsheet"
+  },
+  ".gslides": {
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    fileType: "pptx", type: "presentation"
+  },
+  ".gdraw": { mimeType: "image/svg+xml", type: "drawing" },
+  ".gform": { type: "form" }
 };
 pointerFormats[".gslide"] = pointerFormats[".gslides"];
 
@@ -57,23 +73,136 @@ function pointers(location) {
 function hasExport(path) {
   try {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (entry.isFile() && [".md", ".csv", ".txt"].includes(extname(entry.name).toLowerCase())) return true;
+      if (entry.isFile() && extname(entry.name).toLowerCase() === ".md") return true;
       if (entry.isDirectory() && hasExport(join(path, entry.name))) return true;
     }
   } catch { /* A missing cache is simply unavailable. */ }
   return false;
 }
 
-function frontmatter(file, type) {
-  const values = {
-    source_id: file.id,
-    source_url: file.webViewLink,
-    google_type: type,
-    created_at: file.createdTime,
-    modified_at: file.modifiedTime
-  };
-  return `---\n${Object.entries(values).filter(([, value]) => value)
-    .map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}\n---\n\n`;
+function clean(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function decodeXml(value) {
+  const named = { amp: "&", apos: "'", gt: ">", lt: "<", quot: '"' };
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|apos|gt|lt|quot);/gi, (match, entity) => {
+    if (!entity.startsWith("#")) return named[entity.toLowerCase()] ?? match;
+    const number = Number.parseInt(entity.slice(entity[1]?.toLowerCase() === "x" ? 2 : 1),
+      entity[1]?.toLowerCase() === "x" ? 16 : 10);
+    try { return Number.isFinite(number) ? String.fromCodePoint(number) : match; } catch { return match; }
+  });
+}
+
+export function drawingMarkdown(svg, title = "Google Drawing") {
+  const text = decodeXml(String(svg ?? "")
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/(?:desc|text|textPath|title|tspan)>/gi, "\n")
+    .replace(/<[^>]+>/g, " "))
+    .split(/\r?\n/).map(clean).filter(Boolean).join("\n");
+  return [`# ${clean(title) || "Google Drawing"}`, text].filter(Boolean).join("\n\n");
+}
+
+function questionMarkdown(question) {
+  const lines = [];
+  if (question?.required) lines.push("- Required: yes");
+  if (question?.choiceQuestion) {
+    const choice = question.choiceQuestion;
+    lines.push(`- Response: ${clean(choice.type).toLocaleLowerCase().replaceAll("_", " ") || "choice"}`);
+    for (const option of choice.options ?? []) {
+      const value = clean(option.value) || (option.isOther ? "Other" : "");
+      if (value) lines.push(`  - ${value}`);
+    }
+  } else if (question?.textQuestion) {
+    lines.push(`- Response: ${question.textQuestion.paragraph ? "long text" : "short text"}`);
+  } else if (question?.scaleQuestion) {
+    const scale = question.scaleQuestion;
+    lines.push(`- Response: scale ${scale.low ?? ""}–${scale.high ?? ""}`.trim());
+    if (scale.lowLabel) lines.push(`  - ${scale.low}: ${clean(scale.lowLabel)}`);
+    if (scale.highLabel) lines.push(`  - ${scale.high}: ${clean(scale.highLabel)}`);
+  } else if (question?.dateQuestion) {
+    lines.push(`- Response: date${question.dateQuestion.includeTime ? " and time" : ""}${question.dateQuestion.includeYear === false ? " without year" : ""}`);
+  } else if (question?.timeQuestion) {
+    lines.push(`- Response: ${question.timeQuestion.duration ? "duration" : "time"}`);
+  } else if (question?.fileUploadQuestion) {
+    const upload = question.fileUploadQuestion;
+    lines.push(`- Response: file upload${upload.maxFiles ? `, up to ${upload.maxFiles} files` : ""}`);
+    if (upload.types?.length) lines.push(`  - Types: ${upload.types.map(clean).join(", ")}`);
+  } else if (question?.ratingQuestion) {
+    const rating = question.ratingQuestion;
+    const icon = rating.ratingIconType || rating.iconType;
+    lines.push(`- Response: rating${rating.ratingScaleLevel ? ` 1–${rating.ratingScaleLevel}` : ""}${icon ? ` (${clean(icon).toLocaleLowerCase()})` : ""}`);
+  } else if (question?.rowQuestion) {
+    lines.push(`- ${clean(question.rowQuestion.title)}`);
+  } else {
+    const type = Object.keys(question ?? {}).find((key) => key.endsWith("Question") && question[key]);
+    if (type) lines.push(`- Response: ${type.slice(0, -8).replace(/([a-z])([A-Z])/g, "$1 $2").toLocaleLowerCase()}`);
+  }
+  if (question?.grading?.pointValue !== undefined) lines.push(`- Points: ${question.grading.pointValue}`);
+  return lines;
+}
+
+export function formMarkdown(form) {
+  const info = form?.info ?? {};
+  const lines = [`# ${clean(info.title || form?.documentTitle) || "Google Form"}`];
+  if (info.description) lines.push("", clean(info.description));
+  if (form?.settings?.quizSettings?.isQuiz) lines.push("", "Quiz: yes");
+  let question = 0;
+  for (const item of form?.items ?? []) {
+    const itemTitle = clean(item.title);
+    const itemDescription = clean(item.description);
+    if (item.pageBreakItem) {
+      lines.push("", `## ${itemTitle || "Section"}`);
+      if (itemDescription) lines.push("", itemDescription);
+      continue;
+    }
+    if (item.questionItem) {
+      question += 1;
+      lines.push("", `## ${itemTitle || `Question ${question}`}`);
+      if (itemDescription) lines.push("", itemDescription);
+      lines.push(...questionMarkdown(item.questionItem.question));
+      continue;
+    }
+    if (item.questionGroupItem) {
+      lines.push("", `## ${itemTitle || "Question group"}`);
+      if (itemDescription) lines.push("", itemDescription);
+      const rows = item.questionGroupItem.questions ?? [];
+      if (rows.length) {
+        lines.push("", "Rows:");
+        for (const row of rows) lines.push(...questionMarkdown(row));
+      }
+      const columns = item.questionGroupItem.grid?.columns?.options ?? [];
+      if (columns.length) {
+        lines.push("", "Columns:");
+        for (const column of columns) if (clean(column.value)) lines.push(`- ${clean(column.value)}`);
+      }
+      continue;
+    }
+    lines.push("", `## ${itemTitle || (item.imageItem ? "Image" : item.videoItem ? "Video" : "Text")}`);
+    if (itemDescription) lines.push("", itemDescription);
+    const mediaText = clean(item.imageItem?.image?.altText || item.videoItem?.caption);
+    if (mediaText) lines.push("", mediaText);
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+async function exportedMarkdown(api, auth, id, format, title) {
+  if (format.type === "form") {
+    const { data } = await auth.request({
+      method: "GET",
+      url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(id)}`
+    });
+    return formMarkdown(data);
+  }
+  const { data } = await api.files.export(
+    { fileId: id, mimeType: format.mimeType },
+    { responseType: "arraybuffer" }
+  );
+  const contents = Buffer.from(data);
+  if (contents.length > 20_000_000) throw new Error("Google document export is larger than 20 MB");
+  if (format.type === "drawing") return drawingMarkdown(contents.toString("utf8"), title);
+  return officeMarkdown(contents, format.fileType);
 }
 
 export class GoogleDriveConnection {
@@ -94,25 +223,42 @@ export class GoogleDriveConnection {
     return json((await this.credentials.resolve(name))?.value ?? "");
   }
 
-  async tokens() {
+  async tokenRecord() {
     const value = await this.stored(tokenCredential);
     if (!this.clientId && value?.clientId) this.clientId = value.clientId;
-    return value?.clientId === this.clientId ? value.tokens : null;
+    return value;
+  }
+
+  async tokens() {
+    const value = await this.tokenRecord();
+    const scopes = new Set(value?.scopes ?? []);
+    return value?.clientId === this.clientId && requiredScopes.every((scope) => scopes.has(scope))
+      ? value.tokens
+      : null;
+  }
+
+  async saveTokens(tokens) {
+    await this.credentials.set(tokenCredential, JSON.stringify({
+      clientId: this.clientId, scopes: requiredScopes, tokens
+    }));
   }
 
   async status() {
-    const [tokens, profile] = await Promise.all([this.tokens(), this.stored(profileCredential)]);
+    const [record, tokens, profile] = await Promise.all([
+      this.tokenRecord(), this.tokens(), this.stored(profileCredential)
+    ]);
     const exports = [...this.exported.values()];
     return {
       available: Boolean(this.clientId),
       connected: Boolean(tokens?.refresh_token || tokens?.access_token),
+      needsReconnect: Boolean(record?.tokens && !tokens),
       profile: profile ?? null,
       exportedLocations: exports.length,
       lastExportedAt: exports.length
         ? new Date(Math.max(...exports.map(({ at }) => at))).toISOString()
         : null,
       localOnly: true,
-      scopes: ["Google Drive (read only)"]
+      scopes: ["Google Drive and Forms (read only)"]
     };
   }
 
@@ -155,7 +301,7 @@ export class GoogleDriveConnection {
       url: client.generateAuthUrl({
         access_type: "offline",
         prompt: "consent",
-        scope: ["https://www.googleapis.com/auth/drive.readonly"],
+        scope: requiredScopes,
         state,
         code_challenge: verifier.codeChallenge,
         code_challenge_method: CodeChallengeMethod.S256
@@ -183,13 +329,14 @@ export class GoogleDriveConnection {
     const code = params.get("code");
     if (!code) throw new Error("Google did not return an authorization code");
     const client = new OAuth2Client(this.clientId, undefined, pending.redirectUri);
-    const previous = await this.tokens();
+    const record = await this.tokenRecord();
+    const previous = record?.clientId === this.clientId ? record.tokens : null;
     const { tokens } = await client.getToken({ code, codeVerifier: pending.codeVerifier });
     client.setCredentials({ ...previous, ...tokens, refresh_token: tokens.refresh_token ?? previous?.refresh_token });
     const api = drive({ version: "v3", auth: client });
     const { data } = await api.about.get({ fields: "user(displayName,emailAddress,permissionId)" });
     await Promise.all([
-      this.credentials.set(tokenCredential, JSON.stringify({ clientId: this.clientId, tokens: client.credentials })),
+      this.saveTokens(client.credentials),
       this.credentials.set(profileCredential, JSON.stringify(data.user ?? {}))
     ]);
     return this.status();
@@ -260,19 +407,27 @@ export class GoogleDriveConnection {
         const id = pointerId(path);
         const format = pointerFormats[extname(path).toLowerCase()];
         if (!id || !format) continue;
-        const [{ data: file }, { data }] = await Promise.all([
+        const [{ data: file }, markdown] = await Promise.all([
           api.files.get({
             fileId: id, supportsAllDrives: true,
             fields: "id,name,createdTime,modifiedTime,webViewLink"
           }),
-          api.files.export({ fileId: id, mimeType: format.mimeType }, { responseType: "arraybuffer" })
+          exportedMarkdown(api, auth, id, format, basename(path, extname(path)))
         ]);
-        const contents = Buffer.from(data);
-        if (contents.length > 1_000_000) continue;
-        const fromRoot = location.kind === "folder" ? relative(location.localPath, path) : basename(path);
-        const target = resolve(nextOutput, fromRoot.slice(0, -extname(fromRoot).length) + format.extension);
+        if (!markdown) continue;
+        const fromRoot = (location.kind === "folder" ? relative(location.localPath, path) : basename(path))
+          .replaceAll("\\", "/");
+        const target = resolve(nextOutput,
+          `${fromRoot.slice(0, -extname(fromRoot).length)}-${format.fileType || format.type}.md`);
         mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, frontmatter(file, format.type) + contents.toString("utf8"));
+        writeFileSync(target, knowledgeMarkdown(markdown, {
+          source_id: file.id,
+          source_name: fromRoot,
+          source_url: file.webViewLink,
+          google_type: format.type,
+          created_at: file.createdTime,
+          modified_at: file.modifiedTime
+        }));
         count += 1;
       } catch { /* One inaccessible shortcut must not hide every other team document. */ }
     }
@@ -283,10 +438,7 @@ export class GoogleDriveConnection {
     }
     rmSync(output, { recursive: true, force: true });
     renameSync(nextOutput, output);
-    await this.credentials.set(
-      tokenCredential,
-      JSON.stringify({ clientId: this.clientId, tokens: auth.credentials })
-    );
+    await this.saveTokens(auth.credentials);
     const exported = this.cachedLocation(teamId, location);
     if (!exported) return prior;
     this.exported.set(location.id, { at: Date.now(), location: exported });

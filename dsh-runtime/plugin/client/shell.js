@@ -1,11 +1,11 @@
 import {
-  FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
+  FreeAiController, h, LocalAiController, React, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, choose, collaboration, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor,
-  ThemeToggle, usePreference, workItemsFor
+  ask, askWithCheckbox, choose, collaboration, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor,
+  THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
-import { BookIcon } from "./icons.js";
+import { BookIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
 import { dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouPage, WorkPage } from "./work.js";
@@ -15,33 +15,16 @@ import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { SettingsPage } from "./settings.js";
 
-function ContextSwitcher({
+function ScopeSwitcher({
   data, organizationId, teamId, connectionId, onChange,
-  onCreateOrganization, onCreateLocalOrganization, onCreateTeam
+  onCreateOrganization, onCreateTeam, onOpenTeamSettings, onNavigate,
+  route, sectionId, dashboards, activeDashboardId, onOpenDashboard, organizationColors
 }) {
-  const [query, setQuery] = useState("");
-  const root = useRef(null);
+  const [expandedTeams, setExpandedTeams] = useState(() => new Set(teamId ? [teamId] : []));
   useEffect(() => {
-    const dismiss = (event) => { if (!root.current?.contains(event.target)) root.current?.removeAttribute("open"); };
-    document.addEventListener("pointerdown", dismiss, true);
-    return () => document.removeEventListener("pointerdown", dismiss, true);
-  }, []);
-  const organization = data.organizations.find(({ id }) => id === organizationId);
-  const team = data.teams.find(({ id }) => id === teamId);
-  const connection = data.connections?.find(({ id }) => id === connectionId);
-  const needle = query.trim().toLocaleLowerCase();
-  const matches = ({ name, email = "" }) => !needle ||
-    `${name} ${email}`.toLocaleLowerCase().includes(needle);
-  const close = (event) => event.currentTarget.closest("details")?.removeAttribute("open");
-  const option = (row, active, select, closeAfter = false) => h("button", {
-    className: `bees-context-option ${active ? "active" : ""}`, key: row.contextId ?? row.id,
-    onClick: (event) => { select(); if (closeAfter) close(event); }
-  }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, active ? "✓" : ""),
-  h("span", null, row.name,
-    row.email ? h("span", { className: "bees-context-secondary" }, row.email) : null));
-  const add = (label, action, disabled = false) => h("button", {
-    className: "bees-context-option bees-context-add", onClick: action, disabled
-  }, h("span", { className: "bees-context-check", "aria-hidden": "true" }, "+"), label);
+    if (!teamId) return;
+    setExpandedTeams((current) => current.has(teamId) ? current : new Set([...current, teamId]));
+  }, [teamId]);
   const organizations = [
     ...data.organizations.filter((organization) => !(data.connections ?? []).some(
       ({ organizationId: id }) => id === organization.id
@@ -52,36 +35,81 @@ function ContextSwitcher({
       id: row.organizationId, name: row.organizationName, email: row.email,
       contextId: row.id, connectionId: row.id
     }))
-  ].filter(matches);
+  ];
   const allowedTeams = connectionId
     ? new Set((data.connectionTeams ?? []).filter((row) => row.connectionId === connectionId)
       .map(({ teamId: id }) => id))
     : null;
   const teams = data.teams.filter((row) => row.organizationId === organizationId &&
-    (!allowedTeams || allowedTeams.has(row.id)) && matches(row));
-  return h("details", { className: "bees-context-switcher", ref: root },
-    h("summary", null,
-      h("div", { className: "bees-context-summary" },
-        h("div", { className: "bees-context-primary" }, organization?.name ?? "Choose organization"),
-        h("div", { className: "bees-context-secondary" }, [
-          team?.name ?? "Choose team", connection?.email
-        ].filter(Boolean).join(" · "))),
-      h("span", { className: "bees-context-arrow", "aria-hidden": "true" }, "▾")),
-    h("div", { className: "bees-context-panel" },
-      h("input", { className: "bees-input bees-context-search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search contexts", "aria-label": "Search organizations and teams" }),
-      h("div", { className: "bees-context-section" },
-        h("div", { className: "bees-context-label" }, "Organizations"),
-        ...organizations.map((row) => option(row,
-          row.id === organizationId && row.connectionId === connectionId,
-          () => onChange(`organization:${row.id}`, row.connectionId))),
-        add("New organization", onCreateOrganization),
-        add("New local organization", onCreateLocalOrganization)),
-      h("div", { className: "bees-context-section" },
-        h("div", { className: "bees-context-label" }, organization ? `Teams in ${organization.name}` : "Teams"),
-        ...teams.map((row) => option(row, row.id === teamId,
-          () => onChange(`team:${row.id}`, connectionId), true)),
-        add("New team", onCreateTeam, !organizationId)))
-  );
+    (!allowedTeams || allowedTeams.has(row.id)));
+  return h("div", { className: "bees-scope-switcher" },
+    h("div", { className: "bees-org-tiles", "aria-label": "Organizations" },
+      ...organizations.map((row) => h("button", {
+        type: "button", key: row.contextId ?? row.id,
+        className: `bees-org-tile ${row.id === organizationId && row.connectionId === connectionId ? "active" : ""}`,
+        style: { "--bees-org-color": organizationColors[row.id] || row.color || defaultOrgColor(row.name) },
+        title: [row.name, row.email].filter(Boolean).join(" — "),
+        "aria-label": [row.name, row.email].filter(Boolean).join(" — "),
+        onClick: () => onChange(`organization:${row.id}`, row.connectionId)
+      }, row.name.trim().charAt(0).toLocaleUpperCase() || "•")),
+      h("button", { type: "button", className: "bees-org-tile bees-scope-add", title: "Add organization",
+        "aria-label": "Add organization", onClick: onCreateOrganization }, "+")),
+    h("div", { className: "bees-team-heading" },
+      h("span", null, "Teams"),
+      h("button", { type: "button", className: "bees-scope-add", disabled: !organizationId,
+        title: "Add team", "aria-label": "Add team", onClick: onCreateTeam }, "+")),
+    h("div", { className: "bees-team-list" },
+      ...teams.map((row) => {
+        const active = row.id === teamId;
+        const expanded = expandedTeams.has(row.id);
+        const open = (target) => {
+          if (!active) onChange(`team:${row.id}`, connectionId);
+          onNavigate(target);
+        };
+        return h("section", {
+          className: `bees-team-section ${active ? "active" : ""} ${expanded ? "expanded" : ""}`,
+          key: row.id
+        },
+        h("div", { className: "bees-team-row" },
+          h("button", { type: "button", className: "bees-team-toggle", title: row.name,
+            "aria-expanded": expanded, onClick: () => {
+              if (!active) onChange(`team:${row.id}`, connectionId);
+              setExpandedTeams((current) => {
+                const next = new Set(current);
+                if (active && next.has(row.id)) next.delete(row.id); else next.add(row.id);
+                return next;
+              });
+            } },
+          h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, "›"),
+          h("span", { className: "bees-team-initial", "aria-hidden": "true" }, row.name.trim().charAt(0).toLocaleUpperCase() || "•"),
+          h("span", { className: "bees-team-name" }, row.name)),
+          h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
+            "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
+        expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
+          ...NAVIGATION.filter(({ id }) => id !== "settings").map((item) => h(React.Fragment, { key: `${row.id}:${item.id}` },
+            h("div", { className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""}` },
+              h("button", { className: `bees-nav-link ${active && sectionId === item.id ? "active" : ""}`,
+                "aria-current": active && sectionId === item.id ? "page" : null, onClick: () => open(item.id) },
+              h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
+              h("span", null, item.label)),
+              item.children.length ? h("div", { className: "bees-nav-flyout" },
+                ...item.children.map(([child, label]) => h("div", {
+                  className: `bees-nav-flyout-item ${active && route === child ? "active" : ""}`,
+                  key: `${row.id}:${item.id}:${child}`
+                }, h("button", { className: `bees-nav-link bees-nav-child ${active && route === child ? "active" : ""}`,
+                  "aria-current": active && route === child ? "page" : null, onClick: () => open(child) }, label)))
+              ) : null),
+            item.id === "home" ? h("div", { className: "bees-nav-dashboards" },
+              ...dashboards.filter(({ id }) => id !== "home").map((dashboard) => h("button", {
+                className: `bees-nav-link bees-dashboard-link ${active && route === "home" && activeDashboardId === dashboard.id ? "active" : ""}`,
+                "aria-current": active && route === "home" && activeDashboardId === dashboard.id ? "page" : null,
+                title: dashboard.name, key: `${row.id}:${dashboard.id}`, onClick: () => {
+                  if (!active) onChange(`team:${row.id}`, connectionId);
+                  onOpenDashboard(dashboard.id);
+                }
+              }, h("span", null, dashboard.name)))) : null
+          ))) : null);
+      })));
 }
 
 export function BeesApp({ ctx, preferences, modelSettings }) {
@@ -106,6 +134,16 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 5000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const theme = ctx.get?.("theme") ?? ctx.theme;
+    const preset = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
+      ?? THEME_PRESETS.find(({ id }) => id === "forest");
+    const colorMode = ["dark", "light"].includes(preference.colorMode)
+      ? preference.colorMode : preset.dark ? "dark" : "light";
+    if (theme.getTheme().preference !== colorMode) theme.setTheme(colorMode);
+    if (!preference.themePreset) void preferences.set("themePreset", "forest");
+    if (preference.colorMode !== colorMode) void preferences.set("colorMode", colorMode);
+  }, [ctx, preferences, preference.colorMode, preference.themePreset]);
   useEffect(() => {
     if (!data) return;
     const connections = data.connections ?? [];
@@ -184,7 +222,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const section = NAVIGATION.find((row) => row.id === id);
     setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
   };
-  const createOrganization = async () => {
+  const createOrganization = async (name) => {
     const accounts = data.accounts ?? [];
     if (!accounts.length) {
       setError("Sign in before creating a shared organization"); navigate("organizations"); return;
@@ -195,7 +233,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       }))
     );
     if (!selectedUserId) return;
-    const name = await ask("Organization name", ""); if (!name) return;
     try {
       const result = await collaboration("create_organization", {
         name, accountUserId: selectedUserId
@@ -204,10 +241,17 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       if (result?.id) setScope(`organization:${result.id}`, result.connectionId);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  const createLocalOrganization = async () => {
-    const name = await ask("Local organization name", ""); if (!name) return;
+  const createLocalOrganization = async (name) => {
     const result = await act({ action: "create_organization", name });
     if (result?.id) setScope(`organization:${result.id}`, "");
+  };
+  const createOrganizationFromSwitcher = async () => {
+    const organization = await askWithCheckbox(
+      "Org name", "Keep this organization local to this device (not shared with teammates)", false
+    );
+    if (!organization?.value) return;
+    if (organization.checked) await createLocalOrganization(organization.value);
+    else await createOrganization(organization.value);
   };
   const createTeam = async () => {
     const organization = data.organizations.find(({ id }) => id === parts.organizationId); if (!organization) return;
@@ -239,6 +283,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
+  const activeTheme = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
+    ?? THEME_PRESETS.find(({ id }) => id === "forest");
   const section = sectionFor(route);
   const routeLabel = route === "home" ? activeDashboard.name : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
@@ -307,46 +353,49 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
                 : h(SettingsPage, { ctx, data: viewData, route, teamId: parts.teamId,
-                    organizationId: parts.organizationId, connectionId, modelSettings, preferences, reload: load,
+                    organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,
+                    navigate,
                     openOrganization: async (organization) => {
                       await load();
                       setScope(`organization:${organization.id}`, organization.connectionId);
                       navigate("organization-settings");
                     } });
-  return h(React.Fragment, null, localAi, freeAi, h("div", { className: "bees-app" },
+  return h(React.Fragment, null, localAi, freeAi, h("div", {
+    className: "bees-app", "data-bees-theme": activeTheme.id,
+    style: {
+      "--bees-accent": activeTheme.colors[0],
+      "--bees-accent-soft": `color-mix(in srgb, ${activeTheme.colors[0]} 20%, transparent)`,
+      "--bees-accent-contrast": activeTheme.primaryContent,
+      "--dsw-alias-bg-base": activeTheme.surfaceAlt,
+      "--dsw-specific-sidebar-fill": activeTheme.surface,
+      "--dsw-alias-label-primary": activeTheme.foreground,
+      "--dsw-alias-label-secondary": `color-mix(in srgb, ${activeTheme.foreground} 68%, transparent)`,
+      "--dsw-alias-border-l1": `color-mix(in srgb, ${activeTheme.foreground} 12%, transparent)`,
+      "--dsw-alias-border-l2": `color-mix(in srgb, ${activeTheme.foreground} 20%, transparent)`,
+      "--dsw-alias-interactive-bg-hover": `color-mix(in srgb, ${activeTheme.colors[0]} 14%, transparent)`,
+      "--dsw-alias-button-elevated-fill": activeTheme.surface,
+      "--dsw-alias-button-floating-hover": activeTheme.surfaceRaised
+    }
+  },
     h("aside", { className: "bees-sidebar" },
-      h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees")),
-      h(ContextSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
-        onChange: setScope, onCreateOrganization: createOrganization,
-        onCreateLocalOrganization: createLocalOrganization, onCreateTeam: createTeam }),
-      h("nav", { className: "bees-nav", "aria-label": "Bees navigation" },
-        h("div", { className: "bees-nav-standard" }, ...NAVIGATION.map((item, idx) => h(React.Fragment, { key: item.id },
-          idx === 4 ? h("div", { className: "bees-nav-separator" }) : null,
-          h("div", { className: `bees-nav-menu ${section.id === item.id ? "active" : ""}` },
-            h("button", { className: `bees-nav-link ${section.id === item.id ? "active" : ""}`, "aria-current": section.id === item.id ? "page" : null, onClick: () => navigate(item.id) }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)), h("span", null, item.label)),
-            item.children.length > 0 ? h("div", { className: "bees-nav-flyout" },
-              ...item.children.map(([child, label]) =>
-                h("div", { className: `bees-nav-flyout-item ${route === child ? "active" : ""}`, key: `${item.id}:${child}` },
-                  h("button", { className: `bees-nav-link bees-nav-child ${route === child ? "active" : ""}`, "aria-current": route === child ? "page" : null, onClick: () => navigate(child) }, label))
-              )
-            ) : null
-          ),
-          item.id === "home" ? h("div", { className: "bees-nav-dashboards" },
-            ...dashboards.filter(({ id }) => id !== "home").map((dashboard) => h("button", {
-              className: `bees-nav-link bees-dashboard-link ${route === "home" && activeDashboard.id === dashboard.id ? "active" : ""}`,
-              "aria-current": route === "home" && activeDashboard.id === dashboard.id ? "page" : null,
-              title: dashboard.name, key: dashboard.id, onClick: () => {
-                setRoute("home"); void preferences.set("activeDashboardId", dashboard.id);
-              }
-            }, h("span", null, dashboard.name)))) : null
-        )))
-      ),
+      h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees"),
+        h("div", { className: "bees-brand-settings" },
+          h("button", { type: "button",
+            className: `bees-brand-settings-button ${section.id === "settings" && route !== "team-settings" ? "active" : ""}`,
+            title: "Global and organization settings", "aria-label": "Global and organization settings",
+            onClick: () => navigate("appearance") }, h(SettingsIcon)))),
+      h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
+        onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
+        onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
+        onNavigate: navigate, route, sectionId: section.id, dashboards, activeDashboardId: activeDashboard.id,
+        onOpenDashboard: (dashboardId) => { setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
+        organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
         h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, "aria-current": route === "guide" ? "page" : null, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works"))
       )
     ),
     h("section", { className: "bees-main" },
-      h(AppHeader, { route, routeLabel, parts, ctx }),
+      h(AppHeader, { route, routeLabel, parts, ctx, preferences }),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
@@ -354,7 +403,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   ));
 }
 
-function AppHeader({ route, routeLabel, parts, ctx }) {
+function AppHeader({ route, routeLabel, parts, ctx, preferences }) {
   const [header, setHeader] = useState(null);
   const [actions, setActions] = useState(null);
   useEffect(() => {
@@ -371,6 +420,6 @@ function AppHeader({ route, routeLabel, parts, ctx }) {
     ),
     h("div", { className: "bees-grow" }),
     actions,
-    h(ThemeToggle, { ctx })
+    h(ThemeToggle, { ctx, preferences })
   );
 }
