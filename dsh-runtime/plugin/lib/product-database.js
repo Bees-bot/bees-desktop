@@ -602,8 +602,10 @@ export function initializeProductDatabase(database) {
       WHEN lower(name) LIKE '%review%' THEN 'review'
       ELSE 'agent'
     END;
-    PRAGMA user_version = 8;
   `);
+  // This runs on every init, and init runs twice per boot. Setting the version in here put every
+  // install back to 8 after the migrations below had run, so they ran again on every start.
+  if (version < 8) database.exec("PRAGMA user_version = 8");
   if (version < 9) database.exec(`
     DELETE FROM bees_search WHERE kind = 'file';
     PRAGMA user_version = 9;
@@ -619,6 +621,13 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS bees_connected_organizations;
     DROP TABLE IF EXISTS bees_account;
     PRAGMA user_version = 14;
+  `);
+  // An already-installed browser server still carries the arguments that started a second Chrome.
+  if (version < 15) database.exec(`
+    UPDATE mcp_servers
+      SET args_json = '["-y","@playwright/mcp@latest","--cdp-endpoint","{cdpEndpoint}"]'
+      WHERE catalog_id = 'playwright';
+    PRAGMA user_version = 15;
   `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`

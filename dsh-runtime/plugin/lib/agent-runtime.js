@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { closeAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 
@@ -588,7 +588,7 @@ export class AgentRuntime {
       this.audit(`approval-${transition}`, executionId, sessionId, {
         approvalId: String(event.data.id), outcome: event.data.outcome
       });
-      this.track(closeAgentBrowser(executionId));
+      this.track(hideAgentBrowser());
       return;
     }
     if (event.type === "tool/result") {
@@ -609,7 +609,7 @@ export class AgentRuntime {
           idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        this.track(closeAgentBrowser(executionId));
+        this.track(hideAgentBrowser());
       }
       const output = {
         sessionId,
@@ -660,6 +660,18 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
+  /** Chrome comes up with the first run that can reach it, not with the app, and never blocks a run. */
+  async startBrowserIfGranted(data) {
+    if (data.mcpAccess === "none") return;
+    const browser = this.database.prepare(
+      "SELECT server_name AS name FROM mcp_servers WHERE enabled = 1 AND catalog_id = 'playwright'"
+    ).get();
+    if (!browser || (data.mcpAccess === "listed" && !data.mcpServers.includes(browser.name))) return;
+    try { await startAgentBrowser(); } catch (error) {
+      this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`);
+    }
+  }
+
   /** A planner cannot name a tool it has not been told about. */
   connectedTools() {
     const servers = this.database.prepare(`
@@ -682,6 +694,7 @@ export class AgentRuntime {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
+    await this.startBrowserIfGranted(data);
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: [

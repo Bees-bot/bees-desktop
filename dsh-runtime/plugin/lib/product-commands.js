@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { openAgentBrowser } from "./agent-browser.js";
+import { showAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -963,7 +963,7 @@ export async function executeProductCommand(action, input) {
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      await openAgentBrowser(executionId);
+      await showAgentBrowser();
       return { opened: true };
     }
     if (action === "stop_run") {
