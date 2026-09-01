@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead } from "./shared.js";
+import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
@@ -99,9 +99,10 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
       !route ? h("span", { className: "bees-muted" }, "Choose a model to override its reasoning effort.") : null));
 }
 
-export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
+export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reload }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const activeModelSettings = usePreference(modelSettings);
   const route = systemDefault?.provider && systemDefault?.model
     ? `${systemDefault.provider}/${systemDefault.model}` : "";
   const save = async (event) => {
@@ -125,7 +126,7 @@ export function SystemDefaultSettings({ ctx, systemDefault, reload }) {
     h("h2", null, "System default"),
     h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
     h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, onSubmit: save },
-      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false }),
+      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: JSON.stringify(activeModelSettings) }),
       h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
 }
