@@ -286,51 +286,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
               h("strong", null, "Coordinator"),
               h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, textParts.map(p => p.text).join(" ")))));
         }
-        if (toolParts.length) {
-          toolParts.forEach((part, index) => {
-            const isWorking = part.state === "input-available" || part.state === "running";
-            const isFailed = part.state === "output-error" || part.state === "failed";
-            const stateLabel = isWorking ? "Working" : isFailed ? "Failed" : "Completed";
-            const toolName = part.toolName || part.name || (part.call && part.call.name) || (part.callView && part.callView.name) || "Tool Action";
-            const toolInput = part.input || part.argsRaw || (part.call && part.call.arguments) || (part.callView && part.callView.arguments) || null;
-            const toolOutput = part.output || (part.result && part.result.data) || (part.resultView && part.resultView.data) || null;
-
-            let paramPreview = "";
-            if (toolInput) {
-              if (typeof toolInput === "string") paramPreview = toolInput;
-              else if (typeof toolInput === "object") {
-                const keys = Object.keys(toolInput);
-                if (keys.length === 1 && typeof toolInput[keys[0]] === "string") paramPreview = toolInput[keys[0]];
-                else if (toolInput.path) paramPreview = String(toolInput.path);
-                else if (toolInput.pattern) paramPreview = String(toolInput.pattern);
-                else if (toolInput.command) paramPreview = String(toolInput.command);
-              }
-            }
-
-            convoItems.push(h("details", {
-              className: `bees-tool-card ${isWorking ? "working" : isFailed ? "failed" : "completed"}`,
-              key: `tool-${msg.id}-${index}`,
-              open: isFailed || undefined
-            },
-              h("summary", { className: "bees-tool-summary" },
-                h("span", { className: "bees-tool-status" }, stateLabel),
-                h("span", { className: "bees-tool-title" },
-                  toolName,
-                  paramPreview ? h("span", { className: "bees-muted", style: { marginLeft: "8px", fontWeight: "normal", fontSize: "12px" } }, paramPreview) : null
-                ),
-                h("span", { className: "bees-tool-chevron", "aria-hidden": "true" }, "⌄")
-              ),
-              h("div", { className: "bees-tool-detail" },
-                toolInput ? h(React.Fragment, null,
-                  h("strong", null, "Input"),
-                  h("pre", null, typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput, null, 2))
-                ) : null,
-                h("strong", null, isFailed ? "Error / Output" : "Output"),
-                h("pre", { style: isFailed ? { color: "#f87171" } : null },
-                  toolOutput ? (typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput, null, 2)) : (isFailed ? "Execution failed with no output recorded" : "Completed with no output"))
-              )));
-          });
-        }
       }
     }
   } else if (history === null) {
@@ -424,7 +379,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Recurring${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Audit")
+      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
     // 3. TAB CONTENT
@@ -438,7 +393,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           item.runtimeError ? h("div", { style: { color: "#f87171", fontSize: "13px", marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, item.runtimeError) : null
         ),
         h("div", { className: "bees-tab-actions" },
-          run && (item.runtimePhase === "failed" || item.runtimePhase === "completed") ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), item.runtimePhase === "completed" ? "Run again" : "Retry") : null,
+          run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
           run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
           run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
           run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
@@ -499,14 +454,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No runs yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: setScheduleEditor })
-      : h(React.Fragment, null,
-        h("h3", null, "Audit"),
-        ...(events.length ? events.map((event) => h(AuditEvent, {
-          event, key: event.id,
-          detail: event.metadata?.action ?? event.metadata?.outcome,
-          onOpen: runAudit.has(event.executionId) ? () => { setSelectedRun(event.executionId); setActiveTab("runs"); } : null,
-          openLabel: "Open run"
-        })) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")])
+      : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
+        run ? h("iframe", {
+          src: `/bees-api/harness?executionId=${run.id}`,
+          style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
+          title: "DSH Traces"
+        }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
       )
     ),
     scheduleEditor ? h(ScheduleForm, { item, recurring: scheduleEditor === true ? null : scheduleEditor, act,
@@ -895,7 +848,7 @@ function NeedsYouControls({ item, act, onDone }) {
 }
 
 function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
-  const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
+  const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
   useEffect(() => setViewer((current) => files.length
@@ -916,7 +869,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
       ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
         onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
-    viewer ? h(FilePreview, { target: viewer }) : null
+    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt } }) : null
   );
 }
 
@@ -959,80 +912,50 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
   const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const listedItemIds = new Set();
-  const records = rowsForRoute("waiting").map((row) => {
-    listedItemIds.add(row.id);
-    return { id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) };
-  });
-  for (const live of queue.rows) if (!live.item || !listedItemIds.has(live.item.id)) {
-    records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
+  const records = rowsForRoute("waiting")
+    .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
+    .filter((record) => record.live);
+    
+  for (const live of queue.rows) {
+    if (!live.item || !listedItemIds.has(live.item.id)) {
+      records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
+    }
   }
+  
   const visibleRecords = records.slice(0, limit);
-  const visibleLiveRows = visibleRecords.flatMap(({ live }) => live ? [live] : []);
-  const selected = visibleLiveRows.find(({ run }) => run.id === queue.selectedId);
+  const selected = visibleRecords.find(({ live }) => live.run.id === queue.selectedId)?.live;
   const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);
+
   return h("div", { className: "bees-dashboard-needs" },
     visibleRecords.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
       const { live } = record;
-      const panelId = live ? `bees-dashboard-need-${live.run.id}` : undefined;
-      return h("div", { className: "bees-dashboard-need-row", key: record.id },
-        h("button", {
-          type: "button", className: `bees-dashboard-row ${live?.run.id === selected?.run.id ? "active" : ""}`,
-          title: record.label, ...(live ? {
-            "aria-expanded": live.run.id === selected?.run.id, "aria-controls": panelId,
+      const isSelected = Boolean(selected && live.run.id === selected.run.id);
+      const panelId = `bees-dashboard-need-${live.run.id}`;
+      return h(React.Fragment, { key: record.id },
+        h("div", { className: "bees-dashboard-need-row" },
+          h("button", {
+            type: "button", className: `bees-dashboard-row ${isSelected ? "active" : ""}`,
+            title: record.label, "aria-expanded": isSelected, "aria-controls": panelId,
             onClick: () => select(live.run.id)
-          } : { onClick: record.open })
-        }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
-          h("span", { className: "bees-badge" }, live ? interactionName(live.session?.pendingInteraction) : "Blocked")),
-        h("button", {
-          type: "button", className: "bees-dashboard-launch", title: `Open ${record.label} in Needs you`,
-          "aria-label": `Open ${record.label} in Needs you`, onClick: () => openNeedsYou(live?.run.id ?? "")
-        }, "↗"));
-    })) : h(Empty, null, "Nothing needs you right now."),
-    selected ? h("div", { className: "bees-dashboard-needs-answer", id: `bees-dashboard-need-${selected.run.id}` },
-      h(AgentInteractionPanel, {
-        run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
-        session: queue.session, interaction: queue.interaction, handled: queue.handled,
-        onAnswered: (key) => queue.answered(key, visibleLiveRows), act,
-        onControlled: () => queue.answered(`control:${selected.run.id}`, visibleLiveRows)
-      })) : null,
-    h(Button, { className: "bees-dashboard-view-all", onClick: () => openNeedsYou("") }, "View all")
+          }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
+            h("span", { className: "bees-badge" }, interactionName(live.session?.pendingInteraction))),
+          record.open ? h("button", {
+            type: "button", className: "bees-dashboard-launch", title: `Open ${record.label}`,
+            "aria-label": `Open ${record.label}`, onClick: record.open
+          }, "↗") : null),
+        isSelected ? h("div", { className: "bees-dashboard-needs-answer", id: panelId },
+          h(AgentInteractionPanel, {
+            run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
+            session: queue.session, interaction: queue.interaction, handled: queue.handled,
+            onAnswered: (key) => queue.answered(key, visibleRecords.map(r => r.live)), act,
+            onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
+          })) : null
+      );
+    })) : h(Empty, null, "Nothing needs you right now.")
   );
 }
 
-export function NeedsYouPage({ ctx, data, workspaceIds, act, openWorkItem, openRun, initialSelectedId = "", setPageHeader }) {
-  const { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered } =
-    useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId);
-  return h(React.Fragment, null,
-    h("div", { className: "bees-callout" }, h("h3", null, "Answer agents without leaving the queue"),
-      h("div", null, "Questions and approvals update live. After you answer, Bees moves to the next waiting agent.")),
-      rows.length ? h("div", { className: "bees-inbox" },
-        h("div", { className: "bees-inbox-list", "aria-label": "Waiting agents" }, ...rows.map(({ run, session: summary, item }) => {
-          const agent = data.assignments.find(({ id }) => id === run.resolvedAgentId);
-          const rowTitle = item?.title ?? runTitle(data, run) ?? summary?.displayTitle;
-          return h("button", { type: "button", className: `bees-inbox-row ${run.id === selected?.run.id ? "active" : ""}`, key: run.id, onClick: () => setSelectedId(run.id) },
-            h("span", { className: "bees-inbox-dot", "aria-hidden": "true" }),
-            h("span", { className: "bees-inbox-copy" }, h("strong", null, rowTitle),
-              h("span", { className: "bees-muted" }, agent?.name ?? summary?.agentPreset ?? "Agent")),
-            h("span", { className: "bees-badge" }, interactionName(summary?.pendingInteraction)));
-        })),
-        h(AgentInteractionPanel, {
-          run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, session, interaction, handled, data,
-          onAnswered: answered, act, onControlled: () => answered(`control:${selected.run.id}`),
-          onOpen: selected.item ? () => openWorkItem(selected.item.id) : () => openRun(selected.run.id),
-          openLabel: selected.item ? "Open work" : "Open run"
-        })
-    ) : h(Empty, null, "No live agent questions or approvals right now"),
-    blocked.length ? h("section", { className: "bees-blocked" }, h("h3", null, "Other blocked work"),
-      ...blocked.map((run) => {
-        const item = data.items.find(({ id }) => id === run.workItemId);
-        return h("div", { className: "bees-row", key: run.id }, h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, item?.title ?? runTitle(data, run)),
-          h("div", { className: "bees-muted" }, "Reconnect to the agent or open the work item to recover.")),
-          h(NeedsYouControls, { item, act }),
-          h(Button, { onClick: item ? () => openWorkItem(item.id) : () => openRun(run.id) }, item ? "Open work" : "Open run"));
-      })) : null
-  );
-}
+
 
 export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");

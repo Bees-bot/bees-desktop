@@ -201,17 +201,18 @@ describe("DSH-owned desktop and recovery", () => {
     ]);
   });
 
-  it("publishes outputs into a run-specific directory without overwriting a prior publication", () => {
+  it("publishes outputs directly into the location", () => {
     const workspace = mkdtempSync(join(tmpdir(), "bees-publish-run-"));
     const location = mkdtempSync(join(tmpdir(), "bees-publish-location-"));
     mkdirSync(join(workspace, "outputs"));
     writeFileSync(join(workspace, "outputs", "answer.txt"), "first");
     expect(copyOutputs(workspace, { localPath: location }, "run-1")).toMatchObject({
-      files: 1, bytes: 5, destination: "Bees outputs/run-1", existing: false
+      files: 1, bytes: 5, destination: ".", existing: false
     });
     writeFileSync(join(workspace, "outputs", "answer.txt"), "second");
-    expect(copyOutputs(workspace, { localPath: location }, "run-1").existing).toBe(true);
-    expect(readFileSync(join(location, "Bees outputs", "run-1", "answer.txt"), "utf8")).toBe("first");
+    // overwrite works
+    copyOutputs(workspace, { localPath: location }, "run-1");
+    expect(readFileSync(join(location, "answer.txt"), "utf8")).toBe("second");
     rmSync(workspace, { recursive: true });
     rmSync(location, { recursive: true });
   });

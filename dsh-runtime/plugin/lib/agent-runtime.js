@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If the task requires copying finished deliverables to a granted company folder, call bees_publish_outputs after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A sign-in wall in the browser is the exception: the person can sign in for you, so call ask_user_question naming the site and wait, rather than stopping. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A sign-in wall in the browser is the exception: the person can sign in for you, so call ask_user_question naming the site and wait, rather than stopping. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -268,10 +268,6 @@ function jsonHash(value) {
 export function copyOutputs(workspace, location, executionId) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
-  const parent = resolve(destinationRoot, "Bees outputs");
-  const destination = resolve(parent, executionId);
-  if (!destination.startsWith(`${destinationRoot}${sep}`)) throw new Error("Publication destination escaped its mapped folder");
-  if (existsSync(destination)) return { files: 0, bytes: 0, destination: `Bees outputs/${executionId}`, existing: true };
 
   const pending = [];
   const stack = [sourceRoot];
@@ -295,17 +291,15 @@ export function copyOutputs(workspace, location, executionId) {
   }
   if (!pending.length) throw new Error("No files exist under outputs/");
 
-  mkdirSync(parent, { recursive: true });
-  const staging = resolve(parent, `.${executionId}-${randomUUID()}`);
-  mkdirSync(staging);
+  // Copy files directly into destinationRoot
   for (const file of pending) {
-    const target = resolve(staging, file.logical);
-    if (!target.startsWith(`${staging}${sep}`)) throw new Error("Output path escaped the publication directory");
+    const target = resolve(destinationRoot, file.logical);
+    if (!target.startsWith(`${destinationRoot}${sep}`)) throw new Error("Output path escaped the publication directory");
     mkdirSync(resolve(target, ".."), { recursive: true });
     copyFileSync(file.source, target);
   }
-  renameSync(staging, destination);
-  return { files: pending.length, bytes, destination: `Bees outputs/${executionId}`, existing: false };
+  
+  return { files: pending.length, bytes, destination: ".", existing: false };
 }
 
 export function typedReferences(text) {

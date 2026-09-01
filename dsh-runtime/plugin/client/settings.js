@@ -10,7 +10,7 @@ import { SystemDefaultSettings } from "./agents.js";
 
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
   return h("div", { className: "bees-stack" },
-    h(SystemDefaultSettings, { ctx, systemDefault, reload }),
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }),
     h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }),
     h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
     h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
