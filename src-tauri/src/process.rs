@@ -66,6 +66,20 @@ pub fn reap_orphan_llama_servers() {
     }
 }
 
+/// End the Chrome the agent browses in. DSH starts it, but DSH is hard-killed on quit so its own
+/// cleanup never runs, and a Chrome left behind sits in the Dock and holds the profile lock.
+/// Matched on the exact profile argument, so a person's own Chrome is left alone.
+pub fn reap_agent_browser(profile: &Path) {
+    let expected = format!("--user-data-dir={}", profile.display());
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    for process in system.processes().values() {
+        if process.cmd().iter().any(|arg| arg == expected.as_str()) {
+            process.kill();
+        }
+    }
+}
+
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever
 /// owns it — app state, a manager's `Option`, a map entry — is all the cleanup there is.
 pub struct Sidecar(Child);

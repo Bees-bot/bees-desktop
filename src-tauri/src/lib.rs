@@ -7,7 +7,8 @@ use local_models::{
     start_local_model, stop_local_model, LocalModelManager,
 };
 use process::{
-    available_loopback_port, reap_orphan_llama_servers, reap_orphaned_sidecars, Sidecar,
+    available_loopback_port, reap_agent_browser, reap_orphan_llama_servers,
+    reap_orphaned_sidecars, Sidecar,
 };
 use serde::Serialize;
 use std::{
@@ -605,6 +606,9 @@ pub fn run() {
                 reap_orphaned_sidecars(&node);
                 reap_orphaned_sidecars(&temporal);
             }
+            if let Ok(state) = state_dir(app.handle()) {
+                reap_agent_browser(&state.join("browser-profile"));
+            }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
             build_tray(app.handle())?;
@@ -647,6 +651,9 @@ pub fn run() {
                 }
                 if let Some(models) = handle.try_state::<LocalModelManager>() {
                     models.shutdown();
+                }
+                if let Ok(state) = state_dir(handle) {
+                    reap_agent_browser(&state.join("browser-profile"));
                 }
             }
         });
