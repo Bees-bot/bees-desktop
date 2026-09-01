@@ -351,6 +351,7 @@ struct LocalModelRuntimes {
 pub struct LocalModelManager {
     runtimes: Mutex<LocalModelRuntimes>,
     downloads: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    starts: Mutex<HashMap<String, Arc<AtomicBool>>>,
     // Starts queue behind one another. Concurrent first-launches of the ad-hoc binaries are what
     // pile up as unkillable dyld-stuck zombies under macOS Gatekeeper assessment.
     starting: Mutex<()>,
@@ -447,6 +448,11 @@ fn local_model_status_inner(app: &AppHandle, spec: &ModelSpec) -> Result<LocalMo
         .lock()
         .map_err(|error| error.to_string())?
         .contains_key(&spec.id);
+    let starting = manager
+        .starts
+        .lock()
+        .map_err(|error| error.to_string())?
+        .contains_key(&spec.id);
     let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
     let running = runtimes
         .by_id
@@ -462,6 +468,8 @@ fn local_model_status_inner(app: &AppHandle, spec: &ModelSpec) -> Result<LocalMo
     let bytes = downloaded_bytes(&path, &part, spec.bytes);
     let state = if running {
         "running"
+    } else if starting {
+        "starting"
     } else if downloading {
         "downloading"
     } else if complete {
@@ -790,10 +798,21 @@ fn bundled_llama_server(app: &AppHandle) -> Result<PathBuf, String> {
         .join("..")
         .join("llama-runtime")
         .join(executable);
-    [packaged, source]
+    llama_runtime_candidates(packaged, source)
         .into_iter()
         .find(|path| path.is_file())
         .ok_or_else(|| "The bundled llama-server runtime is missing. Reinstall Bees.".into())
+}
+
+fn llama_runtime_candidates(packaged: PathBuf, source: PathBuf) -> [PathBuf; 2] {
+    if cfg!(debug_assertions) {
+        // Tauri's copied debug resource can be reassessed by macOS and wedge before main; the
+        // preparation script signs the source runtime directly. Release apps use their bundled,
+        // Developer-ID-signed resource first.
+        [source, packaged]
+    } else {
+        [packaged, source]
+    }
 }
 
 fn running_status(model_id: &str, bytes: u64) -> LocalModelStatus {
@@ -849,9 +868,10 @@ Update the operating system, or run this model on a newer machine."
         .map(|line| format!("llama-server could not start: {}", line.trim()))
 }
 
-fn start_local_model_blocking(
+fn start_local_model_blocking_inner(
     app: &AppHandle,
     spec: &ModelSpec,
+    cancelled: &AtomicBool,
 ) -> Result<LocalModelStatus, String> {
     let path = model_path(app, spec)?;
     if !is_complete(&path, spec.bytes) {
@@ -861,6 +881,9 @@ fn start_local_model_blocking(
     let manager = app.state::<LocalModelManager>();
     // Queue starts for macOS first-launch safety, but never hold the runtime lock across boot.
     let _starting = manager.starting.lock().map_err(|error| error.to_string())?;
+    if cancelled.load(Ordering::Relaxed) {
+        return Err("Model start cancelled".into());
+    }
     {
         let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
         if let Some(current) = runtimes.by_id.get_mut(&spec.id) {
@@ -936,7 +959,12 @@ fn start_local_model_blocking(
         .timeout(Duration::from_millis(500))
         .build()
         .map_err(|error| error.to_string())?;
-    for _ in 0..240 {
+    // Large contexts can spend well over a minute allocating their KV cache, especially while
+    // macOS verifies a freshly installed runtime. Keep waiting while the child is healthy.
+    for _ in 0..1_200 {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("Model start cancelled".into());
+        }
         if let Some(status) = child
             .child()
             .try_wait()
@@ -952,6 +980,9 @@ fn start_local_model_blocking(
             .map(|response| response.status().is_success())
             .unwrap_or(false)
         {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err("Model start cancelled".into());
+            }
             let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
             if let Some(current) = runtimes.by_id.get_mut(&spec.id) {
                 if runtime_is_running(current)? {
@@ -976,8 +1007,39 @@ fn start_local_model_blocking(
         thread::sleep(Duration::from_millis(250));
     }
     // The child is about to be dropped and killed, so its tail is the only account of the stall.
-    Err(startup_failure_message(&log_lines(&log))
-        .unwrap_or_else(|| "The local model did not become ready within 60 seconds".into()))
+    let lines = log_lines(&log);
+    Err(startup_failure_message(&lines).unwrap_or_else(|| {
+        lines
+            .last()
+            .map(|line| {
+                format!(
+                    "The local model did not become ready within 5 minutes. Last message: {line}"
+                )
+            })
+            .unwrap_or_else(|| "The local model did not become ready within 5 minutes".into())
+    }))
+}
+
+fn start_local_model_blocking(
+    app: &AppHandle,
+    spec: &ModelSpec,
+) -> Result<LocalModelStatus, String> {
+    let manager = app.state::<LocalModelManager>();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut starts = manager.starts.lock().map_err(|error| error.to_string())?;
+        if starts.contains_key(&spec.id) {
+            return Err("Model is already starting".into());
+        }
+        starts.insert(spec.id.clone(), cancelled.clone());
+    }
+    let result = start_local_model_blocking_inner(app, spec, &cancelled);
+    manager
+        .starts
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&spec.id);
+    result
 }
 
 #[tauri::command]
@@ -993,6 +1055,11 @@ pub async fn start_local_model(
 impl LocalModelManager {
     /// Quitting exits the process outright, so every llama-server is dropped here first.
     pub fn shutdown(&self) {
+        if let Ok(starts) = self.starts.lock() {
+            for cancelled in starts.values() {
+                cancelled.store(true, Ordering::Relaxed);
+            }
+        }
         if let Ok(mut runtimes) = self.runtimes.lock() {
             runtimes.by_id.clear();
             runtimes.active_id = None;
@@ -1003,6 +1070,14 @@ impl LocalModelManager {
 #[tauri::command]
 pub fn stop_local_model(app: AppHandle, model_id: String) -> Result<(), String> {
     let manager = app.state::<LocalModelManager>();
+    if let Some(cancelled) = manager
+        .starts
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&model_id)
+    {
+        cancelled.store(true, Ordering::Relaxed);
+    }
     let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
     let current = runtimes.by_id.remove(&model_id);
     repair_active_runtime(&mut runtimes);
@@ -1153,6 +1228,14 @@ mod tests {
         fs::write(&path, b"this is not a model file at all").unwrap();
         assert_eq!(read_model_shape(&path), None);
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_build_prefers_the_prepared_source_runtime() {
+        let packaged = PathBuf::from("packaged/llama-server");
+        let source = PathBuf::from("source/llama-server");
+        assert_eq!(llama_runtime_candidates(packaged.clone(), source.clone()), [source, packaged]);
     }
 
     /// Parses a header written to the real GGUF layout, including a string array to walk past

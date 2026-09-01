@@ -393,7 +393,10 @@ function signMacRuntime(runtimeRoot) {
   for (const entry of readdirSync(runtimeRoot)) {
     if (entry.startsWith(".") || entry === "LICENSE") continue;
     const path = join(runtimeRoot, entry);
-    if (!adhoc || !hasValidMacSignature(path)) execFileSync("codesign", [...signArgs, path]);
+    // A linker-generated ad-hoc signature passes `codesign --verify`, but macOS can still
+    // assess it on every launch and wedge the process before main. Replace it with a normal
+    // ad-hoc signature even when verification succeeds.
+    execFileSync("codesign", [...signArgs, path]);
   }
 }
 

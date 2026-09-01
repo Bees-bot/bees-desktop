@@ -14,7 +14,7 @@ afterEach(() => {
   configureRuntime((id: string) => id === "react" ? React : {});
 });
 
-it("shows the invitation form while SSO is loading and after SSO fails", async () => {
+it("loads organization invitations without waiting for SSO settings", async () => {
   const states: unknown[] = [];
   const effects: Array<() => void> = [];
   let cursor = 0;
@@ -27,14 +27,14 @@ it("shows the invitation form while SSO is loading and after SSO fails", async (
     },
     useEffect: (effect: () => void) => { effects.push(effect); }
   } : {});
-  let finishSso!: (response: Response) => void;
+  const actions: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
     const { action } = JSON.parse(options.body);
-    if (action === "organization_sso") return new Promise<Response>((resolve) => { finishSso = resolve; });
+    actions.push(action);
     return Response.json({ memberships: [], invitations: [] });
   }));
   const page = SettingsPage({
-    route: "organization-settings", organizationId: "org", connectionId: "owner-connection",
+    route: "organization-invitations", organizationId: "org", connectionId: "owner-connection",
     data: { organizations: [{ id: "org", name: "Shared org", connected: true }], teams: [],
       connections: [{ id: "owner-connection", role: "owner" }] }
   });
@@ -42,7 +42,5 @@ it("shows the invitation form while SSO is loading and after SSO fails", async (
   render();
   effects[0]!();
   await vi.waitFor(() => expect(render()).toContain("Send invitation"));
-  finishSso(Response.json({ error: "SSO is unavailable" }, { status: 503 }));
-  await vi.waitFor(() => expect(render()).toContain("SSO is unavailable"));
-  expect(render()).toContain("Send invitation");
+  expect(actions).toEqual(["organization_people"]);
 });

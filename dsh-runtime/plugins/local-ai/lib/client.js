@@ -52,6 +52,10 @@ window.__ModuleLoader__.load({
     }
 
     const settingValue = (scope) => scope.getSnapshot().value ?? {};
+    const wantedModelIds = (config) => [...new Set([
+      ...(Array.isArray(config.localModelWantedIds) ? config.localModelWantedIds : []),
+      ...(config.localModelWantedId ? [config.localModelWantedId] : [])
+    ])];
 
     function invokeLocal(command, args = {}) {
       const invoke = window.__TAURI__?.core?.invoke;
@@ -63,24 +67,50 @@ window.__ModuleLoader__.load({
       return value ? `${(value / 1024 / 1024 / 1024).toFixed(value >= 1024 ** 3 ? 1 : 2)} GB` : "0 GB";
     }
 
-    const allModels = (config) => [...LOCAL_MODELS, ...(Array.isArray(config.localModels) ? config.localModels : [])];
+    const allModels = (config) => [
+      ...LOCAL_MODELS.filter(({ id }) => !config.removedLocalModelIds?.includes(id)),
+      ...(Array.isArray(config.localModels) ? config.localModels : [])
+    ];
 
-    async function activateLocalModel(model, models, modelSettings) {
-      await invokeLocal("ensure_local_model", { spec: model });
-      for (const other of models) {
-        if (other.id !== model.id) await invokeLocal("stop_local_model", { modelId: other.id });
-      }
-      await invokeLocal("start_local_model", { spec: model });
-      const connection = await invokeLocal("local_model_connection");
+    const providerId = (model) => `local-openai-${model.id.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
+    const providerProfile = (model, connection, displayName = `Local AI · ${model.name}`) => ({
+      displayName, api: "openai-completions", baseURL: connection.baseUrl,
+      // llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
+      headers: { authorization: "Bearer local" },
+      models: [{ id: "active", name: model.name, contextWindow: connection.contextWindow,
+        maxTokens: Math.min(4096, Math.floor(connection.contextWindow / 2)) }]
+    });
+
+    async function syncLocalProviders(models, modelSettings) {
+      const rows = await Promise.all(models.map(async (model) =>
+        [model, await invokeLocal("local_model_status", { spec: model })]));
+      const running = rows.filter(([, status]) => status.running).map(([model]) => model);
+      const routes = await Promise.all(running.map(async (model) =>
+        [model, await invokeLocal("local_model_connection", { modelId: model.id })]));
       const config = settingValue(modelSettings);
-      await modelSettings.set("providers", { ...config.providers, "local-openai": {
-        ...(config.providers?.["local-openai"] ?? {}), displayName: "Local AI",
-        api: "openai-completions", baseURL: connection.baseUrl,
-        // llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
-        headers: { authorization: "Bearer local" },
-        models: [{ id: "active", name: model.name, contextWindow: connection.contextWindow,
-          maxTokens: Math.min(4096, Math.floor(connection.contextWindow / 2)) }]
-      } });
+      const providers = Object.fromEntries(Object.entries(config.providers ?? {}).filter(([id]) =>
+        id !== "local-openai" && !id.startsWith("local-openai-")));
+      for (const [model, connection] of routes) providers[providerId(model)] = providerProfile(model, connection);
+      if (routes.length) {
+        const active = await invokeLocal("local_model_connection");
+        const model = routes.find(([, connection]) => connection.baseUrl === active.baseUrl)?.[0] ?? routes.at(-1)[0];
+        providers["local-openai"] = providerProfile(model, active, "Local AI");
+      }
+      await modelSettings.set("providers", providers);
+    }
+
+    async function updateWantedModels(preferences, update) {
+      const current = settingValue(preferences);
+      const ids = update(wantedModelIds(current));
+      await preferences.set("localModelWantedIds", ids);
+      await preferences.set("localModelWantedId", ids.at(-1) ?? "");
+    }
+
+    async function activateLocalModel(model, models, modelSettings, preferences) {
+      await invokeLocal("ensure_local_model", { spec: model });
+      if (!wantedModelIds(settingValue(preferences)).includes(model.id)) return;
+      await invokeLocal("start_local_model", { spec: model });
+      await syncLocalProviders(models, modelSettings);
     }
 
     function LocalAiController({ modelSettings, preferences, onError }) {
@@ -89,25 +119,32 @@ window.__ModuleLoader__.load({
         if (started.current || !window.__TAURI__?.core?.invoke) return;
         started.current = true;
         const config = settingValue(preferences);
-        const wanted = config.localModelWantedId;
-        if (!wanted) return;
         const models = allModels(config);
-        const model = models.find(({ id }) => id === wanted);
-        if (!model) return;
-        void activateLocalModel(model, models, modelSettings).catch((reason) => {
-          const message = reason instanceof Error ? reason.message : String(reason);
-          if (message !== "Model download cancelled") onError?.(`Local AI could not start: ${message}`);
-        });
+        const wanted = wantedModelIds(config);
+        if (!wanted.length) return;
+        void (async () => {
+          for (const id of wanted) {
+            const model = models.find(({ id: modelId }) => modelId === id);
+            if (!model) continue;
+            try { await activateLocalModel(model, models, modelSettings, preferences); }
+            catch (reason) {
+              const message = reason instanceof Error ? reason.message : String(reason);
+              await updateWantedModels(preferences, (ids) => ids.filter((candidate) => candidate !== model.id));
+              if (!["Model download cancelled", "Model start cancelled"].includes(message))
+                onError?.(`Local AI could not start ${model.name}: ${message}`);
+            }
+          }
+        })();
       }, []);
       return null;
     }
 
     function LocalModels({ modelSettings, preferences, systemDefault, ask, Button, confirmAction }) {
       const config = usePreference(preferences);
-      const models = useMemo(() => allModels(config), [config.localModels]);
+      const models = useMemo(() => allModels(config), [config.localModels, config.removedLocalModelIds]);
       const [statuses, setStatuses] = useState({});
       const [progress, setProgress] = useState({});
-      const [busy, setBusy] = useState("");
+      const [busy, setBusy] = useState([]);
       const [error, setError] = useState("");
       const refresh = async () => {
         if (!window.__TAURI__?.core?.invoke) return;
@@ -130,36 +167,56 @@ window.__ModuleLoader__.load({
 
       const perform = async (operation, model, work) => {
         const key = `${operation}:${model.id}`;
-        setBusy(key); setError("");
+        setBusy((current) => [...current.filter((candidate) => candidate !== key), key]); setError("");
         try { await work(); await refresh(); }
         catch (reason) {
           const message = reason instanceof Error ? reason.message : String(reason);
-          if (message !== "Model download cancelled") setError(message);
-        } finally { setBusy((current) => current === key ? "" : current); }
+          if (!["Model download cancelled", "Model start cancelled"].includes(message)) setError(message);
+        } finally { setBusy((current) => current.filter((candidate) => candidate !== key)); }
       };
       const download = (model) => perform("download", model,
         () => invokeLocal("ensure_local_model", { spec: model }));
       const cancelDownload = (model) => perform("cancel", model, async () => {
         await invokeLocal("cancel_local_model_download", { modelId: model.id });
-        if (config.localModelWantedId === model.id) await preferences.set("localModelWantedId", "");
+        await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
       });
       const run = (model) => perform("run", model, async () => {
-        await preferences.set("localModelWantedId", model.id);
-        await activateLocalModel(model, models, modelSettings);
+        await updateWantedModels(preferences, (ids) => [...new Set([...ids, model.id])]);
+        try { await activateLocalModel(model, models, modelSettings, preferences); }
+        catch (reason) {
+          await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
+          throw reason;
+        }
       });
       const stop = (model) => perform("stop", model, async () => {
+        await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
         await invokeLocal("cancel_local_model_download", { modelId: model.id });
         await invokeLocal("stop_local_model", { modelId: model.id });
-        if (config.localModelWantedId === model.id) await preferences.set("localModelWantedId", "");
+        await syncLocalProviders(models, modelSettings);
       });
+      const removeFile = async (model) => {
+        if (!await confirmAction(`Remove the downloaded copy of ${model.name}?`)) return;
+        await perform("remove-file", model, async () => {
+          await invokeLocal("delete_local_model", { spec: model });
+          await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
+          await syncLocalProviders(models, modelSettings);
+          setProgress((current) => { const next = { ...current }; delete next[model.id]; return next; });
+        });
+      };
       const remove = async (model) => {
-        if (!await confirmAction(`Delete ${model.name} from this device?`)) return;
+        if (!await confirmAction(`Delete ${model.name} from the model list?`)) return;
         await perform("delete", model, async () => {
           await invokeLocal("delete_local_model", { spec: model });
-          if (config.localModelWantedId === model.id) await preferences.set("localModelWantedId", "");
-          if (Array.isArray(config.localModels) && config.localModels.some(({ id }) => id === model.id)) {
-            await preferences.set("localModels", config.localModels.filter(({ id }) => id !== model.id));
+          await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
+          const current = settingValue(preferences);
+          if (current.localModels?.some(({ id }) => id === model.id)) {
+            await preferences.set("localModels", current.localModels.filter(({ id }) => id !== model.id));
+          } else {
+            await preferences.set("removedLocalModelIds", [...new Set([
+              ...(current.removedLocalModelIds ?? []), model.id
+            ])]);
           }
+          await syncLocalProviders(models, modelSettings);
           setProgress((current) => { const next = { ...current }; delete next[model.id]; return next; });
         });
       };
@@ -184,7 +241,7 @@ window.__ModuleLoader__.load({
 
       return h("div", { className: "bees-stack" },
         h("div", { className: "bees-local-model-head" },
-          h("p", { className: "bees-muted" }, "Models stay private on this device."),
+          h("p", { className: "bees-muted" }, "Models stay private on this device. Run as many as this computer's memory can hold."),
           h(Button, { className: "primary", onClick: addModel }, "Add a model")),
         h("div", { className: "bees-local-model-table" }, h("table", null,
           h("thead", null, h("tr", null,
@@ -193,23 +250,25 @@ window.__ModuleLoader__.load({
           h("tbody", null, ...models.map((model) => {
             const status = statuses[model.id];
             const event = progress[model.id];
-            const complete = status?.state === "ready" || status?.running;
             const running = Boolean(status?.running);
-            const runPending = busy === `run:${model.id}`;
+            const nativeStarting = status?.state === "starting";
+            const complete = status?.state === "ready" || running || nativeStarting;
+            const starting = nativeStarting || (busy.includes(`run:${model.id}`) && complete);
+            const runPending = starting || busy.includes(`run:${model.id}`);
             const downloading = status?.state === "downloading" || event?.state === "downloading"
-              || busy === `download:${model.id}` || (runPending && !complete);
-            const cancelling = busy === `cancel:${model.id}` || busy === `delete:${model.id}`;
+              || busy.includes(`download:${model.id}`) || (busy.includes(`run:${model.id}`) && !complete && !starting);
+            const cancelling = busy.includes(`cancel:${model.id}`) || busy.includes(`delete:${model.id}`);
             const total = event?.totalBytes || status?.totalBytes || model.bytes;
             const downloaded = event?.downloadedBytes ?? status?.downloadedBytes ?? 0;
             const percentage = total ? Math.min(100, Math.round(downloaded / total * 100)) : 0;
-            const label = running ? "Running" : downloading && !cancelling ? `Downloading ${percentage}%`
+            const label = running ? "Running" : starting ? "Starting"
+              : downloading && !cancelling ? `Downloading ${percentage}%`
               : complete ? "Downloaded" : event?.state === "error" ? "Download failed"
                 : downloaded > 0 ? "Paused" : "Not downloaded";
             const downloadChecked = !cancelling && (complete || downloading);
-            const runChecked = running || runPending;
-            const protectedRunning = runChecked && systemDefault?.provider === "local-openai";
-            const defaultGuard = "Choose another System default above before stopping or removing the running local model.";
-            const otherBusy = Boolean(busy) && !busy.endsWith(`:${model.id}`);
+            const wanted = wantedModelIds(config).includes(model.id);
+            const runChecked = wanted || running;
+            const modelBusy = busy.some((key) => key.endsWith(`:${model.id}`));
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
@@ -221,17 +280,17 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
-                  disabled: running || otherBusy,
-                  onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : remove(model) }),
+                  disabled: running || modelBusy,
+                  onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
-              h("td", null, h("label", { className: "bees-local-toggle", title: protectedRunning ? defaultGuard : "" },
+              h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "run",
                   "aria-label": `Run ${model.name}`, checked: runChecked,
-                  disabled: protectedRunning || otherBusy || (Boolean(busy) && !runPending),
+                  disabled: modelBusy && !runPending,
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
-              h("td", null, h(Button, { className: "danger bees-local-delete", title: protectedRunning ? defaultGuard : `Delete ${model.name}`,
-                "aria-label": `Delete ${model.name}`, disabled: protectedRunning || Boolean(busy) || (!downloaded && !complete && !config.localModels?.some(({ id }) => id === model.id)),
+              h("td", null, h(Button, { className: "danger bees-local-delete", title: `Delete ${model.name}`,
+                "aria-label": `Delete ${model.name}`, disabled: modelBusy,
                 onClick: () => remove(model) }, config.localModels?.some(({ id }) => id === model.id) ? "Remove" : "Delete")));
           })))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
