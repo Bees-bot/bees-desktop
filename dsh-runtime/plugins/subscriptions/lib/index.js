@@ -401,6 +401,10 @@ export async function apply(ctx) {
           if (pending === current) pending = null;
         }
       }
+      if (input.action === "codex_test") {
+        if (!await ensureCodex()) throw new Error("Sign in to Codex first");
+        return json(res, 200, { ok: true });
+      }
       if (input.action === "codex_logout") {
         await ctx.credentials.unset(CODEX_OAUTH_REF);
         await ctx.credentials.unset(CODEX_ACCESS_REF);

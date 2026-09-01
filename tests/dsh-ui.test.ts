@@ -1,8 +1,40 @@
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error Client modules are plain JavaScript.
+import { defaultOrgColor, nextThemePreset, THEME_PRESETS } from "../dsh-runtime/plugin/client/shared.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("Bees work cockpit UI", () => {
+  it("assigns stable, distinct fallback organization colors", () => {
+    expect(defaultOrgColor("Acme")).toBe(defaultOrgColor("Acme"));
+    expect(defaultOrgColor("Acme")).not.toBe(defaultOrgColor("Ace"));
+    expect(defaultOrgColor("Acme")).toMatch(/^hsl\(\d+ 55% 45%\)$/);
+  });
+
+  it("restores every old Bees theme without duplicate ids", () => {
+    expect(THEME_PRESETS).toHaveLength(35);
+    expect(new Set(THEME_PRESETS.map(({ id }: { id: string }) => id)).size).toBe(35);
+    const labels = THEME_PRESETS.map(({ label }: { label: string }) => label);
+    expect(labels).toEqual([...labels].sort((left, right) => left.localeCompare(right)));
+    expect(THEME_PRESETS.map(({ id }: { id: string }) => id)).toEqual(expect.arrayContaining([
+      "forest", "dracula", "nord", "caramellatte", "abyss", "silk"
+    ]));
+    expect(THEME_PRESETS.find(({ id }: { id: string }) => id === "forest")).toEqual(expect.objectContaining({
+      dark: true,
+      colors: expect.arrayContaining(["oklch(68.628% 0.185 148.958)"]),
+      surface: "oklch(20.84% 0.008 17.911)"
+    }));
+  });
+
+  it("switches through the selected dark and light theme defaults", () => {
+    expect(nextThemePreset({ themePreset: "forest", lightThemePreset: "cupcake" }).id).toBe("cupcake");
+    expect(nextThemePreset({ themePreset: "cupcake", darkThemePreset: "dracula" }).id).toBe("dracula");
+    expect(nextThemePreset({ themePreset: "valentine", colorMode: "light",
+      lightThemePreset: "valentine", darkThemePreset: "light" }).id).toBe("light");
+    expect(nextThemePreset({ themePreset: "light", colorMode: "dark",
+      lightThemePreset: "valentine", darkThemePreset: "light" }).id).toBe("valentine");
+  });
+
   it("ships a parseable client bundle", () => {
     expect(() => new Script(clientBundle)).not.toThrow();
   });
@@ -179,11 +211,46 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
     expect(client).toContain('label: "Knowledge Base"');
     expect(client).toContain('["search", "Search & sources"]');
-    expect(client).toContain('["organization-settings", "Organization members"]');
+    expect(client).toContain('["organization-settings", "Organization general"]');
+    expect(client).toContain('["organization-members", "Organization members"]');
+    expect(client).toContain('["organization-invitations", "Organization invitations"]');
+    expect(client).toContain('["organization-workspace", "Organization workspace"]');
+    expect(client).toContain('["organization-authentication", "Organization authentication"]');
     expect(client).toContain('["team-settings", "Team members"]');
     expect(client).toContain('collaboration("delete_organization"');
     expect(client).toContain('action: "delete_organization", organizationId: organization.id');
     expect(client).toContain('name !== organization.name');
+  });
+
+  it("uses the old Bees organization and team hierarchy", () => {
+    expect(client).toContain('className: "bees-org-tiles"');
+    expect(client).toContain('defaultOrgColor(row.name)');
+    expect(client).toContain('"aria-label": "Add organization"');
+    expect(client).toContain("askWithCheckbox(");
+    expect(client).toContain(
+      '"Org name", "Keep this organization local to this device (not shared with teammates)", false'
+    );
+    expect(client).not.toContain('"Private / Local org only (no team sharing)"');
+    expect(client).not.toContain('"Local organization name"');
+    expect(client).toContain('className: "bees-team-list"');
+    expect(client).toContain('className: `bees-team-section');
+    expect(client).toContain('className: "bees-team-nav"');
+    expect(client).toContain('"aria-label": "Add team"');
+    expect(client).toContain('className: "bees-team-settings"');
+    expect(client).toContain('"aria-label": "Global and organization settings"');
+    expect(client).toContain('NAVIGATION.filter(({ id }) => id !== "settings")');
+    expect(client).toContain('onClick: () => navigate("appearance")');
+    expect(client).not.toContain('key: `top-settings:${child}`');
+    expect(client).not.toContain('aria-label": "Bees navigation"');
+    expect(client).toContain('className: "bees-settings-layout"');
+    expect(client).toContain('className: "bees-theme-grid"');
+    expect(client).toContain('"data-theme-default": "dark"');
+    expect(client).toContain('"data-theme-default": "light"');
+    expect(client).not.toContain('["local-ai", "Local models"]');
+    expect(client).toContain('h(LocalAiSettings, { modelSettings, preferences, systemDefault');
+    expect(client).toContain('type: "color", className: "bees-color-input"');
+    expect(client).toContain('preferences?.set("organizationColors"');
+    expect(client).not.toContain('["permissions", "Permissions"]');
   });
 
   it("keeps work-item navigation inside the Bees task screen", () => {

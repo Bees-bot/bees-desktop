@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
       const [status, setStatus] = useState({ codex: false, claude: { configured: false, enabled: false, models: [] } });
       const [busy, setBusy] = useState("");
       const [error, setError] = useState("");
+      const [notice, setNotice] = useState("");
       const refresh = async () => {
         const response = await fetch("/bees-api/subscriptions", { cache: "no-store" });
         const value = await response.json();
@@ -41,10 +42,13 @@ window.__ModuleLoader__.load({
         setStatus(value);
       };
       useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
-      const perform = async (name, work) => {
-        setBusy(name); setError("");
-        try { await work(); await refresh(); }
-        catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      const perform = async (name, work, success = "") => {
+        setBusy(name); setError(""); setNotice("");
+        try { await work(); await refresh(); setNotice(success); }
+        catch (reason) {
+          const message = reason instanceof Error ? reason.message : String(reason);
+          setError(success ? `Test failed: ${message}` : message);
+        }
         finally { setBusy(""); }
       };
       const codexModels = config.providers?.["openai-codex"]?.models ?? ui.codexModels ?? [];
@@ -59,6 +63,7 @@ window.__ModuleLoader__.load({
         await command("codex_await");
         await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile() });
       });
+      const testCodex = () => perform("codex-test", () => command("codex_test"), "Codex connection works.");
       const disconnectCodex = () => perform("codex", async () => {
         await command("codex_logout");
         const providers = { ...(config.providers ?? {}) }; delete providers["openai-codex"];
@@ -87,7 +92,7 @@ window.__ModuleLoader__.load({
       const configureClaude = () => perform("claude", async () => {
         await command("claude_configure");
       });
-      const testClaude = () => perform("claude", () => command("claude_test"));
+      const testClaude = () => perform("claude", () => command("claude_test"), "Claude Code connection works.");
       const toggleClaude = (enabled) => perform("claude", () => command("claude_toggle", { enabled }));
       const saveClaudeModels = (models) => perform("claude-model", () => command("claude_models", { models }));
       const addClaudeModel = () => perform("claude-model", async () => {
@@ -124,6 +129,8 @@ window.__ModuleLoader__.load({
                 h("span", null, codexEnabled ? "On" : "Off")) : null,
               h(Button, { className: status.codex ? "" : "primary", disabled: Boolean(busy), onClick: connectCodex },
                 busy === "codex" ? "Waiting for sign-in…" : status.codex ? "Reconnect" : "Sign in"),
+              status.codex ? h(Button, { disabled: Boolean(busy), onClick: testCodex },
+                busy === "codex-test" ? "Testing…" : "Test") : null,
               status.codex ? h(Button, { className: "danger", title: protects("openai-codex") ? defaultGuard : "",
                 disabled: Boolean(busy) || protects("openai-codex"), onClick: disconnectCodex }, "Disconnect") : null)),
           h("section", { className: "bees-box bees-subscription", "data-subscription": "claude-code" },
@@ -153,6 +160,7 @@ window.__ModuleLoader__.load({
                 busy === "claude" ? "Looking…" : "Connect") : null,
               status.claude.configured ? h(Button, { className: "danger", title: protects("claude-code") ? defaultGuard : "",
                 disabled: Boolean(busy) || protects("claude-code"), onClick: disconnectClaude }, "Disconnect") : null))),
+        notice ? h("div", { className: "bees-callout", role: "status" }, notice) : null,
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 

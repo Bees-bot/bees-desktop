@@ -492,14 +492,21 @@ async fn ensure_dsh_runtime(
 }
 
 #[tauri::command]
-fn local_model_connection(app: tauri::AppHandle) -> Result<LocalModelConnection, String> {
+fn local_model_connection(
+    app: tauri::AppHandle,
+    model_id: Option<String>,
+) -> Result<LocalModelConnection, String> {
+    let route = model_id.as_deref().unwrap_or("active");
     local_models::local_model_routes(&app)?
-        .get("active")
+        .get(route)
         .map(|route| LocalModelConnection {
             base_url: route.url.clone(),
             context_window: route.context_size,
         })
-        .ok_or_else(|| "No local model is running.".to_string())
+        .ok_or_else(|| match model_id {
+            Some(id) => format!("Local model {id} is not running."),
+            None => "No local model is running.".to_string(),
+        })
 }
 
 fn validated_external_url(url: &str) -> Result<&str, String> {
