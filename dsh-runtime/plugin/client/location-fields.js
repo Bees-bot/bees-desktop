@@ -182,7 +182,7 @@ export function WorkFiles({ data, references, inherited = [], outputId, defaultO
           h("span", { className: "bees-muted" }, new Date(run.updatedAt).toLocaleString())),
         h(OutputDirectory, { files: [...new Set(run.outputs.map((path) => path.replaceAll("\\", "/")))], executionId: run.id, viewer, onOpen: setViewer }))))
       : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."),
-    viewer ? h(FilePreview, { target: viewer })
+    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: runs.find(r => r.id === viewer.executionId)?.updatedAt } })
       : outputRuns.length ? h("p", { className: "bees-muted" }, "Select a file to read its contents.") : null);
 }
 
@@ -212,7 +212,7 @@ function OutputDirectory({ files, executionId, viewer, onOpen, prefix = "" }) {
 }
 
 export function FilePreview({ target }) {
-  return h(FileContents, { key: JSON.stringify(target), target });
+  return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target });
 }
 
 function FileContents({ target }) {
@@ -233,7 +233,7 @@ function FileContents({ target }) {
       .then((value) => { if (current) setFile(value); })
       .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { current = false; };
-  }, [target.executionId, target.locationId, path]);
+  }, [target.executionId, target.locationId, path, target.updatedAt]);
   const title = file?.path || file?.name || path || "Folder";
   const contents = error ? h("div", { className: "bees-error", role: "alert" }, error)
       : !file ? h("div", { className: "bees-loading" }, "Opening file…")

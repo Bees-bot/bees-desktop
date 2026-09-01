@@ -286,51 +286,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
               h("strong", null, "Coordinator"),
               h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, textParts.map(p => p.text).join(" ")))));
         }
-        if (toolParts.length) {
-          toolParts.forEach((part, index) => {
-            const isWorking = part.state === "input-available" || part.state === "running";
-            const isFailed = part.state === "output-error" || part.state === "failed";
-            const stateLabel = isWorking ? "Working" : isFailed ? "Failed" : "Completed";
-            const toolName = part.toolName || part.name || (part.call && part.call.name) || (part.callView && part.callView.name) || "Tool Action";
-            const toolInput = part.input || part.argsRaw || (part.call && part.call.arguments) || (part.callView && part.callView.arguments) || null;
-            const toolOutput = part.output || (part.result && part.result.data) || (part.resultView && part.resultView.data) || null;
-
-            let paramPreview = "";
-            if (toolInput) {
-              if (typeof toolInput === "string") paramPreview = toolInput;
-              else if (typeof toolInput === "object") {
-                const keys = Object.keys(toolInput);
-                if (keys.length === 1 && typeof toolInput[keys[0]] === "string") paramPreview = toolInput[keys[0]];
-                else if (toolInput.path) paramPreview = String(toolInput.path);
-                else if (toolInput.pattern) paramPreview = String(toolInput.pattern);
-                else if (toolInput.command) paramPreview = String(toolInput.command);
-              }
-            }
-
-            convoItems.push(h("details", {
-              className: `bees-tool-card ${isWorking ? "working" : isFailed ? "failed" : "completed"}`,
-              key: `tool-${msg.id}-${index}`,
-              open: isFailed || undefined
-            },
-              h("summary", { className: "bees-tool-summary" },
-                h("span", { className: "bees-tool-status" }, stateLabel),
-                h("span", { className: "bees-tool-title" },
-                  toolName,
-                  paramPreview ? h("span", { className: "bees-muted", style: { marginLeft: "8px", fontWeight: "normal", fontSize: "12px" } }, paramPreview) : null
-                ),
-                h("span", { className: "bees-tool-chevron", "aria-hidden": "true" }, "⌄")
-              ),
-              h("div", { className: "bees-tool-detail" },
-                toolInput ? h(React.Fragment, null,
-                  h("strong", null, "Input"),
-                  h("pre", null, typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput, null, 2))
-                ) : null,
-                h("strong", null, isFailed ? "Error / Output" : "Output"),
-                h("pre", { style: isFailed ? { color: "#f87171" } : null },
-                  toolOutput ? (typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput, null, 2)) : (isFailed ? "Execution failed with no output recorded" : "Completed with no output"))
-              )));
-          });
-        }
       }
     }
   } else if (history === null) {
@@ -424,7 +379,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Recurring${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Audit")
+      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
     // 3. TAB CONTENT
@@ -499,14 +454,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No runs yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: setScheduleEditor })
-      : h(React.Fragment, null,
-        h("h3", null, "Audit"),
-        ...(events.length ? events.map((event) => h(AuditEvent, {
-          event, key: event.id,
-          detail: event.metadata?.action ?? event.metadata?.outcome,
-          onOpen: runAudit.has(event.executionId) ? () => { setSelectedRun(event.executionId); setActiveTab("runs"); } : null,
-          openLabel: "Open run"
-        })) : [h("p", { className: "bees-muted", key: "none" }, "No audit events for this work item yet")])
+      : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
+        run ? h("iframe", {
+          src: `/bees-api/harness?executionId=${run.id}`,
+          style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
+          title: "DSH Traces"
+        }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
       )
     ),
     scheduleEditor ? h(ScheduleForm, { item, recurring: scheduleEditor === true ? null : scheduleEditor, act,
@@ -895,7 +848,7 @@ function NeedsYouControls({ item, act, onDone }) {
 }
 
 function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
-  const files = run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`);
+  const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
   useEffect(() => setViewer((current) => files.length
@@ -916,7 +869,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
       ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
         onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
-    viewer ? h(FilePreview, { target: viewer }) : null
+    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt } }) : null
   );
 }
 

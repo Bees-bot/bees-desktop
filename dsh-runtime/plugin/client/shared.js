@@ -726,12 +726,13 @@ export const css = `
   color: var(--dsw-alias-label-primary) !important;
 }
 .bees-tool-chevron {
+  transform: rotate(-90deg) !important;
   color: var(--dsw-alias-label-secondary) !important;
   font-size: 13px !important;
   transition: transform 0.15s ease !important;
 }
 .bees-tool-card[open] .bees-tool-chevron {
-  transform: rotate(180deg) !important;
+  transform: rotate(0deg) !important;
 }
 .bees-tool-detail {
   padding: 10px 14px 14px !important;

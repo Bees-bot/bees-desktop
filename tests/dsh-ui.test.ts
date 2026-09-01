@@ -79,8 +79,7 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses theme-aware conversation bubbles, expandable tool cards, and a compact composer", () => {
-    expect(client).toContain('className: `bees-tool-card ${isWorking ? "working"');
-    expect(client).toContain('className: "bees-tool-summary"');
+
     expect(client).toContain('className: "bees-agent-turn"');
     expect(client).toContain('className: "bees-composer-send"');
     expect(client).toContain('background: var(--dsw-alias-interactive-bg-hover) !important;');
@@ -91,7 +90,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('h(MarkdownText, { text: process.description })');
     expect(client).toContain('h(MarkdownText, { text: item.description })');
     expect(client).toContain("function AuditEvent");
-    expect(client).toContain('openLabel: "Open run"');
     expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
   });
 
