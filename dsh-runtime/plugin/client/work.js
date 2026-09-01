@@ -393,7 +393,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           item.runtimeError ? h("div", { style: { color: "#f87171", fontSize: "13px", marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, item.runtimeError) : null
         ),
         h("div", { className: "bees-tab-actions" },
-          run && (item.runtimePhase === "failed" || item.runtimePhase === "completed") ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), item.runtimePhase === "completed" ? "Run again" : "Retry") : null,
+          run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
           run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
           run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
           run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,

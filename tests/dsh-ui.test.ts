@@ -134,6 +134,8 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("function NeedsYouControls");
     expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
     expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
+    expect(client).toContain('act({ action: "retry_item", itemId: item.id })');
+    expect(client).not.toContain('action: "retry_run"');
     expect(client).toContain('busy === "cancel_item" ? "Stopping…" : "Stop"');
     expect(client).toContain('busy === "archive_item" ? "Archiving…" : "Archive"');
     expect(client).not.toContain("The prior request was interrupted");
