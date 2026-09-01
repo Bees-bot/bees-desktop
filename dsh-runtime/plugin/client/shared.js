@@ -23,7 +23,7 @@ export const NAVIGATION = [
   ] },
   { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "organizations", children: [
     ["organizations", "Account & invitations"], ["connections", "Connections"],
-    ["organization-settings", "Organization"], ["team-settings", "Team"],
+    ["organization-settings", "Organization members"], ["team-settings", "Team members"],
     ["personal-ai", "AI connections"], ["appearance", "Appearance"], ["permissions", "Permissions"]
   ] }
 ];

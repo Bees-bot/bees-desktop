@@ -177,6 +177,11 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
     expect(client).toContain('label: "Knowledge Base"');
     expect(client).toContain('["search", "Search & sources"]');
+    expect(client).toContain('["organization-settings", "Organization members"]');
+    expect(client).toContain('["team-settings", "Team members"]');
+    expect(client).toContain('collaboration("delete_organization"');
+    expect(client).toContain('action: "delete_organization", organizationId: organization.id');
+    expect(client).toContain('name !== organization.name');
   });
 
   it("keeps work-item navigation inside the Bees task screen", () => {

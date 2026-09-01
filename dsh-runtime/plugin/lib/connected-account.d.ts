@@ -11,6 +11,7 @@ export class ConnectedAccount {
   sync(): Promise<any[]>;
   syncCoordination(connectionIds?: string[] | null): Promise<any[]>;
   createOrganization(name: string, accountUserId: string): Promise<any>;
+  deleteOrganization(organizationId: string, connectionId: string): Promise<any>;
   createTeam(name: string, connectionId: string): Promise<any>;
   executionClaims(): any;
   close(): Promise<void>;
