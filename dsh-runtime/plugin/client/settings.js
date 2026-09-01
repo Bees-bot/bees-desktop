@@ -203,7 +203,7 @@ function ConnectionsSettings() {
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, "Google Drive"),
       h("p", { className: "bees-muted" },
-        "Read-only access exports Google Docs, Sheets, and Slides pointer files into a local QMD cache. Documents and the index are not uploaded to Bees."),
+        "Read-only access exports Google Docs, every Sheet tab, Slides, Drawings, and Form structure into a local QMD cache. Documents and the index are not uploaded to Bees."),
       drive.connected
         ? h("div", { className: "bees-row" },
             h("div", { className: "bees-row-main" },
@@ -214,7 +214,9 @@ function ConnectionsSettings() {
               ].join(" · "))),
             h(Button, { className: "danger", disabled: busy, onClick: disconnect }, "Disconnect"))
         : h(Button, { className: "primary", disabled: busy || !drive.available, onClick: connect },
-            busy ? "Connecting…" : drive.available ? "Connect Google Drive" : "Not configured by server")),
+            busy ? "Connecting…" : drive.available
+              ? drive.needsReconnect ? "Reconnect Google Drive" : "Connect Google Drive"
+              : "Not configured by server")),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 

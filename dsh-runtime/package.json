@@ -31,8 +31,12 @@
     "better-sqlite3": "12.10.0",
     "google-auth-library": "10.5.0",
     "gridstack": "13.2.0",
+    "officeparser": "7.5.1",
     "react": "18.3.1",
     "react-cron-generator": "2.6.0",
     "react-dom": "18.3.1"
+  },
+  "overrides": {
+    "pdfjs-dist": "6.2.108"
   }
 }

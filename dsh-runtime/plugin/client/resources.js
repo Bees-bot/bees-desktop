@@ -18,9 +18,11 @@ function DriveNotice({ onOpenConnections }) {
     h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
       h("div", { className: "bees-row-title" }, "Google Workspace documents"),
       h("div", { className: "bees-muted" }, drive.connected
-        ? `Connected locally${drive.profile?.emailAddress ? ` as ${drive.profile.emailAddress}` : ""}. .gdoc, .gsheet, and .gslides pointers are exported for QMD on demand.`
-        : "Connect Google Drive on this desktop to index native Google document pointers.")),
-    h(Button, { onClick: onOpenConnections }, drive.connected ? "Manage" : "Connect")));
+        ? `Connected locally${drive.profile?.emailAddress ? ` as ${drive.profile.emailAddress}` : ""}. Docs, every Sheet tab, Slides, Drawings, and Forms are exported for QMD on demand.`
+        : drive.needsReconnect
+          ? "Reconnect Google Drive once to grant read-only Google Forms access."
+          : "Connect Google Drive on this desktop to index native Google document pointers.")),
+    h(Button, { onClick: onOpenConnections }, drive.connected ? "Manage" : drive.needsReconnect ? "Reconnect" : "Connect")));
 }
 
 export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
