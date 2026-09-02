@@ -256,6 +256,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
     if (await act({ action: "archive_item", itemId: item.id })) onArchived?.();
   };
+  const restore = () => act({ action: "archive_item", itemId: item.id, restore: true });
   const answered = (key) => setHandled((current) => new Set(current).add(key));
   const runAudit = new Set(itemRuns.map(({ id }) => id));
   const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
@@ -394,14 +395,15 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         ),
         h("div", { className: "bees-tab-actions" },
           run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
-          run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
-          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
-          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
-          run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
+          run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
+          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
+          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
+          run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
           !item.archivedAt ? h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", {className: "bees-btn-icon"}, "✎"), "Edit") : null,
           !item.archivedAt ? h("button", { className: "bees-btn-secondary", onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
           run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
-          !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive") : null,
+          !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
+            : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
           run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
             item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
         )

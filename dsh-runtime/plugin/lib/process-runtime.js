@@ -479,9 +479,9 @@ export class ProcessRuntime {
     if (!restore && item.scheduleDefinition && this.database.prepare(`
       SELECT 1 FROM recurring_work WHERE source_work_item_id = ? AND status = 'active'
     `).get(workItemId)) throw new Error("Pause recurring work before archiving its work item");
-    if (!restore && this.isAutomatic(item.processId) && !["completed", "cancelled"].includes(item.runtimePhase)) {
-      if (!item.scheduleDefinition) await this.signal(workItemId, "cancel");
-    }
+    // Archiving hides the whole tree, so delegated work still in flight has to stop with it.
+    // Cancelling only the root left a child running behind a screen nobody could see.
+    if (!restore) for (const id of this.cancellableTree(workItemId)) await this.signal(id, "cancel");
     const at = new Date().toISOString();
     this.database.prepare(`
       WITH RECURSIVE tree(id) AS (
@@ -491,6 +491,19 @@ export class ProcessRuntime {
       UPDATE work_items SET archived_at = ?, updated_at = ? WHERE id IN (SELECT id FROM tree)
     `).run(workItemId, restore ? null : item.archivedAt ?? at, at);
     return { ...item, archivedAt: restore ? null : item.archivedAt ?? at };
+  }
+
+  /** Work in this tree that archiving must stop: automatic, unscheduled, and in a phase cancel accepts. */
+  cancellableTree(workItemId) {
+    return this.database.prepare(`
+      WITH RECURSIVE tree(id) AS (
+        SELECT ? UNION SELECT w.id FROM work_items w JOIN tree ON w.parent_id = tree.id
+        WHERE w.deleted_at IS NULL
+      )
+      SELECT w.id, w.process_id AS processId FROM work_items w JOIN tree ON tree.id = w.id
+      WHERE w.runtime_phase IN ('running', 'waiting', 'paused', 'failed')
+        AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
+    `).all(workItemId).filter(({ processId }) => this.isAutomatic(processId)).map(({ id }) => id);
   }
 
   project(state) {
