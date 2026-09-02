@@ -9,6 +9,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync
@@ -51,11 +52,7 @@ const temporalDestination = resolve(
 );
 
 mkdirSync(dirname(destination), { recursive: true });
-copyFileSync(process.execPath, destination);
-chmodSync(destination, 0o755);
-// Copying strips nothing but leaves whoever built this node's signature on it, and this is the
-// sidecar every launch spawns. Temporal and llama-server are re-signed for the same reason.
-signMacBinary(destination, "Node");
+stageExecutable(process.execPath, destination, "Node");
 
 // b10153 is the first release with the `nanbeige` architecture the seeded model uses.
 const llamaRelease = "b10164";
@@ -176,7 +173,8 @@ async function prepareTemporalRuntime() {
   if (!asset) throw new Error(`No embedded Temporal runtime is configured for ${target}.`);
   const marker = resolve(desktopRoot, "src-tauri", "binaries", `.temporal-${target}.version`);
   if (preparedAlready(marker, temporalDestination, temporalRelease)) {
-    signMacBinary(temporalDestination, "Temporal");
+    stageExecutable(temporalDestination, temporalDestination, "Temporal");
+    markPrepared(marker, temporalDestination, temporalRelease);
     return;
   }
 
@@ -195,14 +193,12 @@ async function prepareTemporalRuntime() {
     execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
     const temporal = findFile(extracted, `temporal${extension}`);
     if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
-    copyFileSync(temporal, temporalDestination);
+    stageExecutable(temporal, temporalDestination, "Temporal");
     // externalBin ships the binary on its own, so the licence rides along in the dsh-runtime
     // resource instead, the way llama.cpp and FreeLLMAPI carry theirs.
     const licence = findFile(extracted, "LICENSE");
     if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
     copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
-    if (!target.includes("windows")) chmodSync(temporalDestination, 0o755);
-    signMacBinary(temporalDestination, "Temporal");
     markPrepared(marker, temporalDestination, temporalRelease);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -286,6 +282,21 @@ function signMacBinary(path, label) {
     : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
   console.log(adhoc ? `Signing ${label} ad-hoc.` : `Signing ${label} with ${identity}.`);
   execFileSync("codesign", [...signArgs, path]);
+}
+
+function stageExecutable(source, destination, label) {
+  const temporaryRoot = mkdtempSync(join(dirname(destination), ".bees-stage-"));
+  const staged = join(temporaryRoot, basename(destination));
+  try {
+    copyFileSync(source, staged);
+    if (!target.includes("windows")) chmodSync(staged, 0o755);
+    // Publish only a complete, signed executable. Tauri watches externalBin and can otherwise copy
+    // the destination while copyFileSync is still writing it, producing a truncated Mach-O.
+    signMacBinary(staged, label);
+    renameSync(staged, destination);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
