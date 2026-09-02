@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
-  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useSnapshot, useSubmit, workItemStatus
+  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useSnapshot, useSubmit, workItemStatus, HelpTooltip
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -72,7 +72,7 @@ function ScheduleForm({ item, recurring, act, onClose, onCreated }) {
   return h("div", { className: "bees-modal-backdrop", role: "presentation" },
     h("form", { className: "bees-box bees-form bees-modal", role: "dialog", "aria-modal": "true", "aria-label": recurring ? "Edit recurring work" : "Schedule work", onSubmit: submit },
       h("div", { className: "bees-row" }, h("div", null,
-        h("h2", null, recurring ? "Edit recurring work" : "Schedule this work"),
+        h("h2", { style: { display: "flex", alignItems: "center" } }, (recurring ? "Edit recurring work" : "Schedule this work"), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: "Schedules automatically create new process runs for this work on a regular basis. You can use this for any repeatable task.", examples: ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "A weekly schedule for 'Prepare Status Report'", "An advanced cron schedule to trigger 'System Backup'"] })),
         h("p", { className: "bees-muted" }, "Bees creates a new primary work item at the process's starting stage. Delegated child work is not copied. Each scheduled occurrence is fresh, and learning stays inside this named recurring work."))),
       h("label", null, "Name", h("input", { className: "bees-input", value: name, maxLength: 120, required: true, autoFocus: true, onChange: (event) => setName(event.target.value) })),
       h("label", null, "Frequency", h("select", { className: "bees-select", value: frequency, onChange: (event) => setFrequency(event.target.value) },
@@ -148,7 +148,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
   }));
 }
 
-function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleCreated, board, layout, editing, onLayout, setPageHeader }) {
+function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader }) {
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -170,7 +170,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
 
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("details");
-  const [scheduleEditor, setScheduleEditor] = useState(false);
 
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
@@ -189,7 +188,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
-    setActiveTab("details"); setComposerText(""); setSending(false); setScheduleEditor(false);
+    setActiveTab("details"); setComposerText(""); setSending(false);
   }, [item.id]);
   useEffect(() => {
     let active = true;
@@ -399,7 +398,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
           run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_run", executionId: run.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
           !item.archivedAt ? h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", {className: "bees-btn-icon"}, "✎"), "Edit") : null,
-          !item.archivedAt ? h("button", { className: "bees-btn-secondary", onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
           run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
           !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive") : null,
           run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
@@ -453,7 +451,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         h("h3", { className: "bees-section-title" }, "Executions"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
-      ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: setScheduleEditor })
+      ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
       : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
         run ? h("iframe", {
           src: `/bees-api/harness?executionId=${run.id}`,
@@ -461,9 +459,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           title: "DSH Traces"
         }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
       )
-    ),
-    scheduleEditor ? h(ScheduleForm, { item, recurring: scheduleEditor === true ? null : scheduleEditor, act,
-      onClose: () => setScheduleEditor(false), onCreated: onScheduleCreated }) : null);
+    )
+  );
 
   return h(FlexibleGrid, {
     layout, editing, onLayout,
@@ -480,8 +477,9 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
   const root = data.items.find(({ id }) => id === rootId);
   const [selectedId, setSelectedId] = useState(rootId);
   const [editing, setEditing] = useState(false);
+  const [scheduleEditor, setScheduleEditor] = useState(false);
   useEffect(() => setSelectedId(rootId), [rootId]);
-  useEffect(() => setEditing(false), [rootId]);
+  useEffect(() => { setEditing(false); setScheduleEditor(false); }, [rootId]);
   const visibleIds = new Set([rootId]);
   for (let added = true; added;) {
     added = false;
@@ -493,6 +491,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
   if (!root) return h(Empty, null, "Work item not found");
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
+  const schedulable = stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
+    stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
   const selected = items.find(({ id }) => id === selectedId) ?? root;
   const latest = new Map();
   for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
@@ -534,6 +534,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
     setPageActions && setPageActions(
       h(React.Fragment, null,
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
+        !root.archivedAt && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
         h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout"),
         !editing ? h(Button, { className: "primary", onClick: () => onNewWork?.(root.processId) }, "New work") : null
       )
@@ -542,14 +543,17 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
       setPageHeader && setPageHeader(null);
       setPageActions && setPageActions(null);
     };
-  }, [root.title, root.processId, process?.name, completed, total, editing, onBack, setPageHeader, setPageActions, onNewWork]);
+  }, [root.title, root.processId, root.archivedAt, schedulable, process?.name, completed, total, editing, onBack, setPageHeader, setPageActions, onNewWork]);
 
   return h("div", { style: { display: "flex", flexDirection: "column" } },
     h(WorkItemDetails, {
       ctx, data, item: selected, teamId, act, onArchived: onBack, onScheduleCreated, board, layout, editing,
       onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value)),
+      onEditSchedule: setScheduleEditor,
       setPageHeader
-    })
+    }),
+    scheduleEditor ? h(ScheduleForm, { item: root, recurring: scheduleEditor === true ? null : scheduleEditor, act,
+      onClose: () => setScheduleEditor(false), onCreated: onScheduleCreated }) : null
   );
 }
 
@@ -1011,7 +1015,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters") },
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters"), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
         "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters") }
       }
     })

@@ -108,6 +108,45 @@ export function defaultOrgColor(seed) {
 }
 
 export const css = `
+.bees-widget-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  cursor: help;
+  color: var(--dsw-alias-label-secondary);
+}
+.bees-widget-tooltip {
+  visibility: hidden;
+  position: absolute;
+  z-index: 1000;
+  top: 100%;
+  right: 0;
+  width: 280px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+  font-weight: normal;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+.bees-widget-tooltip-wrapper:hover .bees-widget-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+.bees-widget-tooltip p { margin: 0 0 8px 0; }
+.bees-widget-tooltip p:last-child { margin-bottom: 0; }
+.bees-widget-tooltip ul { margin: 0; padding-left: 16px; }
+.bees-widget-tooltip li { margin-bottom: 4px; }
+
 .bees-app [hidden]{display:none!important}
 .bees-ask-setup{max-width:1040px;margin:0 auto;padding:12px 0 32px;min-width:0}
 .bees-ask-heading{padding:24px 0 20px}.bees-ask-heading h1{font-size:28px;margin:6px 0 10px}.bees-ask-heading h1:focus{outline:none}
@@ -1211,4 +1250,19 @@ export function PageHead({ setPageHeader, children }) {
     };
   });
   return null;
+}
+
+
+export function HelpTooltip({ text, examples }) {
+  if (!text) return null;
+  return h("span", { className: "bees-widget-tooltip-wrapper", "aria-label": "Help" },
+    h("span", { style: { display: "inline-flex", width: "14px", height: "14px", borderRadius: "50%", border: "1px solid currentColor", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: "bold", fontStyle: "italic" } }, "i"),
+    h("div", { className: "bees-widget-tooltip" },
+      h("p", null, text),
+      examples && examples.length ? h("div", null, 
+        h("strong", { style: { display: "block", marginBottom: "4px" } }, "Examples:"),
+        h("ul", null, ...examples.map(ex => h("li", { key: ex }, ex)))
+      ) : null
+    )
+  );
 }
