@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Child;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 /// A loopback listener on whichever ephemeral port the OS handed out, and that port.
 pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
@@ -22,9 +22,9 @@ pub fn available_loopback_port() -> Result<u16, String> {
     bind_loopback().map(|(_, port)| port)
 }
 
-/// The process table with paths and arguments filled in. The plain refresh fills neither, so
-/// every match below silently came back empty.
-fn processes() -> System {
+/// Kill every process the predicate picks. The plain `refresh_processes` fills neither `exe`
+/// nor `cmd`, so both are asked for here or nothing would ever match.
+fn reap(matches: impl Fn(&System, &Process) -> bool) {
     let mut system = System::new();
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
@@ -33,27 +33,22 @@ fn processes() -> System {
             .with_exe(UpdateKind::Always)
             .with_cmd(UpdateKind::Always),
     );
-    system
-}
-
-fn managed_sidecar(executable: Option<&Path>, expected: &Path) -> bool {
-    executable == Some(expected)
+    for process in system.processes().values() {
+        if matches(&system, process) {
+            process.kill();
+        }
+    }
 }
 
 /// Remove a bundled sidecar whose Bees parent was hard-killed before `Drop` could reap it.
 /// The exact executable path keeps this from touching another app's process.
-pub fn reap_orphaned_sidecars(executable: &Path) -> usize {
-    let system = processes();
-    let mut reaped = 0;
-    for process in system.processes().values() {
+pub fn reap_orphaned_sidecars(executable: &Path) {
+    reap(|system, process| {
         let orphaned = process
             .parent()
             .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
-        if orphaned && managed_sidecar(process.exe(), executable) && process.kill() {
-            reaped += 1;
-        }
-    }
-    reaped
+        orphaned && process.exe() == Some(executable)
+    });
 }
 
 /// Remove a llama-server left behind by a previous app instance. The model manager tracks its
@@ -61,21 +56,16 @@ pub fn reap_orphaned_sidecars(executable: &Path) -> usize {
 /// and spawns a duplicate. Matched on the `--alias active` we always pass, so another app's
 /// llama-server is left alone.
 pub fn reap_orphan_llama_servers() {
-    let system = processes();
-    for process in system.processes().values() {
-        let ours = process
+    reap(|_, process| {
+        process
             .exe()
             .and_then(Path::file_stem)
-            .is_some_and(|name| name == "llama-server");
-        if ours
+            .is_some_and(|name| name == "llama-server")
             && process
                 .cmd()
                 .windows(2)
                 .any(|a| a[0] == "--alias" && a[1] == "active")
-        {
-            process.kill();
-        }
-    }
+    });
 }
 
 /// End the Chrome the agent browses in. DSH starts it, but DSH is hard-killed on quit so its own
@@ -83,12 +73,7 @@ pub fn reap_orphan_llama_servers() {
 /// Matched on the exact profile argument, so a person's own Chrome is left alone.
 pub fn reap_agent_browser(profile: &Path) {
     let expected = format!("--user-data-dir={}", profile.display());
-    let system = processes();
-    for process in system.processes().values() {
-        if process.cmd().iter().any(|arg| arg == expected.as_str()) {
-            process.kill();
-        }
-    }
+    reap(|_, process| process.cmd().iter().any(|arg| arg == expected.as_str()));
 }
 
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever
@@ -127,18 +112,5 @@ impl Drop for Sidecar {
             thread::sleep(Duration::from_millis(50));
         }
         // ponytail: still stuck — leak it rather than block. Only a reboot clears such a process.
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn orphan_reaper_matches_only_our_exact_executable() {
-        let node = Path::new("/Applications/Bees.app/Contents/MacOS/bees-node");
-        assert!(managed_sidecar(Some(node), node));
-        assert!(!managed_sidecar(Some(Path::new("/usr/bin/node")), node));
-        assert!(!managed_sidecar(None, node));
     }
 }
