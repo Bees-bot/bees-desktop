@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserEndpoint, stopAgentBrowser } from "./agent-browser.js";
+import { browserEndpoint } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -67,7 +67,6 @@ export class Capabilities {
   async close() {
     const fibers = [...this.mounted.values()].map(({ fiber }) => fiber).filter(Boolean);
     this.mounted.clear();
-    stopAgentBrowser();
     // One bad teardown must not strand the rest, and disposal is best-effort during shutdown.
     await Promise.allSettled(fibers.map((fiber) => fiber.dispose()));
   }
@@ -92,14 +91,13 @@ export class Capabilities {
         const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
-      // Resolved on connect rather than at install: Chrome takes a fresh port every time it starts.
-      const wantsBrowser = server.args.includes("{cdpEndpoint}");
-      const endpoint = wantsBrowser ? await browserEndpoint() : "";
+      // Filled in on connect rather than at install: the port lives only as long as this process.
+      const endpoint = server.args.includes("{cdpEndpoint}") ? await browserEndpoint() : "";
       return {
         transport: "stdio",
         serverName: server.serverName,
         command: server.command,
-        args: wantsBrowser ? server.args.map((arg) => arg.replace("{cdpEndpoint}", endpoint)) : server.args,
+        args: server.args.map((arg) => arg === "{cdpEndpoint}" ? endpoint : arg),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
@@ -351,7 +349,7 @@ export class Capabilities {
       given.openapiSpec = found.specUrl;
       if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
     }
-    const args = entry.args.map((arg) => arg.replaceAll("{stateDir}", stateDirectory()));
+    const args = [...entry.args];
     for (const field of entry.inputs) {
       const value = String(given[field.name] ?? "").trim();
       if (!value && !field.optional) throw new Error(`${entry.label} needs ${field.label}`);
