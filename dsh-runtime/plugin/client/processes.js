@@ -22,8 +22,8 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
   const [outputLocationId, setOutputLocationId] = useState("");
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Processes"), h("div", { className: "bees-title" }, template ? "New template" : "New process")),
-    h(Empty, null, "Choose a team before creating a process."));
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Process Templates"), h("div", { className: "bees-title" }, template ? "New template" : "New process template")),
+    h(Empty, null, "Choose a team before creating a process template."));
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const stages = String(form.get("stages") ?? "").split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
@@ -37,14 +37,14 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
 
   return h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, 
-      h(Button, { onClick: onCancel }, "← Processes"),
-      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process from template" : "New process"),
+      h(Button, { onClick: onCancel }, "← Process Templates"),
+      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
       h("div", { className: "bees-grow" })
     ),
     h("div", { className: "bees-muted", style: { marginBottom: "16px" } }, template
           ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Design the whole workflow here. Each line becomes a stage; the final stage is Done."),
-    h("label", null, template ? "Template name" : "Process name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
+          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."),
+    h("label", null, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
     h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
       placeholder: "When should someone use this workflow?" })),
@@ -53,7 +53,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
     h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. A stage named Review gets an independent reviewer; the last stage completes the work."),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process"),
+    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
@@ -81,7 +81,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
       
       const editProcess = async () => {
-        const name = await ask("Process name", process.name); if (!name) return;
+        const name = await ask("Process template name", process.name); if (!name) return;
         const description = await ask("Description", process.description) ?? process.description;
         const current = data.stages.filter(({ processId }) => processId === process.id).map(({ name }) => name);
         const listed = await ask("Stages, comma separated", current.join(", ")); if (listed === null) return;
@@ -90,7 +90,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       };
       
       const copyProcess = async () => {
-        const name = await ask("New process name", process.name + " Copy"); if (!name) return;
+        const name = await ask("New process template name", process.name + " Copy"); if (!name) return;
         const result = await act({ action: "copy_process", processId: process.id, name });
         if (result?.id) setProcessId(result.id);
       };
@@ -113,12 +113,8 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
           requiredCapabilities: value.split(",").map((entry) => entry.trim()).filter(Boolean)
         });
       };
-      const saveTemplate = async () => {
-        const name = await ask("Template name", process.name); if (!name) return;
-        await act({ action: "save_process_template", processId: process.id, name });
-      };
       const archiveProcess = async () => {
-        if (!await confirmAction(`Archive “${process.name}”? Its work and history will be preserved.`)) return;
+        if (!await confirmAction(`Archive process template “${process.name}”? Its process runs and history will be preserved.`)) return;
         if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
       };
       const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
@@ -180,20 +176,19 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
       const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },
-        h("h3", { style: { color: "#cf5b5b" } }, "Archive process"),
-        h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process without breaking work history or database links."),
-        h(Button, { className: "danger", onClick: archiveProcess }, "Archive process")) : null;
+        h("h3", { style: { color: "#cf5b5b" } }, "Archive process template"),
+        h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process template without breaking process-run history or database links."),
+        h(Button, { className: "danger", onClick: archiveProcess }, "Archive process template")) : null;
 
       const pageActions = h(React.Fragment, null,
-          h(Button, { onClick: editProcess }, "Edit process"),
-          process.kind === "standard" ? h(Button, { onClick: copyProcess }, "Copy process") : null,
-          process.kind === "standard" ? h(Button, { onClick: saveTemplate }, "Save as template") : null,
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "New work")
+          h(Button, { onClick: editProcess }, "Edit process template"),
+          process.kind === "standard" ? h(Button, { onClick: copyProcess }, "Copy process template") : null,
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run")
       );
 
       const routingPanel = h("div", null,
         h(PageHead, { setPageHeader },
-          h(Button, { onClick: () => setProcessId("") }, "← Processes"),
+          h(Button, { onClick: () => setProcessId("") }, "← Process Templates"),
           h("div", { className: "bees-title" }, process.name)
         ),
         h("details", { className: "bees-box", style: { marginBottom: "16px" } },
@@ -242,10 +237,10 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const stages = data.stages.filter(({ processId }) => processId === process.id);
       return h("div", { className: "bees-row", style: { cursor: "pointer" }, key: process.id, onClick: () => setProcessId(process.id) },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))));
-    }) : [h(Empty, { key: "empty" }, "No processes yet")]));
+    }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
-    panels: { processes: { label: "Processes", actions: h(Button, { className: "primary", disabled: !workspaceId,
-      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process"), minW: 6, minH: 4, content: processList } }
+    panels: { processes: { label: "Process Templates", actions: h(Button, { className: "primary", disabled: !workspaceId,
+      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template"), minW: 6, minH: 4, content: processList } }
   });
 }

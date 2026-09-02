@@ -4,19 +4,17 @@ import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon,
 
 export const NAVIGATION = [
   { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
-  { id: "work", label: "Work", icon: WorkIcon, defaultChild: "all-work", children: [
-    ["all-work", "All work"], ["schedules", "Schedules"]
+  { id: "work", label: "Process Runs", icon: WorkIcon, defaultChild: "all-work", children: [
+    ["all-work", "All process runs"], ["schedules", "Schedules"]
   ] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
     ["all-agents", "Agents, pools & presets"],
     ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
-  { id: "processes", label: "Processes", icon: ProcessesIcon, defaultChild: "all-processes", children: [
-    ["all-processes", "All processes"], ["templates", "Templates"]
-  ] },
+  { id: "processes", label: "Process Templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
-    ["runs", "Runs"], ["evaluations", "Evaluations"], ["audit", "Audit"]
+    ["runs", "Executions"], ["evaluations", "Evaluations"], ["audit", "Audit"]
   ] },
   { id: "knowledge", label: "Knowledge Base", icon: KnowledgeIcon, defaultChild: "search", children: [
     ["search", "Search & sources"], ["artifacts", "Artifacts"]

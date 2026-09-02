@@ -377,7 +377,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Runs"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Recurring${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
@@ -450,9 +450,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           references: inputReferences, inherited, outputId: item.outputLocationId ?? "",
           defaultOutputId: process?.outputLocationId })
       ) : activeTab === "runs" ? h(React.Fragment, null,
-        h("h3", { className: "bees-section-title" }, "Runs"),
+        h("h3", { className: "bees-section-title" }, "Executions"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
-          h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No runs yet")
+          h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: setScheduleEditor })
       : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
         run ? h("iframe", {
@@ -524,7 +524,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
   useEffect(() => {
     setPageHeader && setPageHeader(
       h(React.Fragment, null,
-        h(Button, { onClick: onBack }, "← Work"),
+        h(Button, { onClick: onBack }, "← Process Runs"),
         h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12 } },
           h("div", { className: "bees-title" }, root.title),
           h("div", { className: "bees-context", style: { marginTop: 4 } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
@@ -557,6 +557,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const goal = kind === "goal";
+  const processRun = kind === "run";
   const initialProcess = goal ? processes.find(({ kind }) => kind === "goals")
     : processes.find(({ id }) => id === defaultProcessId) ?? processes[0];
   const [processId, setProcessId] = useState(initialProcess?.id ?? "");
@@ -565,8 +566,8 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
   const [agentId, setAgentId] = useState("");
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, goal ? "New goal" : "New work")),
-    h(Empty, null, "Choose a team before creating work."));
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Process Runs"), h("h2", null, goal ? "New goal" : processRun ? "Start process run" : "New work")),
+    h(Empty, null, processRun ? "Choose a team before starting a process run." : "Choose a team before creating work."));
 
   const process = processes.find(({ id }) => id === processId) ?? initialProcess;
   const firstStage = data.stages.find(({ processId }) => processId === process?.id);
@@ -582,7 +583,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
       description: String(form.get("description") ?? ""), priority: String(form.get("priority") ?? "normal"),
       inputLocationIds, outputLocationId
     } : {
-      action: "create_item", processId,
+      action: processRun ? "create_run" : "create_item", processId,
       title: String(form.get("title") ?? ""), description: String(form.get("description") ?? ""),
       priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null,
       inputLocationIds, outputLocationId
@@ -590,20 +591,21 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"), h("h2", null, "New work")),
-    h(Empty, null, "Create a process first. Work always follows a process so Bees knows its stages."));
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Process Runs"), h("h2", null, processRun ? "Start process run" : "New work")),
+    h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
   return h("form", { className: "bees-box bees-form", onSubmit },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Work"),
-      h("div", null, h("h2", null, goal ? "New goal" : "New work"),
+    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Process Runs"),
+      h("div", null, h("h2", null, goal ? "New goal" : processRun ? "Start process run" : "New work"),
         h("div", { className: "bees-muted" }, goal
           ? "Describe the outcome. Bees will plan and execute the work needed to reach it."
-          : "Create the whole work item here, then Bees starts it in the process's first stage."))),
-    !goal ? h("label", null, "Process", h("select", { className: "bees-select", name: "processId", required: true,
+          : processRun ? "Name this process run and provide its inputs. Bees starts it in the template's first stage."
+          : "Create the whole work item here, then Bees starts it in the process template's first stage."))),
+    !goal ? h("label", null, "Process template", h("select", { className: "bees-select", name: "processId", required: true,
       value: processId, onChange: (event) => {
         setProcessId(event.target.value); setOutputLocationId("");
       } },
       ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name)))) : null,
-    h("label", null, goal ? "Goal" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
+    h("label", null, goal ? "Goal" : processRun ? "Run name" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
       placeholder: goal ? "Launch the product successfully" : "Draft the launch announcement" })),
     h("label", null, "What does success look like?", h("textarea", { className: "bees-textarea", name: "description",
       placeholder: "Include the result, constraints, and evidence Bees should produce." })),
@@ -616,7 +618,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId: process?.outputLocationId, defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "" }),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : goal ? "Create goal" : "Create work"),
+    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : goal ? "Create goal" : processRun ? "Start process run" : "Create work"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
@@ -972,7 +974,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     },
     setPageActions, setPageHeader
   });
-  if (["work", "goal"].includes(creating)) return h(WorkItemForm, {
+  if (["work", "run", "goal"].includes(creating)) return h(WorkItemForm, {
     ctx, data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
   });

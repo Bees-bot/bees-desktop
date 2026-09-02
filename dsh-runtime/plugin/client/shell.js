@@ -269,9 +269,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const createProcess = () => { setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
   const createRun = async () => {
     const processes = data.processes.filter((row) => row.workspaceId === parts.workspaceId && row.kind === "standard");
-    const processName = await ask(`Process:\n${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
+    const processName = await ask(`Process template:\n${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
     const process = processes.find(({ name }) => name === processName); if (!process) return;
-    const title = await ask("One-off run name", `New ${process.name} run`); if (!title) return;
+    const title = await ask("Process run name", `New ${process.name} run`); if (!title) return;
     const work = await act({ action: "create_run", processId: process.id, title });
     if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
   };
@@ -294,7 +294,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
-    setWorkProcessId(processForWork); setCreating(id ? "" : "work");
+    setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
   const rowsForRoute = (targetRoute) => {
     const target = sectionFor(targetRoute);
