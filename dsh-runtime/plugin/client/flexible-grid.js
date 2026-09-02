@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button } from "./shared.js";
+import { Button, HelpTooltip } from "./shared.js";
 import { applyFixedLayout, fixedLayoutFrom } from "./dashboard-model.js";
 
 const EMPTY_PAGE_LAYOUTS = Object.freeze({});
@@ -61,7 +61,7 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-min-w": panel.minW ?? 3,
         "gs-min-h": panel.minH ?? 2
       }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless && !editing ? "bees-flex-widget-borderless" : ""}` },
-        (!panel.hideHeader || editing) ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label),
+        (!panel.hideHeader || editing) ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: panel.helpText, examples: panel.helpExamples }),
           panel.actions ? h("div", { className: "bees-flex-widget-actions", onPointerDown: (event) => event.stopPropagation() }, panel.actions) : null) : null,
         h("div", { className: "bees-flex-widget-body" }, panel.content)));
     })

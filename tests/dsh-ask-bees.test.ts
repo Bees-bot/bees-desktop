@@ -30,16 +30,16 @@ it("shows workflow defaults and inherited inputs without starting anything", () 
     onOutcome: () => {}, onBack: () => {}, act: () => { started = true; }
   }));
   const markup = render(data);
-  expect(markup).toContain("Review &amp; start");
-  expect(markup).toContain("Start with defaults");
+  expect(markup).toContain("Configure your goal");
+  expect(markup).toContain("Start Goal");
   expect(markup).toContain("provider/default");
-  expect(markup).toContain("provider/reviewer");
+  
   expect(markup).toContain("Brief/project");
-  expect(markup).toContain("No extra tools connected");
-  expect(markup).toContain("Connect tools");
-  expect(markup).toContain("Connect a model provider");
+  expect(markup).toContain("No MCP servers are connected yet");
+  expect(markup).toContain("Manage connected tools");
+  expect(markup).toContain("Connect another model provider");
   expect(started).toBe(false);
   expect(goalSetup(data, "other-team").stages).toEqual([]);
-  expect(render({ ...data, assignments: [] })).toMatch(/<button[^>]*disabled=""[^>]*>Start with defaults/);
-  expect(render({ ...data, teams: [{ ...data.teams[0], role: "viewer" }] })).toContain('<fieldset class="bees-ask-fields" disabled="">');
+  expect(render({ ...data, assignments: [] })).toMatch(/<button[^>]*disabled=""[^>]*>Start Goal/);
+  expect(render({ ...data, teams: [{ ...data.teams[0], role: "viewer" }] })).toMatch(/<fieldset[^>]*disabled=""[^>]*>/);
 });

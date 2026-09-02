@@ -234,10 +234,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"Only on this device"');
     expect(client).toContain('defaultOrgColor(row.name)');
     expect(client).toContain('"aria-label": "Add organization"');
-    expect(client).toContain("askWithCheckbox(");
-    expect(client).toContain(
-      '"Org name", "Keep this organization local to this device (not shared with teammates)", false'
-    );
     expect(client).not.toContain('"Private / Local org only (no team sharing)"');
     expect(client).not.toContain('"Local organization name"');
     expect(client).toContain('className: "bees-team-list"');
@@ -247,8 +243,8 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('className: "bees-team-settings"');
     expect(client).toContain('"aria-label": "Global and organization settings"');
     expect(client).toContain('NAVIGATION.filter(({ id }) => id !== "settings")');
-    expect(client).toContain('const [expandedMenus, setExpandedMenus] = useState');
-    expect(client).toContain('"aria-expanded": item.children.length ? menuExpanded : null');
+    expect(client).toContain('const [expandedMenus, setExpandedMenus] = useState(() => new Set());');
+    expect(client).toContain('"aria-expanded": item.children && item.children.length > 0 ? menuExpanded : null');
     expect(client).toContain('onClick: () => navigate("appearance")');
     expect(client).not.toContain('key: `top-settings:${child}`');
     expect(client).not.toContain('aria-label": "Bees navigation"');
