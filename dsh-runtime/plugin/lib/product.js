@@ -28,6 +28,7 @@ export class BeesProduct {
     this.workspaceRegistry = services.workspaceRegistry;
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
+    this.tools = services.tools;
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
     this.agents?.setKnowledgeSearch?.((query, workspaceId) => this.search(query, workspaceId));
@@ -376,10 +377,10 @@ export class BeesProduct {
     `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: JSON.parse(row.changes) })) : [];
     let presets = [];
     try {
-      presets = this.agentPresets ? (await this.agentPresets.list()).map((preset) => {
+      presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
         const { id, name, description } = namePreset(preset);
-        return { id, name, description, broken: preset.broken || null, trust: preset.trust };
-      }) : [];
+        return { id, name, description, broken: preset.broken || await this.presetGap(id).catch(message), trust: preset.trust };
+      })) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
       currentUserId: userId, currentDeviceId: deviceId,
@@ -389,6 +390,13 @@ export class BeesProduct {
       specializations, specializationVersions,
       presets, runs, proposals
     };
+  }
+
+  /** A stage writes under outputs/ and may have to ask a person. Without those tools a run cannot follow the persona. */
+  async presetGap(presetId) {
+    const names = new Set(this.tools.schemas(await this.agentPresets.standingKeyFor(presetId)).map(({ name }) => name));
+    const missing = ["write", "ask_user_question"].filter((name) => !names.has(name));
+    return missing.length ? `Has no ${missing.join(" or ")} tool, so it cannot run a stage` : null;
   }
 
   async references(query, workspaceId) {

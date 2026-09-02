@@ -714,7 +714,7 @@ export async function executeProductCommand(action, input) {
       if (this.agentPresets) {
         const presets = await this.agentPresets.list();
         const preset = presets.find(({ id }) => id === presetId);
-        if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
+        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The DSH preset is unavailable");
       }
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       return transaction(this.database, () => {
@@ -751,7 +751,7 @@ export async function executeProductCommand(action, input) {
       const presetId = required(input.presetId, "DSH preset");
       if (this.agentPresets) {
         const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
-        if (!preset || preset.broken) throw new Error("The DSH preset is unavailable");
+        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The DSH preset is unavailable");
       }
       const nextCapabilities = Object.hasOwn(input, "capabilities")
         ? capabilities(input.capabilities) : JSON.parse(assignment.capabilities || "[]");
