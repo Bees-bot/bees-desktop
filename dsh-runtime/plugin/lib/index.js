@@ -159,6 +159,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets,
+    tools: ctx.tools,
     googleDrive
   });
   capabilities = new Capabilities(ctx, database, workspace);
