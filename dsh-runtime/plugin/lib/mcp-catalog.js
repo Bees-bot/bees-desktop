@@ -182,6 +182,9 @@ const ENTRIES = [
     {
     id: "openapi-bridge",
     serverName: "api",
+    // Every API added from this entry would otherwise be api, api-2, api-3, and that prefix is what
+    // the model sees on each tool. Name it after the host instead.
+    nameFrom: "apiBaseUrl",
     label: "Any REST API (OpenAPI bridge)",
     publisher: "Ivo Toby, openapi-mcp-server",
     homepage: "https://github.com/ivo-toby/mcp-openapi-server",
