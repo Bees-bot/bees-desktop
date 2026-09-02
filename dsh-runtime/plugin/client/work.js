@@ -314,7 +314,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const OUTCOME = { candidate: "Submitted for review", blocked: "Blocked", pass: "Review passed", revise: "Sent back for changes" };
   for (const settled of itemRuns.filter((r) => r.resultSummary).reverse()) {
     convoItems.push(h("div", { className: `bees-convo-msg agent${settled.resultOutcome === "blocked" ? " error" : ""}`, key: `result-${settled.id}` },
-      h("strong", null, OUTCOME[settled.resultOutcome] ?? "Finished"),
+      h("strong", null, OUTCOME[settled.resultOutcome]),
       h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, settled.resultSummary)));
   }
 
