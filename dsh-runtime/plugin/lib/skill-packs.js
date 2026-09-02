@@ -21,8 +21,18 @@ export function skillsRoot() {
   return join(home, "skills");
 }
 
+/**
+ * GitHub allows 60 unauthenticated calls an hour per address, and browsing a collection then
+ * installing from it asks for the same listing twice. Holding it for ten minutes keeps a person
+ * clicking through the catalog well inside that budget without asking them for a token.
+ */
+const trees = new Map();
+const TREE_TTL = 10 * 60 * 1000;
+
 /** GitHub cuts a large tree short, and a cut listing would install half a skill. */
 async function treeOf(repo) {
+  const held = trees.get(repo);
+  if (held && Date.now() - held.at < TREE_TTL) return held.tree;
   const url = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`;
   const response = await fetch(url, {
     headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(20_000)
@@ -30,6 +40,7 @@ async function treeOf(repo) {
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
   const { tree = [], truncated } = await response.json();
   if (truncated) throw new Error(`${repo} is too large for GitHub to list in one call`);
+  trees.set(repo, { tree, at: Date.now() });
   return tree;
 }
 
