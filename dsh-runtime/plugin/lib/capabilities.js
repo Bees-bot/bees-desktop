@@ -299,6 +299,21 @@ export class Capabilities {
     throw new Error(`Unknown capability action ${action || "(none)"}`);
   }
 
+  /**
+   * A server named after the API it talks to. `https://www.freelancer.com` becomes `freelancer`,
+   * `https://api.open-meteo.com` becomes `open-meteo`. Anything that does not reduce to a usable
+   * name, an IP address included, falls back to the catalog's own name.
+   */
+  hostServerName(url) {
+    let host;
+    try { host = new URL(String(url)).hostname; } catch { return ""; }
+    if (!host || /^[\d.]+$/.test(host) || host.includes(":")) return "";
+    const labels = host.replace(/^(www|api)\./i, "").split(".");
+    const name = (labels.length > 1 ? labels.slice(0, -1) : labels).join("-")
+      .replace(/[^A-Za-z0-9_-]/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+    return SERVER_NAME.test(name) ? name : "";
+  }
+
   /** A free server name: the catalog's own, or that name with a counter when it is taken. */
   freeServerName(wanted) {
     const taken = new Set(this.servers().map(({ serverName }) => serverName));
@@ -359,7 +374,9 @@ export class Capabilities {
     if (directory) args.push(directory);
     return this.insert({
       id: randomUUID(),
-      serverName: this.freeServerName(entry.serverName),
+      serverName: this.freeServerName(
+        (entry.nameFrom && this.hostServerName(given[entry.nameFrom])) || entry.serverName
+      ),
       label: entry.label,
       transport: entry.transport,
       command: entry.command,
