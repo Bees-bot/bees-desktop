@@ -234,10 +234,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"Only on this device"');
     expect(client).toContain('defaultOrgColor(row.name)');
     expect(client).toContain('"aria-label": "Add organization"');
-    expect(client).toContain("askWithCheckbox(");
-    expect(client).toContain(
-      '"Org name", "Keep this organization local to this device (not shared with teammates)", false'
-    );
     expect(client).not.toContain('"Private / Local org only (no team sharing)"');
     expect(client).not.toContain('"Local organization name"');
     expect(client).toContain('className: "bees-team-list"');

@@ -2,7 +2,7 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, askWithCheckbox, choose, collaboration, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor,
+  ask, askWithCheckbox, choose, collaboration, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { BookIcon, SettingsIcon } from "./icons.js";
@@ -149,6 +149,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [processId, setProcessId] = useState("");
   const [workItemId, setWorkItemId] = useState("");
   const [creating, setCreating] = useState("");
+  const [creatingOrganizationName, setCreatingOrganizationName] = useState("");
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
   const [runId, setRunId] = useState("");
@@ -248,36 +249,31 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const section = NAVIGATION.find((row) => row.id === id);
     setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
   };
-  const createOrganization = async (name) => {
-    const accounts = data.accounts ?? [];
-    if (!accounts.length) {
-      setError("Sign in before creating a shared organization"); navigate("organizations"); return;
-    }
-    const selectedUserId = accounts.length === 1 ? accounts[0].userId : await choose(
-      "Create organization as", accounts.map((account) => ({
-        value: account.userId, label: `${account.name || account.email} · ${account.email}`
-      }))
-    );
-    if (!selectedUserId) return;
-    try {
-      const result = await collaboration("create_organization", {
-        name, accountUserId: selectedUserId
-      });
-      await load();
-      if (result?.id) setScope(`organization:${result.id}`, result.connectionId);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
   const createLocalOrganization = async (name) => {
+    const beforeCount = data?.organizations?.length || 0;
     const result = await act({ action: "create_organization", name });
-    if (result?.id) setScope(`organization:${result.id}`, "");
+    
+    // Attempt to find the newly created organization in the updated data
+    // since act() calls load() which updates the snapshot.
+    // If result.id exists, we use it directly.
+    let newOrgId = result?.id;
+    if (!newOrgId) {
+       // fallback: find the org that wasn't there before, or just use the last local org
+       const newOrg = data?.organizations?.find(o => !o.connectionId && o.name === name);
+       if (newOrg) newOrgId = newOrg.id;
+    }
+    
+    if (newOrgId) {
+      setScope(`organization:${newOrgId}`, "");
+      navigate("home");
+    } else {
+      // Even if we couldn't find the ID, we should navigate back to home
+      // because the creation action was dispatched.
+      navigate("home");
+    }
   };
-  const createOrganizationFromSwitcher = async () => {
-    const organization = await askWithCheckbox(
-      "Org name", "Keep this organization local to this device (not shared with teammates)", false
-    );
-    if (!organization?.value) return;
-    if (organization.checked) await createLocalOrganization(organization.value);
-    else await createOrganization(organization.value);
+  const createOrganizationFromSwitcher = () => {
+    setRoute("create-organization");
   };
   const createTeam = async () => {
     const organization = data.organizations.find(({ id }) => id === parts.organizationId); if (!organization) return;
@@ -367,6 +363,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })
+    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization })
     : route === "guide" ? h(GuidePage)
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
@@ -445,5 +442,169 @@ function AppHeader({ route, routeLabel, parts, ctx, preferences }) {
     h("div", { className: "bees-grow" }),
     actions,
     h(ThemeToggle, { ctx, preferences })
+  );
+}
+
+
+
+
+function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
+  const [name, setName] = useState("");
+  const [isLocal, setIsLocal] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState("sign_in");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    collaboration().then((value) => {
+      if (active) setData(value);
+    }).catch(console.error);
+    return () => { active = false; };
+  }, []);
+
+  const createWithAccount = async (accountUserId) => {
+    setBusy(true);
+    try {
+      const result = await collaboration("create_organization", { name, accountUserId });
+      await reload();
+      if (result?.id) {
+        setScope(`organization:${result.id}`, result.connectionId);
+        navigate("home");
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const browserAuth = async (action, values) => {
+    setBusy(true);
+    try {
+      const before = new Set((data?.accounts ?? []).map(({ userId }) => userId));
+      const { url } = await collaboration(action, values);
+      await openExternal(url);
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const next = await collaboration();
+        const newAccount = (next.accounts ?? []).find(({ userId }) => !before.has(userId));
+        if (newAccount) {
+          await createWithAccount(newAccount.userId);
+          return;
+        }
+      }
+      throw new Error("Sign in was not completed");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const auth = async (event) => {
+    event.preventDefault(); setBusy(true);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      const nextData = await collaboration(mode, {
+        name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? "")
+      });
+      const email = String(form.get("email") ?? "").toLowerCase();
+      const account = (nextData.accounts ?? []).find(a => a.email.toLowerCase() === email);
+      if (account) {
+        await createWithAccount(account.userId);
+      } else {
+        throw new Error("Account not found after sign in");
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const handleLocalSubmit = async (event) => {
+    event.preventDefault();
+    if (!name.trim()) { setError("Organization name is required"); return; }
+    setBusy(true);
+    try {
+      await createLocal(name);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setBusy(false);
+    }
+  };
+
+  return h("div", { className: "bees-stack", style: { maxWidth: 540, margin: "0 auto", padding: "32px 0" } },
+    h("h2", { style: { textAlign: "center", marginBottom: "24px" } }, "Create Organization"),
+    
+    h("section", { className: "bees-box" },
+      h("h3", null, "Organization Details"),
+      h("div", { className: "bees-form" },
+        h("label", null, "Name",
+          h("input", { 
+            className: "bees-input", 
+            value: name, 
+            onChange: (e) => setName(e.target.value), 
+            placeholder: "Acme Corp", 
+            disabled: busy 
+          })
+        ),
+        h("label", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "12px", cursor: "pointer" } },
+          h("input", { 
+            type: "checkbox", 
+            checked: isLocal, 
+            onChange: (e) => setIsLocal(e.target.checked),
+            disabled: busy
+          }),
+          "Keep this organization local to this device (not shared with teammates)"
+        ),
+        isLocal ? h(Button, { className: "primary", disabled: busy || !name.trim(), onClick: handleLocalSubmit, style: { marginTop: "16px" } }, "Create organization") : null
+      )
+    ),
+
+    !isLocal ? h(React.Fragment, null,
+      (!data || (data.accounts ?? []).length) ? h("section", { className: "bees-box", style: !data ? { opacity: 0.6, pointerEvents: "none" } : {} },
+        h("h3", null, "Use an existing account"),
+        h("p", { className: "bees-muted" }, "You are already signed in. Select an account to create this organization."),
+        h("form", { className: "bees-form-row", onSubmit: (event) => {
+          event.preventDefault();
+          if (!name.trim()) { setError("Organization name is required"); return; }
+          const form = new FormData(event.currentTarget);
+          createWithAccount(String(form.get("userId") ?? ""));
+        }},
+          h("select", { className: "bees-select", name: "userId", disabled: busy || !name.trim() || !data },
+            ...(!data ? [h("option", { key: "loading", value: "" }, "Loading accounts…")] : data.accounts.map((account) => h("option", { value: account.userId, key: account.userId }, `${account.name || account.email} · ${account.email}`)))
+          ),
+          h(Button, { type: "submit", className: "primary", disabled: busy || !name.trim() || !data }, "Create organization")
+        )
+      ) : null,
+
+      h("section", { className: "bees-box", style: !data ? { opacity: 0.6, pointerEvents: "none" } : {} },
+        h("h3", null, (!data || (data.accounts ?? []).length) ? "Or sign in with another account" : "Sign in to continue"),
+        h("p", { className: "bees-muted" }, "Sign in to create a connected organization that you can share with your team."),
+        (!data || data.auth?.socialProviders?.length) ? h("div", { className: "bees-form-row" },
+          ...(!data ? ["google", "github"] : data.auth.socialProviders).map((provider) => h(Button, {
+            key: provider, disabled: busy || !name.trim() || !data,
+            onClick: () => {
+              if (!name.trim()) { setError("Organization name is required"); return; }
+              browserAuth("social_start", { provider });
+            }
+          }, `Continue with ${{ google: "Google", github: "GitHub" }[provider] ?? provider}`))) : null,
+        (!data || data.auth?.ssoEnabled) ? h(Button, { disabled: busy || !name.trim() || !data, onClick: async () => {
+          if (!name.trim()) { setError("Organization name is required"); return; }
+          const email = await ask("Work email for company SSO", "");
+          if (email) await browserAuth("sso_start", { email });
+        } }, "Continue with company SSO") : null,
+        (!data || data.auth?.socialProviders?.length || data.auth?.ssoEnabled) ? h("hr") : null,
+        h("div", { className: "bees-segmented" },
+          h(Button, { className: mode === "sign_in" ? "active" : "", onClick: () => setMode("sign_in"), disabled: busy || !data }, "Sign in"),
+          h(Button, { className: mode === "sign_up" ? "active" : "", onClick: () => setMode("sign_up"), disabled: busy || !data }, "Create account")),
+        h("form", { className: "bees-form", onSubmit: (e) => {
+          if (!name.trim()) { e.preventDefault(); setError("Organization name is required"); return; }
+          auth(e);
+        }},
+          mode === "sign_up" ? h("label", null, "Your Name", h("input", { className: "bees-input", name: "name", required: true, disabled: busy || !data })) : null,
+          h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true, disabled: busy || !data })),
+          h("label", null, "Password", h("input", { className: "bees-input", name: "password", type: "password", minLength: 8, required: true, disabled: busy || !data })),
+          h(Button, { type: "submit", className: "primary", disabled: busy || !name.trim() || !data },
+            busy ? "Connecting…" : mode === "sign_in" ? "Sign in & Create" : "Create account & Org")))
+    ) : null,
+    
+    error ? h("div", { className: "bees-error", role: "alert", style: { marginTop: "16px" } }, error) : null
   );
 }
