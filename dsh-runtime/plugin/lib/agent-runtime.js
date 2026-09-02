@@ -666,13 +666,21 @@ export class AgentRuntime {
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
   }
 
-  /** A planner cannot name a tool it has not been told about. */
+  /**
+   * No agent can reach for a tool it has not been told about, and three API bridges all labelled
+   * "Any REST API" are indistinguishable without the host they point at.
+   */
   connectedTools() {
     const servers = this.database.prepare(`
-      SELECT server_name AS name, label FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
+      SELECT server_name AS name, label, args_json AS args FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
     `).all();
     if (!servers.length) return [];
-    return [`Tools an agent can use here, by prefix: ${servers.map(({ name, label }) => `mcp__${name}__ (${label})`).join(", ")}. Name the ones a stage needs in that stage's instructions.`];
+    const named = servers.map(({ name, label, args }) => {
+      const argv = JSON.parse(args);
+      const at = argv.indexOf("--api-base-url");
+      return `mcp__${name}__ (${at < 0 ? label : `${label}, ${argv[at + 1]}`})`;
+    });
+    return [`Tools this team has connected, by prefix: ${named.join(", ")}. Use one of these when it covers the task, rather than fetching a page yourself.`];
   }
 
   /** A folder-bound server takes its folder as its last argument; nothing else tells the model which. */
@@ -694,7 +702,7 @@ export class AgentRuntime {
       text: [
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
         String(data.instructions ?? ""),
-        ...(data.mode === "planning" ? this.connectedTools() : []), ...this.boundFolders()
+        ...this.connectedTools(), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
     });
     agentCtx.tools.register(defineTool({
