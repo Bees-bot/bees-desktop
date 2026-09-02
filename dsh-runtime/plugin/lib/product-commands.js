@@ -466,11 +466,20 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const stages = processStages(input.stages);
+      // Home starts a process straight from a template card, so it sends the template instead of stages.
+      const template = input.templateId ? this.database.prepare(`
+        SELECT workspace_id AS workspaceId, description, stages_json AS stages
+        FROM process_templates WHERE id = ? AND archived_at IS NULL
+      `).get(input.templateId) : null;
+      if (input.templateId && !template) throw new Error("Process template not found");
+      if (template && template.workspaceId !== workspace.id)
+        throw new Error("That process template belongs to another team");
+      const stages = processStages(template ? JSON.parse(template.stages) : input.stages);
       const inputLocationIds = locationIds(this.database, workspace.id, input.inputLocationIds);
       const outputLocationId = locationIds(this.database, workspace.id,
         input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
-      const id = insertProcess(this.database, workspace.id, input.name, input.description, stages);
+      const id = insertProcess(this.database, workspace.id, input.name,
+        input.description ?? template?.description, stages);
       this.database.prepare("UPDATE processes SET output_location_id = ? WHERE id = ?").run(outputLocationId, id);
       replaceLocations(this.database, "process_locations", "process_id", id, inputLocationIds);
       return { id };
