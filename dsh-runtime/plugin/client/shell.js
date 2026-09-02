@@ -21,6 +21,7 @@ function ScopeSwitcher({
   route, sectionId, dashboards, activeDashboardId, onOpenDashboard, organizationColors
 }) {
   const [expandedTeams, setExpandedTeams] = useState(() => new Set(teamId ? [teamId] : []));
+  const [expandedMenus, setExpandedMenus] = useState(() => new Set());
   useEffect(() => {
     if (!teamId) return;
     setExpandedTeams((current) => current.has(teamId) ? current : new Set([...current, teamId]));
@@ -99,13 +100,25 @@ function ScopeSwitcher({
           h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
             "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
         expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
-          ...NAVIGATION.filter(({ id }) => id !== "settings").map((item) => h(React.Fragment, { key: `${row.id}:${item.id}` },
-            h("div", { className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""}` },
+          ...NAVIGATION.filter(({ id }) => id !== "settings").map((item) => {
+            const menuKey = `${row.id}:${item.id}`;
+            const menuExpanded = expandedMenus.has(menuKey);
+            return h(React.Fragment, { key: menuKey },
+            h("div", { className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""} ${menuExpanded ? "expanded" : ""}` },
               h("button", { className: `bees-nav-link ${active && sectionId === item.id ? "active" : ""}`,
-                "aria-current": active && sectionId === item.id ? "page" : null, onClick: () => open(item.id) },
+                "aria-current": active && sectionId === item.id ? "page" : null,
+                "aria-expanded": item.children.length ? menuExpanded : null, onClick: () => {
+                  open(item.id);
+                  if (item.children.length) setExpandedMenus((current) => {
+                    const next = new Set(current);
+                    if (next.has(menuKey)) next.delete(menuKey); else next.add(menuKey);
+                    return next;
+                  });
+                } },
               h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
-              h("span", null, item.label)),
-              item.children.length ? h("div", { className: "bees-nav-flyout" },
+              h("span", null, item.label),
+              item.children.length ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, "›") : null),
+              item.children.length && menuExpanded ? h("div", { className: "bees-nav-flyout" },
                 ...item.children.map(([child, label]) => h("div", {
                   className: `bees-nav-flyout-item ${active && route === child ? "active" : ""}`,
                   key: `${row.id}:${item.id}:${child}`
@@ -121,7 +134,7 @@ function ScopeSwitcher({
                   onOpenDashboard(dashboard.id);
                 }
               }, h("span", null, dashboard.name)))) : null
-          ))) : null);
+          ); })) : null);
       })));
 }
 
