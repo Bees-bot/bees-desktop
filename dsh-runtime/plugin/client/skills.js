@@ -7,9 +7,11 @@ const STATUS_LABEL = {
 };
 
 /** One shared loader so both routes see the same servers, tools and skills. */
-export function useCapabilities() {
+export function useCapabilities(route) {
   const [value, setValue] = useState(null);
   const [error, setError] = useState("");
+  // Leaving the page is how you dismiss a message; it must not follow you to the next one.
+  useEffect(() => setError(""), [route]);
   // A refresh must never wipe a message the person has not read yet, so only their own action clears it.
   const load = async ({ quiet = false } = {}) => {
     try { setValue(await request("/bees-api/capabilities")); if (!quiet) setError(""); }
