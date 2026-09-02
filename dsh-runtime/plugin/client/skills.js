@@ -7,24 +7,27 @@ const STATUS_LABEL = {
 };
 
 /** One shared loader so both routes see the same servers, tools and skills. */
-export function useCapabilities() {
+export function useCapabilities(route) {
   const [value, setValue] = useState(null);
   const [error, setError] = useState("");
-  const load = async () => {
-    try { setValue(await request("/bees-api/capabilities")); setError(""); }
+  // Leaving the page is how you dismiss a message; it must not follow you to the next one.
+  useEffect(() => setError(""), [route]);
+  // A refresh must never wipe a message the person has not read yet, so only their own action clears it.
+  const load = async ({ quiet = false } = {}) => {
+    try { setValue(await request("/bees-api/capabilities")); if (!quiet) setError(""); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   useEffect(() => {
     void load();
     // A server that is still starting has no tools yet, so the page has to look again.
-    const timer = setInterval(() => void load(), 4000);
+    const timer = setInterval(() => void load({ quiet: true }), 4000);
     return () => clearInterval(timer);
   }, []);
   const act = async (command) => {
     try {
       const result = await request("/bees-api/capabilities", { method: "POST", body: JSON.stringify(command) });
       setError("");
-      await load();
+      await load({ quiet: true });
       return result;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -85,6 +88,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
   const builtIn = tools.filter(({ serverName }) => !serverName);
   const fromServers = tools.filter(({ serverName }) => serverName);
   return h("div", { className: "bees-stack" },
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-callout" },
       h("h3", null, "What your agents can actually do"),
       h("div", null, "A skill is a written instruction sheet an agent can open when it needs one. A tool "

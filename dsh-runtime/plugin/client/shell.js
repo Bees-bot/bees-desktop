@@ -276,7 +276,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
   };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
-  const capabilities = useCapabilities();
+  const capabilities = useCapabilities(route);
   const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,

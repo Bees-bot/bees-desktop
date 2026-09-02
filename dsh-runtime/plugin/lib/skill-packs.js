@@ -9,8 +9,8 @@ export const SKILL_CATALOG = [
   { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" }
 ];
 
-/** One skill bundle is small. These caps stop a hostile repo filling the disk. */
-const MAX_FILES = 40;
+/** The byte cap is what stops a hostile repo filling the disk; the file cap only bounds the fetch loop. */
+const MAX_FILES = 120;
 /** The Agent Skills naming rule, which doubles as the guard keeping a folder inside the skills root. */
 const SKILL_NAME = /^[\p{L}\p{N}-]+$/u;
 const MAX_BYTES = 2_000_000;
