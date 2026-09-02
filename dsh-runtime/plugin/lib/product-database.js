@@ -249,7 +249,7 @@ const STARTER_TEMPLATES = [
     ["Outline", "Write", "Edit", "Publish"]]
 ];
 
-export function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
+function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
   insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
     { name: "Work", driver: "agent" },
     { name: "Review", driver: "review" },

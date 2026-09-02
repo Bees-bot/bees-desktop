@@ -142,6 +142,13 @@ const admitsIncompleteCandidate = (summary) =>
 const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
+const STAGE_RESULT_COLUMNS = `
+        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;`;
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 // The provider dropping mid-turn is its bad turn, not the stage's, unless pi-ai says it will not change.
 const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED"]);
@@ -398,25 +405,13 @@ export class AgentRuntime {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS bees_run_checkpoints_execution
         ON bees_run_checkpoints(execution_id, created_at);
-      CREATE TABLE IF NOT EXISTS bees_stage_results (
-        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
-        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
-        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
-        summary TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      ) STRICT;
+      CREATE TABLE IF NOT EXISTS bees_stage_results (${STAGE_RESULT_COLUMNS}
     `);
     const stageResultSchema = database.prepare(`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'
     `).get()?.sql ?? "";
     if (!stageResultSchema.includes("'blocked'")) transaction(database, () => database.exec(`
-      CREATE TABLE bees_stage_results_next (
-        execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
-        purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
-        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
-        summary TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      ) STRICT;
+      CREATE TABLE bees_stage_results_next (${STAGE_RESULT_COLUMNS}
       INSERT INTO bees_stage_results_next SELECT * FROM bees_stage_results;
       DROP TABLE bees_stage_results;
       ALTER TABLE bees_stage_results_next RENAME TO bees_stage_results;

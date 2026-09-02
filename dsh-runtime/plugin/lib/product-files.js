@@ -143,23 +143,27 @@ export function outputLocation(database, itemId) {
   `).get(itemId)?.id ?? null;
 }
 
-export function outputFiles(runDirectory) {
-  const root = resolve(runDirectory, "outputs");
-  try {
-    const canonical = realpathSync(root);
-    const files = [];
-    const stack = [canonical];
-    while (stack.length && files.length < 100) {
-      const directory = stack.pop();
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        if (entry.isSymbolicLink()) continue;
-        const path = resolve(directory, entry.name);
-        if (entry.isDirectory()) stack.push(path);
-        else if (entry.isFile()) files.push(relative(canonical, path));
-        if (files.length >= 100) break;
-      }
+/** Regular files under root, symlinks skipped, at most `limit` of the ones `keep` accepts. */
+function walk(root, limit, keep = () => true) {
+  const files = [];
+  const stack = [root];
+  while (stack.length && files.length < limit) {
+    const directory = stack.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) stack.push(path);
+      else if (entry.isFile() && keep(path)) files.push(path);
+      if (files.length >= limit) break;
     }
-    return files;
+  }
+  return files;
+}
+
+export function outputFiles(runDirectory) {
+  try {
+    const root = realpathSync(resolve(runDirectory, "outputs"));
+    return walk(root, 100).map((path) => relative(root, path));
   } catch { /* a run may not have created this directory yet */
     return [];
   }
@@ -167,21 +171,11 @@ export function outputFiles(runDirectory) {
 
 export function previewFiles(runDirectory) {
   const files = [];
+  const text = (path) => TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000;
   for (const rootName of ["inputs", "outputs"]) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));
-      const stack = [root];
-      while (stack.length && files.length < 200) {
-        const directory = stack.pop();
-        for (const entry of readdirSync(directory, { withFileTypes: true })) {
-          if (entry.isSymbolicLink()) continue;
-          const path = resolve(directory, entry.name);
-          if (entry.isDirectory()) stack.push(path);
-          else if (entry.isFile() && TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000)
-            files.push(`${rootName}/${relative(root, path)}`);
-          if (files.length >= 200) break;
-        }
-      }
+      files.push(...walk(root, 200 - files.length, text).map((path) => `${rootName}/${relative(root, path)}`));
     } catch { /* a run may not have created this directory yet */ }
   }
   return files.sort();
