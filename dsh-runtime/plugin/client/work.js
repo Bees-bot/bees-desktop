@@ -309,7 +309,15 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     }
   }
 
-  
+  // A finished stage writes its own account of what it did. Without this the run just stops
+  // and the conversation goes quiet, with the result sitting unread in the database.
+  const OUTCOME = { candidate: "Submitted for review", blocked: "Blocked", pass: "Review passed", revise: "Sent back for changes" };
+  for (const settled of itemRuns.filter((r) => r.resultSummary).reverse()) {
+    convoItems.push(h("div", { className: `bees-convo-msg agent${settled.resultOutcome === "blocked" ? " error" : ""}`, key: `result-${settled.id}` },
+      h("strong", null, OUTCOME[settled.resultOutcome] ?? "Finished"),
+      h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, settled.resultSummary)));
+  }
+
   const isWorking = item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
   const isAgentBusy = isWorking || sending;
   
