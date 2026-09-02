@@ -110,8 +110,6 @@ export async function processWorkflow(input) {
           ...state,
           purpose,
           stageName: stage.name,
-          // Retained as an empty field so in-flight workflow histories from the old shape replay safely.
-          instructions: "",
           candidateExecutionId,
           feedback
         });
