@@ -107,9 +107,9 @@ function ScopeSwitcher({
             h("div", { className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""} ${menuExpanded ? "expanded" : ""}` },
               h("button", { className: `bees-nav-link ${active && sectionId === item.id ? "active" : ""}`,
                 "aria-current": active && sectionId === item.id ? "page" : null,
-                "aria-expanded": item.children.length ? menuExpanded : null, onClick: () => {
+                "aria-expanded": item.children && item.children.length > 0 ? menuExpanded : null, onClick: () => {
                   open(item.id);
-                  if (item.children.length) setExpandedMenus((current) => {
+                  if (item.children && item.children.length > 0) setExpandedMenus((current) => {
                     const next = new Set(current);
                     if (next.has(menuKey)) next.delete(menuKey); else next.add(menuKey);
                     return next;
@@ -117,8 +117,8 @@ function ScopeSwitcher({
                 } },
               h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
               h("span", null, item.label),
-              item.children.length ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, "›") : null),
-              item.children.length && menuExpanded ? h("div", { className: "bees-nav-flyout" },
+              item.children && item.children.length > 0 ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, "›") : null),
+              item.children && item.children.length > 0 && menuExpanded ? h("div", { className: "bees-nav-flyout" },
                 ...item.children.map(([child, label]) => h("div", {
                   className: `bees-nav-flyout-item ${active && route === child ? "active" : ""}`,
                   key: `${row.id}:${item.id}:${child}`

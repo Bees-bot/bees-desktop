@@ -67,6 +67,7 @@ describe("DSH stage results", () => {
       results_json: JSON.stringify([{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }])
     });
     expect(searches).toEqual([{ query: "release", workspaceId: workspace.id }]);
+    expect(prompts.join("\n")).toContain("Team knowledge is available independently of attached inputs");
     const read = tools.find(({ name }) => name === "bees_read_knowledge");
     await expect(read.execute({ result_id: "location:guide.md" })).resolves.toEqual({
       document_json: JSON.stringify({

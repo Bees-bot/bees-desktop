@@ -703,6 +703,7 @@ export class AgentRuntime {
       text: [
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
         String(data.instructions ?? ""),
+        "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
         ...this.connectedTools(), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
     });
