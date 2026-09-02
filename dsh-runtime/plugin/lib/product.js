@@ -379,7 +379,7 @@ export class BeesProduct {
     try {
       presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
         const { id, name, description } = namePreset(preset);
-        return { id, name, description, broken: preset.broken || await this.presetGap(id), trust: preset.trust };
+        return { id, name, description, broken: preset.broken || await this.presetGap(id).catch(message), trust: preset.trust };
       })) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
