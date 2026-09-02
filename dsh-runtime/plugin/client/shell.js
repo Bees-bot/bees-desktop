@@ -33,9 +33,18 @@ function ScopeSwitcher({
     })),
     ...(data.connections ?? []).map((row) => ({
       id: row.organizationId, name: row.organizationName, email: row.email,
-      contextId: row.id, connectionId: row.id
+      role: row.role, contextId: row.id, connectionId: row.id
     }))
-  ];
+  ].map((row) => {
+    const role = row.role
+      ? row.role.charAt(0).toLocaleUpperCase() + row.role.slice(1)
+      : "";
+    const type = row.connectionId ? "Regular" : "Private";
+    const meta = row.email ? [row.email, role].filter(Boolean).join(" · ") : "Only on this device";
+    return { ...row, type, meta, details: [row.name, type, meta].join(" — ") };
+  });
+  const selectedOrganization = organizations.find((row) =>
+    row.id === organizationId && row.connectionId === connectionId);
   const allowedTeams = connectionId
     ? new Set((data.connectionTeams ?? []).filter((row) => row.connectionId === connectionId)
       .map(({ teamId: id }) => id))
@@ -48,12 +57,16 @@ function ScopeSwitcher({
         type: "button", key: row.contextId ?? row.id,
         className: `bees-org-tile ${row.id === organizationId && row.connectionId === connectionId ? "active" : ""}`,
         style: { "--bees-org-color": organizationColors[row.id] || row.color || defaultOrgColor(row.name) },
-        title: [row.name, row.email].filter(Boolean).join(" — "),
-        "aria-label": [row.name, row.email].filter(Boolean).join(" — "),
+        title: row.details, "aria-label": row.details,
         onClick: () => onChange(`organization:${row.id}`, row.connectionId)
       }, row.name.trim().charAt(0).toLocaleUpperCase() || "•")),
       h("button", { type: "button", className: "bees-org-tile bees-scope-add", title: "Add organization",
         "aria-label": "Add organization", onClick: onCreateOrganization }, "+")),
+    selectedOrganization ? h("div", { className: "bees-org-summary", "aria-live": "polite" },
+      h("div", { className: "bees-org-summary-title" },
+        h("strong", { title: selectedOrganization.name }, selectedOrganization.name),
+        h("span", { className: "bees-badge" }, selectedOrganization.type)),
+      h("div", { className: "bees-org-summary-meta", title: selectedOrganization.meta }, selectedOrganization.meta)) : null,
     h("div", { className: "bees-team-heading" },
       h("span", null, "Teams"),
       h("button", { type: "button", className: "bees-scope-add", disabled: !organizationId,

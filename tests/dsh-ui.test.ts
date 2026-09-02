@@ -228,6 +228,10 @@ describe("Bees work cockpit UI", () => {
 
   it("uses the old Bees organization and team hierarchy", () => {
     expect(client).toContain('className: "bees-org-tiles"');
+    expect(client).toContain('className: "bees-org-summary"');
+    expect(client).toContain('const type = row.connectionId ? "Regular" : "Private"');
+    expect(client).toContain('title: row.details, "aria-label": row.details');
+    expect(client).toContain('"Only on this device"');
     expect(client).toContain('defaultOrgColor(row.name)');
     expect(client).toContain('"aria-label": "Add organization"');
     expect(client).toContain("askWithCheckbox(");
