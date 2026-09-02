@@ -5,7 +5,7 @@ import {
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { OfficeParser } from "officeparser";
 
-export const DOCUMENT_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf"]);
+const DOCUMENT_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf"]);
 
 const MAX_SOURCE_BYTES = 20_000_000;
 const MAX_KNOWLEDGE_BYTES = 1_000_000;
