@@ -438,9 +438,12 @@ export class AgentRuntime {
       this.checkpoint(executionId, sessionId, "recovery_needed", {
         idempotencyKey: `runtime-recovery-needed:${sessionId}`
       });
-      this.audit("session-recovery-needed", executionId, sessionId, {
-        detectedAt: new Date().toISOString(), status
-      });
+      // Every start finds the same stale runs. One row per session says it; one per start buries
+      // the rest of the audit trail under hundreds of repeats.
+      const noted = this.database.prepare(`
+        SELECT 1 FROM dsh_audit_events WHERE event_type = 'session-recovery-needed' AND session_id = ?
+      `).get(sessionId);
+      if (!noted) this.audit("session-recovery-needed", executionId, sessionId, { status });
     }
     // cordis emits listeners without a catch of its own, so a transient SQLITE_BUSY or one bad
     // stored JSON row would take the whole process down mid-run instead of failing this one event.
