@@ -16,7 +16,7 @@ Work only in the session workspace. For ordinary runs read inputs from inputs/ a
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
-Write the instructions for every stage yourself; a stage with no instructions leaves its agent guessing. Say which of the connected tools that stage should use and name them, what file it must leave under outputs/ and in what shape, and what would make the work wrong. Give the last review stage the specific checks that catch a bad result for this outcome. Keep each one a short paragraph an engineer would write, not a list of platitudes.
+A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves belongs to the agent, so say it in the item's description rather than trying to attach it to a stage.
 
 You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
@@ -753,7 +753,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:[{name,instructions}]}, or {action:'create_item',process,title,description}. Every stage needs instructions. A create_item must name a process created earlier in the same array."
+          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:['Stage name']}, or {action:'create_item',process,title,description}. A stage is just its name; what the work is goes in the item's description. A create_item must name a process created earlier in the same array."
         }
       },
       output: {
