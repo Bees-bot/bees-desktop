@@ -143,6 +143,9 @@ const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
+// The provider dropping mid-turn is its bad turn, not the stage's, unless pi-ai says it will not change.
+const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED"]);
+const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
 
 function reviewTimeline(events) {
   const calls = new Set();
@@ -257,7 +260,7 @@ function outcomeFor(event) {
   if (reason?.kind === "completed" || reason?.kind === "max-tokens") return { outcome: "completed", error: null };
   if (reason?.kind === "aborted") return { outcome: "cancelled", error: { message: "Stopped by user" } };
   const message = reason?.error?.message ?? (reason?.kind ? `DSH turn ended: ${reason.kind}` : "DSH did not record a terminal turn");
-  return { outcome: "failed", error: { message } };
+  return { outcome: "failed", error: { message, code: reason?.error?.code } };
 }
 
 function jsonHash(value) {
@@ -1248,22 +1251,23 @@ export class AgentRuntime {
     } else if (!submission || submission.outcome) {
       const result = this.stageResult(executionId);
       if (result && this.run(executionId)?.status === "completed") return result;
-      const detail = submission?.errorJson ? JSON.parse(submission.errorJson)?.message : null;
-      if (detail) throw new Error(detail);
+      const failure = submission?.errorJson ? JSON.parse(submission.errorJson) : null;
+      if (failure && !providerBadTurn(failure)) throw new Error(failure.message);
       const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
         uid: run.instanceUid,
         idempotencyKey: `process:${executionId}:resubmit:${asked}`,
-        body: `Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done.\n\n${payload.body}`
+        body: `${failure ? "Your last turn was cut off by the model provider. Pick up where you left off." : "Your last turn ended without calling bees_submit_stage_result. Submit the result for the work already done."}\n\n${payload.body}`
       });
     }
 
     const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
     if (delivery.outcome !== "completed") {
-      const detail = delivery.errorJson ? JSON.parse(delivery.errorJson)?.message : null;
-      throw new Error(detail || `DSH stage ${delivery.outcome}`);
+      const failure = delivery.errorJson ? JSON.parse(delivery.errorJson) : null;
+      if (failure && providerBadTurn(failure)) throw badTurn(failure.message);
+      throw new Error(failure?.message || `DSH stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
     if (!result) throw badTurn("DSH completed without calling bees_submit_stage_result");
