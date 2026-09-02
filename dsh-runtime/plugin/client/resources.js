@@ -120,11 +120,11 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
     const onOpen = run ? () => { setRunId(run.id); setRoute("runs"); }
       : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
     return h(AuditEvent, { event, detail, onOpen, key: event.id,
-      openLabel: run ? "Open run" : item ? "Open work item" : "Open process" });
+      openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template" });
   }) : [h(Empty, { key: "empty" }, "No audit events yet")]));
   const run = runs.find(({ id }) => id === runId);
   if (run) return h("div", null,
-    h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Runs"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+    h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Executions"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
     run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
       h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
       h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
@@ -160,7 +160,7 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
   );
   return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
     h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
-    h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No runs yet")]))
+    h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No executions yet")]))
   ;
 }
 
@@ -204,5 +204,5 @@ export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnecti
     h("section", { className: "bees-box" }, h("h3", null, "Approved sources"),
       ...(locations.length ? locations.map((row) => h("div", { className: "bees-row", key: row.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, row.name), h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")))) : [h(Empty, { key: "empty" }, "No approved sources in this team")])),
     h("p", { className: "bees-muted" }, "Creation and modification dates travel with exported Google documents. Recency helps rank freshness; it does not by itself make a document authoritative."),
-    h("p", { className: "bees-muted" }, "Run transcripts are available from Activity → Runs."));
+    h("p", { className: "bees-muted" }, "Execution transcripts are available from Activity → Executions."));
 }

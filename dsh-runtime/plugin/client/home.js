@@ -39,7 +39,7 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
   const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
   const cards = [...templates.map((row) => ({ ...row, isTemplate: true })), ...processes.map((row) => ({ ...row, isTemplate: false }))];
   const visibleCards = showAllTemplates ? cards : cards.slice(0, 10);
-  if (!cards.length) return h(Empty, null, workspaceId ? "No templates available." : "Choose a team to see templates.");
+  if (!cards.length) return h(Empty, null, workspaceId ? "No process templates available." : "Choose a team to see process templates.");
   return h("div", { className: "bees-home-templates" },
     ...visibleCards.map((card) => h("button", {
       className: "bees-template-card",
@@ -54,8 +54,8 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
       key: card.id
     },
       h("div", { className: "bees-template-card-title" }, card.name),
-      h("div", { className: "bees-template-card-meta" }, card.description || (card.isTemplate ? "Template" : "Process")))),
-    cards.length > 10 && !showAllTemplates ? h(Button, { onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} templates`) : null
+      h("div", { className: "bees-template-card-meta" }, card.description || "Process template"))),
+    cards.length > 10 && !showAllTemplates ? h(Button, { onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} process templates`) : null
   );
 }
 
@@ -71,9 +71,9 @@ function ListWidget({ definition, rowsForRoute, navigate }) {
 
 function MetricsWidget({ rowsForRoute }) {
   const metrics = [
-    ["Active work", rowsForRoute("all-work").length],
+    ["Process runs", rowsForRoute("all-work").length],
     ["Needs you", rowsForRoute("waiting").length],
-    ["Processes", rowsForRoute("all-processes").length],
+    ["Process templates", rowsForRoute("all-processes").length],
     ["Agents", rowsForRoute("all-agents").length]
   ];
   return h("div", { className: "bees-dashboard-metrics" }, ...metrics.map(([label, value]) =>
@@ -83,8 +83,8 @@ function MetricsWidget({ rowsForRoute }) {
 
 function QuickActionsWidget({ workspaceId, createWork, createGoal, createProcess, createRun, createAgent }) {
   const actions = [
-    ["New goal", createGoal], ["New work item", createWork], ["New process", createProcess],
-    ["Start one-off run", createRun], ["New agent", createAgent]
+    ["New goal", createGoal], ["New work item", createWork], ["New process template", createProcess],
+    ["Start process run", createRun], ["New agent", createAgent]
   ];
   return h("div", { className: "bees-dashboard-list" }, ...actions.map(([label, action]) =>
     h("button", { type: "button", className: "bees-btn bees-dashboard-row", key: label, disabled: !workspaceId, onClick: action }, label)));
@@ -104,23 +104,23 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 
 const WIDGETS = [
   { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget },
-  { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, processes, runs, and agents", w: 4, h: 5, component: QuickActionsWidget },
+  { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, process templates, process runs, and agents", w: 4, h: 5, component: QuickActionsWidget },
   { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget },
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget },
-  { kind: "recent-work", label: "Recent work", description: "Latest active work items", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget },
-  { kind: "all-work", label: "All work", description: "Active work items", route: "all-work", w: 6, h: 5, component: ListWidget },
+  { kind: "recent-work", label: "Recent process runs", description: "Latest active process runs", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget },
+  { kind: "all-work", label: "Process runs", description: "Active process runs", route: "all-work", w: 6, h: 5, component: ListWidget },
   { kind: "goals", label: "Goals", description: "Current goals", route: "goals", w: 6, h: 5, component: ListWidget },
-  { kind: "completed", label: "Completed work", description: "Recently completed work", route: "completed", w: 6, h: 5, component: ListWidget },
-  { kind: "templates", label: "Templates", description: "Processes and reusable templates", w: 4, h: 5, component: TemplatesWidget },
-  { kind: "processes", label: "Processes", description: "Active processes", route: "all-processes", w: 6, h: 5, component: ListWidget },
+  { kind: "completed", label: "Completed process runs", description: "Recently completed process runs", route: "completed", w: 6, h: 5, component: ListWidget },
+  { kind: "templates", label: "Process templates", description: "Reusable process definitions", w: 4, h: 5, component: TemplatesWidget },
+  { kind: "processes", label: "Process templates", description: "Reusable process definitions", route: "all-processes", w: 6, h: 5, component: ListWidget },
   { kind: "agents", label: "Agents", description: "Team agents", route: "all-agents", w: 6, h: 5, component: ListWidget },
   { kind: "agent-pools", label: "Agent pools", description: "Team agent pools", route: "pools", w: 6, h: 5, component: ListWidget },
   { kind: "agent-presets", label: "Agent presets", description: "Reusable agent presets", route: "presets", w: 6, h: 5, component: ListWidget },
   { kind: "mcp-servers", label: "MCP servers", description: "Connected MCP servers", route: "mcp", w: 6, h: 5, component: ListWidget },
   { kind: "files", label: "Files & folders", description: "Team locations", route: "locations", w: 6, h: 5, component: ListWidget },
   { kind: "knowledge-sources", label: "Knowledge sources", description: "Approved knowledge locations", route: "sources", w: 6, h: 5, component: ListWidget },
-  { kind: "runs", label: "Runs", description: "Recent agent runs", route: "runs", w: 6, h: 5, component: ListWidget },
-  { kind: "artifacts", label: "Artifacts", description: "Outputs from completed runs", route: "artifacts", w: 6, h: 5, component: ListWidget },
+  { kind: "runs", label: "Executions", description: "Recent agent executions", route: "runs", w: 6, h: 5, component: ListWidget },
+  { kind: "artifacts", label: "Artifacts", description: "Outputs from completed executions", route: "artifacts", w: 6, h: 5, component: ListWidget },
   { kind: "proposals", label: "Proposals", description: "Changes awaiting review", w: 6, h: 5, component: ProposalsWidget }
 ];
 
@@ -268,12 +268,12 @@ export function GuidePage() {
       h("section", { className: "bees-box" }, h("h3", null, "Work item = one piece of work"),
         h("p", null, "Use a work item for one concrete deliverable that follows a process."),
         h("p", { className: "bees-muted" }, "Example: “Write the launch announcement.” It moves through Draft → Review → Done.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Process = the path"),
-        h("p", null, "A process is a live sequence of stages that routes real work to agents."),
-        h("p", { className: "bees-muted" }, "Create one when work should repeatedly follow the same handoffs.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Template = a saved blueprint"),
-        h("p", null, "A template remembers a process design but runs nothing."),
-        h("p", { className: "bees-muted" }, "Create one directly under Processes → Templates, or save an existing process as a template.")),
+      h("section", { className: "bees-box" }, h("h3", null, "Process template = the reusable path"),
+        h("p", null, "A process template defines the stages and agents used for repeatable work."),
+        h("p", { className: "bees-muted" }, "A template runs nothing until you start a process run.")),
+      h("section", { className: "bees-box" }, h("h3", null, "Process run = the active board"),
+        h("p", null, "A process run is a Kanban board created from a process template."),
+        h("p", { className: "bees-muted" }, "Work items move across its stages; each agent attempt is recorded as an execution.")),
       h("section", { className: "bees-box" }, h("h3", null, "Agent pool = interchangeable agents"),
         h("p", null, "Use a pool when several agents can handle the same stage and Bees may choose any available match."),
         h("p", { className: "bees-muted" }, "Use one named agent when context, ownership, or continuity matters.")),

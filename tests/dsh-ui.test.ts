@@ -69,9 +69,11 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('route === "completed" ? isDone(item) : !isDone(item)');
   });
 
-  it("opens the work form from home cards instead of starting work", () => {
+  it("opens the process-run form from process-template cards", () => {
     expect(client).toContain("if (p?.id) openWorkItem(null, p.id)");
     expect(client).toContain("openWorkItem(null, card.id)");
+    expect(client).toContain('setCreating(id ? "" : processForWork ? "run" : "work")');
+    expect(client).toContain('action: processRun ? "create_run" : "create_item"');
     expect(client).not.toContain('title: `New ${card.name} run`');
   });
 
@@ -122,7 +124,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('h(MarkdownText, { text: process.description })');
     expect(client).toContain('h(MarkdownText, { text: item.description })');
     expect(client).toContain("function AuditEvent");
-    expect(client).toContain('openLabel: run ? "Open run" : item ? "Open work item" : "Open process"');
+    expect(client).toContain('openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template"');
   });
 
   it("uses one agent interaction card in Needs you and the dashboard", () => {
@@ -181,7 +183,11 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("names work items precisely and opens runs whose work item is unavailable", () => {
-    expect(client).toContain('["all-work", "All work"], ["schedules", "Schedules"]');
+    expect(client).toContain('{ id: "work", label: "Process Runs"');
+    expect(client).toContain('["all-work", "All process runs"], ["schedules", "Schedules"]');
+    expect(client).toContain('{ id: "processes", label: "Process Templates"');
+    expect(client).toContain('["runs", "Executions"], ["evaluations", "Evaluations"]');
+    expect(client).not.toContain('["all-processes", "All processes"], ["templates", "Templates"]');
     expect(client).toContain('route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)');
     expect(client).toContain('placeholder: "Search by task name"');
     expect(client).toContain('"Filter by status"');
@@ -262,7 +268,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('panel.actions ? h("div", { className: "bees-flex-widget-actions"');
     expect(client).toContain('agents: { label: "Agents", actions: h(Button');
     expect(client).toContain('pools: { label: "Agent pools", actions: h(Button');
-    expect(client).toContain('processes: { label: "Processes", actions: h(Button');
+    expect(client).toContain('processes: { label: "Process Templates", actions: h(Button');
     expect(client).toContain('"aria-label": "Agent to add"');
     expect(client).toContain('resizeAlways: true');
   });

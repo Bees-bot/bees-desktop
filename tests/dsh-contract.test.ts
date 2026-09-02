@@ -389,6 +389,7 @@ describe("Bees DSH public contract", () => {
       expect(runtimePreparation).toContain('const freeLlmVersion = "0.8.4"');
       expect(runtimePreparation).toContain("05cbaf60792f5183f74a238ca7938de93b0246e98a90ff571d243ea646e14469");
       expect(runtimePreparation).toContain('external: ["better-sqlite3"]');
+      expect(runtimePreparation).toContain("renameSync(staged, destination)");
       expect(runtimePreparation).not.toContain('if (!adhoc || !hasValidMacSignature(path))');
       expect(customAiClient).toContain('data-bees-plugin": "@bees/dsh-custom-ai"');
       expect(customAiClient).toContain('"General AI APIs"');
