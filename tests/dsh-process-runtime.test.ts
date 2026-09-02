@@ -38,8 +38,8 @@ function insertManual(state: ReturnType<typeof harness>) {
   state.database.connection.exec(`
     INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at)
       VALUES ('manual', '${state.workspaceId}', 'Manual', '', 'standard', '${at}', '${at}');
-    INSERT INTO stages VALUES ('ready', 'manual', 'Ready', 0, 'manual', 0, NULL);
-    INSERT INTO stages VALUES ('done', 'manual', 'Done', 1, 'manual', 1, NULL);
+    INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at) VALUES ('ready', 'manual', 'Ready', 0, 'manual', 0, NULL);
+    INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at) VALUES ('done', 'manual', 'Done', 1, 'manual', 1, NULL);
     INSERT INTO work_items
       (id, process_id, stage_id, title, created_at, updated_at)
       VALUES ('one', 'manual', 'ready', 'One', '${at}', '${at}');

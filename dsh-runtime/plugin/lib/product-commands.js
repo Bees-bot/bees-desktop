@@ -531,7 +531,7 @@ export async function executeProductCommand(action, input) {
       // Duplicate the stages and routes
       for (const stage of stages) {
         const newStageId = randomUUID();
-        this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.is_terminal);
+        this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, instructions, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.instructions, stage.is_terminal);
         const route = stageRoutes.find(r => r.stage_id === stage.id);
         if (route) {
           const mappedAgentId = route.agent_assignment_id ? (oldToNewAgentId[route.agent_assignment_id] || route.agent_assignment_id) : null;
@@ -585,7 +585,7 @@ export async function executeProductCommand(action, input) {
       `).get(processId)) throw new Error("Finish or cancel active automatic work before editing this process");
       const names = processStages(input.stages);
       const existing = this.database.prepare(`
-        SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
+        SELECT id, name, instructions FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
       `).all(processId);
       const assigned = Array(names.length).fill(null);
       const used = new Set();
@@ -605,16 +605,19 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("UPDATE stages SET position = -rowid WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
-      names.forEach(({ name }, position) => {
+      names.forEach(({ name, instructions }, position) => {
         const driver = position === names.length - 1 ? "terminal"
           : position > 0 && /review/i.test(name) ? "review" : "agent";
+        // Renaming stages from the UI sends bare names, and must not wipe what the planner wrote.
         if (assigned[position]) this.database.prepare(`
-          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
-        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
+          UPDATE stages SET name = ?, position = ?, driver = ?, instructions = ?, is_terminal = ? WHERE id = ?
+        `).run(name, position, driver, instructions ?? assigned[position].instructions ?? "",
+          position === names.length - 1 ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
-          VALUES (?, ?, ?, ?, ?, ?, NULL)
-        `).run(randomUUID(), processId, name, position, driver, position === names.length - 1 ? 1 : 0);
+          INSERT INTO stages (id, process_id, name, position, driver, instructions, is_terminal, archived_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(randomUUID(), processId, name, position, driver, instructions ?? "",
+          position === names.length - 1 ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);

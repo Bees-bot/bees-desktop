@@ -41,7 +41,7 @@ export class ProcessRuntime {
 
   stages(processId) {
     return this.database.prepare(`
-      SELECT id, name, driver, is_terminal AS isTerminal
+      SELECT id, name, driver, instructions, is_terminal AS isTerminal
       FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
     `).all(processId).map((stage) => ({ ...stage, isTerminal: Boolean(stage.isTerminal) }));
   }

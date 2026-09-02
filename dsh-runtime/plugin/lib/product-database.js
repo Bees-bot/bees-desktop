@@ -214,8 +214,8 @@ export function insertProcess(
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, at, at);
   const insert = database.prepare(`
-    INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, NULL)
+    INSERT INTO stages (id, process_id, name, position, driver, instructions, is_terminal, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
     const name = required(typeof stage === "string" ? stage : stage.name, "Stage");
@@ -223,15 +223,23 @@ export function insertProcess(
     const driver = (typeof stage === "string" ? null : stage.driver)
       ?? (position === stages.length - 1 ? "terminal"
         : position > 0 && /review/i.test(name) ? "review" : "agent");
-    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver, driver === "terminal" ? 1 : 0);
+    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver,
+      typeof stage === "string" ? "" : String(stage.instructions ?? ""),
+      driver === "terminal" ? 1 : 0);
   });
   return id;
 }
 
-/** Stages describe process structure. Agent guidance belongs to agents and specialists. */
+/**
+ * A stage is a name, or a name with the instructions its agent runs on. A caller that sends bare
+ * names leaves instructions undefined, which editors read as "unchanged" rather than "cleared".
+ */
 export function processStages(value, label = "process") {
   const stages = (Array.isArray(value) ? value : []).map((entry) => ({
-    name: required(typeof entry === "string" ? entry : entry?.name, "Stage")
+    name: required(typeof entry === "string" ? entry : entry?.name, "Stage"),
+    ...(typeof entry === "object" && entry !== null && entry.instructions !== undefined
+      ? { instructions: String(entry.instructions ?? "").slice(0, 4_000) }
+      : {})
   }));
   if (stages.length < 2 || stages.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
   if (new Set(stages.map(({ name }) => name.toLocaleLowerCase())).size !== stages.length)
@@ -417,6 +425,7 @@ export function initializeProductDatabase(database) {
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
       name TEXT NOT NULL, position INTEGER NOT NULL,
       driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'review', 'terminal')),
+      instructions TEXT NOT NULL DEFAULT '',
       is_terminal INTEGER NOT NULL DEFAULT 0, archived_at TEXT, UNIQUE(process_id, position)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stage_routes (
@@ -579,6 +588,8 @@ export function initializeProductDatabase(database) {
   );
   const stageColumns = new Set(database.prepare("PRAGMA table_info(stages)").all().map(({ name }) => name));
   if (stageColumns.has("completion_rules")) database.exec("ALTER TABLE stages DROP COLUMN completion_rules");
+  if (!stageColumns.has("instructions"))
+    database.exec("ALTER TABLE stages ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
   database.exec(`
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
