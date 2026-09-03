@@ -258,10 +258,14 @@ function stageDriver(stage, position, count) {
   if (explicit && !["manual", "agent", "discussion", "review", "terminal"].includes(explicit))
     throw new Error(`Unsupported stage driver: ${explicit}`);
   const name = String(typeof stage === "string" ? stage : stage?.name ?? "");
+  // An approval gate is agent work that waits for a person, which requires_human_approval already
+  // does. Reading it as a manual step instead makes the whole process non-automatic, so a pipeline
+  // with a stage called "Human approval" sits at ready and never runs a thing.
   return explicit ?? (position === count - 1 ? "terminal"
     : /\b(?:discuss|discussion|debate|roundtable)\b/i.test(name) ? "discussion"
-      : /\b(?:human|inbox|manual)\b/i.test(name) ? "manual"
-        : position > 0 && /review/i.test(name) ? "review" : "agent");
+      : /\b(?:approval|sign[- ]?off)\b/i.test(name) ? "agent"
+        : /\b(?:human|inbox|manual)\b/i.test(name) ? "manual"
+          : position > 0 && /review/i.test(name) ? "review" : "agent");
 }
 
 /** An empty Templates screen gives a new user nowhere to start, so ship a few worth copying. */
