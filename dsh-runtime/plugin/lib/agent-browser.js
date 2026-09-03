@@ -17,6 +17,8 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 let chrome = null;
 let starting = null;
 let port = 0;
+let wantedOnScreen = false;
+let holding = null;
 
 const running = () => chrome?.exitCode === null && chrome.signalCode === null;
 const listening = () => fetch(`http://127.0.0.1:${port}/json/version`).then((reply) => reply.ok, () => false);
@@ -53,9 +55,24 @@ async function setWindow(windowState) {
   const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
   const targetId = targets.find(({ type }) => type === "page")?.id;
   if (!targetId) return;
-  const { windowId } = await cdp("Browser.getWindowForTarget", { targetId });
+  const { windowId, bounds } = await cdp("Browser.getWindowForTarget", { targetId });
+  if (bounds?.windowState === windowState) return;
   await cdp("Browser.setWindowBounds", { windowId, bounds: { windowState } });
   if (windowState === "normal") await cdp("Target.activateTarget", { targetId });
+}
+
+/**
+ * Minimising once at launch does not hold: the browser server opens each page with Playwright's
+ * newPage(), which raises the window and takes focus away from whatever the person is doing. So
+ * put it back down, until a run actually asks a human to look at something.
+ */
+function holdOffScreen() {
+  if (holding) return;
+  holding = setInterval(() => {
+    if (wantedOnScreen || !running()) return;
+    setWindow("minimized").catch(() => undefined);
+  }, 1000);
+  holding.unref?.();
 }
 
 async function launch() {
@@ -78,6 +95,7 @@ async function launch() {
   }
   chrome = child;
   await setWindow("minimized");
+  holdOffScreen();
 }
 
 /** The CDP endpoint the browser MCP server dials. Chrome is not up yet; a run starts it first. */
@@ -95,10 +113,12 @@ export function startAgentBrowser() {
 /** Put the window on screen so a person can sign in to the tab the agent is reading. */
 export async function showAgentBrowser() {
   await startAgentBrowser();
+  wantedOnScreen = true;
   await setWindow("normal");
 }
 
 /** Back out of the way once the person has answered. */
 export async function hideAgentBrowser() {
+  wantedOnScreen = false;
   if (running()) await setWindow("minimized");
 }
