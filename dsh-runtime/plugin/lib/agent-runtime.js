@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, releaseAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 
@@ -1363,6 +1363,8 @@ export class AgentRuntime {
     live?.approvalAbort.abort();
     this.live.delete(executionId);
     await handle.dispose().catch(() => undefined);
+    // The last run out closes the tabs everyone opened; nothing is mid-page by now.
+    if (this.live.size === 0) this.track(releaseAgentBrowser());
   }
 
   stageResult(executionId) {
