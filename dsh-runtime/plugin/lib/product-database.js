@@ -150,6 +150,14 @@ export function optionalReasoningEffort(value) {
   return effort || null;
 }
 
+/** A model is a provider/model route. Saving a bare name stored fine and then failed every run
+ *  it was used for, which is a long way from where the mistake was made. */
+export function optionalModelRoute(value) {
+  const route = String(value ?? "").trim();
+  if (route && !route.includes("/")) throw new Error(`"${route}" is not a provider/model route`);
+  return route || null;
+}
+
 export function agentCapabilities(agent) {
   try { return capabilities(Array.isArray(agent?.capabilities)
     ? agent.capabilities : JSON.parse(agent?.capabilities || "[]")); }

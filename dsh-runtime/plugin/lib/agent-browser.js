@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -17,6 +17,8 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 let chrome = null;
 let starting = null;
 let port = 0;
+let wantedOnScreen = false;
+let watcher = null;
 
 const running = () => chrome?.exitCode === null && chrome.signalCode === null;
 const listening = () => fetch(`http://127.0.0.1:${port}/json/version`).then((reply) => reply.ok, () => false);
@@ -49,6 +51,20 @@ async function cdp(method, params) {
   }
 }
 
+/**
+ * Chrome takes the foreground the moment it starts, before any minimise can land, so a run that
+ * browses pulls the person out of whatever they were doing. Hiding the application keeps it off
+ * screen through everything the agent does afterwards, including the new tabs Playwright opens.
+ */
+function setAppHidden(hidden) {
+  // Unhiding alone leaves Chrome behind whatever the person is looking at, so the sign-in it was
+  // opened for is never seen. Bringing it forward is the whole point of showing it.
+  const script = hidden
+    ? `tell application "System Events" to set visible of (every process whose name is "Google Chrome") to false`
+    : `tell application "Google Chrome" to activate`;
+  return new Promise((resolve) => execFile("osascript", ["-e", script], () => resolve()));
+}
+
 async function setWindow(windowState) {
   const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
   const targetId = targets.find(({ type }) => type === "page")?.id;
@@ -77,7 +93,27 @@ async function launch() {
     await delay(100);
   }
   chrome = child;
+  await setAppHidden(true);
   await setWindow("minimized");
+  await watchForNewTabs();
+}
+
+/**
+ * Opening a page through Playwright un-hides Chrome, so hiding it once at launch is not enough.
+ * Chrome announces every new target on this socket, which is the moment to put it back — no timer
+ * racing the raise, and nothing to undo when a run legitimately wants the window on screen.
+ */
+async function watchForNewTabs() {
+  const { webSocketDebuggerUrl } = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json());
+  watcher = new WebSocket(webSocketDebuggerUrl);
+  watcher.onopen = () => watcher.send(JSON.stringify({ id: 1, method: "Target.setDiscoverTargets", params: { discover: true } }));
+  watcher.onmessage = ({ data }) => {
+    const { method, params } = JSON.parse(data);
+    if (method === "Target.targetCreated" && params.targetInfo.type === "page" && !wantedOnScreen) {
+      void setAppHidden(true);
+    }
+  };
+  watcher.onclose = () => { watcher = null; };
 }
 
 /** The CDP endpoint the browser MCP server dials. Chrome is not up yet; a run starts it first. */
@@ -95,12 +131,17 @@ export function startAgentBrowser() {
 /** Put the window on screen so a person can sign in to the tab the agent is reading. */
 export async function showAgentBrowser() {
   await startAgentBrowser();
+  wantedOnScreen = true;
+  await setAppHidden(false);
   await setWindow("normal");
 }
 
 /** Back out of the way once the person has answered. */
 export async function hideAgentBrowser() {
-  if (running()) await setWindow("minimized");
+  wantedOnScreen = false;
+  if (!running()) return;
+  await setWindow("minimized");
+  await setAppHidden(true);
 }
 
 /**

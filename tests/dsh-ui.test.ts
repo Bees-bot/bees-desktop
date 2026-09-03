@@ -310,7 +310,7 @@ describe("Bees work cockpit UI", () => {
 
   it("selects automatic or pinned agent models with a separate reasoning effort", () => {
     expect(client).toContain("function AgentModelSelect");
-    expect(client).toContain('api.llm.models({})');
+    expect(client).toContain('request("/bees-api/llm-models")');
     expect(client).toContain('"System default (auto-updates)"');
     expect(client).toContain('`System default — ${systemDefault.provider}/${systemDefault.model}');
     expect(client).toContain('${channel.name} (auto-updates)`');
