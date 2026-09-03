@@ -94,7 +94,7 @@ function ScopeSwitcher({
                 return next;
               });
             } },
-          h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, "›"),
+          h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, expanded ? "⌄" : "›"),
           h("span", { className: "bees-team-initial", "aria-hidden": "true" }, row.name.trim().charAt(0).toLocaleUpperCase() || "•"),
           h("span", { className: "bees-team-name" }, row.name)),
           h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
@@ -117,7 +117,7 @@ function ScopeSwitcher({
                 } },
               h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
               h("span", null, item.label),
-              item.children && item.children.length > 0 ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, "›") : null),
+              item.children && item.children.length > 0 ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, menuExpanded ? "⌄" : "›") : null),
               item.children && item.children.length > 0 && menuExpanded ? h("div", { className: "bees-nav-flyout" },
                 ...item.children.map(([child, label]) => h("div", {
                   className: `bees-nav-flyout-item ${active && route === child ? "active" : ""}`,
