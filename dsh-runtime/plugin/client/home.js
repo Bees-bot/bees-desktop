@@ -133,6 +133,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
   const onLayoutRef = useRef(onLayout);
   onLayoutRef.current = onLayout;
   const widgetKey = dashboard.widgets.map(({ kind }) => kind).join("|");
+  const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
   useEffect(() => {
     const grid = GridStack.init({
       column: 12,
@@ -158,6 +159,9 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
     gridRef.current?.enableMove(editing);
     gridRef.current?.enableResize(editing);
   }, [editing]);
+  useEffect(() => {
+    gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })));
+  }, [layoutKey]);
 
   return h("div", { className: `grid-stack bees-dashboard-grid ${editing ? "editing" : ""}`, ref: root },
     ...dashboard.widgets.map((widget) => {
