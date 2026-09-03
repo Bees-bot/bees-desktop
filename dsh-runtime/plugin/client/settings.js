@@ -139,7 +139,7 @@ function AccountSettings({ reload, openOrganization }) {
       data.auth?.socialProviders?.length ? h("div", { className: "bees-form-row" },
         ...data.auth.socialProviders.map((provider) => h(Button, {
           key: provider, disabled: busy,
-          onClick: () => browserAuth("social_start", { provider })
+          onClick: () => browserAuth(provider === "google" ? "google_start" : "social_start", { provider })
         }, `Continue with ${{ google: "Google", github: "GitHub" }[provider] ?? provider}`))) : null,
       data.auth?.ssoEnabled ? h(Button, { disabled: busy, onClick: async () => {
         const email = await ask("Work email for company SSO", "");

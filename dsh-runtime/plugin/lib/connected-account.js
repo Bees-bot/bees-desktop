@@ -9,6 +9,8 @@ const legacySessionCredential = "BEES_ACCOUNT_SESSION";
 const sessionCredential = (userId) =>
   `${legacySessionCredential}_${Buffer.from(String(userId), "utf8").toString("hex")}`;
 const connectedSeedAt = "1970-01-01T00:00:00.000Z";
+/** Consecutive background 401s before the session is really gone, not just interrupted. */
+const SIGN_OUT_AFTER_REJECTED_SYNCS = 3;
 
 function message(body, status) {
   return body?.error?.message ?? body?.message ?? `Request failed (${status})`;
@@ -27,6 +29,7 @@ export class ConnectedAccount {
     this.logger = logger;
     this.syncQueue = Promise.resolve();
     this.closed = false;
+    this.rejectedSyncs = new Map();
     if (typeof this.credentials.unset === "function") void Promise.resolve(
       this.credentials.unset(legacySessionCredential)
     ).catch(() => undefined);
@@ -118,7 +121,7 @@ export class ConnectedAccount {
     }
     const value = await response.json().catch(() => ({}));
     if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));
-    const token = response.headers.get("set-auth-token");
+    const token = response.headers.get("set-auth-token") ?? value.token;
     if (!token) throw new Error("Server did not return a session token");
     return this.resumeSession(token, value.user);
   }
@@ -217,6 +220,25 @@ export class ConnectedAccount {
     return this.authenticate("/api/auth/sign-up/email", { name, email, password });
   }
 
+  signInWithGoogle(idToken, nonce) {
+    return this.authenticate("/api/auth/sign-in/social", {
+      provider: "google", idToken: { token: idToken, nonce }
+    });
+  }
+
+  /** A background sync is a poor reason to sign someone out. A revoked token fails every
+   *  time and still gets here; one 401 during a deploy or a token rotation should not. */
+  async rejectSync(account) {
+    const rejections = (this.rejectedSyncs.get(account.userId) ?? 0) + 1;
+    if (rejections < SIGN_OUT_AFTER_REJECTED_SYNCS) {
+      this.rejectedSyncs.set(account.userId, rejections);
+      this.logger.warn?.(`bees: the server refused ${account.email} (${rejections}/${SIGN_OUT_AFTER_REJECTED_SYNCS})`);
+      return;
+    }
+    this.rejectedSyncs.delete(account.userId);
+    await this.signOut(account.userId);
+  }
+
   async signOut(userId = this.account()?.userId) {
     const account = userId ? this.account(userId) : null;
     if (!account) return;
@@ -226,6 +248,7 @@ export class ConnectedAccount {
     await this.credentials.unset(sessionCredential(account.userId));
     if (this.accounts().length === 1) await this.credentials.unset(legacySessionCredential);
     this.database.prepare("DELETE FROM bees_accounts WHERE user_id = ?").run(account.userId);
+    this.rejectedSyncs.delete(account.userId);
     this.refreshLocalAccess(affected);
   }
 
@@ -341,9 +364,12 @@ export class ConnectedAccount {
   async sync() {
     const results = [];
     for (const account of this.accounts()) {
-      try { results.push(...await this.syncAccount(account)); }
+      try {
+        results.push(...await this.syncAccount(account));
+        this.rejectedSyncs.delete(account.userId);
+      }
       catch (error) {
-        if (error?.status === 401) await this.signOut(account.userId);
+        if (error?.status === 401) await this.rejectSync(account);
         else this.logger.warn?.(`bees: account sync unavailable for ${account.email}: ${error instanceof Error ? error.message : error}`);
       }
     }

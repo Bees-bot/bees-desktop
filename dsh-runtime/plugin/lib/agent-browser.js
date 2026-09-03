@@ -102,3 +102,23 @@ export async function showAgentBrowser() {
 export async function hideAgentBrowser() {
   if (running()) await setWindow("minimized");
 }
+
+/**
+ * Every run shares this Chrome and none of them tidy up, so each page an agent opened stayed open
+ * and holding memory. Seven runs left 25 live tabs behind. Called when no run is using the browser
+ * any more, so there is nothing to interrupt: wind back to a single blank tab.
+ */
+export async function releaseAgentBrowser() {
+  if (!running()) return;
+  try {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
+    const pages = targets.filter(({ type }) => type === "page");
+    if (!pages.length) return;
+    // A fresh blank tab first: closing every page can take Chrome down with it. Background, so
+    // this does not raise the window at somebody who is working.
+    await cdp("Target.createTarget", { url: "about:blank", background: true });
+    for (const { id } of pages) await cdp("Target.closeTarget", { targetId: id }).catch(() => undefined);
+  } catch {
+    // A browser that is shutting down or already gone needs no tidying.
+  }
+}

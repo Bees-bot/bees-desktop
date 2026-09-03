@@ -596,7 +596,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
             key: provider, disabled: busy || !name.trim() || !data,
             onClick: () => {
               if (!name.trim()) { setError("Organization name is required"); return; }
-              browserAuth("social_start", { provider });
+              browserAuth(provider === "google" ? "google_start" : "social_start", { provider });
             }
           }, `Continue with ${{ google: "Google", github: "GitHub" }[provider] ?? provider}`))) : null,
         (!data || data.auth?.ssoEnabled) ? h(Button, { disabled: busy || !name.trim() || !data, onClick: async () => {

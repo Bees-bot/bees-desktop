@@ -7,6 +7,7 @@ export class ConnectedAccount {
   resumeSession(token: string, knownUser?: any): Promise<any>;
   signIn(email: string, password: string): Promise<any>;
   signUp(name: string, email: string, password: string): Promise<any>;
+  signInWithGoogle(idToken: string, nonce: string): Promise<any>;
   signOut(userId?: string): Promise<void>;
   sync(): Promise<any[]>;
   syncCoordination(connectionIds?: string[] | null): Promise<any[]>;
