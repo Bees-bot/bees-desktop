@@ -19,7 +19,7 @@ export declare function copyOutputs(
 ): { files: number; bytes: number; destination: string; existing: boolean };
 
 export declare class AgentRuntime {
-  constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } });
+  constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } } | null, notify?: (change: Record<string, unknown>) => void, subscribe?: ((listener: (change: Record<string, any>) => void) => () => void) | null);
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   setKnowledgeSearch(search: (query: string, workspaceId: string) => Promise<unknown[]>): void;
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;
@@ -29,6 +29,8 @@ export declare class AgentRuntime {
   pendingApproval(executionId: string): Record<string, unknown> | null;
   needsRecovery(executionId: string): boolean;
   admit(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
+  dispatch(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
+  resumeQueued(): void;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;
   abort(executionId: string): boolean;

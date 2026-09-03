@@ -160,7 +160,21 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
-  useEffect(() => { void load(); const timer = setInterval(() => void load(), 5000); return () => clearInterval(timer); }, []);
+  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (typeof window.EventSource !== "function") return undefined;
+    const source = new window.EventSource("/bees-api/events");
+    let refreshTimer;
+    const changed = (event) => {
+      let detail = null;
+      try { detail = JSON.parse(event.data); } catch {}
+      window.dispatchEvent(new window.CustomEvent("bees-change", { detail }));
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => void load(), 50);
+    };
+    source.addEventListener("change", changed);
+    return () => { clearTimeout(refreshTimer); source.close(); };
+  }, []);
   useEffect(() => {
     const theme = ctx.get?.("theme") ?? ctx.theme;
     const preset = THEME_PRESETS.find(({ id }) => id === preference.themePreset)

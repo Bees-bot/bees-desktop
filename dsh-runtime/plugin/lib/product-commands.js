@@ -970,7 +970,7 @@ export async function executeProductCommand(action, input) {
       const executionId = randomUUID();
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
-      await this.agents.admit("bees-run", executionId, {
+      const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
         initialData: {
@@ -983,7 +983,7 @@ export async function executeProductCommand(action, input) {
           grants: []
         }
       });
-      return { executionId, sessionId: this.agents.run(executionId)?.currentSessionId };
+      return { executionId, sessionId: queued.sessionId, status: queued.status };
     }
     if (action === "run_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
@@ -1007,7 +1007,7 @@ export async function executeProductCommand(action, input) {
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
       const grants = [outputLocation(this.database, item.id)].filter(Boolean);
-      await this.agents.admit("bees-run", executionId, {
+      const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
         initialData: {
@@ -1021,7 +1021,7 @@ export async function executeProductCommand(action, input) {
           grants
         }
       });
-      return { executionId };
+      return { executionId, status: queued.status };
     }
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");

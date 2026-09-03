@@ -5,6 +5,7 @@ export declare function recurringScheduleId(recurringWorkId: string, accountUser
 export declare class ProcessRuntime {
   constructor(database: any, options?: {
     client?: any; logger?: any; workerFactory?: (options: any) => Promise<any>; claims?: any;
+    notify?: (change: Record<string, unknown>) => void;
   });
   item(workItemId: string): any;
   stages(processId: string): any[];

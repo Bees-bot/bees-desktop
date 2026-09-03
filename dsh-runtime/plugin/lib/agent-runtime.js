@@ -383,11 +383,14 @@ export function authorizeReferences(database, workspaceId, references) {
 }
 
 export class AgentRuntime {
-  constructor(ctx, database, settings = null) {
+  constructor(ctx, database, settings = null, notify = () => {}, subscribe = null) {
     this.ctx = ctx;
     this.database = database;
     this.settings = settings;
+    this.notify = notify;
+    this.subscribe = subscribe;
     this.live = new Map();
+    this.starting = new Set();
     this.recovery = new Set();
     this.closing = false;
     database.exec(`
@@ -414,6 +417,13 @@ export class AgentRuntime {
         error_json TEXT,
         created_at TEXT NOT NULL,
         settled_at TEXT,
+        FOREIGN KEY (execution_id) REFERENCES execution_links(execution_id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS bees_run_queue (
+        execution_id TEXT PRIMARY KEY,
+        delivery_id TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
         FOREIGN KEY (execution_id) REFERENCES execution_links(execution_id) ON DELETE CASCADE
       ) STRICT;
       CREATE TABLE IF NOT EXISTS dsh_audit_events (
@@ -504,10 +514,12 @@ export class AgentRuntime {
   }
 
   audit(eventType, executionId, sessionId, metadata = {}) {
+    const createdAt = new Date().toISOString();
     this.database.prepare(`
       INSERT INTO dsh_audit_events (id, event_type, execution_id, session_id, metadata_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(randomUUID(), eventType, executionId, sessionId, JSON.stringify(metadata), new Date().toISOString());
+    `).run(randomUUID(), eventType, executionId, sessionId, JSON.stringify(metadata), createdAt);
+    this.notify({ type: eventType, executionId, sessionId, at: createdAt });
   }
 
   checkpoint(executionId, sessionId, transition, options = {}) {
@@ -564,6 +576,7 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
+    this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
     if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL].includes(event.data.name)) {
       const pending = {
         kind: event.data.name === WORK_REVIEW_TOOL ? "work-review" : "question",
@@ -1024,17 +1037,36 @@ export class AgentRuntime {
              w.updated_at AS settledAt
       FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
     `);
-    let rows;
-    do {
-      rows = ids.map((id) => read.get(id));
-      if (rows.some((row) => !row)) throw new Error("Delegated work disappeared");
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) break;
-      await delay(1_000, undefined, signal ? { signal } : undefined);
-    } while (true);
-    return rows.map((row) => ({
-      id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
-      ...(row.error ? { error: row.error } : {})
-    }));
+    const wanted = new Set(ids);
+    while (true) {
+      let unsubscribe = () => {};
+      const changed = this.subscribe
+        ? new Promise((resolve) => {
+            unsubscribe = this.subscribe((change) => {
+              if (wanted.has(change.workItemId)) resolve();
+            });
+          })
+        : delay(1_000, undefined, signal ? { signal } : undefined);
+      const rows = ids.map((id) => read.get(id));
+      if (rows.some((row) => !row)) {
+        unsubscribe();
+        throw new Error("Delegated work disappeared");
+      }
+      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) {
+        unsubscribe();
+        return rows.map((row) => ({
+          id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
+          ...(row.error ? { error: row.error } : {})
+        }));
+      }
+      try {
+        await (this.subscribe
+          ? Promise.race([changed, delay(5_000, undefined, signal ? { signal } : undefined)])
+          : changed);
+      } finally {
+        unsubscribe();
+      }
+    }
   }
 
   async newHandle(run, data, workspace, mode) {
@@ -1073,6 +1105,100 @@ export class AgentRuntime {
     return { sessionId, handle };
   }
 
+  async queue(agentName, executionId, payload) {
+    if (!payload?.idempotencyKey || typeof payload.body !== "string")
+      throw new Error("A message and idempotency key are required");
+    if (agentName !== "bees-run") throw new Error("Only the Bees work agent is available");
+    const queued = this.database.prepare(`
+      SELECT q.delivery_id AS deliveryId, r.current_session_id AS sessionId, r.instance_uid AS uid
+      FROM bees_run_queue q JOIN execution_links r ON r.execution_id = q.execution_id
+      WHERE q.execution_id = ?
+    `).get(executionId);
+    if (queued) {
+      if (queued.deliveryId !== payload.idempotencyKey) throw new Error("This conversation already exists");
+      return { executionId, sessionId: queued.sessionId, uid: queued.uid };
+    }
+    if (this.run(executionId)) throw new Error("This conversation already exists");
+    if (payload.uid !== null && payload.uid !== undefined) throw new Error("A new run cannot be a continuation");
+    const initialData = payload.initialData;
+    if (!initialData) throw new Error("A new work run requires immutable initialData");
+    validateRunData(initialData);
+    authorizeReferences(this.database, initialData.workspaceId, typedReferences(payload.body));
+    const storedData = { ...initialData };
+    const workspace = resolve(String(payload.workspace ?? process.env.BEES_DEFAULT_WORKSPACE ?? process.cwd()));
+    await mkdir(workspace, { recursive: true });
+    const uid = randomUUID();
+    const at = new Date().toISOString();
+    let created = false;
+    transaction(this.database, () => {
+      const link = this.database.prepare(`
+        INSERT OR IGNORE INTO execution_links
+          (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
+           instance_uid, run_directory, config_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+      `).run(executionId, initialData.workspaceId, initialData.workItemId || null, agentName,
+        executionId, uid, workspace, JSON.stringify(storedData), at, at);
+      const existing = this.database.prepare(
+        "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = ?"
+      ).get(executionId);
+      if (!link.changes && !existing) throw new Error("This conversation already exists");
+      const inserted = this.database.prepare(`
+        INSERT OR IGNORE INTO bees_run_queue (execution_id, delivery_id, payload_json, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(executionId, payload.idempotencyKey, JSON.stringify({ ...payload, workspace }), at);
+      const stored = this.database.prepare(
+        "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = ?"
+      ).get(executionId);
+      if (stored?.deliveryId !== payload.idempotencyKey)
+        throw new Error("This conversation already exists");
+      created = Boolean(inserted.changes);
+    });
+    const run = this.run(executionId);
+    if (created) {
+      this.checkpoint(executionId, executionId, "ready", {
+        inputReferences: typedReferences(payload.body), idempotencyKey: `ready:${executionId}`
+      });
+      this.audit("run-queued", executionId, executionId, { deliveryId: payload.idempotencyKey });
+    }
+    return { executionId, sessionId: run.currentSessionId, uid: run.instanceUid };
+  }
+
+  startQueued(executionId) {
+    if (this.starting.has(executionId)) return;
+    const queued = this.database.prepare(`
+      SELECT payload_json AS payloadJson FROM bees_run_queue WHERE execution_id = ?
+    `).get(executionId);
+    if (!queued) return;
+    this.starting.add(executionId);
+    const start = this.admit("bees-run", executionId, JSON.parse(queued.payloadJson)).catch((error) => {
+      const run = this.run(executionId);
+      if (run?.status === "queued") {
+        const at = new Date().toISOString();
+        this.database.prepare("UPDATE execution_links SET status = 'failed', updated_at = ? WHERE execution_id = ?")
+          .run(at, executionId);
+        this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+        this.checkpoint(executionId, run.currentSessionId, "failed", {
+          idempotencyKey: `start-failed:${executionId}`
+        });
+        this.audit("run-failed", executionId, run.currentSessionId, { error: message(error), phase: "starting" });
+      }
+      this.ctx.logger?.warn?.(`bees: queued run ${executionId} failed to start: ${message(error)}`);
+    }).finally(() => this.starting.delete(executionId));
+    this.track(start);
+  }
+
+  async dispatch(agentName, executionId, payload) {
+    const queued = await this.queue(agentName, executionId, { ...payload, background: true });
+    this.startQueued(executionId);
+    return { ...queued, status: "queued" };
+  }
+
+  resumeQueued() {
+    for (const { executionId } of this.database.prepare(`
+      SELECT execution_id AS executionId FROM bees_run_queue ORDER BY created_at
+    `).all()) this.startQueued(executionId);
+  }
+
   async admit(agentName, executionId, payload) {
     if (!payload?.idempotencyKey || typeof payload.body !== "string") throw new Error("A message and idempotency key are required");
     if (agentName !== "bees-run") throw new Error("Only the Bees work agent is available");
@@ -1081,51 +1207,48 @@ export class AgentRuntime {
       FROM dsh_deliveries d JOIN execution_links r ON r.execution_id = d.execution_id
       WHERE d.delivery_id = ?
     `).get(payload.idempotencyKey);
-    if (prior) return prior;
+    if (prior) {
+      this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+      return prior;
+    }
 
     let run = this.run(executionId);
     const existed = Boolean(run);
+    let prepared = Boolean(this.database.prepare(`
+      SELECT 1 FROM bees_run_queue WHERE execution_id = ? AND delivery_id = ?
+    `).get(executionId, payload.idempotencyKey));
     const previousStatus = run?.status;
     const continuation = payload.uid !== null && payload.uid !== undefined;
     const recovery = Boolean(run && this.needsRecovery(executionId));
     if (!run) {
-      if (continuation) throw new Error("A new run cannot be a continuation");
-      const initialData = payload.initialData;
-      if (!initialData) throw new Error("A new work run requires immutable initialData");
-      validateRunData(initialData);
-      authorizeReferences(this.database, initialData.workspaceId, typedReferences(payload.body));
-      const storedData = { ...initialData, ...await resolveRunModel(this.ctx, initialData) };
-      validateRunData(storedData);
-      const workspace = resolve(String(payload.workspace ?? process.env.BEES_DEFAULT_WORKSPACE ?? process.cwd()));
-      await mkdir(workspace, { recursive: true });
-      const uid = randomUUID();
-      const at = new Date().toISOString();
-      // Temporal can redeliver an activity attempt, so two admits for one new run can both get
-      // past the check above. The loser takes the row the winner wrote rather than throwing.
-      this.database.prepare(`
-        INSERT OR IGNORE INTO execution_links
-          (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
-           instance_uid, run_directory, config_json, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
-      `).run(executionId, initialData.workspaceId, initialData.workItemId || null, agentName,
-        executionId, uid, workspace, JSON.stringify(storedData), at, at);
+      await this.queue(agentName, executionId, payload);
       run = this.run(executionId);
-      this.checkpoint(executionId, executionId, "ready", {
-        inputReferences: typedReferences(payload.body),
-        idempotencyKey: `ready:${executionId}`
-      });
+      prepared = true;
     } else if (continuation && payload.uid !== run.instanceUid) {
       throw new Error("The conversation incarnation does not match this run");
-    } else if (!continuation && !recovery) {
+    } else if (!continuation && !recovery && !prepared) {
       throw new Error("This conversation already exists; send a continuation with its uid");
     }
 
-    const data = JSON.parse(run.configJson);
-    const references = typedReferences(payload.body);
-    authorizeReferences(this.database, data.workspaceId, references);
+    let data;
+    let references;
+    try {
+      data = JSON.parse(run.configJson);
+      if (!data.resolvedModel && (prepared || !existed)) {
+        data = { ...data, ...await resolveRunModel(this.ctx, data) };
+        validateRunData(data);
+        this.database.prepare("UPDATE execution_links SET config_json = ?, updated_at = ? WHERE execution_id = ?")
+          .run(JSON.stringify(data), new Date().toISOString(), executionId);
+      }
+      references = typedReferences(payload.body);
+      authorizeReferences(this.database, data.workspaceId, references);
+    } catch (error) {
+      if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
+      throw error;
+    }
     const workspace = run.runDirectory;
     const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
-    const mode = recovery ? "recovery" : existed ? "resume" : "create";
+    const mode = recovery ? "recovery" : prepared || !existed ? "create" : "resume";
     let opened;
     try {
       opened = await this.newHandle(run, data, workspace, mode);
@@ -1151,6 +1274,7 @@ export class AgentRuntime {
       ? previousStatus : "running";
     this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
       .run(activeStatus, at, executionId);
+    this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,
@@ -1364,7 +1488,8 @@ export class AgentRuntime {
     if (!run) return null;
     const live = this.live.get(executionId);
     const events = live?.handle.agent.session.events ??
-      (await this.ctx.sessionPersistence.inspect(SessionId(run.currentSessionId))).events;
+      (run.status === "queued" ? []
+        : (await this.ctx.sessionPersistence.inspect(SessionId(run.currentSessionId))).events);
     const settlements = this.database.prepare(`
       SELECT submission_id AS submissionId, outcome, error_json AS errorJson
       FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at

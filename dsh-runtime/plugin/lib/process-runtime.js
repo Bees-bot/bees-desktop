@@ -21,6 +21,7 @@ export class ProcessRuntime {
     this.logger = options.logger ?? console;
     this.workerFactory = options.workerFactory;
     this.claims = options.claims;
+    this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
   }
 
@@ -413,6 +414,7 @@ export class ProcessRuntime {
       UPDATE work_items SET runtime_phase = 'running', runtime_error = NULL, updated_at = ?
       WHERE id = ? AND runtime_phase = 'ready'
     `).run(new Date().toISOString(), workItemId);
+    this.notify({ type: "workflow-started", workItemId });
     this.watchClaim(claimKey, claim, handle);
     return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
   }
@@ -521,6 +523,10 @@ export class ProcessRuntime {
       state.workItemId, state.processId
     );
     if (!result.changes) throw new Error("Work item not found");
+    this.notify({
+      type: "work-item-changed", workItemId: state.workItemId,
+      executionId: state.executionId ?? null, phase: state.phase
+    });
     return state;
   }
 }

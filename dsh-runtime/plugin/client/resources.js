@@ -1,7 +1,7 @@
 import { h, useEffect, useState } from "./runtime.js";
 import { FilePreview } from "./work.js";
 import {
-  ask, AuditEvent, Button, clip, confirmAction, Empty, request, runTitle
+  ask, AuditEvent, Button, clip, confirmAction, Empty, request, runTitle, useBeesChangeRevision
 } from "./shared.js";
 import { addLocationFromDevice } from "./location-fields.js";
 
@@ -93,12 +93,13 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
   const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
   const [events, setEvents] = useState([]);
   const [history, setHistory] = useState(null);
+  const liveRevision = useBeesChangeRevision();
   useEffect(() => {
     let active = true;
     if (route === "audit") request("/bees-api/audit")
       .then((value) => active && setEvents(value.events ?? []), () => active && setEvents([]));
     return () => { active = false; };
-  }, [route]);
+  }, [route, liveRevision]);
   useEffect(() => {
     let active = true;
     if (!runId) { setHistory(null); return () => { active = false; }; }
@@ -106,7 +107,7 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
       .then((value) => active && setHistory(value.history))
       .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
     return () => { active = false; };
-  }, [runId]);
+  }, [runId, liveRevision]);
   if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
   if (route === "audit") return h("div", null, ...(events.length ? events.map((event) => {
     const run = runs.find(({ id }) => id === event.executionId);

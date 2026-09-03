@@ -39,6 +39,15 @@ describe("Bees work cockpit UI", () => {
     expect(() => new Script(clientBundle)).not.toThrow();
   });
 
+  it("refreshes agent state from push notifications with polling only as a fallback", () => {
+    expect(client).toContain('new window.EventSource("/bees-api/events")');
+    expect(client).toContain('window.dispatchEvent(new window.CustomEvent("bees-change"');
+    expect(client).toContain('window.addEventListener("bees-change", changed)');
+    expect(client).toContain("setInterval(() => void load(), 30_000)");
+    expect(client).toContain("setInterval(() => setRefreshCount(c => c + 1), 5000)");
+    expect(client).toContain('run?.status === "queued" ? "Agent is starting..." : "Agent is working..."');
+  });
+
   it("registers the bundled client module", () => {
     let registration: any;
     new Script(clientBundle).runInNewContext({
