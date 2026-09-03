@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
@@ -14,7 +13,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools", "userQuestions"
+  "skills", "tools", "userQuestions", "agentTeams"
 ];
 
 const ModelPreference = z.object({
@@ -160,7 +159,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     await capabilities?.close();
     database.close();
   }, "bees shutdown");
-  const beesSettings = ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
+  const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
   initializeProductDatabase(database);
   agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);

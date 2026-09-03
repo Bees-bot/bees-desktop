@@ -151,7 +151,8 @@ export function optionalReasoningEffort(value) {
 }
 
 export function agentCapabilities(agent) {
-  try { return capabilities(JSON.parse(agent.capabilities || "[]")); }
+  try { return capabilities(Array.isArray(agent?.capabilities)
+    ? agent.capabilities : JSON.parse(agent?.capabilities || "[]")); }
   catch { return []; }
 }
 
@@ -214,29 +215,45 @@ export function insertProcess(
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, at, at);
   const insert = database.prepare(`
-    INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, NULL)
+    INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
     const name = required(typeof stage === "string" ? stage : stage.name, "Stage");
-    // The last stage ends the process and a stage called Review reviews; the rest do the work.
-    const driver = (typeof stage === "string" ? null : stage.driver)
-      ?? (position === stages.length - 1 ? "terminal"
-        : position > 0 && /review/i.test(name) ? "review" : "agent");
-    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver, driver === "terminal" ? 1 : 0);
+    const driver = stageDriver(stage, position, stages.length);
+    const requiresApproval = typeof stage === "object" && stage?.requiresHumanApproval !== undefined
+      ? Boolean(stage.requiresHumanApproval) : /\b(?:approval|sign[- ]?off)\b/i.test(name);
+    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver,
+      requiresApproval ? 1 : 0, driver === "terminal" ? 1 : 0);
   });
   return id;
 }
 
 /** Stages describe process structure. Agent guidance belongs to agents and specialists. */
 export function processStages(value, label = "process") {
-  const stages = (Array.isArray(value) ? value : []).map((entry) => ({
-    name: required(typeof entry === "string" ? entry : entry?.name, "Stage")
+  const entries = Array.isArray(value) ? value : [];
+  const stages = entries.map((entry, position) => ({
+    name: required(typeof entry === "string" ? entry : entry?.name, "Stage"),
+    driver: stageDriver(entry, position, entries.length),
+    requiresHumanApproval: typeof entry === "object" && entry?.requiresHumanApproval !== undefined
+      ? Boolean(entry.requiresHumanApproval)
+      : /\b(?:approval|sign[- ]?off)\b/i.test(String(typeof entry === "string" ? entry : entry?.name))
   }));
   if (stages.length < 2 || stages.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
   if (new Set(stages.map(({ name }) => name.toLocaleLowerCase())).size !== stages.length)
     throw new Error("Stage names must be unique");
   return stages;
+}
+
+function stageDriver(stage, position, count) {
+  const explicit = typeof stage === "object" ? stage?.driver : null;
+  if (explicit && !["manual", "agent", "discussion", "review", "terminal"].includes(explicit))
+    throw new Error(`Unsupported stage driver: ${explicit}`);
+  const name = String(typeof stage === "string" ? stage : stage?.name ?? "");
+  return explicit ?? (position === count - 1 ? "terminal"
+    : /\b(?:discuss|discussion|debate|roundtable)\b/i.test(name) ? "discussion"
+      : /\b(?:human|inbox|manual)\b/i.test(name) ? "manual"
+        : position > 0 && /review/i.test(name) ? "review" : "agent");
 }
 
 /** An empty Templates screen gives a new user nowhere to start, so ship a few worth copying. */
@@ -275,7 +292,8 @@ export function insertDefaultWorkspace(database, teamId, {
 
 export function initializeProductDatabase(database) {
   const version = Number(database.prepare("PRAGMA user_version").get()?.user_version ?? 0);
-  if (version < 5) database.exec(`
+  if (version < 17) database.exec(`
+    PRAGMA foreign_keys = OFF;
     DROP TRIGGER IF EXISTS bees_item_search_insert;
     DROP TRIGGER IF EXISTS bees_item_search_update;
     DROP TRIGGER IF EXISTS bees_item_search_delete;
@@ -289,6 +307,7 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS dsh_deliveries;
     DROP TABLE IF EXISTS dsh_audit_events;
     DROP TABLE IF EXISTS bees_domain_receipts;
+    DROP TABLE IF EXISTS bees_work_receipts;
     DROP TABLE IF EXISTS bees_schedules;
     DROP TABLE IF EXISTS agent_dispatches;
     DROP TABLE IF EXISTS work_item_locations;
@@ -314,7 +333,18 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS devices;
     DROP TABLE IF EXISTS users;
     DROP TABLE IF EXISTS settings;
-    PRAGMA user_version = 5;
+    DROP TABLE IF EXISTS bees_recurring_executors;
+    DROP TABLE IF EXISTS agent_specialization_versions;
+    DROP TABLE IF EXISTS agent_specializations;
+    DROP TABLE IF EXISTS recurring_work;
+    DROP TABLE IF EXISTS process_templates;
+    DROP TABLE IF EXISTS bees_connection_sync_cursors;
+    DROP TABLE IF EXISTS bees_connection_teams;
+    DROP TABLE IF EXISTS bees_connections;
+    DROP TABLE IF EXISTS bees_accounts;
+    DROP TABLE IF EXISTS mcp_servers;
+    PRAGMA user_version = 17;
+    PRAGMA foreign_keys = ON;
   `);
   database.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -416,7 +446,8 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS stages (
       id TEXT PRIMARY KEY, process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
       name TEXT NOT NULL, position INTEGER NOT NULL,
-      driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'review', 'terminal')),
+      driver TEXT NOT NULL DEFAULT 'manual' CHECK (driver IN ('manual', 'agent', 'discussion', 'review', 'terminal')),
+      requires_human_approval INTEGER NOT NULL DEFAULT 0,
       is_terminal INTEGER NOT NULL DEFAULT 0, archived_at TEXT, UNIQUE(process_id, position)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stage_routes (
@@ -484,6 +515,13 @@ export function initializeProductDatabase(database) {
       specialization_id TEXT REFERENCES agent_specializations(id),
       reason TEXT NOT NULL, agent_revision TEXT NOT NULL,
       agent_config_json TEXT NOT NULL, created_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_work_receipts (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      idempotency_key TEXT NOT NULL,
+      work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, idempotency_key)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS team_locations (
       id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -597,11 +635,6 @@ export function initializeProductDatabase(database) {
     ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
-    UPDATE stages SET driver = CASE
-      WHEN is_terminal = 1 THEN 'terminal'
-      WHEN lower(name) LIKE '%review%' THEN 'review'
-      ELSE 'agent'
-    END;
   `);
   // This runs on every init, and init runs twice per boot. Setting the version in here put every
   // install back to 8 after the migrations below had run, so they ran again on every start.
@@ -643,6 +676,7 @@ export function initializeProductDatabase(database) {
     WHERE recurring_work_id IS NULL AND id IN (SELECT id FROM scheduled_descendants);
     PRAGMA user_version = 16;
   `);
+  if (version < 17) database.exec("PRAGMA user_version = 17");
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

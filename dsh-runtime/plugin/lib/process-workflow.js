@@ -92,16 +92,17 @@ export async function processWorkflow(input) {
         await project("completed", null);
         return state;
       }
-      if (!["agent", "review"].includes(stage.driver)) {
+      if (!["agent", "discussion", "review"].includes(stage.driver)) {
         await waitForRetry(`Automatic workflow cannot run the ${stage.name} stage`);
         continue;
       }
 
       if (stage.driver === "review") state.reviewCycle += 1;
-      const purpose = stage.driver === "review" ? "reviewer" : "worker";
+      const purpose = stage.driver === "review" ? "reviewer"
+        : stage.driver === "discussion" ? "discussion" : "worker";
       state.executionId = purpose === "reviewer"
         ? `${input.workItemId}-stage-${index}-review-${state.attempt}-${state.reviewCycle}`
-        : `${input.workItemId}-stage-${index}-work-${state.attempt}`;
+        : `${input.workItemId}-stage-${index}-${purpose === "worker" ? "work" : purpose}-${state.attempt}`;
       await project("running", null);
 
       let result;
@@ -109,6 +110,8 @@ export async function processWorkflow(input) {
         result = await dshActivities.runDshStage({
           ...state,
           purpose,
+          driver: stage.driver,
+          requiresHumanApproval: Boolean(stage.requiresHumanApproval),
           stageName: stage.name,
           candidateExecutionId,
           feedback
@@ -129,11 +132,11 @@ export async function processWorkflow(input) {
         state.error = null;
         continue;
       }
-      if (purpose === "worker" && result.outcome === "blocked") {
+      if (purpose !== "reviewer" && result.outcome === "blocked") {
         await waitForRetry(result.summary || `${stage.name} is blocked`);
         continue;
       }
-      if (purpose === "worker" && result.outcome === "candidate") {
+      if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
         index += 1;
@@ -145,7 +148,8 @@ export async function processWorkflow(input) {
       }
       if (purpose === "reviewer" && result.outcome === "revise") {
         feedback = result.summary;
-        const worker = input.stages.slice(0, index).findLastIndex(({ driver }) => driver === "agent");
+        const worker = input.stages.slice(0, index).findLastIndex(({ driver }) =>
+          driver === "agent" || driver === "discussion");
         // With no worker stage behind it there is nothing to revise, so a human has to look.
         if (worker < 0) { await waitForRetry(feedback || "Review asked for a revision with no worker stage before it"); continue; }
         index = worker;

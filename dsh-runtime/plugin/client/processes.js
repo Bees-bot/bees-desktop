@@ -17,7 +17,8 @@ const PROCESS_DETAIL_LAYOUT = [
 
 function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
-  const initialStages = draft?.stages ?? ["Plan", "Doing", "Done"];
+  const initialStages = (draft?.stages ?? ["Plan", "Doing", "Done"])
+    .map((stage) => typeof stage === "string" ? stage : stage.name);
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const [outputLocationId, setOutputLocationId] = useState("");
 
@@ -50,7 +51,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
       placeholder: "When should someone use this workflow?" })),
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
-    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. A stage named Review gets an independent reviewer; the last stage completes the work."),
+    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Discuss, Debate, or Roundtable uses a routed agent pool; Review uses an independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
@@ -132,7 +133,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
               onClick: () => { setCreatingStageId(""); setSelectedAgentId(agent.id); } },
               h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")));
           } else if (pool) {
-            card = h("button", { type: "button", className: "bees-hierarchy-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, "Agent pool"));
+            card = h("button", { type: "button", className: "bees-hierarchy-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, stage.driver === "discussion" ? "Discussion pool" : "Agent pool"));
           } else {
             card = null;
           }
@@ -153,7 +154,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
                 h("option", { value: "" }, agent || pool ? "Remove (Use team default)" : "+ Add or Create Agent"),
                 h("option", { value: "create_new" }, "+ Create new agent"),
                 h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
-                  h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled }, row.name))),
+                  h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled || stage.driver === "discussion" }, row.name))),
                 h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
                   h("option", { value: `pool:${row.id}`, key: row.id }, row.name))))
             )

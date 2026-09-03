@@ -116,6 +116,15 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
                 .join("index.js")
                 .is_file()
         })
+        || DSH_PROFILE_PLUGINS.iter().any(|package| {
+            !runtime
+                .join("node_modules")
+                .join("@deepseek-ai")
+                .join(package)
+                .join("lib")
+                .join("index.js")
+                .is_file()
+        })
     {
         return Err("The bundled DeepSeek Harness application is missing. Reinstall Bees.".into());
     }
@@ -172,7 +181,8 @@ fn link_package(source: &Path, destination: &Path) -> Result<(), String> {
 fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     let profile = home.join("profiles").join("bees");
     copy_profile(runtime, &profile)?;
-    let packages = [("@deepseek-ai", "dsh-session-persistence-sqlite")]
+    let packages = DSH_PROFILE_PLUGINS
+        .map(|package| ("@deepseek-ai", package))
         .into_iter()
         .chain(BEES_PLUGINS.map(|package| ("@bees", package)));
     for (scope, package) in packages {
@@ -193,6 +203,32 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn reset_dsh_rc1_state(home: &Path) -> Result<(), String> {
+    let marker = home.join(".bees-dsh-0.1.2-rc.1");
+    if marker.exists() {
+        return Ok(());
+    }
+    let sessions = home.join("sessions");
+    if sessions.exists() {
+        fs::remove_dir_all(sessions).map_err(|error| error.to_string())?;
+    }
+    for name in [
+        "sessions.sqlite",
+        "sessions.sqlite-shm",
+        "sessions.sqlite-wal",
+        "session-query.sqlite",
+        "session-query.sqlite-shm",
+        "session-query.sqlite-wal",
+    ] {
+        let path = home.join(name);
+        if path.exists() {
+            fs::remove_file(path).map_err(|error| error.to_string())?;
+        }
+    }
+    fs::create_dir_all(home).map_err(|error| error.to_string())?;
+    fs::write(marker, b"dsh-v0.1.2-rc.1\n").map_err(|error| error.to_string())
+}
+
 /// Every plugin Bees ships. The launch check and the profile links both read this, so a new
 /// plugin cannot be staged without also being verified and linked.
 const BEES_PLUGINS: [&str; 5] = [
@@ -201,6 +237,11 @@ const BEES_PLUGINS: [&str; 5] = [
     "dsh-free-ai",
     "dsh-custom-ai",
     "dsh-subscriptions",
+];
+
+const DSH_PROFILE_PLUGINS: [&str; 2] = [
+    "dsh-experimental-agent-team",
+    "dsh-experimental-tool-agent-team",
 ];
 
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -341,6 +382,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     let home = app_data.join("dsh");
     let workspace = app_data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
+    reset_dsh_rc1_state(&home)?;
     prepare_profile(&runtime, &home)?;
 
     let port = available_loopback_port()?;
@@ -379,7 +421,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         ])
         .arg(temporal_port.to_string())
         .arg("--db-filename")
-        .arg(temporal_root.join("processes-v3.db"))
+        .arg(temporal_root.join("processes-v4.db"))
         .args([
             "--sqlite-pragma",
             "journal_mode=WAL",
@@ -412,7 +454,6 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("DSH_HOME", &home)
         .env("DSH_TELEMETRY_DISABLED", "1")
         .env("BEES_DSH_TOKEN", &secret)
-        .env("BEES_DSH_SESSIONS_PATH", home.join("sessions.sqlite"))
         .env("BEES_DSH_QUERY_PATH", home.join("session-query.sqlite"))
         .env("BEES_DATABASE_PATH", app_data.join("bees-stage1.db"))
         .env("BEES_DEFAULT_WORKSPACE", &workspace)

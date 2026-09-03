@@ -158,7 +158,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const routeLabel = routeAgent?.name ?? routePool?.name ?? `Team ${stage?.driver === "review" ? "reviewer" : "worker"}`;
   const processStages = data.stages.filter(({ processId }) => processId === item.processId);
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
-    processStages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
+    processStages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
   const recurringWork = (data.recurringWork ?? []).filter((recurring) =>
     recurring.sourceWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
@@ -506,7 +506,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
   const schedulable = stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
-    stages.every(({ driver }) => ["agent", "review", "terminal"].includes(driver));
+    stages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
   const selected = items.find(({ id }) => id === selectedId) ?? root;
   const latest = new Map();
   for (const run of data.runs) if (run.workItemId && !latest.has(run.workItemId)) latest.set(run.workItemId, run);
