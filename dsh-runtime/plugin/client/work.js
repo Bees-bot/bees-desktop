@@ -214,9 +214,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       .catch(() => active && setAudit([]));
     return () => { active = false; };
   }, [item.id, data.runs.length, liveRevision]);
-  
+  const isScrolledUpRef = React.useRef(false);
+  useEffect(() => {
+    isScrolledUpRef.current = false;
+  }, [run?.id, item.id]);
+
   // Auto-scroll conversation robustly
   useEffect(() => {
+    if (isScrolledUpRef.current) return;
     const scrollToBottom = () => { if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
     scrollToBottom();
     let id1 = setTimeout(scrollToBottom, 50);
@@ -328,7 +333,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         h("div", { className: "bees-convo-title" }, "Conversation"),
         isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null
       ),
-      h("div", { className: "bees-convo-history", ref: convoRef },
+      h("div", { 
+        className: "bees-convo-history", 
+        ref: convoRef,
+        onScroll: (e) => {
+          const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+          isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
+        }
+      },
         ...convoItems,
         workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
         : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
