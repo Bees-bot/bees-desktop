@@ -14,6 +14,7 @@ const requiredScopes = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/forms.body.readonly"
 ];
+const identityScopes = ["openid", "email", "profile"];
 const pointerFormats = {
   ".gdoc": {
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -206,9 +207,10 @@ async function exportedMarkdown(api, auth, id, format, title) {
 }
 
 export class GoogleDriveConnection {
-  constructor(credentials, root) {
+  constructor(credentials, root, signInWithGoogle = null) {
     this.credentials = credentials;
     this.root = root;
+    this.signInWithGoogle = signInWithGoogle;
     this.clientId = "";
     this.pending = null;
     this.exported = new Map();
@@ -262,7 +264,7 @@ export class GoogleDriveConnection {
     };
   }
 
-  async start() {
+  async start(includeIdentity = false) {
     if (!this.clientId) throw new Error("Google Drive is not configured by your Bees server");
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.pending?.server?.close();
@@ -287,8 +289,9 @@ export class GoogleDriveConnection {
     const client = new OAuth2Client(this.clientId, undefined, redirectUri);
     const verifier = await client.generateCodeVerifierAsync();
     const state = randomBytes(24).toString("hex");
+    const nonce = includeIdentity ? randomBytes(24).toString("hex") : "";
     this.pending = {
-      state, redirectUri, codeVerifier: verifier.codeVerifier,
+      state, nonce, includeIdentity, redirectUri, codeVerifier: verifier.codeVerifier,
       expiresAt: Date.now() + 5 * 60_000, server
     };
     this.pending.timer = setTimeout(() => {
@@ -300,9 +303,10 @@ export class GoogleDriveConnection {
     return {
       url: client.generateAuthUrl({
         access_type: "offline",
-        prompt: "consent",
-        scope: requiredScopes,
+        prompt: "consent select_account",
+        scope: includeIdentity ? [...identityScopes, ...requiredScopes] : requiredScopes,
         state,
+        ...(nonce ? { nonce } : {}),
         code_challenge: verifier.codeChallenge,
         code_challenge_method: CodeChallengeMethod.S256
       })
@@ -335,6 +339,10 @@ export class GoogleDriveConnection {
     client.setCredentials({ ...previous, ...tokens, refresh_token: tokens.refresh_token ?? previous?.refresh_token });
     const api = drive({ version: "v3", auth: client });
     const { data } = await api.about.get({ fields: "user(displayName,emailAddress,permissionId)" });
+    if (pending.includeIdentity) {
+      if (!tokens.id_token || !this.signInWithGoogle) throw new Error("Google did not return a usable identity");
+      await this.signInWithGoogle(tokens.id_token, pending.nonce);
+    }
     await Promise.all([
       this.saveTokens(client.credentials),
       this.credentials.set(profileCredential, JSON.stringify(data.user ?? {}))
