@@ -161,7 +161,8 @@ export function discussionPeers(database, { stageId, leadId }) {
   if (!stage?.poolId) throw new Error(`The ${stage?.name ?? "discussion"} stage requires an agent pool`);
   const required = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
   const members = database.prepare(`
-    SELECT a.id, a.name, a.description, a.instructions,
+    SELECT a.id, a.name, a.description, a.instructions, a.model,
+           a.reasoning_effort AS reasoningEffort,
            a.capabilities_json AS capabilities, a.max_concurrency AS maxConcurrency
     FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
     WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1

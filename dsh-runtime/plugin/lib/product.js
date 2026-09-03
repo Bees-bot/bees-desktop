@@ -130,6 +130,8 @@ export class BeesProduct {
     const discussionMembers = peers.map((peer, index) => ({
       name: seatNames[index],
       description: peer.name,
+      model: peer.model,
+      reasoningEffort: peer.reasoningEffort,
       prompt: `Participate as ${peer.name}. ${peer.description || ""}\n\n${peer.instructions || ""}\n\nGoal: ${item.title}\n\n${item.description}\n\nDiscussion stage: ${stage.stageName || "Discussion"}.\n\nThe expected peer seats are ${seatNames.join(", ")}. Wait until list_agents shows all of them, then analyze independently and exchange ideas and challenges with lead and every other participant using send_message or followup_task. You may initiate a new round whenever it could improve the decision. Before becoming idle, send your current recommendation and reasoning to lead. Do not call bees_submit_stage_result; the lead submits the coherent conclusion.`
     }));
     const locations = stageInputs(this.database, item.id, runDirectory, assignment.id);

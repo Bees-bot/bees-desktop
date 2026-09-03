@@ -727,14 +727,21 @@ export class AgentRuntime {
   }
 
   async prepareDiscussion(agent, members, signal) {
-    for (const member of members ?? []) await this.ctx.agentTeams.spawnTeammate(agent, {
-      name: member.name,
-      description: member.description,
-      prompt: [{ type: "text", text: member.prompt }],
-      context: "fresh",
-      provider: "spawn",
-      signal
-    });
+    for (const member of members ?? []) {
+      const route = member.model ? modelRef(member.model) : {};
+      const agentOptions = member.model || member.reasoningEffort
+        ? { ...route, ...(member.reasoningEffort ? { reasoningEffort: member.reasoningEffort } : {}) }
+        : null;
+      await this.ctx.agentTeams.spawnTeammate(agent, {
+        name: member.name,
+        description: member.description,
+        prompt: [{ type: "text", text: member.prompt }],
+        context: "fresh",
+        provider: "spawn",
+        ...(agentOptions ? { agentOptions } : {}),
+        signal
+      });
+    }
   }
 
   assertDiscussionReady(agent, members) {
