@@ -218,6 +218,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"System-wide instructions"');
     expect(client).toContain('preferences.set("systemInstructions", value)');
     expect(client).toContain("Added to every planning, work, and review agent's system prompt");
+    expect(client).toContain('"Example scenarios"');
+    expect(client).toContain("After each delegated task finishes, ask me to approve its result before starting the next task.");
+    expect(client).toContain("If required information is missing, ask me instead of guessing.");
   });
 
   it("merges the requested navigation screens", () => {
