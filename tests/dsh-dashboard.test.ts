@@ -4,6 +4,12 @@ import { addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkIt
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
+  it("cannot miss preferences loaded between render and subscription", () => {
+    const hook = client.slice(client.indexOf("export function usePreference"), client.indexOf("export function useSnapshot"));
+    expect(hook).toContain("const unsubscribe = scope.subscribe(update)");
+    expect(hook.indexOf("scope.subscribe(update)")).toBeLessThan(hook.indexOf("update();"));
+  });
+
   it("keeps page header setters callable", () => {
     expect(client).toContain("const setPageActions = (actions) => headerEmitter.setActions(actions)");
     expect(client).toContain("const setPageHeader = (header) => headerEmitter.setHeader(header)");
@@ -44,6 +50,9 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("dashboards"');
     expect(client).toContain('preferences.set("activeDashboardId"');
     expect(client).toContain('draggable: { handle: ".bees-dashboard-widget-handle" }');
+    expect(client).toContain('columnOpts: { breakpoints: [{ w: 700, c: 1 }, { w: 1000, c: 6 }] }');
+    expect(client).toContain('const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h })');
+    expect(client).toContain('gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })))');
     expect(client).toContain('className: "bees-nav-dashboards"');
     expect(client).toContain('widgets: dashboard.widgets.map((widget) => ({ ...widget }))');
     expect(client).toContain('className: `bees-nav-link bees-dashboard-link');

@@ -1145,7 +1145,12 @@ export function ThemeToggle({ ctx, preferences }) {
 
 export function usePreference(scope) {
   const [snapshot, setSnapshot] = useState(() => scope.getSnapshot());
-  useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope]);
+  useEffect(() => {
+    const update = () => setSnapshot(scope.getSnapshot());
+    const unsubscribe = scope.subscribe(update);
+    update();
+    return unsubscribe;
+  }, [scope]);
   return snapshot.value ?? { lastScope: "" };
 }
 
