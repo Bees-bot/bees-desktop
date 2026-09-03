@@ -34,9 +34,9 @@ window.__ModuleLoader__.load({
       return snapshot.value ?? {};
     }
 
-    const unwrap = (response) => {
-      if (!response.result.ok) throw new Error(response.result.error.message);
-      return response.result.value;
+    const unwrap = (result) => {
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
     };
 
     async function testProvider(provider) {
@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
     function CustomAiSettings({ ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
-      const credentials = ctx.get("connection").api.credentials;
+      const credentials = ctx.remote.credentials;
       const custom = config.providers?.["custom-openai"] ?? {};
       const protects = (provider, model) => systemDefault?.provider === provider && (!model || systemDefault.model === model);
       const defaultGuard = "Choose another System default above before removing or turning off this connection.";
@@ -73,8 +73,8 @@ window.__ModuleLoader__.load({
 
       const refreshCredentials = async () => {
         const refs = Object.fromEntries(PROVIDERS.map(({ id }) => [id, refFor(id)]));
-        const value = unwrap(await credentials.describe({ refs: Object.values(refs) }));
-        setCredentialState(Object.fromEntries(PROVIDERS.map(({ id }) => [id, value.credentials[refs[id]]?.configured === true])));
+        const described = unwrap(await credentials.describe(Object.values(refs)));
+        setCredentialState(Object.fromEntries(PROVIDERS.map(({ id }) => [id, described[refs[id]]?.configured === true])));
       };
       useEffect(() => { void refreshCredentials().catch((reason) => setError(reason.message)); }, [ctx]);
 
@@ -85,7 +85,7 @@ window.__ModuleLoader__.load({
         finally { setBusy(""); }
       };
       const saveKey = async (id, value) => {
-        unwrap(await credentials.set({ ref: refFor(id), value }));
+        unwrap(await credentials.set(refFor(id), value));
         await refreshCredentials();
       };
       const modelsFor = (id) => config.providers?.[id]?.models ?? ui.generalAiModels?.[id] ?? [];
@@ -150,7 +150,7 @@ window.__ModuleLoader__.load({
       const remove = (id) => perform(`remove:${id}`, async () => {
         if (!await confirmAction(`Remove ${BY_ID[id].name} and its saved API key?`)) return;
         await setEnabled(id, false);
-        unwrap(await credentials.unset({ ref: refFor(id) }));
+        unwrap(await credentials.unset(refFor(id)));
         await saveProviderIds(ids.filter((value) => value !== id));
         const models = { ...(ui.generalAiModels ?? {}) }; delete models[id];
         await preferences.set("generalAiModels", models);
@@ -165,9 +165,9 @@ window.__ModuleLoader__.load({
           models = [{ id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         }
         const value = await ask("API key (leave blank to keep the stored key)", "", "password");
-        if (value) unwrap(await credentials.set({ ref: CUSTOM_KEY_REF, value }));
+        if (value) unwrap(await credentials.set(CUSTOM_KEY_REF, value));
         // Registering the provider without a stored key only fails later, at the first call.
-        else if (!unwrap(await credentials.describe({ refs: [CUSTOM_KEY_REF] })).credentials[CUSTOM_KEY_REF]?.configured)
+        else if (!unwrap(await credentials.describe([CUSTOM_KEY_REF]))[CUSTOM_KEY_REF]?.configured)
           throw new Error("An API key is needed the first time you connect this server");
         await modelSettings.set("providers", { ...(config.providers ?? {}), "custom-openai": {
           ...custom, displayName: "Custom OpenAI-compatible API", api: custom.api ?? "openai-completions", baseURL,
@@ -251,7 +251,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.CustomAiSettings = CustomAiSettings;
-    exports.inject = [];
+    exports.inject = ["remote", "remote.credentials"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-custom-ai";

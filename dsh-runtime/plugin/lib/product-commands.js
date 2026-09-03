@@ -4,7 +4,8 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   agentCapabilities, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
-  itemContext, mcpGrantFor, normalizeRunSettings, optionalReasoningEffort, parentFor, processContext, processStages,
+  itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
+  parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
@@ -794,7 +795,7 @@ export async function executeProductCommand(action, input) {
              capabilities_json, enabled, max_concurrency, created_at, updated_at, mcp_access, mcp_servers_json)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, workspace.id, presetId, required(input.name, "Agent name"),
-          String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+          String(input.description ?? ""), String(input.instructions ?? ""), optionalModelRoute(input.model),
           optionalReasoningEffort(input.reasoningEffort),
           JSON.stringify(capabilities(input.capabilities)), input.enabled === false ? 0 : 1,
           maxConcurrency, at, at, policy.access, JSON.stringify(policy.servers));
@@ -835,7 +836,7 @@ export async function executeProductCommand(action, input) {
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
           mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
-        String(input.description ?? ""), String(input.instructions ?? ""), input.model || null,
+        String(input.description ?? ""), String(input.instructions ?? ""), optionalModelRoute(input.model),
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);

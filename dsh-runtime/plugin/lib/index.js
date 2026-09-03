@@ -269,6 +269,21 @@ export async function apply(ctx, _config = {}, internals = {}) {
       reply(res, 200, { systemDefaultModel: ctx.agentDefaultModel.currentSelection() });
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
+  // The model catalog the agent editor picks from. dsh 0.1.2 dropped the client-side llm.models()
+  // that used to build this in the browser; the runtime service is server-side only now.
+  register(ctx, { kind: "exact", path: "/bees-api/llm-models", handler: async (_req, res) => {
+    const groups = [];
+    const failures = [];
+    for (const provider of ctx.llm.listProviders()) {
+      try {
+        groups.push({ ...provider, models: await ctx.llm.listModels(provider.id) });
+      } catch (error) {
+        // One unreachable provider must not cost the editor every other model.
+        failures.push({ provider: provider.id, error: userMessage(error) });
+      }
+    }
+    reply(res, 200, { groups, failures });
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/capabilities", handler: async (req, res) => {
     try {
       if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
