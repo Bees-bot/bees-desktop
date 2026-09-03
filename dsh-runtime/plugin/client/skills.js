@@ -50,6 +50,31 @@ function matches(needle, ...fields) {
 }
 
 /** Browse one public collection and install a single skill from it. */
+/** The three suggestions are a starting point, not the limit: any public repository laid
+ *  out as Agent Skills can be browsed and installed from. */
+function AddRepo({ act }) {
+  const [repo, setRepo] = useState("");
+  const [added, setAdded] = useState([]);
+  const submit = (event) => {
+    event.preventDefault();
+    const name = repo.trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$|\/+$/g, "");
+    if (!name || added.some((pack) => pack.repo === name)) return setRepo("");
+    setAdded([{ repo: name, label: name, note: "Added by you" }, ...added]);
+    setRepo("");
+  };
+  return h(React.Fragment, null,
+    h("form", { className: "bees-box", onSubmit: submit },
+      h("div", { className: "bees-row" },
+        h("div", { className: "bees-row-main" },
+          h("div", { className: "bees-row-title" }, "Browse another collection"),
+          h("input", {
+            className: "bees-input", value: repo, placeholder: "owner/name",
+            "aria-label": "GitHub repository", onChange: (event) => setRepo(event.target.value)
+          })),
+        h(Button, { className: "primary", type: "submit" }, "Browse"))),
+    ...added.map((pack) => h(SkillPack, { pack, act, key: pack.repo })));
+}
+
 function SkillPack({ pack, act }) {
   const [state, setState] = useState({ open: false, skills: null, note: "" });
   const open = async () => {
@@ -124,6 +149,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
       + "straight away. A skill is written instructions, so read what it tells an agent to do before "
       + "you install one."),
     ...(data.skillPacks ?? []).map((pack) => h(SkillPack, { pack, act, key: pack.repo })),
+    h(AddRepo, { act, key: "add-repo" }),
     h("section", { className: "bees-box" },
       h("h3", null, `Tools from MCP servers (${fromServers.length})`),
       ...(fromServers.length ? fromServers.map((tool) => h("div", { className: "bees-row", key: tool.name },

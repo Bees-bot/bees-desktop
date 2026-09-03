@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-/** Public collections of Agent Plugins. Each publishes a marketplace manifest naming its skills. */
+/** Suggestions, not a whitelist: any public repository laid out as Agent Skills works. */
 export const SKILL_CATALOG = [
   { repo: "anthropics/skills", label: "Anthropic Skills", note: "Documents, artifacts and skill authoring" },
   { repo: "wshobson/agents", label: "wshobson Plugins", note: "Engineering processes across 90+ plugins" },
@@ -13,6 +13,14 @@ export const SKILL_CATALOG = [
 const MAX_FILES = 120;
 /** The Agent Skills naming rule, which doubles as the guard keeping a folder inside the skills root. */
 const SKILL_NAME = /^[\p{L}\p{N}-]+$/u;
+/** owner/name, the only shape the GitHub tree API can be asked for. */
+const REPO_NAME = /^[\w.-]{1,39}\/[\w.-]{1,100}$/;
+
+function repoOrThrow(repo) {
+  const name = String(repo ?? "").trim().replace(/^https:\/\/github\.com\/|\.git$|\/+$/g, "");
+  if (!REPO_NAME.test(name)) throw new Error("Give a GitHub repository as owner/name");
+  return name;
+}
 const MAX_BYTES = 2_000_000;
 
 export function skillsRoot() {
@@ -35,7 +43,13 @@ async function treeOf(repo) {
   if (held && Date.now() - held.at < TREE_TTL) return held.tree;
   const url = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`;
   const response = await fetch(url, {
-    headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(20_000)
+    // Anonymous is 60 calls an hour for the whole machine, which a person browsing a few
+    // repositories burns through. A token, when the user has set one, buys 5000.
+    headers: {
+      accept: "application/vnd.github+json",
+      ...(process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {})
+    },
+    signal: AbortSignal.timeout(20_000)
   });
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
   const { tree = [], truncated } = await response.json();
@@ -70,8 +84,7 @@ function frontmatter(text, directory) {
 
 /** Read live off the default branch. Nothing is written until a specific skill is installed. */
 export async function listPack(repo) {
-  const source = SKILL_CATALOG.find((entry) => entry.repo === repo);
-  if (!source) throw new Error("That skill collection is unavailable");
+  repo = repoOrThrow(repo);
   const tree = await treeOf(repo);
   return tree.map(({ path }) => path).filter((path) => path?.endsWith("/SKILL.md"))
     .map((path) => {
@@ -83,7 +96,7 @@ export async function listPack(repo) {
 }
 
 export async function installSkill(repo, directory) {
-  if (!SKILL_CATALOG.some((entry) => entry.repo === repo)) throw new Error("That skill collection is unavailable");
+  repo = repoOrThrow(repo);
   if (!directory || directory.includes("..")) throw new Error("That skill path is unusable");
   const tree = await treeOf(repo);
   const files = tree.filter((entry) => entry.type === "blob" && entry.path.startsWith(`${directory}/`));
