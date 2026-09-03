@@ -118,7 +118,7 @@ export class ConnectedAccount {
     }
     const value = await response.json().catch(() => ({}));
     if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));
-    const token = response.headers.get("set-auth-token");
+    const token = response.headers.get("set-auth-token") ?? value.token;
     if (!token) throw new Error("Server did not return a session token");
     return this.resumeSession(token, value.user);
   }
@@ -215,6 +215,12 @@ export class ConnectedAccount {
 
   signUp(name, email, password) {
     return this.authenticate("/api/auth/sign-up/email", { name, email, password });
+  }
+
+  signInWithGoogle(idToken, nonce) {
+    return this.authenticate("/api/auth/sign-in/social", {
+      provider: "google", idToken: { token: idToken, nonce }
+    });
   }
 
   async signOut(userId = this.account()?.userId) {

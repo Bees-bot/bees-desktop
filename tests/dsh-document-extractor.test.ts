@@ -165,4 +165,22 @@ describe("team document extraction", () => {
     connection.configure("client");
     await expect(connection.status()).resolves.toMatchObject({ connected: false, needsReconnect: true });
   });
+
+  it("requests identity and Drive permissions in one desktop OAuth flow", async () => {
+    const connection = new GoogleDriveConnection({ resolve: vi.fn() }, "/tmp", vi.fn());
+    connection.configure("desktop-client.apps.googleusercontent.com");
+    const { url } = await connection.start(true);
+    connection.close();
+
+    const authorization = new URL(url);
+    expect(authorization.searchParams.get("client_id"))
+      .toBe("desktop-client.apps.googleusercontent.com");
+    expect(new Set(authorization.searchParams.get("scope")?.split(" "))).toEqual(new Set([
+      "openid", "email", "profile",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/forms.body.readonly"
+    ]));
+    expect(authorization.searchParams.get("nonce")).toBeTruthy();
+    expect(authorization.searchParams.get("redirect_uri")).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
 });

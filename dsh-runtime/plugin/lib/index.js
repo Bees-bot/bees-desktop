@@ -164,7 +164,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   initializeProductDatabase(database);
   agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
-  googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
+  googleDrive = new GoogleDriveConnection(ctx.credentials, workspace,
+    (idToken, nonce) => connected.signInWithGoogle(idToken, nonce));
   void connected.authConfig().then(({ googleDriveDesktopClientId }) =>
     googleDrive.configure(googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
@@ -341,6 +342,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
       }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const input = await body(req);
+      if (input.action === "google_start") {
+        const config = await connected.authConfig();
+        googleDrive.configure(config.googleDriveDesktopClientId);
+        return reply(res, 200, await googleDrive.start(true));
+      }
       if (["social_start", "sso_start"].includes(input.action)) input.callbackPort = req.socket.localPort;
       const result = await connected.command(input);
       await product.initialize();

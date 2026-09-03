@@ -1044,6 +1044,27 @@ Current international expansion strategy`);
     });
   });
 
+  it("signs in with a locally obtained Google identity without sending Drive tokens", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      token: "bees-session", user: { id: "google-user", email: "you@example.com" }
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+    const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
+    const resume = vi.spyOn(connected, "resumeSession").mockResolvedValue({ account: {} });
+
+    await connected.signInWithGoogle("google-id-token", "oauth-nonce");
+
+    expect(fetch).toHaveBeenCalledWith("https://api.example/api/auth/sign-in/social",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          provider: "google", idToken: { token: "google-id-token", nonce: "oauth-nonce" }
+        })
+      }));
+    expect(resume).toHaveBeenCalledWith("bees-session", {
+      id: "google-user", email: "you@example.com"
+    });
+  });
+
   it("keeps a valid account signed in when older coordination routes are missing", async () => {
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);
