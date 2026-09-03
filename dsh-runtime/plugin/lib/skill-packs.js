@@ -6,7 +6,9 @@ import { dirname, join, resolve } from "node:path";
 export const SKILL_CATALOG = [
   { repo: "anthropics/skills", label: "Anthropic Skills", note: "Documents, artifacts and skill authoring" },
   { repo: "wshobson/agents", label: "wshobson Plugins", note: "Engineering processes across 90+ plugins" },
-  { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" }
+  { repo: "affaan-m/ECC", label: "ECC", note: "Harness optimization and research processes" },
+  { repo: "mattpocock/skills", label: "Matt Pocock", note: "Everyday engineering skills, including grill-me" },
+  { repo: "obra/superpowers", label: "Superpowers", note: "A whole dev process: spec, plan, test, review" }
 ];
 
 /** The byte cap is what stops a hostile repo filling the disk; the file cap only bounds the fetch loop. */
