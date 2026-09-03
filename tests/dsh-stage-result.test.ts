@@ -53,6 +53,7 @@ describe("DSH stage results", () => {
         agentPresetId: "standard",
         mcpAccess: "all", mcpServers: [],
         stagePurpose: "worker",
+        requiresHumanApproval: true,
         workItemId: "item",
         grants: [],
         workspaceId: workspace.id,
@@ -61,8 +62,8 @@ describe("DSH stage results", () => {
       "/tmp",
     );
 
-    expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "workflow", "ralph"]));
-    expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
+    expect(restrictions).toEqual([]);
+    expect(tools.map(({ name }) => name)).not.toContain("bees_delegate_work");
     expect(tools.map(({ name }) => name)).toContain("bees_search_knowledge");
     expect(tools.map(({ name }) => name)).toContain("bees_read_knowledge");
     expect(tools.map(({ name }) => name)).toContain("bees_request_work_review");
@@ -80,13 +81,19 @@ describe("DSH stage results", () => {
         content: "Release guide", authority: "current"
       })
     });
-    expect(prompts.join("\n")).toContain("Never simulate or claim a peer");
+    expect(prompts.join("\n")).toContain("Use DSH Agent Teams when the task asks for peers");
     expect(prompts.join("\n")).toContain("Use ask_user_question only to obtain missing information");
     expect(prompts.join("\n")).toContain("approval after each entry, step, or child task");
     expect(prompts.join("\n")).toContain("Never create Approve, Reject, Continue, or Stop choices with ask_user_question");
+    const submit = tools.find((tool) => tool.name === "bees_submit_stage_result");
+    let conclusions = 0;
+    const exec = { concludeTurn: () => conclusions++ };
+    await expect(submit.execute({
+      outcome: "candidate", acceptance_criteria_met: true, summary: "Done",
+    }, exec)).rejects.toThrow("requires human approval");
     const review = tools.find(({ name }) => name === "bees_request_work_review");
     expect(review.description).toContain("approval after each entry, step, or child task");
-    const reviewExec = { agent: { session: { id: "session" } } };
+    const reviewExec = { agent: { session: { id: "session", header: {} } } };
     requestReview.mockResolvedValueOnce({
       answers: [{ id: "work-review", selected: [], custom: "Use exact dates" }]
     });
@@ -106,13 +113,6 @@ describe("DSH stage results", () => {
     await expect(review.execute({ summary: "The draft is ready" }, reviewExec)).resolves.toEqual({
       outcome: "approved", feedback: ""
     });
-    const delegate = tools.find(({ name }) => name === "bees_delegate_work");
-    expect(delegate.timeoutMs).toBeLessThanOrEqual(2_147_483_647);
-    expect(delegate.description).toContain("works exclusively in this run's shared workspace");
-    const submit = tools.find((tool) => tool.name === "bees_submit_stage_result");
-    let conclusions = 0;
-    const exec = { concludeTurn: () => conclusions++ };
-
     await expect(submit.execute({
       outcome: "blocked", acceptance_criteria_met: false, summary: "Approval declined",
     }, exec)).resolves.toEqual({ outcome: "blocked", summary: "Approval declined" });
@@ -186,99 +186,32 @@ describe("DSH stage results", () => {
     ).get()).toEqual({ outcome: "candidate", summary: "Already done" });
   });
 
-  it("returns the durable peer settlement time", async () => {
+  it("exposes process starts only to agents with the capability", async () => {
     const database = new NodeDatabase();
-    const runtime: any = new AgentRuntime({ on: () => () => undefined }, database.connection);
-    const stage = database.connection.prepare(`
-      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
-      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
-    `).get() as { stageId: string; processId: string };
-    const workspace = database.connection.prepare(
-      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
-    ).get() as { id: string };
-    database.connection.prepare(`
-      INSERT INTO work_items
-        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
-      VALUES ('peer', ?, ?, 'work', 'Independent result', 'completed', '2026-01-01', '2026-01-01')
-    `).run(stage.processId, stage.stageId);
-    database.connection.prepare(`
-      INSERT INTO execution_links
-        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
-         run_directory, config_json, status, created_at, updated_at)
-      VALUES ('peer-run', ?, 'peer', 'bees-run', 'peer-session', 'peer-uid', ?, '{}',
-        'completed', '2026-01-01', '2026-01-01')
-    `).run(workspace.id, "/tmp/shared-workspace");
-    database.connection.prepare(`
-      INSERT INTO bees_stage_results VALUES
-        ('peer-run', 'worker', 'candidate', 'Done', '2026-01-01')
-    `).run();
-
-    await expect(runtime.waitForPeers(["peer"])).resolves.toEqual([{
-      id: "peer", title: "Independent result", status: "completed", settledAt: "2026-01-01"
-    }]);
-  });
-
-  it("exports each peer settlement before the next delegation", async () => {
-    const database = new NodeDatabase();
+    const start = vi.fn(async () => ({ id: "created", status: "started" }));
     const runtime: any = new AgentRuntime({
       on: () => () => undefined,
       agentPresets: { defaultId: "standard", mount: async () => undefined },
     }, database.connection);
-    const stage = database.connection.prepare(`
-      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
-      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
-    `).get() as { stageId: string; processId: string };
+    runtime.setWorkStarter(start);
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
     ).get() as { id: string };
-    database.connection.prepare(`
-      INSERT INTO work_items
-        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
-      VALUES ('parent', ?, ?, 'goal', 'Sequential work', 'running', '2026-01-01', '2026-01-01')
-    `).run(stage.processId, stage.stageId);
-    database.connection.prepare(`
-      INSERT INTO execution_links
-        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
-         run_directory, config_json, status, created_at, updated_at)
-      VALUES ('run', ?, 'parent', 'bees-run', 'session', 'uid', '/tmp/work', '{}', 'running',
-        '2026-01-01', '2026-01-01')
-    `).run(workspace.id);
-
-    const peers = ["peer-1", "peer-2"];
-    runtime.setSubitemStore({
-      create: async () => [{ id: peers.shift()! }],
-      cancel: async () => undefined,
-    });
-    runtime.waitForPeers = async (ids: string[]) => {
-      const id = ids[0]!;
-      return [{ id, title: id, status: "completed", settledAt: `2026-01-01T00:00:0${id.at(-1)}Z` }];
-    };
     const tools: any[] = [];
     await runtime.setup({
       systemPrompt: { section: () => undefined, context: () => undefined },
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
-      mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
-      workItemId: "parent", grants: [], workspaceId: workspace.id,
+      mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [], capabilities: ["start-work"],
+      agentId: "watcher", workItemId: null, grants: [], workspaceId: workspace.id,
     }, "run", "/tmp");
-    const delegate = tools.find(({ name }) => name === "bees_delegate_work");
-    const exec = { agent: { session: { id: "session" } } };
-
-    await delegate.execute({ items_json: JSON.stringify([{ title: "First" }]) }, exec);
-    await delegate.execute({ items_json: JSON.stringify([{ title: "Second" }]) }, exec);
-
-    const evidence = await runtime.reviewEvidence("run");
-    const audit = evidence.executions[0].audit
-      .filter(({ type }: any) => type.startsWith("peer-work-"))
-      .map(({ type, metadata }: any) => ({ type, metadata: JSON.parse(metadata) }));
-    expect(audit.map(({ type }: any) => type)).toEqual([
-      "peer-work-delegated", "peer-work-settled", "peer-work-delegated", "peer-work-settled",
-    ]);
-    expect(audit[1].metadata.results).toEqual([expect.objectContaining({
-      id: "peer-1", status: "completed", settledAt: "2026-01-01T00:00:01Z",
-    })]);
-    expect(audit[3].metadata.results).toEqual([expect.objectContaining({
-      id: "peer-2", status: "completed", settledAt: "2026-01-01T00:00:02Z",
-    })]);
+    const trigger = tools.find(({ name }) => name === "bees_start_work");
+    await expect(trigger.execute({
+      process: "Incident response", title: "Urgent customer message",
+      description: "Handle source event", idempotency_key: "slack:evt-42",
+    }, { agent: { session: { header: {} } } })).resolves.toEqual({ id: "created", status: "started" });
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: workspace.id, agentId: "watcher", idempotencyKey: "slack:evt-42",
+    }));
   });
 });

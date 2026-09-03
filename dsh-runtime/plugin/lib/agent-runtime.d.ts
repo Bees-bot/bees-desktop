@@ -23,7 +23,7 @@ export declare class AgentRuntime {
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   setKnowledgeSearch(search: (query: string, workspaceId: string) => Promise<unknown[]>): void;
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;
-  setSubitemStore(store: (input: Record<string, unknown>) => unknown): void;
+  setWorkStarter(start: (input: Record<string, unknown>) => unknown): void;
   onSessionEvent(session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }): void;
   pendingInteraction(executionId: string): Record<string, unknown> | null;
   pendingApproval(executionId: string): Record<string, unknown> | null;

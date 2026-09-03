@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { itemContext } from "../dsh-runtime/plugin/lib/product-database.js";
 import { resolveStageAgent } from "../dsh-runtime/plugin/lib/product-routing.js";
-import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/lib/product.js";
+import { BeesProduct } from "../dsh-runtime/plugin/lib/product.js";
 import { NodeDatabase } from "./node-database.js";
 
 describe("recurring-work specialists", () => {
@@ -38,15 +38,6 @@ describe("recurring-work specialists", () => {
       `).run(id, process.workspaceId, process.id, `source-${id}`, name, `bees/recurring/${id}`, at, at);
       insertItem.run(`first-${id}`, process.id, stage.id, name, id, at, at);
     }
-    database.prepare(`
-      INSERT INTO work_items
-        (id, process_id, stage_id, parent_id, kind, title, created_at, updated_at)
-      VALUES ('legacy-child', ?, ?, 'first-news', 'work', 'Legacy child', ?, ?)
-    `).run(process.id, stage.id, at, at);
-    database.exec("PRAGMA user_version = 15");
-    initializeProductDatabase(database);
-    expect(itemContext(database, "legacy-child").recurringWorkId).toBe("news");
-
     const first = resolveStageAgent(database, {
       executionId: randomUUID(), item: itemContext(database, "first-news"),
       stageId: stage.id, purpose: "worker"

@@ -108,37 +108,6 @@ describe("DSH-owned desktop and recovery", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it("wakes a delegating agent as soon as peer work settles", async () => {
-    const database = new NodeDatabase();
-    const stage = database.connection.prepare(`
-      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
-      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
-    `).get() as { stageId: string; processId: string };
-    database.connection.prepare(`
-      INSERT INTO work_items
-        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
-      VALUES ('peer', ?, ?, 'goal', 'Peer', 'running', '2026-01-01', '2026-01-01')
-    `).run(stage.processId, stage.stageId);
-    const listeners = new Set<(change: Record<string, any>) => void>();
-    const runtime: any = new AgentRuntime(
-      context(), database.connection, null, () => {},
-      (listener: (change: Record<string, any>) => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      }
-    );
-    const settled = runtime.waitForPeers(["peer"]);
-    database.connection.prepare(`
-      UPDATE work_items SET runtime_phase = 'completed', updated_at = '2026-01-02' WHERE id = 'peer'
-    `).run();
-    for (const listener of listeners) listener({ type: "work-item-changed", workItemId: "peer" });
-
-    await expect(settled).resolves.toEqual([{
-      id: "peer", title: "Peer", status: "completed", settledAt: "2026-01-02"
-    }]);
-    expect(listeners.size).toBe(0);
-  });
-
   it("resolves the newest configured Sol release numerically", () => {
     const models = [
       { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },
@@ -256,7 +225,7 @@ describe("DSH-owned desktop and recovery", () => {
     ];
     const runtime: any = Object.create(AgentRuntime.prototype);
     runtime.run = () => ({ currentSessionId: "session" });
-    runtime.live = new Map([["run", { handle: { agent: { session: { events } } } }]]);
+    runtime.live = new Map([["run", { handle: { agent: { session: { snapshotEvents: () => events } } } }]]);
     runtime.database = { prepare: () => ({ all: () => [] }) };
     const history = await runtime.history("run");
     expect(history.messages.map(({ id }: { id: string }) => id)).toEqual(["runtime", "skills", "task", "answer"]);

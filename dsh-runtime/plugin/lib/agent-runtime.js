@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. Use DSH Agent Teams when the task asks for peers to discuss, debate, or stay available for follow-up; use one-shot subagents for isolated delegation.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -34,13 +34,8 @@ const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
   "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
   "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose",
-  "mcpAccess", "mcpServers"
+  "mcpAccess", "mcpServers", "capabilities", "discussionMembers", "requiresHumanApproval"
 ]);
-
-const DSH_DELEGATION_TOOLS = [
-  "subagent", "subagent_fork", "subagent_codex", "subagent_claude_code",
-  "send_message", "interrupt_agent", "list_agents", "workflow", "ralph"
-];
 
 export const LATEST_SOL_MODEL = "__bees_latest_sol__";
 export const LATEST_LUNA_MODEL = "__bees_latest_luna__";
@@ -62,6 +57,8 @@ export function validateRunData(value) {
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
   if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
     throw new Error("Run data needs an MCP access policy");
+  if (!Array.isArray(value.capabilities ?? []) || !Array.isArray(value.discussionMembers ?? []))
+    throw new Error("Run capabilities or discussion members are invalid");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
   if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
@@ -147,8 +144,6 @@ const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
 
-const MAX_DELEGATION_DEPTH = 1;
-
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const STAGE_RESULT_COLUMNS = `
         execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
@@ -179,16 +174,6 @@ function reviewTimeline(events) {
       ? [{ seq: event.seq, time: event.time, type: event.type, detail: excerpt(event.data) }]
       : [];
   }).slice(-256);
-}
-
-function removeDshDelegationTools(agentCtx) {
-  if (!agentCtx.tools.restrict) return;
-  try { agentCtx.tools.restrict({ deny: DSH_DELEGATION_TOOLS }); }
-  catch (error) {
-    if (!String(error).includes("unknown global tool")) throw error;
-    for (const name of DSH_DELEGATION_TOOLS) try { agentCtx.tools.restrict({ deny: [name] }); }
-    catch (nested) { if (!String(nested).includes("unknown global tool")) throw nested; }
-  }
 }
 
 function messageParts(content) {
@@ -267,7 +252,8 @@ function lastTurn(events, afterSeq = -1) {
 
 export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
-  return last ? events.filter((event) => event.seq <= last.seq) : [];
+  return last ? events.filter((event) => event.seq <= last.seq &&
+    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message") : [];
 }
 
 function outcomeFor(event) {
@@ -509,8 +495,8 @@ export class AgentRuntime {
     this.knowledgeReader = read;
   }
 
-  setSubitemStore(store) {
-    this.subitemStore = store;
+  setWorkStarter(start) {
+    this.workStarter = start;
   }
 
   audit(eventType, executionId, sessionId, metadata = {}) {
@@ -740,9 +726,37 @@ export class AgentRuntime {
       .map(({ name, args }) => `Every mcp__${name}__ tool takes a path argument. Always pass ${JSON.parse(args).at(-1)}, never your working directory.`);
   }
 
+  async prepareDiscussion(agent, members, signal) {
+    for (const member of members ?? []) await this.ctx.agentTeams.spawnTeammate(agent, {
+      name: member.name,
+      description: member.description,
+      prompt: [{ type: "text", text: member.prompt }],
+      context: "fresh",
+      provider: "spawn",
+      signal
+    });
+  }
+
+  assertDiscussionReady(agent, members) {
+    if (!members?.length) return;
+    const roster = this.ctx.agentTeams.listMembers(agent);
+    const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
+    if (expected.some((entry) => !entry || entry.status === "failed"))
+      throw new Error("A required discussion participant failed to join");
+    if (expected.some(({ status }) => status === "running" || status === "provisioning"))
+      throw new Error("Discussion participants are still working; wait for their pitches before submitting");
+    const leadId = String(agent.session.id);
+    const events = agent.session.snapshotEvents();
+    for (const member of expected) {
+      const reported = events.some((event) => event.type === "team/message/queued" &&
+        String(event.data.message.senderId) === String(member.id) &&
+        String(event.data.message.targetId) === leadId);
+      if (!reported) throw new Error(`${member.description || member.name} has not pitched in yet; ask them to report before submitting`);
+    }
+  }
+
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
-    removeDshDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
     await this.startBrowserIfGranted(data);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
@@ -814,6 +828,7 @@ export class AgentRuntime {
       },
       execute: async (args, exec) => {
         if (!exec.agent) throw new Error("Work review requires an active DSH agent turn");
+        if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
         const answer = await this.ctx.userQuestions.ask({
@@ -828,9 +843,13 @@ export class AgentRuntime {
           }]
         });
         const response = answer.answers.find(({ id }) => id === "work-review");
-        if (response?.selected?.includes("Approve")) return { outcome: "approved", feedback: "" };
+        if (response?.selected?.includes("Approve")) {
+          this.audit("human-work-approved", executionId, String(exec.agent.session.id), { summary });
+          return { outcome: "approved", feedback: "" };
+        }
         const feedback = String(response?.custom ?? "").trim();
         if (!feedback) throw new Error("Rejected work requires revision feedback");
+        this.audit("human-work-rejected", executionId, String(exec.agent.session.id), { summary, feedback });
         return { outcome: "rejected", feedback };
       }
     }));
@@ -864,47 +883,27 @@ export class AgentRuntime {
         });
       }
     }));
-    if (data.mode === "work" && data.workItemId) agentCtx.tools.register(defineTool({
-      name: "bees_delegate_work",
-      description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same capabilities and lifecycle, and works exclusively in this run's shared workspace while the caller waits.",
-      timeoutMs: 2_147_483_647,
+    if (data.capabilities?.includes("start-work")) agentCtx.tools.register(defineTool({
+      name: "bees_start_work",
+      description: "Create a Bees work item in this team and start its process when automatic. Use this after an MCP event or message clearly warrants tracked work; do not create duplicates.",
       parameters: {
-        items_json: {
-          type: "string", required: true,
-          description: "JSON array containing exactly one object shaped {title:string,description?:string}."
-        }
+        process: { type: "string", required: true, description: "Process id or exact process name in this team." },
+        title: { type: "string", required: true, description: "Concise work-item title." },
+        description: { type: "string", description: "Event context and the desired outcome. Prefer references over copied payloads." },
+        idempotency_key: { type: "string", required: true, description: "Stable source event id; a repeated id returns the same item." }
       },
       output: {
-        schema: {
-          type: "object", additionalProperties: false, properties: {
-            count: { type: "integer", required: true }, ids: { type: "string", required: true },
-            results_json: { type: "string", required: true }
-          }
-        },
+        schema: { type: "object", additionalProperties: false, properties: {
+          id: { type: "string", required: true }, status: { type: "string", required: true }
+        } },
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
       execute: async (args, exec) => {
-        if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
-        let items;
-        try { items = JSON.parse(args.items_json); }
-        catch { throw new Error("items_json must be valid JSON"); }
-        if (!Array.isArray(items) || items.length !== 1)
-          throw new Error("items_json must contain exactly one delegated work item");
-        if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
-          throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
-        const created = await this.subitemStore.create({ parentId: data.workItemId, items });
-        const ids = created.map(({ id }) => id);
-        const sessionId = String(exec.agent?.session.id ?? "");
-        this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
-        try {
-          const results = await this.waitForPeers(ids, exec.signal);
-          this.audit("peer-work-settled", executionId, sessionId, { workItemId: data.workItemId, results });
-          return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
-        } catch (error) {
-          // The caller has gone; a peer left running has nobody to report back to.
-          await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
-          throw error;
-        }
+        if (exec.agent?.session.header.parentSession) throw new Error("Only the lead work agent can start another Bees process");
+        if (!this.workStarter) throw new Error("Bees work creation is unavailable");
+        return this.workStarter({ workspaceId: data.workspaceId, agentId: data.agentId,
+          process: args.process, title: args.title, description: args.description,
+          idempotencyKey: args.idempotency_key });
       }
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
@@ -933,6 +932,8 @@ export class AgentRuntime {
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
       execute: async (args, exec) => {
+        if (exec.agent?.session.header.parentSession)
+          throw new Error("Only the lead work agent can submit the stage result");
         const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"];
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
@@ -949,6 +950,11 @@ export class AgentRuntime {
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
+        if (["candidate", "pass"].includes(args.outcome) && data.requiresHumanApproval &&
+            !this.database.prepare(`SELECT 1 FROM dsh_audit_events
+              WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
+          throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
+        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers);
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
@@ -1019,54 +1025,6 @@ export class AgentRuntime {
           return result;
         }
       }));
-  }
-
-  /** A peer does the work itself. Letting it delegate again spirals into a chain that never starts. */
-  peerDepth(workItemId) {
-    return this.database.prepare(`
-      WITH RECURSIVE up(id, parent) AS (
-        SELECT id, parent_id FROM work_items WHERE id = ?
-        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent)
-      SELECT COUNT(*) - 1 AS depth FROM up
-    `).get(workItemId).depth;
-  }
-
-  async waitForPeers(ids, signal) {
-    const read = this.database.prepare(`
-      SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error,
-             w.updated_at AS settledAt
-      FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
-    `);
-    const wanted = new Set(ids);
-    while (true) {
-      let unsubscribe = () => {};
-      const changed = this.subscribe
-        ? new Promise((resolve) => {
-            unsubscribe = this.subscribe((change) => {
-              if (wanted.has(change.workItemId)) resolve();
-            });
-          })
-        : delay(1_000, undefined, signal ? { signal } : undefined);
-      const rows = ids.map((id) => read.get(id));
-      if (rows.some((row) => !row)) {
-        unsubscribe();
-        throw new Error("Delegated work disappeared");
-      }
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) {
-        unsubscribe();
-        return rows.map((row) => ({
-          id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
-          ...(row.error ? { error: row.error } : {})
-        }));
-      }
-      try {
-        await (this.subscribe
-          ? Promise.race([changed, delay(5_000, undefined, signal ? { signal } : undefined)])
-          : changed);
-      } finally {
-        unsubscribe();
-      }
-    }
   }
 
   async newHandle(run, data, workspace, mode) {
@@ -1299,8 +1257,11 @@ export class AgentRuntime {
       ));
       this.recovery.delete(executionId);
     } else {
-      const before = handle.agent.session.seq;
+      let before;
       try {
+        if (data.discussionMembers?.length && mode !== "resume")
+          await this.prepareDiscussion(handle.agent, data.discussionMembers, approvalAbort.signal);
+        before = handle.agent.session.seq;
         handle.agent.followup(createUserMessage({
           content: [{ type: "text", text: `${payload.body}${recoveryNotice}` }],
           source: { kind: "user" }
@@ -1378,7 +1339,7 @@ export class AgentRuntime {
     let result;
     try {
       await handle.agent.whenIdle();
-      result = outcomeFor(lastTurn(handle.agent.session.events, before));
+      result = outcomeFor(lastTurn(handle.agent.session.snapshotEvents(), before));
     } catch (error) {
       result = { outcome: "failed", error: { message: message(error) } };
     }
@@ -1487,7 +1448,7 @@ export class AgentRuntime {
     const run = this.run(executionId);
     if (!run) return null;
     const live = this.live.get(executionId);
-    const events = live?.handle.agent.session.events ??
+    const events = live?.handle.agent.session.snapshotEvents() ??
       (run.status === "queued" ? []
         : (await this.ctx.sessionPersistence.inspect(SessionId(run.currentSessionId))).events);
     const settlements = this.database.prepare(`
@@ -1529,7 +1490,7 @@ export class AgentRuntime {
         let events = [];
         try {
           events = String(this.live.get(run.executionId)?.handle.agent.session.id ?? "") === sessionId
-            ? this.live.get(run.executionId).handle.agent.session.events
+            ? this.live.get(run.executionId).handle.agent.session.snapshotEvents()
             : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
         } catch {}
         sessions.push({

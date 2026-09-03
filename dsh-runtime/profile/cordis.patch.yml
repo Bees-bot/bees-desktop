@@ -1,18 +1,5 @@
 # Bees-owned profile overlay. DSH's shipped base and Web bundles remain upstream-owned.
 
-- id: session-persistence-jsonl
-  disabled: true
-
-- insert:
-    - id: session-persistence-sqlite
-      name: '@deepseek-ai/dsh-session-persistence-sqlite'
-      config:
-        path: !!js process.env.BEES_DSH_SESSIONS_PATH
-        journalMode: wal
-        busyTimeoutMs: 5000
-        preparedSessionCacheSize: 32
-        writeBatchMaxDelayMs: 25
-
 - id: session-query-sqlite
   config:
     path: !!js process.env.BEES_DSH_QUERY_PATH
@@ -31,6 +18,28 @@
     provider: local-openai
     model: active
 
+# DSH rc.1 Agent Teams replaces the old parent/child control surface with a
+# durable peer mailbox and shared task board. Ordinary one-shot delegation stays.
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: false
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: one-shot
+
+- id: tool-subagent-fork
+  disabled: false
+  config:
+    provider: fork
+    toolName: subagent_fork
+    backgroundMode: one-shot
+
 # Provider transport remains in DSH's llm-pi-ai plugin. The Bees feature
 # plugins own their setup UI and lifecycle without registering duplicate routes.
 - id: llm-pi-ai
@@ -48,6 +57,19 @@
             contextWindow: 8192
             maxTokens: 4096
 - insert:
+    - id: agent-team
+      name: '@deepseek-ai/dsh-experimental-agent-team'
+      config:
+        maxMembers: 8
+        maxTasks: 256
+        maxPendingMessagesPerMember: 64
+        maxMessageBytes: 65536
+        disposalTimeoutMs: 5000
+    - id: tool-agent-team
+      name: '@deepseek-ai/dsh-experimental-tool-agent-team'
+      config:
+        freshProvider: spawn
+        forkProvider: fork
     - id: bees-local-ai
       name: '@bees/dsh-local-ai'
     - id: bees-subscriptions
@@ -58,4 +80,4 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams]

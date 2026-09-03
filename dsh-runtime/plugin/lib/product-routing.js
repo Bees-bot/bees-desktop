@@ -51,6 +51,8 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     WHERE s.id = ? AND s.process_id = ? AND s.archived_at IS NULL
   `).get(stageId, item.processId);
   if (!stage) throw new Error("The process stage is unavailable");
+  if (purpose === "discussion" && !stage.routePoolId)
+    throw new Error(`The ${stage.name} discussion stage requires an agent pool`);
   const requiredCapabilities = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
   const excludedAgentId = purpose === "reviewer" && candidateExecutionId ? database.prepare(`
     SELECT agent_assignment_id AS agentAssignmentId FROM agent_dispatches WHERE execution_id = ?
@@ -63,7 +65,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     let targetType;
     let targetId;
     let reason;
-    if (purpose !== "reviewer" && item.agentAssignmentId) {
+    if (!["reviewer", "discussion"].includes(purpose) && item.agentAssignmentId) {
       selected = assignment(database, item.agentAssignmentId, stage.workspaceId);
       targetType = "item";
       targetId = item.id;
@@ -148,4 +150,27 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       agentRevision: `${selected.updatedAt}:${specialization?.revision ?? 0}`
     };
   });
+}
+
+export function discussionPeers(database, { stageId, leadId }) {
+  const stage = database.prepare(`
+    SELECT s.name, r.agent_pool_id AS poolId,
+           r.required_capabilities_json AS requiredCapabilities
+    FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id WHERE s.id = ?
+  `).get(stageId);
+  if (!stage?.poolId) throw new Error(`The ${stage?.name ?? "discussion"} stage requires an agent pool`);
+  const required = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
+  const members = database.prepare(`
+    SELECT a.id, a.name, a.description, a.instructions,
+           a.capabilities_json AS capabilities, a.max_concurrency AS maxConcurrency
+    FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+    WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
+    ORDER BY m.priority, a.id
+  `).all(stage.poolId).filter((agent) => required.every((name) => agentCapabilities(agent).includes(name)));
+  if (!members.some(({ id }) => id === leadId)) throw new Error("The selected discussion lead is not in its pool");
+  const available = members.filter((agent) => agent.id === leadId ||
+    !agent.maxConcurrency || activeAgentRuns(database, agent.id) < agent.maxConcurrency);
+  if (available.length < 2) throw new AgentCapacityError("A discussion needs at least two available pool agents");
+  if (available.length > 8) throw new Error("DSH Agent Teams supports at most eight discussion participants");
+  return available.filter(({ id }) => id !== leadId);
 }

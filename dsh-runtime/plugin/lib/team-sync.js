@@ -76,13 +76,15 @@ function teamRecords(database, organizationId, connectionId = "") {
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
   `).all(organizationId)) {
     const stages = database.prepare(`
-      SELECT s.id, s.name, s.position, s.driver, s.is_terminal AS isTerminal,
+      SELECT s.id, s.name, s.position, s.driver,
+             s.requires_human_approval AS requiresHumanApproval, s.is_terminal AS isTerminal,
              r.agent_assignment_id AS agentId, r.agent_pool_id AS agentPoolId,
              r.required_capabilities_json AS requiredCapabilities, r.updated_at AS routeUpdatedAt
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
       WHERE s.process_id = ? AND s.archived_at IS NULL ORDER BY s.position
     `).all(row.id).map((stage) => ({
       id: stage.id, name: stage.name, position: stage.position, driver: stage.driver,
+      requiresHumanApproval: Boolean(stage.requiresHumanApproval),
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
       route: stage.agentId || stage.agentPoolId || stage.requiredCapabilities
         ? {
@@ -324,10 +326,13 @@ function applyProcess(database, record) {
   for (const stage of p.stages) {
     stageIds.push(stage.id);
     database.prepare(`
-      INSERT INTO stages VALUES (?, ?, ?, ?, ?, ?, NULL)
+      INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, position = excluded.position,
-        driver = excluded.driver, is_terminal = excluded.is_terminal, archived_at = NULL
-    `).run(stage.id, record.recordId, stage.name, stage.position, stage.driver, stage.isTerminal ? 1 : 0);
+        driver = excluded.driver, requires_human_approval = excluded.requires_human_approval,
+        is_terminal = excluded.is_terminal, archived_at = NULL
+    `).run(stage.id, record.recordId, stage.name, stage.position, stage.driver,
+      stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
     if (stage.route) database.prepare(`
       INSERT INTO stage_routes VALUES (?, ?, ?, ?, ?, ?)
