@@ -30,6 +30,115 @@ function insertRun(database: NodeDatabase, status = "running", workItemId: strin
 }
 
 describe("DSH-owned desktop and recovery", () => {
+  it("durably queues a run before background agent startup", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-queued-run-"));
+    try {
+      const database = new NodeDatabase();
+      const workspace = database.connection.prepare(
+        "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+      ).get() as { id: string };
+      const changes: any[] = [];
+      const runtime: any = new AgentRuntime(context(), database.connection, null, (change: any) => changes.push(change));
+      runtime.newHandle = () => new Promise(() => undefined);
+      const result = await runtime.dispatch("bees-run", "queued-run", {
+        idempotencyKey: "start:queued-run", workspace: root, body: "Plan this outcome",
+        initialData: {
+          version: 1, mode: "planning", executionId: "queued-run", workItemId: null,
+          agentId: "planner", agentName: "Planner", purpose: "Plan", model: "test/model",
+          reasoningEffort: null, instructions: "", workspaceId: workspace.id,
+          agentPresetId: "standard", mcpAccess: "none", mcpServers: [], grants: []
+        }
+      });
+
+      expect(result).toMatchObject({ executionId: "queued-run", sessionId: "queued-run", status: "queued" });
+      expect(database.connection.prepare(
+        "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = 'queued-run'"
+      ).get()).toEqual({ deliveryId: "start:queued-run" });
+      expect(database.connection.prepare(
+        "SELECT status FROM execution_links WHERE execution_id = 'queued-run'"
+      ).get()).toEqual({ status: "queued" });
+      expect(changes).toContainEqual(expect.objectContaining({ type: "run-queued", executionId: "queued-run" }));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("starts a persisted queued run after runtime recovery", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-queued-recovery-"));
+    try {
+      const database = new NodeDatabase();
+      const workspace = database.connection.prepare(
+        "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+      ).get() as { id: string };
+      const payload = {
+        idempotencyKey: "start:recovered-run", workspace: root, body: "Plan this outcome",
+        initialData: {
+          version: 1, mode: "planning", executionId: "recovered-run", workItemId: null,
+          agentId: "planner", agentName: "Planner", purpose: "Plan", model: "test/model",
+          reasoningEffort: null, instructions: "", workspaceId: workspace.id,
+          agentPresetId: "standard", mcpAccess: "none", mcpServers: [], grants: []
+        }
+      };
+      const first: any = new AgentRuntime(context(), database.connection);
+      await first.queue("bees-run", "recovered-run", { ...payload, background: true });
+
+      const replacement: any = new AgentRuntime(context(), database.connection);
+      replacement.newHandle = async () => ({
+        sessionId: "recovered-run",
+        handle: {
+          agent: {
+            session: { id: "recovered-run", seq: 0, events: [] },
+            followup: () => undefined, whenIdle: () => new Promise(() => undefined), cancel: () => undefined
+          },
+          dispose: async () => undefined
+        }
+      });
+      replacement.resumeQueued();
+      for (let attempt = 0; attempt < 20 && database.connection.prepare(
+        "SELECT 1 FROM bees_run_queue WHERE execution_id = 'recovered-run'"
+      ).get(); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+
+      expect(database.connection.prepare(
+        "SELECT status FROM execution_links WHERE execution_id = 'recovered-run'"
+      ).get()).toEqual({ status: "running" });
+      expect(database.connection.prepare(
+        "SELECT 1 FROM bees_run_queue WHERE execution_id = 'recovered-run'"
+      ).get()).toBeUndefined();
+      expect(database.connection.prepare(
+        "SELECT delivery_id AS deliveryId FROM dsh_deliveries WHERE execution_id = 'recovered-run'"
+      ).get()).toEqual({ deliveryId: "start:recovered-run" });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("wakes a delegating agent as soon as peer work settles", async () => {
+    const database = new NodeDatabase();
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    database.connection.prepare(`
+      INSERT INTO work_items
+        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
+      VALUES ('peer', ?, ?, 'goal', 'Peer', 'running', '2026-01-01', '2026-01-01')
+    `).run(stage.processId, stage.stageId);
+    const listeners = new Set<(change: Record<string, any>) => void>();
+    const runtime: any = new AgentRuntime(
+      context(), database.connection, null, () => {},
+      (listener: (change: Record<string, any>) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }
+    );
+    const settled = runtime.waitForPeers(["peer"]);
+    database.connection.prepare(`
+      UPDATE work_items SET runtime_phase = 'completed', updated_at = '2026-01-02' WHERE id = 'peer'
+    `).run();
+    for (const listener of listeners) listener({ type: "work-item-changed", workItemId: "peer" });
+
+    await expect(settled).resolves.toEqual([{
+      id: "peer", title: "Peer", status: "completed", settledAt: "2026-01-02"
+    }]);
+    expect(listeners.size).toBe(0);
+  });
+
   it("resolves the newest configured Sol release numerically", () => {
     const models = [
       { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },

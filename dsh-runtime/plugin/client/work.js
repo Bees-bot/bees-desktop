@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
-  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useSnapshot, useSubmit, workItemStatus, HelpTooltip
+  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -185,6 +185,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const [composerText, setComposerText] = useState("");
   const [sending, setSending] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
+  const liveRevision = useBeesChangeRevision();
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
@@ -197,11 +198,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       .then((value) => active && setHistory(value.history))
       .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
     return () => { active = false; };
-  }, [run?.id, refreshCount]);
+  }, [run?.id, refreshCount, liveRevision]);
   useEffect(() => {
     let interval;
     if (run && ["running", "waiting", "waiting_for_input", "waiting_for_approval"].includes(item.runtimePhase)) {
-      interval = setInterval(() => setRefreshCount(c => c + 1), 1000);
+      interval = setInterval(() => setRefreshCount(c => c + 1), 5000);
     }
     return () => clearInterval(interval);
   }, [run?.id, item.runtimePhase]);
@@ -212,7 +213,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       .then(({ events }) => active && setAudit(events ?? []))
       .catch(() => active && setAudit([]));
     return () => { active = false; };
-  }, [item.id, data.runs.length]);
+  }, [item.id, data.runs.length, liveRevision]);
   
   // Auto-scroll conversation robustly
   useEffect(() => {
@@ -317,21 +318,22 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, settled.resultSummary)));
   }
 
-  const isWorking = item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
+  const isWorking = ["queued", "running"].includes(run?.status) ||
+    item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
   const isAgentBusy = isWorking || sending;
   const workReview = pendingRun?.pendingInteraction === "work-review" && interaction?.kind === "question";
   
   const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-header" },
         h("div", { className: "bees-convo-title" }, "Conversation"),
-        isWorking ? h("span", { className: "bees-detail-badge running" }, "Agent active") : null
+        isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null
       ),
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
         workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
         : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
-        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
+        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..." : "Agent is working...")
         : null,
         item.runtimeError ? h("div", { className: "bees-convo-msg agent error" }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
       ),

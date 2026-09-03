@@ -29,6 +29,7 @@ export class BeesProduct {
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
     this.tools = services.tools;
+    this.notify = services.notify ?? (() => {});
     initializeProductDatabase(database);
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
     this.agents?.setKnowledgeSearch?.((query, workspaceId) => this.search(query, workspaceId));
@@ -57,6 +58,7 @@ export class BeesProduct {
   }
 
   async recoverRuns() {
+    this.agents.resumeQueued?.();
     const runs = this.database.prepare(`
       SELECT execution_id AS executionId, work_item_id AS workItemId,
              recovery_count AS recoveryCount, config_json AS configJson
@@ -651,6 +653,7 @@ export class BeesProduct {
       INSERT INTO dsh_audit_events (id, event_type, execution_id, session_id, metadata_json, created_at)
       VALUES (?, ?, ?, NULL, ?, ?)
     `).run(randomUUID(), `domain-${action}`, executionId, JSON.stringify(metadata), iso());
+    this.notify({ type: `domain-${action}`, executionId, ...metadata });
   }
 
   async execute(action, input) {

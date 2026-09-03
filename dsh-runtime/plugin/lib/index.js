@@ -137,6 +137,19 @@ export async function apply(ctx, _config = {}, internals = {}) {
 
   const database = new DatabaseSync(databasePath);
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
+  const changeSubscribers = new Set();
+  let changeRevision = 0;
+  const notify = (change = {}) => {
+    const event = { revision: ++changeRevision, at: new Date().toISOString(), ...change };
+    for (const subscriber of changeSubscribers) {
+      try { subscriber(event); }
+      catch { changeSubscribers.delete(subscriber); }
+    }
+  };
+  const subscribe = (subscriber) => {
+    changeSubscribers.add(subscriber);
+    return () => changeSubscribers.delete(subscriber);
+  };
   // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
   let agents, processes, capabilities, connected, googleDrive;
   ctx.effect(() => async () => {
@@ -149,19 +162,19 @@ export async function apply(ctx, _config = {}, internals = {}) {
   }, "bees shutdown");
   const beesSettings = ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
-  agents = new AgentRuntime(ctx, database, beesSettings);
+  agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
   void connected.authConfig().then(({ googleDriveDesktopClientId }) =>
     googleDrive.configure(googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
-    client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims()
+    client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify
   });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets,
     tools: ctx.tools,
-    googleDrive
+    googleDrive, notify
   });
   capabilities = new Capabilities(ctx, database, workspace);
   await product.initialize();
@@ -172,6 +185,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     await connected.sync();
     await product.initialize();
     await processes.reconcile();
+    notify({ type: "team-sync" });
   };
   const syncTimer = setInterval(() => void syncTick().catch((error) =>
     ctx.logger.warn?.(`bees: background team sync failed: ${userMessage(error)}`)), 15_000);
@@ -204,6 +218,20 @@ export async function apply(ctx, _config = {}, internals = {}) {
     reply(res, 401, { error: "unauthorized" }) });
   register(ctx, { kind: "exact", path: "/healthz", handler: (_req, res) =>
     reply(res, 200, { status: "ok", runtime: "dsh", product: "bees" }) });
+  register(ctx, { kind: "exact", path: "/bees-api/events", handler: (req, res) => {
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store",
+      connection: "keep-alive"
+    });
+    res.write("retry: 1000\n\n");
+    const send = (event) => res.write(`event: change\ndata: ${JSON.stringify(event)}\n\n`);
+    changeSubscribers.add(send);
+    send({ revision: changeRevision, at: new Date().toISOString(), type: "ready" });
+    const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15_000);
+    heartbeat.unref();
+    req.once("close", () => { clearInterval(heartbeat); changeSubscribers.delete(send); });
+  } });
   register(ctx, { kind: "exact", path: "/bees-auth", handler: (req, res) => {
     const offered = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token");
     if (!equalSecret(offered, token)) return reply(res, 401, { error: "unauthorized" });

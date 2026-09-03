@@ -1166,6 +1166,16 @@ export function useSnapshot(source, fallback = null) {
   return snapshot;
 }
 
+export function useBeesChangeRevision() {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const changed = () => setRevision((value) => value + 1);
+    window.addEventListener("bees-change", changed);
+    return () => window.removeEventListener("bees-change", changed);
+  }, []);
+  return revision;
+}
+
 export function sectionFor(child) {
   // Routes a page owns without listing in the nav tree, so they still light up their section.
   const section = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", sources: "knowledge" }[child];

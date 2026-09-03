@@ -165,6 +165,7 @@ async function request(server: EventEmitter, routes: Route[], path: string, opti
       this.headers = headers;
       return this;
     },
+    write(value = "") { this.body += String(value); return true; },
     end(value = "") { this.body += String(value); return this; }
   };
   server.emit("request", incoming, response);
@@ -172,9 +173,12 @@ async function request(server: EventEmitter, routes: Route[], path: string, opti
   const route = routes.find((candidate) => candidate.kind === "exact" && candidate.path === routePath);
   if (!route) throw new Error(`Missing contract route: ${routePath}`);
   await route.handler(incoming, response);
+  if (String(response.headers["content-type"] ?? "").startsWith("text/event-stream"))
+    incoming.emit("close");
   return {
     status: response.status,
     headers: response.headers,
+    body: response.body,
     json: () => response.body ? JSON.parse(response.body) : {}
   };
 }
@@ -214,6 +218,11 @@ describe("Bees DSH public contract", () => {
         headers: { cookie: "bees_dsh_45124=contract-token" }
       })).status).toBe(401);
       const headers = { cookie: String(cookie), "content-type": "application/json" };
+      const events = await request(server, routes, "/bees-api/events", { headers });
+      expect(events.status).toBe(200);
+      expect(events.headers["content-type"]).toContain("text/event-stream");
+      expect(events.body).toContain("event: change");
+      expect(events.body).toContain('"type":"ready"');
       const initial = (await request(server, routes, "/bees-api/snapshot", { headers })).json() as any;
       expect(initial.workspaces[0].dshWorkspaceId).toBe("dsh-workspace-1");
       expect(harness.settings).toContain("bees-ui");
