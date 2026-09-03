@@ -376,6 +376,7 @@ export class AgentRuntime {
     this.notify = notify;
     this.subscribe = subscribe;
     this.live = new Map();
+    this.browserHolder = null;
     this.starting = new Set();
     this.recovery = new Set();
     this.closing = false;
@@ -694,10 +695,24 @@ export class AgentRuntime {
   }
 
   /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
-  async startBrowserIfGranted({ mcpAccess, mcpServers }) {
+  async startBrowserIfGranted({ mcpAccess, mcpServers }, executionId) {
     const browsers = this.database.prepare("SELECT server_name FROM mcp_servers WHERE enabled = 1 AND catalog_id = 'playwright'").all();
     if (mcpAccess === "none" || !browsers.some(({ server_name }) => mcpAccess === "all" || mcpServers.includes(server_name))) return;
+    await this.waitForBrowser(executionId);
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
+  }
+
+  /**
+   * One Chrome is shared so every run gets the same signed-in profile, but they share its tabs too:
+   * four runs at once walked into each other's pages, and a news run reported reading a Gmail inbox.
+   * So one run browses at a time. A holder that is no longer live left without releasing, and its
+   * claim is stale, which is what keeps a crashed run from wedging everything behind it.
+   */
+  async waitForBrowser(executionId) {
+    while (this.browserHolder && this.browserHolder !== executionId && this.live.has(this.browserHolder)) {
+      await delay(500);
+    }
+    this.browserHolder = executionId;
   }
 
   /**
@@ -765,7 +780,7 @@ export class AgentRuntime {
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     this.restrictMcp(agentCtx, data);
-    await this.startBrowserIfGranted(data);
+    await this.startBrowserIfGranted(data, executionId);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
@@ -1369,6 +1384,7 @@ export class AgentRuntime {
     const live = this.live.get(executionId);
     live?.approvalAbort.abort();
     this.live.delete(executionId);
+    if (this.browserHolder === executionId) this.browserHolder = null;
     await handle.dispose().catch(() => undefined);
     // The last run out closes the tabs everyone opened; nothing is mid-page by now.
     if (this.live.size === 0) this.track(releaseAgentBrowser());
