@@ -71,8 +71,8 @@ function ListWidget({ definition, rowsForRoute, navigate }) {
 
 function MetricsWidget({ rowsForRoute }) {
   const metrics = [
-    ["Process runs", rowsForRoute("all-work").length],
     ["Needs you", rowsForRoute("waiting").length],
+    ["Process runs", rowsForRoute("all-work").length],
     ["Process templates", rowsForRoute("all-processes").length],
     ["Agents", rowsForRoute("all-agents").length]
   ];

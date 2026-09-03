@@ -92,8 +92,10 @@ export class BeesProduct {
       if (this.processes?.isAutomatic(item.processId)) return [];
       body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
     } else return [];
-    if (pending?.kind === "question")
-      body += `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
+    if (["question", "work-review"].includes(pending?.kind))
+      body += pending.kind === "work-review"
+        ? `\n\nThe application restarted during human review. Re-present this unresolved review with bees_request_work_review before continuing:\n${pending.questions}`
+        : `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
     return [this.agents.admit("bees-run", run.executionId, {
       idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
       body
@@ -365,7 +367,8 @@ export class BeesProduct {
       WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
-      ...run, outputs: outputFiles(runDirectory),
+      ...run, pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
+      outputs: outputFiles(runDirectory),
       files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
         ? previewFiles(runDirectory) : []
     })) : [];
@@ -403,26 +406,54 @@ export class BeesProduct {
     const workspace = workspaceContext(this.database, workspaceId);
     const term = `%${String(query ?? "").slice(0, 120)}%`;
     const lower = String(query ?? "").toLocaleLowerCase();
-    const at = [
+    const agents = this.database.prepare(`
+      SELECT id, name AS label, 'agent' AS kind FROM agent_assignments
+      WHERE workspace_id = ? AND name LIKE ? ORDER BY name LIMIT 20
+    `).all(workspace.id, term);
+    const team = this.database.prepare(`
+      SELECT id, name AS label, 'team' AS kind FROM teams WHERE id = ?
+    `).all(workspace.teamId);
+    const work = this.database.prepare(`
+      SELECT w.id, w.title AS label, 'work-item' AS kind
+      FROM work_items w JOIN processes p ON p.id = w.process_id
+      WHERE p.workspace_id = ? AND w.deleted_at IS NULL AND w.title LIKE ?
+      ORDER BY w.updated_at DESC LIMIT 30
+    `).all(workspace.id, term);
+    const generic = [
+      ...agents,
       ...this.database.prepare(`
-        SELECT id, name AS label, 'agent' AS kind FROM agent_assignments
-        WHERE workspace_id = ? AND name LIKE ? ORDER BY name LIMIT 20
+        SELECT o.id, o.name AS label, 'organization' AS kind
+        FROM organizations o JOIN teams t ON t.organization_id = o.id WHERE t.id = ?
+      `).all(workspace.teamId),
+      ...team,
+      { id: workspace.id, label: workspace.name, kind: "workspace" },
+      ...this.database.prepare(`
+        SELECT DISTINCT u.id, u.name AS label, 'human' AS kind FROM users u
+        LEFT JOIN team_memberships tm ON tm.user_id = u.id AND tm.team_id = ? AND tm.status = 'active'
+        LEFT JOIN teams t ON t.id = ?
+        LEFT JOIN organization_memberships om ON om.user_id = u.id
+          AND om.organization_id = t.organization_id AND om.status = 'active'
+        WHERE (tm.user_id IS NOT NULL OR om.role IN ('owner', 'admin')) AND u.name LIKE ?
+        ORDER BY u.name LIMIT 20
+      `).all(workspace.teamId, workspace.teamId, term),
+      ...this.database.prepare(`
+        SELECT id, name AS label, 'process' AS kind FROM processes
+        WHERE workspace_id = ? AND archived_at IS NULL AND name LIKE ? ORDER BY name LIMIT 20
       `).all(workspace.id, term),
-      ...this.database.prepare(`SELECT id, name AS label, 'team' AS kind FROM teams WHERE id = ?`).all(workspace.teamId),
       ...this.database.prepare(`
-        SELECT w.id, w.title AS label, 'work-item' AS kind
-        FROM work_items w JOIN processes p ON p.id = w.process_id
-        WHERE p.workspace_id = ? AND w.deleted_at IS NULL AND w.title LIKE ?
-        ORDER BY w.updated_at DESC LIMIT 30
-      `).all(workspace.id, term)
-    ];
-    const dollar = this.database.prepare(`
+        SELECT id, name AS label, 'process-template' AS kind FROM process_templates
+        WHERE workspace_id = ? AND archived_at IS NULL AND name LIKE ? ORDER BY name LIMIT 20
+      `).all(workspace.id, term),
+      ...work,
+      ...this.database.prepare(`
       SELECT id, name AS label, 'location' AS kind FROM team_locations
       WHERE team_id = ? AND archived_at IS NULL AND name LIKE ? ORDER BY name LIMIT 30
-    `).all(workspace.teamId, term);
+      `).all(workspace.teamId, term)
+    ];
+    const visible = (rows) => rows.filter(({ label }) => String(label).toLocaleLowerCase().includes(lower)).slice(0, 50);
     return {
-      at: at.filter(({ label }) => String(label).toLocaleLowerCase().includes(lower)).slice(0, 50),
-      dollar: dollar.filter(({ label }) => String(label).toLocaleLowerCase().includes(lower)).slice(0, 50)
+      at: visible([...agents, ...team, ...work]),
+      dollar: visible(generic)
     };
   }
 

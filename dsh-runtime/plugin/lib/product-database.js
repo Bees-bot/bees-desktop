@@ -629,6 +629,20 @@ export function initializeProductDatabase(database) {
       WHERE catalog_id = 'playwright';
     PRAGMA user_version = 15;
   `);
+  if (version < 16) database.exec(`
+    WITH RECURSIVE scheduled_descendants(id, recurring_work_id) AS (
+      SELECT id, recurring_work_id FROM work_items
+        WHERE kind = 'run' AND recurring_work_id IS NOT NULL
+      UNION ALL
+      SELECT child.id, parent.recurring_work_id
+        FROM work_items child JOIN scheduled_descendants parent ON child.parent_id = parent.id
+    )
+    UPDATE work_items SET
+      recurring_work_id = (SELECT recurring_work_id FROM scheduled_descendants WHERE id = work_items.id),
+      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE recurring_work_id IS NULL AND id IN (SELECT id FROM scheduled_descendants);
+    PRAGMA user_version = 16;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
-import { apply } from "../dsh-runtime/plugin/lib/index.js";
+import { apply, inject } from "../dsh-runtime/plugin/lib/index.js";
 import { clientSource } from "./client-source.js";
 
 type Route = {
@@ -188,6 +188,10 @@ async function waitFor(check: () => Promise<boolean>) {
 }
 
 describe("Bees DSH public contract", () => {
+  it("declares the human-question service used by work review", () => {
+    expect(inject).toContain("userQuestions");
+  });
+
   it("boots, authenticates, runs through DSH, and restarts from the same durable state", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-dsh-contract-"));
     process.env.BEES_DATABASE_PATH = join(root, "bees.sqlite3");

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+import { AgentRuntime, authorizeReferences } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { ConnectedAccount } from "../dsh-runtime/plugin/lib/connected-account.js";
 import { ProcessRuntime } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/lib/product.js";
@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 15 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 16 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -214,6 +214,44 @@ describe("Bees DSH product plugin", () => {
         await expect(product.command({ action: "create_goal", workspaceId, title: "Invalid", runSettings })).rejects.toThrow();
       }
       expect((await product.snapshot()).items).toHaveLength(count);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("uses generic scoped references and lets a leading $agent claim a goal", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-references-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
+      const initial = await product.snapshot();
+      const workspaceId = initial.workspaces[0].id;
+      const ceo = await product.command({
+        action: "add_agent_assignment", workspaceId, presetId: "standard", name: "CEO"
+      });
+      const references = await product.references("", workspaceId);
+      expect(references.dollar.map(({ kind }: any) => kind)).toEqual(expect.arrayContaining([
+        "agent", "human", "organization", "team", "workspace", "process", "process-template"
+      ]));
+      expect(() => authorizeReferences(database.connection, workspaceId,
+        references.dollar.map((reference: any) => ({ ...reference, namespace: "$" })))).not.toThrow();
+      const otherOrganization = await product.command({ action: "create_organization", name: "Other org" });
+      const otherTeam = await product.command({ action: "create_team", organizationId: otherOrganization.id, name: "Other team" });
+      const otherProcess = (await product.snapshot()).processes.find(({ workspaceId: id }: any) => id === otherTeam.workspaceId);
+      expect(() => authorizeReferences(database.connection, workspaceId, [{
+        namespace: "$", label: otherProcess.name, kind: "process", id: otherProcess.id
+      }])).toThrow("unavailable in this workspace");
+
+      const goal = await product.command({
+        action: "create_goal", workspaceId,
+        title: "$ceo, Review the launch proposal", description: "$ceo, Review the launch proposal"
+      });
+      expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
+        id: goal.id, title: "Review the launch proposal", agentAssignmentId: ceo.id,
+        description: `$[CEO](bees:agent:${ceo.id}) Review the launch proposal`
+      }));
+      await expect(product.command({
+        action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"
+      })).rejects.toThrow("No agent matches $missing");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

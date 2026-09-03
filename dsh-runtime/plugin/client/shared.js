@@ -7,11 +7,11 @@ export const NAVIGATION = [
   { id: "work", label: "Process Runs", icon: WorkIcon, defaultChild: "all-work", children: [
     ["all-work", "All process runs"], ["schedules", "Schedules"]
   ] },
+  { id: "processes", label: "Process Templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
     ["all-agents", "Agents, pools & presets"],
     ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
-  { id: "processes", label: "Process Templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
     ["runs", "Executions"], ["evaluations", "Evaluations"], ["audit", "Audit"]
@@ -25,7 +25,7 @@ export const NAVIGATION = [
     ["organization-invitations", "Organization invitations"], ["organization-ai", "Connect AI"],
     ["organization-workspace", "Organization workspace"], ["organization-authentication", "Organization authentication"],
     ["team-settings", "Team members"], ["personal-ai", "AI connections"],
-    ["appearance", "Appearance"]
+    ["appearance", "Appearance"], ["system-instructions", "System instructions"]
   ] }
 ];
 
@@ -1205,7 +1205,7 @@ export function scopeParts(data, scope, connectionId = "") {
 export function Empty({ children }) { return h("div", { className: "bees-empty" }, children); }
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
-export const isScheduleDefinition = (item) => item.kind !== "run" && Boolean(item.recurringWorkId);
+export const isScheduleDefinition = (item) => !item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId);
 export const workItemStatus = (item) => isScheduleDefinition(item)
   ? "scheduled" : isDone(item) ? "completed" : item.runtimePhase || "pending";
 

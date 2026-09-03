@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A sign-in wall in the browser is the exception: the person can sign in for you, so call ask_user_question naming the site and wait, rather than stopping. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means peer delegation through bees_delegate_work. Never simulate or claim a peer by doing its work yourself; a real peer result includes a work-item id returned by that tool.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -21,6 +21,14 @@ A stage is a name and nothing else. What the work is goes in the work item you c
 You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
+
+const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
+- Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
+- If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
+- Never create Approve, Reject, Continue, or Stop choices with ask_user_question.
+This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
+
+const WORK_REVIEW_TOOL = "bees_request_work_review";
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
@@ -157,7 +165,7 @@ const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
-    if (event.type === "tool/call" && event.data.name === "ask_user_question") {
+    if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL].includes(event.data.name)) {
       calls.add(String(event.data.callId));
       return [{ seq: event.seq, time: event.time, type: event.type,
         tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
@@ -344,15 +352,41 @@ export function authorizeReferences(database, workspaceId, references) {
         SELECT 1 FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
         WHERE l.id = ? AND l.archived_at IS NULL AND w.id = ?
       `).get(reference.id, workspaceId));
+    } else if (reference.kind === "organization") {
+      allowed = Boolean(database.prepare(`
+        SELECT 1 FROM workspaces w JOIN teams t ON t.id = w.team_id
+        WHERE w.id = ? AND t.organization_id = ?
+      `).get(workspaceId, reference.id));
+    } else if (reference.kind === "workspace") {
+      allowed = reference.id === workspaceId && Boolean(database.prepare(`
+        SELECT 1 FROM workspaces WHERE id = ? AND status = 'active'
+      `).get(workspaceId));
+    } else if (reference.kind === "human") {
+      allowed = Boolean(database.prepare(`
+        SELECT 1 FROM workspaces w JOIN teams t ON t.id = w.team_id
+        LEFT JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = ? AND tm.status = 'active'
+        LEFT JOIN organization_memberships om ON om.organization_id = t.organization_id
+          AND om.user_id = ? AND om.status = 'active'
+        WHERE w.id = ? AND (tm.user_id IS NOT NULL OR om.role IN ('owner', 'admin'))
+      `).get(reference.id, reference.id, workspaceId));
+    } else if (reference.kind === "process") {
+      allowed = Boolean(database.prepare(`
+        SELECT 1 FROM processes WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
+      `).get(reference.id, workspaceId));
+    } else if (reference.kind === "process-template") {
+      allowed = Boolean(database.prepare(`
+        SELECT 1 FROM process_templates WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
+      `).get(reference.id, workspaceId));
     }
     if (!allowed) throw new Error(`Bees reference ${reference.namespace}${reference.label} is unavailable in this workspace`);
   }
 }
 
 export class AgentRuntime {
-  constructor(ctx, database) {
+  constructor(ctx, database, settings = null) {
     this.ctx = ctx;
     this.database = database;
+    this.settings = settings;
     this.live = new Map();
     this.recovery = new Set();
     this.closing = false;
@@ -530,9 +564,9 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
-    if (event.type === "tool/call" && event.data.name === "ask_user_question") {
+    if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL].includes(event.data.name)) {
       const pending = {
-        kind: "question",
+        kind: event.data.name === WORK_REVIEW_TOOL ? "work-review" : "question",
         callId: String(event.data.callId),
         questions: String(event.data.arguments ?? "").slice(0, 8_000)
       };
@@ -546,9 +580,9 @@ export class AgentRuntime {
       `).run(at, executionId);
       this.checkpoint(executionId, sessionId, "waiting_for_input", {
         pendingInteraction: pending,
-        idempotencyKey: `question-asked:${sessionId}:${pending.callId}`
+        idempotencyKey: `${pending.kind}-requested:${sessionId}:${pending.callId}`
       });
-      this.audit("question-requested", executionId, sessionId, pending);
+      this.audit(`${pending.kind}-requested`, executionId, sessionId, pending);
       return;
     }
     if (event.type === "approval/asked") {
@@ -594,7 +628,7 @@ export class AgentRuntime {
     if (event.type === "tool/result") {
       const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
       const pending = this.pendingInteraction(executionId);
-      if (pending?.kind === "question" && pending.callId === callId) {
+      if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
         const at = new Date().toISOString();
         this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
@@ -606,9 +640,9 @@ export class AgentRuntime {
         `).run(at, executionId);
         this.checkpoint(executionId, sessionId, "input_received", {
           pendingInteraction: null,
-          idempotencyKey: `question-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
+          idempotencyKey: `${pending.kind}-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
-        this.audit(`question-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
+        this.audit(`${pending.kind}-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
         this.track(hideAgentBrowser());
       }
       const output = {
@@ -698,11 +732,14 @@ export class AgentRuntime {
     removeDshDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
     await this.startBrowserIfGranted(data);
+    const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: [
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
+        systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
         String(data.instructions ?? ""),
+        data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
         ...this.connectedTools(), ...this.boundFolders()
       ].filter(Boolean).join("\n\n"), complete: true
@@ -744,6 +781,44 @@ export class AgentRuntime {
       execute: async (args) => {
         if (!this.knowledgeReader) throw new Error("Bees knowledge reading is unavailable");
         return { document_json: JSON.stringify(await this.knowledgeReader(args.result_id, data.workspaceId)) };
+      }
+    }));
+    if (["work", "review"].includes(data.mode)) agentCtx.tools.register(defineTool({
+      name: WORK_REVIEW_TOOL,
+      description: "Request human approval of completed work or permission to continue after completed work, including approval after each entry, step, or child task. Use for approve, accept, reject, review, sign-off, continue, or stop decisions. If rejected, revise from the returned feedback and request review again; continue only after approval.",
+      timeoutMs: 2_147_483_647,
+      parameters: {
+        summary: { type: "string", required: true, description: "Concise description of what is ready for review and where to inspect it." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            outcome: { type: "string", required: true, enum: ["approved", "rejected"] },
+            feedback: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+      },
+      execute: async (args, exec) => {
+        if (!exec.agent) throw new Error("Work review requires an active DSH agent turn");
+        const summary = String(args.summary ?? "").trim();
+        if (!summary) throw new Error("Work review needs a summary");
+        const answer = await this.ctx.userQuestions.ask({
+          agent: exec.agent, signal: exec.signal,
+          questions: [{
+            id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
+            options: [
+              { label: "Approve", description: "Accept the work and let the agent continue." },
+              { label: "Reject", description: "Return the work with specific revision feedback." }
+            ],
+            multiSelect: false
+          }]
+        });
+        const response = answer.answers.find(({ id }) => id === "work-review");
+        if (response?.selected?.includes("Approve")) return { outcome: "approved", feedback: "" };
+        const feedback = String(response?.custom ?? "").trim();
+        if (!feedback) throw new Error("Rejected work requires revision feedback");
+        return { outcome: "rejected", feedback };
       }
     }));
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
@@ -806,9 +881,11 @@ export class AgentRuntime {
           throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
         const created = await this.subitemStore.create({ parentId: data.workItemId, items });
         const ids = created.map(({ id }) => id);
-        this.audit("peer-work-delegated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, ids });
+        const sessionId = String(exec.agent?.session.id ?? "");
+        this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
         try {
           const results = await this.waitForPeers(ids, exec.signal);
+          this.audit("peer-work-settled", executionId, sessionId, { workItemId: data.workItemId, results });
           return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
         } catch (error) {
           // The caller has gone; a peer left running has nobody to report back to.
@@ -943,7 +1020,8 @@ export class AgentRuntime {
 
   async waitForPeers(ids, signal) {
     const read = this.database.prepare(`
-      SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error
+      SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error,
+             w.updated_at AS settledAt
       FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
     `);
     let rows;
@@ -954,7 +1032,7 @@ export class AgentRuntime {
       await delay(1_000, undefined, signal ? { signal } : undefined);
     } while (true);
     return rows.map((row) => ({
-      id: row.id, title: row.title, status: row.status,
+      id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
       ...(row.error ? { error: row.error } : {})
     }));
   }
@@ -1353,7 +1431,7 @@ export class AgentRuntime {
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
+      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. A peer-work-settled audit event is emitted only after delegated work reaches a terminal lifecycle state and includes the system-observed result and settlement time. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
       executions
     };
   }
