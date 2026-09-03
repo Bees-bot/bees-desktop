@@ -11,7 +11,7 @@ import { BeesProduct, initializeProductDatabase } from "./product.js";
 
 export const name = "bees";
 export const inject = [
-  "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
+  "webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
   "skills", "tools", "userQuestions", "agentTeams"
 ];
@@ -234,8 +234,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-auth", handler: (req, res) => {
     const offered = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token");
     if (!equalSecret(offered, token)) return reply(res, 401, { error: "unauthorized" });
+    // dsh gates the index on its own launch-token cookie, so hand the browser that URL, not a bare /
+    const base = `http://127.0.0.1:${req.socket.localPort}`;
     res.writeHead(302, {
-      location: `http://127.0.0.1:${req.socket.localPort}/`,
+      location: ctx.connection?.authenticatedUrl?.(base) ?? `${base}/`,
       "set-cookie": `${cookieName(req)}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
       "cache-control": "no-store"
     });
