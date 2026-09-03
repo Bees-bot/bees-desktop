@@ -71,7 +71,7 @@ describe("team coordination projection", () => {
     `).run(targetAgentId, targetWorkspaceId, at, at);
     target.connection.prepare("INSERT INTO processes VALUES (?, ?, 'Local', '', 'standard', NULL, NULL, ?, ?)")
       .run(targetProcessId, targetWorkspaceId, at, at);
-    target.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Work', 0, 'agent', 0, NULL)")
+    target.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Work', 0, 'agent', 0, 0, NULL)")
       .run(targetStageId, targetProcessId);
     target.connection.prepare("INSERT INTO stage_routes VALUES (?, ?, NULL, '[]', ?, ?)")
       .run(targetStageId, targetAgentId, at, at);
@@ -83,9 +83,9 @@ describe("team coordination projection", () => {
     source.connection.prepare(`
       INSERT INTO processes VALUES (?, ?, 'Daily brief', '', 'standard', ?, NULL, ?, ?)
     `).run(processId, workspaceId, locationId, at, at);
-    source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Research', 0, 'agent', 0, NULL)")
+    source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Research', 0, 'agent', 0, 0, NULL)")
       .run(workStageId, processId);
-    source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Done', 1, 'terminal', 1, NULL)")
+    source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Done', 1, 'terminal', 0, 1, NULL)")
       .run(doneStageId, processId);
     source.connection.prepare("INSERT INTO stage_routes VALUES (?, NULL, ?, '[]', ?, ?)")
       .run(workStageId, poolId, at, at);

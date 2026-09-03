@@ -3,7 +3,7 @@ import { showAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
+  agentCapabilities, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalReasoningEffort, parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
@@ -594,7 +594,7 @@ export async function executeProductCommand(action, input) {
       // Duplicate the stages and routes
       for (const stage of stages) {
         const newStageId = randomUUID();
-        this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.is_terminal);
+        this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.requires_human_approval, stage.is_terminal);
         const route = stageRoutes.find(r => r.stage_id === stage.id);
         if (route) {
           const mappedAgentId = route.agent_assignment_id ? (oldToNewAgentId[route.agent_assignment_id] || route.agent_assignment_id) : null;
@@ -608,8 +608,9 @@ export async function executeProductCommand(action, input) {
       const process = processContext(this.database, input.processId, ["admin", "member"]);
       const source = this.database.prepare("SELECT name, description FROM processes WHERE id = ?").get(process.id);
       const stages = this.database.prepare(`
-        SELECT name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
-      `).all(process.id).map(({ name }) => name);
+        SELECT name, driver, requires_human_approval AS requiresHumanApproval
+        FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
+      `).all(process.id).map((stage) => ({ ...stage, requiresHumanApproval: Boolean(stage.requiresHumanApproval) }));
       const id = randomUUID();
       this.database.prepare(`
         INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
@@ -668,16 +669,16 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("UPDATE stages SET position = -rowid WHERE process_id = ? AND archived_at IS NULL").run(processId);
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
-      names.forEach(({ name }, position) => {
-        const driver = position === names.length - 1 ? "terminal"
-          : position > 0 && /review/i.test(name) ? "review" : "agent";
+      names.forEach(({ name, driver, requiresHumanApproval }, position) => {
         if (assigned[position]) this.database.prepare(`
-          UPDATE stages SET name = ?, position = ?, driver = ?, is_terminal = ? WHERE id = ?
-        `).run(name, position, driver, position === names.length - 1 ? 1 : 0, assigned[position].id);
+          UPDATE stages SET name = ?, position = ?, driver = ?, requires_human_approval = ?, is_terminal = ? WHERE id = ?
+        `).run(name, position, driver, requiresHumanApproval ? 1 : 0,
+          driver === "terminal" ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
-          INSERT INTO stages (id, process_id, name, position, driver, is_terminal, archived_at)
-          VALUES (?, ?, ?, ?, ?, ?, NULL)
-        `).run(randomUUID(), processId, name, position, driver, position === names.length - 1 ? 1 : 0);
+          INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(randomUUID(), processId, name, position, driver, requiresHumanApproval ? 1 : 0,
+          driver === "terminal" ? 1 : 0);
       });
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
@@ -692,13 +693,14 @@ export async function executeProductCommand(action, input) {
       `).get(stageId);
       if (!stage) throw new Error("Stage not found");
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
-      if (stage.driver === "terminal") throw new Error("A terminal stage does not run an agent");
+      if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
       const targetType = input.targetType || null;
       const targetId = input.targetId ? required(input.targetId, "Route target") : null;
       let agentId = null;
       let poolId = null;
       if (targetType === "agent") {
+        if (stage.driver === "discussion") throw new Error("A discussion stage must use an agent pool");
         if (!assignment(this.database, targetId, stage.workspaceId)) throw new Error("Agent is not in this team");
         agentId = targetId;
       } else if (targetType === "pool") {
@@ -977,6 +979,7 @@ export async function executeProductCommand(action, input) {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
           reasoningEffort,
+          capabilities: [],
           instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
           mcpAccess: "all", mcpServers: [],
@@ -1016,6 +1019,7 @@ export async function executeProductCommand(action, input) {
           purpose: item.title, model: input.model || assignment?.model || null,
           reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
           instructions: assignment?.instructions || "",
+          capabilities: agentCapabilities(assignment),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
           ...mcpGrantFor(this.database, assignment?.id, item.runSettings),
           grants

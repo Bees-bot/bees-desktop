@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -97,6 +97,10 @@ function testContext(
       setPolicy: (_agent: unknown, policy: string) => { policies.push(policy); },
       request: async () => "allowed-once"
     },
+    agentTeams: {
+      spawnTeammate: async () => undefined,
+      listMembers: () => []
+    },
     sessionPersistence: {
       inspect: async (id: string) => ({ events: sessions.get(String(id)) ?? [] }),
       load: async (id: string) => {
@@ -106,7 +110,10 @@ function testContext(
     },
     agents: {
       async create(options: any) {
-        const session = { id: String(options.sessionId), seq: 0, events: [] as any[] };
+        const session = {
+          id: String(options.sessionId), seq: 0, header: {}, events: [] as any[],
+          snapshotEvents() { return [...this.events]; }
+        };
         sessions.set(session.id, session.events);
         const agentContext = {
           systemPrompt: { section: () => undefined, context: () => undefined },
@@ -463,10 +470,13 @@ describe("Bees DSH public contract", () => {
       const requiredClientModules = [...client.matchAll(/require\(\"(@bees\/[^\"]+)\"\)/g)]
         .map((match) => match[1]);
       expect(pluginPackage.dsh.client.external).toEqual(requiredClientModules);
-      const release = runtimePackage.dependencies["@deepseek-ai/dsh"];
-      expect(release).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
-      for (const [name, version] of Object.entries(runtimePackage.dependencies))
-        if (name === "@deepseek-ai/dsh" || name.startsWith("@deepseek-ai/dsh-")) expect(version).toBe(release);
+      const release = "0.1.2-rc.1";
+      expect(Object.keys(runtimePackage.dependencies).some((name) => name.startsWith("@deepseek-ai/"))).toBe(false);
+      const bundle = readdirSync(new URL("../dsh-runtime/vendor/dsh-v0.1.2-rc.1", import.meta.url));
+      expect(bundle).toContain(`deepseek-ai-dsh-${release}.tgz`);
+      expect(bundle).toContain(`deepseek-ai-dsh-experimental-agent-team-${release}.tgz`);
+      expect(readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8"))
+        .toContain('manifest.version !== "0.1.2-rc.1"');
       for (const [name, version] of Object.entries(pluginPackage.peerDependencies))
         if (name.startsWith("@deepseek-ai/dsh-")) expect(version).toBe(release);
     } finally {

@@ -12,7 +12,7 @@ export const processWorkflowId = (workItemId) => `bees/work-item/${workItemId}`;
 export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
   `bees/recurring/${recurringWorkId}${accountUserId ? `/identity/${accountUserId}` : ""}`;
 
-const automaticDrivers = new Set(["agent", "review", "terminal"]);
+const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
 export class ProcessRuntime {
   constructor(database, options = {}) {
@@ -42,9 +42,11 @@ export class ProcessRuntime {
 
   stages(processId) {
     return this.database.prepare(`
-      SELECT id, name, driver, is_terminal AS isTerminal
+      SELECT id, name, driver, requires_human_approval AS requiresHumanApproval,
+             is_terminal AS isTerminal
       FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
-    `).all(processId).map((stage) => ({ ...stage, isTerminal: Boolean(stage.isTerminal) }));
+    `).all(processId).map((stage) => ({ ...stage,
+      requiresHumanApproval: Boolean(stage.requiresHumanApproval), isTerminal: Boolean(stage.isTerminal) }));
   }
 
   input(workItemId) {

@@ -16,7 +16,7 @@ describe("Bees DSH product plugin", () => {
     vi.unstubAllGlobals();
   });
 
-  it("recreates old metadata with the final local ownership hierarchy", () => {
+  it("clears pre-rc.1 metadata and creates the final local ownership hierarchy", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("CREATE TABLE teams (id TEXT PRIMARY KEY); INSERT INTO teams VALUES ('old-team')");
     initializeProductDatabase(database);
@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 16 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 17 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -48,9 +48,9 @@ describe("Bees DSH product plugin", () => {
     expect(database.prepare("SELECT name FROM organizations").get()).toEqual({ name: "Personal Org" });
     expect(database.prepare("SELECT name FROM teams WHERE personal = 1").get()).toEqual({ name: "Team1" });
     expect(database.prepare("SELECT name FROM workspaces WHERE team_id = 'orphan-team'").get())
-      .toEqual({ name: "Default workspace" });
+      .toBeUndefined();
     expect(database.prepare("SELECT count(*) AS count FROM workspaces WHERE name = 'Default workspace'").get())
-      .toEqual({ count: 2 });
+      .toEqual({ count: 1 });
     expect(database.prepare("PRAGMA table_info(stages)").all().map(({ name }: any) => name))
       .not.toContain("completion_rules");
   });
@@ -164,7 +164,7 @@ describe("Bees DSH product plugin", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it("keeps goal model and tool settings isolated and inherits them before delegated work starts", async () => {
+  it("keeps goal model and tool settings isolated", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-goal-setup-"));
     try {
       const database = new NodeDatabase();
@@ -196,12 +196,7 @@ describe("Bees DSH product plugin", () => {
       for (const config of configs) expect(config).toMatchObject(settings);
       expect(configs[0].agentId).not.toBe(configs[1].agentId);
       expect(configs.find((config: any) => config.mode === "review").grants).toEqual([]);
-      const child = (await product.createSubitems({ parentId: goal.id, items: [{ title: "Research sources" }] }))[0];
-      expect(JSON.parse(starts[1].item.run_settings_json)).toEqual(settings);
-      expect(starts[1].inputs.map((row: any) => row.location_id)).toEqual([input.id]);
-      expect(starts[1].item.output_location_id).toBe(output.id);
       const snapshot = await product.snapshot();
-      expect(snapshot.items.find((row: any) => row.id === child.id).runSettings).toEqual(settings);
       expect(snapshot.assignments).toEqual(initial.assignments);
       const ordinary = await product.command({ action: "create_goal", workspaceId, title: "Unchanged defaults" });
       expect((await product.snapshot()).items.find((row: any) => row.id === ordinary.id).runSettings).toEqual({});
@@ -526,7 +521,7 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
-    expect(stageRuns.at(-1)[1].body).toContain("When the goal explicitly requires a delegation protocol or count, follow it exactly");
+    expect(stageRuns.at(-1)[1].body).toContain("Use one-shot subagents only for isolated delegated work");
     expect(stageRuns.at(-1)[1].body).toContain(`Available input snapshots:\n- Work: inputs/Work-${location.id.slice(0, 8)}`);
     database.connection.prepare(`
       INSERT INTO execution_links
@@ -607,7 +602,12 @@ describe("Bees DSH product plugin", () => {
     });
     expect((await product.snapshot()).templates).toContainEqual(expect.objectContaining({
       id: savedTemplate.id, name: "Editorial blueprint",
-      stages: ["Draft", "Polish", "Review", "Published"]
+      stages: [
+        { name: "Draft", driver: "agent", requiresHumanApproval: false },
+        { name: "Polish", driver: "agent", requiresHumanApproval: false },
+        { name: "Review", driver: "review", requiresHumanApproval: false },
+        { name: "Published", driver: "terminal", requiresHumanApproval: false }
+      ]
     }));
     await product.command({ action: "archive_process_template", templateId: savedTemplate.id });
     expect((await product.snapshot()).templates).not.toContainEqual(expect.objectContaining({ id: savedTemplate.id }));
@@ -620,7 +620,9 @@ describe("Bees DSH product plugin", () => {
     await product.command({
       action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"
     });
-    const [child] = await product.createSubitems({ parentId: automaticItem.id, items: [{ title: "Check links" }] });
+    const child = await product.command({
+      action: "create_item", processId: newProcess.id, parentId: automaticItem.id, title: "Check links"
+    });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
       id: child.id, parentId: automaticItem.id, agentAssignmentId: null,
       runtimePhase: "running"
@@ -628,13 +630,6 @@ describe("Bees DSH product plugin", () => {
     expect((await product.snapshot()).attachments).toContainEqual(expect.objectContaining({
       workItemId: child.id, locationId: location.id, relativePath: "brief.md"
     }));
-    const [sameChild] = await product.createSubitems({
-      parentId: automaticItem.id, items: [{ title: "Check links", description: "Recovery retry" }]
-    });
-    expect(sameChild.id).toBe(child.id);
-    await expect(product.createSubitems({
-      parentId: automaticItem.id, items: [{ title: "One" }, { title: "Two" }]
-    })).rejects.toThrow("exactly one");
     database.connection.prepare("UPDATE execution_links SET status = 'running' WHERE execution_id = ?")
       .run(executionId);
     await product.runProcessStage({
