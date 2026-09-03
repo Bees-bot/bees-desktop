@@ -73,6 +73,13 @@ function SystemInstructionsSettings({ preferences, instructions }) {
         "Added to every planning, work, and review agent's system prompt. Built-in Bees safety and interaction protocols remain protected."),
       h("textarea", { className: "bees-textarea", rows: 12, value,
         placeholder: "Instructions every agent should follow", onChange: (event) => setValue(event.target.value) }),
+      h("div", null, h("strong", null, "Example scenarios"),
+        h("p", { className: "bees-muted" }, "Use this for rules that should apply to every process and agent, such as:"),
+        h("ul", { className: "bees-muted" },
+          h("li", null, "After each delegated task finishes, ask me to approve its result before starting the next task."),
+          h("li", null, "Before publishing or sending work externally, summarize what will happen and wait for approval."),
+          h("li", null, "If required information is missing, ask me instead of guessing."),
+          h("li", null, "Cite the source and date for every factual or numerical claim."))),
       h("div", { className: "bees-detail-actions" },
         h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save instructions")),
       message ? h("p", { className: "bees-muted", role: "status" }, message) : null));
