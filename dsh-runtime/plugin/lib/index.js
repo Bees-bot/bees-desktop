@@ -14,7 +14,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools"
+  "skills", "tools", "userQuestions"
 ];
 
 const ModelPreference = z.object({
@@ -40,6 +40,7 @@ const DashboardPreference = z.object({
 
 const BeesUiSettings = z.object({
   lastScope: z.string().default(""),
+  systemInstructions: z.string().default(""),
   activeDashboardId: z.string().default("home"),
   dashboards: z.array(DashboardPreference).default([]),
   workItemLayout: z.array(DashboardWidget).default([]),
@@ -146,9 +147,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
     await capabilities?.close();
     database.close();
   }, "bees shutdown");
-  ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
+  const beesSettings = ctx.settings.register(settingsNamespace("bees-ui"), BeesUiSettings);
   initializeProductDatabase(database);
-  agents = new AgentRuntime(ctx, database);
+  agents = new AgentRuntime(ctx, database, beesSettings);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
   void connected.authConfig().then(({ googleDriveDesktopClientId }) =>

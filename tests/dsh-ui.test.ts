@@ -133,6 +133,7 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
     expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');
+    expect(client).toContain("const listedItemIds = new Set(records.map(({ id }) => id));");
     expect(client).toContain("function NeedsYouControls");
     expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
     expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
@@ -150,10 +151,15 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses explicit review decisions with isolated future-run learning", () => {
-    expect(client).toContain("function ReviewDecisionPanel");
+    expect(client).toContain("function WorkReviewPanel");
+    expect(client).not.toContain("function ReviewDecisionPanel");
+    expect(client).not.toContain("function reviewOptions");
+    expect(client).toContain('pendingRun?.pendingInteraction === "work-review"');
     expect(client).toContain('"Reject and send feedback"');
     expect(client).toContain('`Future ${recurring.name} runs`');
     expect(client).toContain('action: "apply_specialist_feedback"');
+    expect(client).toContain('selected: outcome === "approve" ? ["Approve"] : []');
+    expect(client).toContain('...(detail ? { custom: detail } : {})');
     expect(client).toContain("This feedback applies to this goal only");
     expect(client).toContain('className: "bees-notice"');
     expect(client).toContain('h("strong", null, "Learned change")');
@@ -170,7 +176,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('.bees-cron-generator .cron_builder .nav-tabs .nav-link.active');
     expect(client).toContain("schedulable && !item.parentId");
     expect(client).toContain("result.sourceWorkItemId");
-    expect(client).toContain('item.kind !== "run" && Boolean(item.recurringWorkId)');
+    expect(client).toContain('!item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId)');
     expect(client).toContain('item.kind === "run" ? "scheduled run" : item.kind');
     expect(client).toContain('item.kind === "run" && data.processes.find');
     expect(client).toContain('route !== "goals" || process?.kind === "goals"');
@@ -205,6 +211,13 @@ describe("Bees work cockpit UI", () => {
   it("links to canonical company brain and privacy guides", () => {
     expect(client).toContain('openExternal("https://bees.bot/help/company-brain")');
     expect(client).toContain('openExternal("https://bees.bot/help/privacy")');
+  });
+
+  it("lets the user edit instructions shared by every agent", () => {
+    expect(client).toContain('["system-instructions", "System instructions"]');
+    expect(client).toContain('"System-wide instructions"');
+    expect(client).toContain('preferences.set("systemInstructions", value)');
+    expect(client).toContain("Added to every planning, work, and review agent's system prompt");
   });
 
   it("merges the requested navigation screens", () => {

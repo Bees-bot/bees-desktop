@@ -19,7 +19,7 @@ export declare function copyOutputs(
 ): { files: number; bytes: number; destination: string; existing: boolean };
 
 export declare class AgentRuntime {
-  constructor(context: unknown, database: unknown);
+  constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } });
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   setKnowledgeSearch(search: (query: string, workspaceId: string) => Promise<unknown[]>): void;
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;

@@ -169,7 +169,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const inherited = inheritedInputs(data, process?.id, resolvedAgentId);
 
   const [selectedRun, setSelectedRun] = useState("");
-  const [activeTab, setActiveTab] = useState("details");
+  const [activeTab, setActiveTab] = useState("files");
 
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
@@ -188,7 +188,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
-    setActiveTab("details"); setComposerText(""); setSending(false);
+    setActiveTab("files"); setComposerText(""); setSending(false);
   }, [item.id]);
   useEffect(() => {
     let active = true;
@@ -319,6 +319,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
 
   const isWorking = item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
   const isAgentBusy = isWorking || sending;
+  const workReview = pendingRun?.pendingInteraction === "work-review" && interaction?.kind === "question";
   
   const conversation = h("div", { className: "bees-convo-panel" },
       h("div", { className: "bees-convo-header" },
@@ -327,7 +328,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       ),
       h("div", { className: "bees-convo-history", ref: convoRef },
         ...convoItems,
-        interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
+        workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
+        : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
         : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), "Agent is working...") 
         : null,
@@ -383,10 +385,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const details = h("div", { className: "bees-details-panel" },
     // 1. TABS HEADER
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
-      h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
-      schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Recurring${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
+      schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
@@ -645,15 +647,9 @@ function displayOption(label) {
 
 export { FilePreview };
 
-function reviewOptions(questions) {
-  if (questions.length !== 1 || questions[0].multiSelect === true) return null;
-  const options = questions[0].options ?? [];
-  const approve = options.find(({ label }) => /^approve(?:\s|$)/i.test(displayOption(label).label));
-  const reject = options.find(({ label }) => /^(?:do not approve|reject)(?:\s|$)/i.test(displayOption(label).label));
-  return approve && reject ? { approve, reject } : null;
-}
-
-function ReviewDecisionPanel({ pending, question, options, wait, onAnswered, act, executionId, item, data }) {
+function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
+  const pending = useMemo(() => new PendingQuestion(wait), [wait]);
+  const question = pending.questions?.[0];
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [scope, setScope] = useState("current");
@@ -662,13 +658,15 @@ function ReviewDecisionPanel({ pending, question, options, wait, onAnswered, act
   const recurring = data?.recurringWork?.find(({ id }) => id === item?.recurringWorkId);
   const producerRun = data?.runs?.find((run) => run.workItemId === item?.id && run.mode === "work" && run.specializationId);
   const specialist = data?.specializations?.find(({ id }) => id === producerRun?.specializationId);
-  const answer = async (option, feedback = "") => {
-    setBusy(option === options.approve ? "approve" : "reject"); setError("");
+  const answer = async (outcome, feedback = "") => {
+    setBusy(outcome); setError("");
     try {
+      const detail = feedback.trim();
       await pending.answer({ answers: [{
-        id: question.id, selected: [option.label], ...(feedback.trim() ? { custom: feedback.trim() } : {})
+        id: question.id, selected: outcome === "approve" ? ["Approve"] : [],
+        ...(detail ? { custom: detail } : {})
       }] });
-      if (option === options.reject && scope === "future") {
+      if (outcome === "reject" && scope === "future") {
         if (!act || !executionId || !recurring) throw new Error("Future-run learning is unavailable for this review");
         const learned = await act({ action: "apply_specialist_feedback", executionId, feedback });
         if (!learned) throw new Error("The work was rejected, but its future-run guidance could not be updated");
@@ -678,6 +676,7 @@ function ReviewDecisionPanel({ pending, question, options, wait, onAnswered, act
       setBusy(""); setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
+  if (!question) return h(Empty, null, "The work review request is unavailable.");
   if (!rejecting) return h(React.Fragment, null,
     h("div", null,
       h("div", { className: "bees-muted" }, question.header || "Review"),
@@ -687,7 +686,7 @@ function ReviewDecisionPanel({ pending, question, options, wait, onAnswered, act
     h("div", { className: "bees-answer-actions" },
       h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => setRejecting(true) }, "Reject"),
       h("div", { className: "bees-grow" }),
-      h(Button, { className: "primary", disabled: Boolean(busy), onClick: () => void answer(options.approve) },
+      h(Button, { className: "primary", disabled: Boolean(busy), onClick: () => void answer("approve") },
         busy === "approve" ? "Approving…" : "Approve")));
   return h(React.Fragment, null,
     h("div", null, h("div", { className: "bees-muted" }, "Reject work"),
@@ -710,16 +709,12 @@ function ReviewDecisionPanel({ pending, question, options, wait, onAnswered, act
       h(Button, { disabled: Boolean(busy), onClick: () => { setRejecting(false); setError(""); } }, "Back"),
       h("div", { className: "bees-grow" }),
       h(Button, { className: "danger", disabled: Boolean(busy) || reason.trim().length < 3,
-        onClick: () => void answer(options.reject, reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
+        onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
 }
 
-function QuestionPanel({ wait, onAnswered, act, executionId, item, data }) {
+function QuestionPanel({ wait, onAnswered, act, executionId }) {
   const pending = useMemo(() => new PendingQuestion(wait), [wait]);
   const questions = pending.questions ?? [];
-  const decision = reviewOptions(questions);
-  if (decision) return h(ReviewDecisionPanel, {
-    pending, question: questions[0], options: decision, wait, onAnswered, act, executionId, item, data
-  });
   return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId });
 }
 
@@ -837,7 +832,8 @@ function ApprovalPanel({ wait, onAnswered }) {
   );
 }
 
-const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "plan-review" ? "Plan review" : "Question";
+const interactionName = (kind) => kind === "approval" ? "Approval"
+  : kind === "work-review" ? "Work review" : kind === "plan-review" ? "Plan review" : "Question";
 
 function NeedsYouControls({ item, act, onDone }) {
   const [busy, setBusy] = useState("");
@@ -871,14 +867,16 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     ? current?.executionId === run.id && files.includes(current.path)
       ? current : { executionId: run.id, path: files[0] }
     : null), [run.id, fileKey]);
+  const workReview = run?.pendingInteraction === "work-review" && interaction?.kind === "question";
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
-      h("div", { className: "bees-status" }, interactionName(summary?.pendingInteraction ?? interaction?.kind)),
+      h("div", { className: "bees-status" }, interactionName(run?.pendingInteraction ?? summary?.pendingInteraction ?? interaction?.kind)),
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
     h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(NeedsYouControls, { item, act, onDone: onControlled }))),
-    interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
+    workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key))
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
@@ -927,10 +925,10 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
 export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, rowsForRoute, limit = 8, setPageHeader }) {
   const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
-  const listedItemIds = new Set();
   const records = rowsForRoute("waiting")
     .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
     .filter((record) => record.live);
+  const listedItemIds = new Set(records.map(({ id }) => id));
     
   for (const live of queue.rows) {
     if (!live.item || !listedItemIds.has(live.item.id)) {
@@ -954,7 +952,7 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
             title: record.label, "aria-expanded": isSelected, "aria-controls": panelId,
             onClick: () => select(live.run.id)
           }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
-            h("span", { className: "bees-badge" }, interactionName(live.session?.pendingInteraction))),
+            h("span", { className: "bees-badge" }, interactionName(live.run.pendingInteraction ?? live.session?.pendingInteraction))),
           record.open ? h("button", {
             type: "button", className: "bees-dashboard-launch", title: `Open ${record.label}`,
             "aria-label": `Open ${record.label}`, onClick: record.open

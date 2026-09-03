@@ -54,6 +54,30 @@ function AppearanceSettings({ ctx, preferences }) {
         h("strong", null, option.label))))));
 }
 
+function SystemInstructionsSettings({ preferences, instructions }) {
+  const [value, setValue] = useState(instructions);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => setValue(instructions), [instructions]);
+  const save = async (event) => {
+    event.preventDefault(); setBusy(true); setMessage("");
+    try {
+      await preferences.set("systemInstructions", value);
+      setMessage("Saved. These instructions apply to new agent runs.");
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  return h("form", { className: "bees-stack", onSubmit: save },
+    h("section", { className: "bees-box" }, h("h3", null, "System-wide instructions"),
+      h("p", { className: "bees-muted" },
+        "Added to every planning, work, and review agent's system prompt. Built-in Bees safety and interaction protocols remain protected."),
+      h("textarea", { className: "bees-textarea", rows: 12, value,
+        placeholder: "Instructions every agent should follow", onChange: (event) => setValue(event.target.value) }),
+      h("div", { className: "bees-detail-actions" },
+        h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save instructions")),
+      message ? h("p", { className: "bees-muted", role: "status" }, message) : null));
+}
+
 function AccountSettings({ reload, openOrganization }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -488,6 +512,7 @@ function TeamSettings({ team, organization, connectionId }) {
 
 const GLOBAL_SETTINGS = [
   ["appearance", "Appearance"],
+  ["system-instructions", "System instructions"],
   ["personal-ai", "AI connections"],
   ["organizations", "Accounts & organizations"],
   ["connections", "Connections"]
@@ -533,6 +558,8 @@ export function SettingsPage({
   if (route === "team-settings") return h(TeamSettings, { team, organization, connectionId });
   const content = route === "personal-ai"
     ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
+    : route === "system-instructions"
+      ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
     : route === "organizations" ? h(AccountSettings, { reload, openOrganization })
     : route === "connections" ? h(ConnectionsSettings)

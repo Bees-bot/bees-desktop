@@ -62,6 +62,44 @@ function replaceLocations(database, table, ownerColumn, ownerId, ids) {
   ids.forEach((id) => insert.run(ownerId, id));
 }
 
+const referenceSlug = (value) => String(value).normalize("NFKD").toLocaleLowerCase()
+  .replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "");
+const referenceLabel = (value) => String(value).replace(/[\]\r\n]/g, " ").trim().slice(0, 160);
+
+/** A leading $agent is an explicit handoff; the stored form keeps the stable assignment id. */
+function invokedAgent(database, workspaceId, value) {
+  const text = String(value ?? "");
+  const canonical = text.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*[,;:\-]\s*|\s+|$)/u);
+  if (canonical) {
+    const agent = assignment(database, canonical[2], workspaceId);
+    if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
+    const request = text.slice(canonical[0].length).trim();
+    if (!request) throw new Error(`Tell ${agent.name} what you want done`);
+    return { agent, request, reference: `$[${referenceLabel(agent.name)}](bees:agent:${agent.id})` };
+  }
+  const typed = text.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*[,;:\-]\s*|\s+|$)/iu);
+  if (typed && typed[1].toLocaleLowerCase() !== "agent") return null;
+  const shorthand = typed
+    ? [typed[0], typed[2]]
+    : text.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*[,;:\-]\s*|\s+|$)/u);
+  if (!shorthand) return null;
+  const matches = database.prepare(`
+    SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
+           instructions, model, reasoning_effort AS reasoningEffort, system_role AS systemRole,
+           capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency,
+           updated_at AS updatedAt, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
+    FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
+  `).all(workspaceId).filter(({ name }) => referenceSlug(name) === referenceSlug(shorthand[1]));
+  if (!matches.length) throw new Error(`No agent matches $${shorthand[1]} in this team`);
+  if (matches.length > 1) throw new Error(`More than one agent matches $${shorthand[1]}; use the full agent reference`);
+  const request = text.slice(shorthand[0].length).trim();
+  if (!request) throw new Error(`Tell ${matches[0].name} what you want done`);
+  return {
+    agent: matches[0], request,
+    reference: `$[${referenceLabel(matches[0].name)}](bees:agent:${matches[0].id})`
+  };
+}
+
 /** Work is owned by the active org+identity connection, not by whichever account was added first. */
 function executionAccount(database, teamId, input) {
   const local = database.prepare(`
@@ -277,24 +315,40 @@ export async function executeProductCommand(action, input) {
       if (!stageId || !this.database.prepare(`
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
-      const assignmentId = input.agentAssignmentId ? required(input.agentAssignmentId, "Agent") : null;
+      const invocationText = String(input.description ?? "").trim() ? input.description : input.title;
+      const invocation = action === "create_goal"
+        ? invokedAgent(this.database, process.workspaceId, invocationText)
+        : null;
+      const assignmentId = input.agentAssignmentId
+        ? required(input.agentAssignmentId, "Agent")
+        : invocation?.agent.id ?? null;
+      if (invocation && input.agentAssignmentId && invocation.agent.id !== assignmentId)
+        throw new Error("The referenced agent does not match the selected agent");
       if (assignmentId && !this.database.prepare(`
         SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
       `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this team");
       const id = randomUUID();
       const parentId = action === "create_run" ? null : parentFor(this.database, id, processId, input.parentId);
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
+      const recurringWorkId = parent && (parent.kind === "run" || parent.parentId)
+        ? parent.recurringWorkId : null;
       const settings = normalizeRunSettings(parent?.runSettings ?? input.runSettings ?? {});
       if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
+      const rawTitle = required(input.title, "Title");
+      const titleInvocation = invocation && /^\s*[$@]/u.test(rawTitle)
+        ? invokedAgent(this.database, process.workspaceId, rawTitle)
+        : null;
+      const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
+      const description = invocation ? `${invocation.reference} ${invocation.request}` : String(input.description ?? "");
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
-          agent_assignment_id, priority, output_location_id, account_user_id,
+          agent_assignment_id, priority, output_location_id, recurring_work_id, account_user_id,
           archived_at, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-      `).run(id, processId, stageId, parentId, kind, required(input.title, "Title"), String(input.description ?? ""),
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+      `).run(id, processId, stageId, parentId, kind, required(title, "Title"), description,
         input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId,
-        accountUserId, at, at);
+        recurringWorkId, accountUserId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
         .run(JSON.stringify(settings), id);

@@ -285,6 +285,38 @@ describe("DSH-owned desktop and recovery", () => {
     ).get()).toEqual({ status: "waiting_for_input" });
   });
 
+  it("tracks a work review separately from an ordinary question", () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database);
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/call", seq: 4,
+      data: {
+        name: "bees_request_work_review", callId: "review-1",
+        arguments: JSON.stringify({ summary: "Draft ready" })
+      }
+    });
+
+    expect(runtime.pendingInteraction("run")).toMatchObject({
+      kind: "work-review", callId: "review-1"
+    });
+    expect(database.connection.prepare(
+      "SELECT status FROM execution_links WHERE execution_id = 'run'"
+    ).get()).toEqual({ status: "waiting_for_input" });
+    expect(database.connection.prepare(`
+      SELECT count(*) AS count FROM dsh_audit_events WHERE event_type = 'work-review-requested'
+    `).get()).toEqual({ count: 1 });
+
+    runtime.onSessionEvent({ id: "session" }, {
+      type: "tool/result", seq: 5,
+      data: { message: { source: { callId: "review-1" }, content: [] } }
+    });
+    expect(runtime.pendingInteraction("run")).toBeNull();
+    expect(database.connection.prepare(`
+      SELECT count(*) AS count FROM dsh_audit_events WHERE event_type = 'work-review-answered'
+    `).get()).toEqual({ count: 1 });
+  });
+
   it("keeps active processing in its durable state across startup", () => {
     const database = new NodeDatabase();
     new AgentRuntime(context(), database.connection);
