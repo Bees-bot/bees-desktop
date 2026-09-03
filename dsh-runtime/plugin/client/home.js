@@ -281,6 +281,9 @@ export function GuidePage() {
       h("section", { className: "bees-box" }, h("h3", null, "Agent pool = interchangeable agents"),
         h("p", null, "Use a pool when several agents can handle the same stage and Bees may choose any available match."),
         h("p", { className: "bees-muted" }, "Use one named agent when context, ownership, or continuity matters.")),
+      h("section", { className: "bees-box" }, h("h3", null, "Agent roundtable = peers debating"),
+        h("p", null, "A Discuss, Debate, or Roundtable stage seats every available agent in its routed pool."),
+        h("p", { className: "bees-muted" }, "Peers can pitch or challenge ideas without waiting for the lead; the lead submits only after everyone reports.")),
       h("section", { className: "bees-box" }, h("h3", null, "Needs you = blocked work"),
         h("p", null, "This queue collects questions, approvals, failures, and other work an agent cannot continue alone."),
         h("p", { className: "bees-muted" }, "It is not a stage and you do not assign an agent to it. Assign agents on a process stage or override one on the work item."))
@@ -293,6 +296,9 @@ export function GuidePage() {
       h(Button, { onClick: () => void openExternal("https://bees.bot/help/privacy") }, "Open Privacy guide")),
     h("section", { className: "bees-box" }, h("h3", null, "Scheduling"),
       h("p", null, "Learn how definitions, generated occurrences, timing, approvals, specialist learning, and skipped overlaps work."),
-      h(Button, { onClick: () => void openExternal("https://bees.bot/help/scheduling") }, "Open Scheduling guide"))
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/scheduling") }, "Open Scheduling guide")),
+    h("section", { className: "bees-box" }, h("h3", null, "Build a software architecture panel"),
+      h("p", null, "Create an OpenAI and Anthropic roundtable that debates reuse, cost, simplicity, and extensibility before you approve the decision."),
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/software-development") }, "Open Architecture Panel guide"))
   );
 }

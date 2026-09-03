@@ -214,6 +214,7 @@ describe("Bees work cockpit UI", () => {
   it("documents scheduling behavior for end users", () => {
     expect(client).toContain('openExternal("https://bees.bot/help/scheduling")');
     expect(client).toContain('"Open Scheduling guide"');
+    expect(client).toContain('"Open Architecture Panel guide"');
     expect(client).not.toContain("Schedules use the SKIP overlap policy");
   });
 

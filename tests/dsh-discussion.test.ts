@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -33,7 +33,7 @@ describe("DSH Agent Teams discussions", () => {
       const peer = await product.command({
         action: "add_agent_assignment", workspaceId, presetId: "standard",
         name: "Test lead", description: "Challenges testability", instructions: "Find hidden failure modes",
-        capabilities: ["architecture"],
+        model: "anthropic/claude-sonnet", reasoningEffort: "high", capabilities: ["architecture"],
       });
       const pool = await product.command({ action: "add_agent_pool", workspaceId, name: "Architecture table" });
       await product.command({ action: "set_agent_pool_member", agentPoolId: pool.id, agentAssignmentId: lead.id, priority: 1 });
@@ -61,6 +61,7 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.discussionMembers).toHaveLength(1);
       expect(payload.initialData.discussionMembers[0]).toMatchObject({
         name: "participant-1", description: "Test lead",
+        model: "anthropic/claude-sonnet", reasoningEffort: "high",
       });
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Goal: Choose the API architecture");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Wait until list_agents shows all of them");
@@ -72,6 +73,14 @@ describe("DSH Agent Teams discussions", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("keeps the pinned DSH Agent Team bridge that forwards a peer model route", () => {
+    const team = readFileSync(new URL(
+      "../dsh-runtime/node_modules/@deepseek-ai/dsh-experimental-agent-team/lib/index.js",
+      import.meta.url,
+    ), "utf8");
+    expect(team).toContain("request.agentOptions ? { agentOptions: request.agentOptions }");
   });
 
   it("seats native DSH peers and refuses a conclusion until each one pitches", async () => {
@@ -90,11 +99,15 @@ describe("DSH Agent Teams discussions", () => {
     };
     const runtime: any = new AgentRuntime(ctx, database.connection);
     const agent = { session: { id: "lead", snapshotEvents: () => events } };
-    const members = [{ name: "participant-1", description: "Test lead", prompt: "Challenge the design" }];
+    const members = [{
+      name: "participant-1", description: "Test lead", prompt: "Challenge the design",
+      model: "anthropic/claude-sonnet", reasoningEffort: "high",
+    }];
 
     await runtime.prepareDiscussion(agent, members, new AbortController().signal);
     expect(spawnTeammate).toHaveBeenCalledWith(agent, expect.objectContaining({
       name: "participant-1", context: "fresh", provider: "spawn",
+      agentOptions: { provider: "anthropic", model: "claude-sonnet", reasoningEffort: "high" },
     }));
     expect(() => runtime.assertDiscussionReady(agent, members)).toThrow("has not pitched in yet");
     events.push({

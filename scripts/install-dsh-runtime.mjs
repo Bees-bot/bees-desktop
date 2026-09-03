@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,3 +39,17 @@ const manifest = JSON.parse(
 if (manifest.version !== "0.1.2-rc.1") {
   throw new Error(`Installed DSH ${manifest.version}; expected 0.1.2-rc.1`);
 }
+
+// DSH rc.1's continuation manager already supports a child model route, but the
+// experimental Agent Team wrapper omits it. Keep the release package intact in
+// vendor/ and apply this one-field bridge after every deterministic install.
+const teamEntry = path.join(
+  runtimeRoot, "node_modules", "@deepseek-ai", "dsh-experimental-agent-team", "lib", "index.js",
+);
+const teamSource = await readFile(teamEntry, "utf8");
+const teamNeedle = "\t\t\t\t\tprompt: request.prompt,\n\t\t\t\t\tparent: root\n";
+const teamPatch = "\t\t\t\t\tprompt: request.prompt,\n\t\t\t\t\tparent: root,\n\t\t\t\t\t...request.agentOptions ? { agentOptions: request.agentOptions } : {}\n";
+if (!teamSource.includes(teamNeedle)) {
+  throw new Error("DSH rc.1 Agent Team model-route patch no longer matches its pinned package");
+}
+await writeFile(teamEntry, teamSource.replace(teamNeedle, teamPatch));
