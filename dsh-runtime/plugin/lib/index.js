@@ -235,7 +235,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-auth", handler: (req, res) => {
     const offered = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token");
     if (!equalSecret(offered, token)) return reply(res, 401, { error: "unauthorized" });
-    // dsh gates the index on its own launch-token cookie, so hand the browser that URL, not a bare /
+    // dsh gates its own index on a launch-token cookie, so send the browser the URL it hands
+    // out rather than a bare /, which lands on "dsh web authentication required".
     const base = `http://127.0.0.1:${req.socket.localPort}`;
     res.writeHead(302, {
       location: ctx.connection?.authenticatedUrl?.(base) ?? `${base}/`,
