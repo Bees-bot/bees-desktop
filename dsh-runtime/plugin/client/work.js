@@ -225,8 +225,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     const scrollToBottom = () => { if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
     scrollToBottom();
     let id1 = setTimeout(scrollToBottom, 50);
-    let id2 = setTimeout(scrollToBottom, 300);
-    return () => { clearTimeout(id1); clearTimeout(id2); };
+    return () => { clearTimeout(id1); };
   }, [history, pendingRun, interaction, item.runtimePhase]);
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
@@ -352,6 +351,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
           event.preventDefault();
           const text = composerText.trim();
+          isScrolledUpRef.current = false;
           if (!text || isAgentBusy) return;
           const sessionBinding = activeBinding;
           // If there is no active binding but the user is trying to send a message, we continue the conversation with the backend action

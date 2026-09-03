@@ -165,8 +165,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace,
     (idToken, nonce) => connected.signInWithGoogle(idToken, nonce));
-  void connected.authConfig().then(({ googleDriveDesktopClientId }) =>
-    googleDrive.configure(googleDriveDesktopClientId));
+  void connected.authConfig().then((config) =>
+    googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret));
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify
   });
@@ -294,7 +294,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
     try {
       const config = await connected.authConfig();
-      googleDrive.configure(config.googleDriveDesktopClientId);
+      googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret);
       if (req.method === "GET") return reply(res, 200, { googleDrive: await googleDrive.status() });
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const input = await body(req);
@@ -361,7 +361,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
       const input = await body(req);
       if (input.action === "google_start") {
         const config = await connected.authConfig();
-        googleDrive.configure(config.googleDriveDesktopClientId);
+        googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret);
         return reply(res, 200, await googleDrive.start(true));
       }
       if (["social_start", "sso_start"].includes(input.action)) input.callbackPort = req.socket.localPort;
