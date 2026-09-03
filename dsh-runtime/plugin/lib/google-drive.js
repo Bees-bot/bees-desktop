@@ -216,9 +216,12 @@ export class GoogleDriveConnection {
     this.exported = new Map();
   }
 
-  configure(clientId) {
+  configure(clientId, clientSecret) {
     const value = String(clientId ?? "").trim();
-    if (value) this.clientId = value;
+    if (value) {
+      this.clientId = value;
+      this.clientSecret = String(clientSecret ?? "").trim();
+    }
   }
 
   async stored(name) {
@@ -286,7 +289,7 @@ export class GoogleDriveConnection {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("The local Drive callback is unavailable");
     const redirectUri = `http://127.0.0.1:${address.port}`;
-    const client = new OAuth2Client(this.clientId, undefined, redirectUri);
+    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined, redirectUri);
     const verifier = await client.generateCodeVerifierAsync();
     const state = randomBytes(24).toString("hex");
     const nonce = includeIdentity ? randomBytes(24).toString("hex") : "";
@@ -332,7 +335,7 @@ export class GoogleDriveConnection {
     if (params.get("error")) throw new Error("Google Drive access was not granted");
     const code = params.get("code");
     if (!code) throw new Error("Google did not return an authorization code");
-    const client = new OAuth2Client(this.clientId, undefined, pending.redirectUri);
+    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined, pending.redirectUri);
     const record = await this.tokenRecord();
     const previous = record?.clientId === this.clientId ? record.tokens : null;
     const { tokens } = await client.getToken({ code, codeVerifier: pending.codeVerifier });
@@ -371,7 +374,7 @@ export class GoogleDriveConnection {
   async client() {
     const tokens = await this.tokens();
     if (!tokens) return null;
-    const client = new OAuth2Client(this.clientId);
+    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined);
     client.setCredentials(tokens);
     return client;
   }
