@@ -381,7 +381,7 @@ export class BeesProduct {
              d.specialization_id AS specializationId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision,
-             r.outcome AS resultOutcome, r.summary AS resultSummary
+             r.outcome AS resultOutcome, r.summary AS resultSummary, r.created_at AS resultCreatedAt
       FROM execution_links e
       LEFT JOIN (SELECT execution_id, MIN(created_at) AS startedAt FROM dsh_audit_events
                  WHERE event_type = 'run-started' GROUP BY execution_id) starts
