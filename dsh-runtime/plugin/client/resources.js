@@ -181,7 +181,7 @@ export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnecti
           className: viewer?.executionId === run.id && viewer?.path === `outputs/${name}` ? "bees-file-chip active" : "bees-file-chip",
           onClick: () => setViewer({ executionId: run.id, path: `outputs/${name}` })
         }, name)))))),
-      viewer ? h(FilePreview, { target: viewer }) : null);
+      viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   return h("div", { className: "bees-stack" },

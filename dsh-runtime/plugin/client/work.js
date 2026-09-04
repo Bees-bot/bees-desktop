@@ -156,8 +156,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
   const assignment = assignments.find(({ id }) => id === item.agentAssignmentId);
   const routeAgent = assignments.find(({ id }) => id === stage?.routeTargetId);
-  const routePool = data.pools.find(({ id }) => id === stage?.routeTargetId);
-  const routeLabel = routeAgent?.name ?? routePool?.name ?? `Team ${stage?.driver === "review" ? "reviewer" : "worker"}`;
   const processStages = data.stages.filter(({ processId }) => processId === item.processId);
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
     processStages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
@@ -282,12 +280,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
   
 
-  const assignAgent = (agentAssignmentId) => act({
-    action: "edit_item", itemId: item.id, title: item.title, description: item.description,
-    owner: item.owner, priority: item.priority, parentId: item.parentId,
-    agentAssignmentId: agentAssignmentId || null
-  });
-  
   // Collapse history messages
   const convoItems = [];
   convoItems.push(h(GoalMessage, { item, key: "start" }));
@@ -447,23 +439,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         )
       ) : null,
       activeTab === "details" ? h(React.Fragment, null,
-        // Card 1: Routing & Assignee
-        h("div", { className: "bees-card-section" },
-          h("div", { className: "bees-card-section-head" }, "Routing & Assignment"),
-          h("div", { className: "bees-field-row" },
-            h("div", { className: "bees-field-label" }, "Active Agent"),
-            h("div", { className: "bees-field-val" },
-              stage?.driver !== "terminal" ? h("select", { className: "bees-field-select", value: item.agentAssignmentId ?? "",
-                "aria-label": "Agent for this work item", onChange: (event) => void assignAgent(event.target.value) },
-                h("option", { value: "" }, `Use stage route (${routeLabel})`),
-                ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled },
-                  `${agent.name}${agent.enabled ? "" : " (unavailable)"}`))) 
-                : h("div", null, assignment ? `${assignment.name}${assignment.model ? ` · ${assignment.model}` : ""}` : `Stage route: ${routeLabel}`)
-            )
-          )
-        ),
-        
-        // Card 2: Description
+        // Description
         h("div", { className: "bees-card-section" },
           h("div", { className: "bees-card-section-head" }, "Description"),
           item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted", style: { margin: 0 } }, "No description provided.")
@@ -474,15 +450,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           h(MarkdownText, { text: process.description })
         ) : null,
 
-        item.runSettings && Object.keys(item.runSettings).length ? h("section", { className: "bees-callout" },
-          h("h3", null, "Goal run settings"),
-          Object.hasOwn(item.runSettings, "model") ? h("p", null, `Model: ${item.runSettings.model || "System default"}${item.runSettings.reasoningEffort ? ` · ${item.runSettings.reasoningEffort} effort` : ""}`) : null,
-          item.runSettings.mcpAccess ? h("p", null, `Connected tools: ${item.runSettings.mcpAccess === "none" ? "None" : item.runSettings.mcpAccess === "listed" ? "Selected connections only" : "Workflow defaults"}`) : null,
-          h("p", { className: "bees-muted" }, "Applies to work, review, and delegated tasks. Each agent's tool restrictions still apply.")) : null,
         h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
           outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId }),
 
-        // Card 3: Footer Actions
+        // Actions
         h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "auto", paddingTop: "8px" } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", {className: "bees-btn-icon"}, "✎"), "Edit item"),
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", {className: "bees-btn-icon"}, "⑆"), "Delegate work"),
@@ -925,7 +896,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
       ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
         onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
-    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt } }) : null
+    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt }, onClose: () => setViewer(null) }) : null
   );
 }
 

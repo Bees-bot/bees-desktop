@@ -179,7 +179,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('action: "create_run"');
     expect(client).toContain('ctx.uiSession.pendingInteractions');
     expect(client).toContain('"Approve once"');
-    expect(client).toContain('h(FilePreview, { target: viewer })');
+    expect(client).toContain('h(FilePreview, { target: viewer, onClose: () => setViewer(null) })');
     expect(client).toContain('h(MarkdownText, { text: file.content })');
     expect(client).toContain('"sessions", "uiSession"]');
     expect(client).not.toContain('const LOCAL_MODELS = [');

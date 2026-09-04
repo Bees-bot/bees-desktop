@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { clientSource as client } from "./client-source.js";
 
 describe("New work form", () => {
@@ -23,7 +23,7 @@ const require = createRequire(new URL("../dsh-runtime/package.json", import.meta
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { configureRuntime } = require("./plugin/client/runtime.js");
-const { ResourceFields, AttachedResourceFields, inheritedInputs, WorkFiles, WorkLocations, FilePreview } = require("./plugin/client/location-fields.js");
+const { ResourceFields, AttachedResourceFields, inheritedInputs, WorkFiles, WorkLocations, LocationEntry, FilePreview } = require("./plugin/client/location-fields.js");
 configureRuntime((id: string) => id === "react" ? React : {});
 
 it("shows inherited subpaths and unmapped selections without saving them as direct inputs", async () => {
@@ -75,16 +75,20 @@ it("shows work locations read-only and groups generated files by run and directo
   expect(markup).not.toContain("<h3>Generated files</h3>");
   expect(markup).toContain("/shared/briefs/quarterly");
   expect(markup).toContain("Work item + Process");
-  expect(markup.match(/<strong>Briefs\/quarterly<\/strong>/g)).toHaveLength(1);
+  expect(markup.match(/>Briefs\/quarterly<\/summary>/g)).toHaveLength(1);
   expect(markup).toContain("/shared/reports");
   expect(markup).toContain("From process");
+  expect(markup).toContain("Default output folder");
   expect(markup).toContain("Unavailable input");
   expect(markup).toContain('disabled=""');
   expect(markup).not.toMatch(/<select|<input|Add folder|Add file|Remove/);
-  expect(files).toContain("Run 2 · completed · 3 files");
-  expect(files).toContain("Run 1 · completed · 1 file");
-  expect(files).toContain("<summary>analysis/</summary>");
-  expect(files).toContain("<summary>data/</summary>");
+  expect(files).toContain("Run 2 · 3 files");
+  expect(files).toContain("Run 1 · 1 file");
+  expect(files).toContain('class="bees-status bees-completed">completed</span>');
+  expect(files).not.toContain("Select a file to read its contents.");
+  expect(files.match(/class="bees-output-run"/g)).toHaveLength(2);
+  expect(files).toContain(">analysis</summary>");
+  expect(files).toContain(">data</summary>");
   expect(files).toContain('title="analysis/data/totals.csv"');
   expect(files.match(/>summary.md<\/button>/g)).toHaveLength(3);
   expect(client).toContain("h(WorkFiles, { key: item.id, runs: itemRuns");
@@ -93,13 +97,95 @@ it("shows work locations read-only and groups generated files by run and directo
 it("shows missing destinations and empty runs without configuration controls", () => {
   const props = { data: { locations: [] }, references: [], runs: [] };
   const markup = renderToStaticMarkup(React.createElement(WorkLocations, props));
-  expect(markup).toContain("No input files or folders selected.");
-  expect(markup).toContain("Bees only — no output folder selected.");
+  expect(markup).toBe("");
   expect(renderToStaticMarkup(React.createElement(WorkFiles, props))).toContain("Generated files will appear here");
   const missing = renderToStaticMarkup(React.createElement(WorkLocations, { ...props, outputId: "missing" }));
   expect(missing).toContain("Unavailable output folder");
+  expect(missing).not.toContain("Input files");
   expect(missing).not.toContain("Bees only");
-  const preview = renderToStaticMarkup(React.createElement(FilePreview, { target: { executionId: "run", path: "outputs/report.md" } }));
-  expect(preview).toContain(">Full screen</button>");
+  const onClose = vi.fn();
+  const previewElement = FilePreview({ target: { executionId: "run", path: "outputs/report.md" }, onClose });
+  expect(previewElement.props.onClose).toBe(onClose);
+  const preview = renderToStaticMarkup(previewElement);
+  expect(preview).toContain('aria-label="Full screen"><svg');
+  expect(preview).toContain('aria-label="Close file preview"><svg');
   expect(preview).toContain('<dialog class="bees-file-dialog" aria-label="Full-screen file preview">');
+});
+
+it("opens files in the editor pane and returns to the explorer on close", () => {
+  let viewer: any = null;
+  const runs = [{ id: "run", status: "completed", updatedAt: 0, outputs: ["report.md"] }];
+  const filesRef = { current: null };
+  configureRuntime((id: string) => id === "react" ? {
+    ...React, useState: () => [viewer, (next: any) => { viewer = next; }]
+  } : {});
+  try {
+    const initial = WorkFiles({ runs, filesRef });
+    const explorer = initial.props.children[0];
+    expect(explorer.ref).toBe(filesRef);
+    const directory = explorer.props.children.props.children[1];
+    directory.props.onOpen({ executionId: "run", path: "outputs/report.md" });
+    const opened = WorkFiles({ runs, filesRef });
+    expect(opened.props.className).toContain("bees-editor-open");
+    expect(opened.props.children[1].props.target.path).toBe("outputs/report.md");
+    opened.props.children[1].props.onClose();
+    expect(WorkFiles({ runs, filesRef }).props.className).not.toContain("bees-editor-open");
+  } finally {
+    configureRuntime((id: string) => id === "react" ? React : {});
+  }
+});
+
+it("expands folders lazily, renders nested entries, and opens files", async () => {
+  // Exercise the one component's state/effect cycle without adding a DOM dependency.
+  const state: any[] = [];
+  let index = 0;
+  let dependencies: any[] = [];
+  let effect: (() => (() => void) | undefined) | undefined;
+  let cleanup: (() => void) | undefined;
+  const hooks = { ...React,
+    useState(initial: any) {
+      const slot = index++;
+      if (!(slot in state)) state[slot] = initial;
+      return [state[slot], (next: any) => { state[slot] = typeof next === "function" ? next(state[slot]) : next; }];
+    },
+    useEffect(callback: typeof effect, next: any[]) {
+      if (next.some((value, i) => value !== dependencies[i])) {
+        cleanup?.(); dependencies = next; effect = callback;
+      }
+    }
+  };
+  const onOpen = vi.fn();
+  const props = { locationId: "folder", path: "", name: "Reports", kind: "folder", onOpen };
+  const render = (values = props) => {
+    index = 0;
+    configureRuntime((id: string) => id === "react" ? hooks : {});
+    const tree = LocationEntry(values);
+    configureRuntime((id: string) => id === "react" ? React : {});
+    if (effect) { cleanup = effect(); effect = undefined; }
+    return tree;
+  };
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ entries: [
+    { name: "nested", path: "nested", kind: "folder" },
+    { name: "summary.md", path: "summary.md", kind: "file" }
+  ] }) });
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const tree = render();
+    expect(fetch).not.toHaveBeenCalled();
+    const target = { open: true };
+    tree.props.onToggle({ target, currentTarget: target });
+    render();
+    await vi.waitFor(() => expect(state[1]?.entries).toHaveLength(2));
+    expect(fetch.mock.calls[0]?.[0]).toBe("/bees-api/location-file?locationId=folder&path=");
+    const markup = renderToStaticMarkup(render());
+    expect(markup).toContain('<summary title="nested"><svg');
+    expect(markup).toContain(">nested</summary>");
+    expect(markup).toContain(">summary.md</button>");
+    render({ ...props, kind: "file", name: "summary.md", path: "summary.md" }).props.onClick();
+    expect(onOpen).toHaveBeenCalledWith({ locationId: "folder", path: "summary.md" });
+  } finally {
+    cleanup?.();
+    configureRuntime((id: string) => id === "react" ? React : {});
+    vi.unstubAllGlobals();
+  }
 });
