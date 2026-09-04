@@ -275,7 +275,8 @@ function lastTurn(events, afterSeq = -1) {
 export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
   return last ? events.filter((event) => event.seq <= last.seq &&
-    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message") : [];
+    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message")
+    .map((event, seq) => ({ ...event, seq })) : [];
 }
 
 function outcomeFor(event) {
