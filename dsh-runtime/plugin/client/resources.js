@@ -28,7 +28,7 @@ function DriveNotice({ onOpenConnections }) {
 export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
-  const pickFolder = async () => ctx.workspaces.pickDirectory();
+  const pickFolder = async () => ctx.uiWorkspace.pickDirectory();
   const pickMapping = async (location) => location.kind === "folder"
     ? pickFolder()
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");

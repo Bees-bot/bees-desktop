@@ -353,6 +353,8 @@ describe("Bees DSH public contract", () => {
       expect(client).not.toContain('"workspace-settings"');
       expect(client).not.toContain('"Default workspace"');
       expect(client).not.toContain('["system", "System"]');
+      expect(client).toContain("ctx.uiWorkspace.pickDirectory()");
+      expect(client).not.toContain("ctx.workspaces.pickDirectory()");
       expect(client).toContain('nextThemePreset(stored)');
       expect(client).toContain('await preferences?.set("themePreset", next.id)');
       expect(client).toContain('theme.setTheme(nextMode)');
