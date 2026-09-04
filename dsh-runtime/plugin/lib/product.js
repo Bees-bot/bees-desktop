@@ -12,7 +12,7 @@ import {
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { executeProductCommand } from "./product-commands.js";
+import { executeProductCommand, withoutSecrets } from "./product-commands.js";
 
 export { initializeProductDatabase };
 
@@ -417,7 +417,7 @@ export class BeesProduct {
              changes_json AS changes, status, created_at AS createdAt
       FROM bees_proposals WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY created_at DESC LIMIT 100
-    `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: JSON.parse(row.changes) })) : [];
+    `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: withoutSecrets(JSON.parse(row.changes)) })) : [];
     let presets = [];
     try {
       presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
