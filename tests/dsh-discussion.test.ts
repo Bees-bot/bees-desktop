@@ -66,6 +66,8 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Goal: Choose the API architecture");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Wait until list_agents shows all of them");
       expect(payload.body).toContain("This is a DSH Agent Teams discussion");
+      expect(payload.body).not.toContain("use bees_delegate_work only for a large separate piece");
+      expect(payload.initialData.instructions).not.toContain("bees_delegate_work");
       expect(payload.body).toContain("cannot finish until the human approves");
       expect((await product.snapshot()).stages.find(({ id }: any) => id === stage.id)).toMatchObject({
         driver: "discussion", requiresHumanApproval: true, routeType: "pool",
@@ -81,6 +83,36 @@ describe("DSH Agent Teams discussions", () => {
       import.meta.url,
     ), "utf8");
     expect(team).toContain("request.agentOptions ? { agentOptions: request.agentOptions }");
+  });
+
+  it("keeps Agent Team controls while blocking one-shot delegation", async () => {
+    const database = new NodeDatabase();
+    const runtime: any = new AgentRuntime({
+      on: () => () => undefined,
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
+    }, database.connection);
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
+    ).get() as { id: string };
+    const tools: any[] = [];
+    const restrictions: string[][] = [];
+
+    await runtime.setup({
+      systemPrompt: { section: () => undefined, context: () => undefined },
+      tools: {
+        register: (tool: any) => tools.push(tool),
+        restrict: ({ deny }: { deny: string[] }) => restrictions.push(deny),
+      },
+    }, {
+      mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
+      workItemId: "discussion", grants: [], workspaceId: workspace.id,
+      discussionMembers: [{ name: "participant-1" }],
+    }, "run", "/tmp");
+
+    expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "subagent_fork"]));
+    for (const teamTool of ["send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent"])
+      expect(restrictions.flat()).not.toContain(teamTool);
+    expect(tools.map(({ name }) => name)).not.toContain("bees_delegate_work");
   });
 
   it("seats native DSH peers and refuses a conclusion until each one pitches", async () => {

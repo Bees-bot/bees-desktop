@@ -16,7 +16,7 @@ import { executeProductCommand } from "./product-commands.js";
 
 export { initializeProductDatabase };
 
-const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use one-shot subagents only for isolated parallel work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
+const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
 const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
 
 export class BeesProduct {
@@ -34,6 +34,10 @@ export class BeesProduct {
     this.agents?.setProposalStore?.((proposal) => this.storeProposal(proposal));
     this.agents?.setKnowledgeSearch?.((query, workspaceId) => this.search(query, workspaceId));
     this.agents?.setKnowledgeReader?.((resultId, workspaceId) => this.readKnowledge(resultId, workspaceId));
+    this.agents?.setSubitemStore?.({
+      create: (input) => this.createSubitems(input),
+      cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
+    });
     this.agents?.setWorkStarter?.((input) => this.startWork(input));
   }
 
@@ -168,7 +172,7 @@ export class BeesProduct {
       : "";
     const inputs = manifest ? `\n\n${manifest}` : "";
     const goalsProtocol = item.processKind === "goals"
-      ? reviewer ? GOALS_REVIEW_PROTOCOL : GOALS_WORK_PROTOCOL
+      ? reviewer ? GOALS_REVIEW_PROTOCOL : discussion ? "" : GOALS_WORK_PROTOCOL
       : "";
     const approval = stage.requiresHumanApproval
       ? "\n\nThis stage cannot finish until the human approves the completed result through bees_request_work_review."
@@ -176,9 +180,12 @@ export class BeesProduct {
     const discussionProtocol = discussion
       ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported.`
       : "";
+    const delegationProtocol = discussion
+      ? "Use the seated DSH Agent Team for discussion and follow-up; do not create separate delegated work for a seated participant."
+      : "Do small, tightly coupled work yourself. Unless delegation is itself an explicit requirement, use bees_delegate_work only for a large separate piece a peer can own end to end; a tool call, lookup, or single-file edit is not enough. When the goal explicitly requires a delegation count, only the parent delegates and waits for each peer before launching the next. A delegated peer is a visible child work item and works in this same workspace, so continue from its changes already in outputs/ when it finishes.";
     const body = reviewer
       ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Review"}.${inputs}${approval}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. Use one-shot subagents only for isolated delegated work and DSH Agent Teams for ongoing peer collaboration. Put every final deliverable under outputs/. If you are granted publication targets, you MUST publish the deliverables using bees_publish_outputs. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}${discussionProtocol}${approval}`;
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. ${delegationProtocol} Put every final deliverable under outputs/. If you are granted publication targets, you MUST publish the deliverables using bees_publish_outputs. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}${discussionProtocol}${approval}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -654,6 +661,24 @@ export class BeesProduct {
       INSERT INTO bees_work_receipts VALUES (?, ?, ?, ?)
     `).run(workspaceId, key, created.id, iso());
     return { id: created.id, status: created.executionId ? "started" : "created" };
+  }
+
+  async createSubitems({ parentId, items }) {
+    const parent = itemContext(this.database, parentId, ["admin", "member"]);
+    if (!Array.isArray(items) || items.length !== 1)
+      throw new Error("A run can delegate exactly one work item at a time");
+    const item = items[0];
+    const title = required(item?.title, "Delegated work title");
+    const existing = this.database.prepare(`
+      SELECT id FROM work_items WHERE parent_id = ? AND title = ?
+        AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
+    `).get(parent.id, title);
+    const child = existing ?? await this.command({
+      action: "create_item", processId: parent.processId, parentId: parent.id,
+      title, description: String(item?.description ?? ""),
+      agentAssignmentId: parent.agentAssignmentId, accountUserId: parent.accountUserId
+    });
+    return [child];
   }
 
   async command(input) {

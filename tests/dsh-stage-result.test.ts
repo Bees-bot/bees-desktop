@@ -62,8 +62,10 @@ describe("DSH stage results", () => {
       "/tmp",
     );
 
-    expect(restrictions).toEqual([]);
-    expect(tools.map(({ name }) => name)).not.toContain("bees_delegate_work");
+    expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "subagent_fork"]));
+    for (const teamTool of ["send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent"])
+      expect(restrictions.flat()).not.toContain(teamTool);
+    expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
     expect(tools.map(({ name }) => name)).toContain("bees_search_knowledge");
     expect(tools.map(({ name }) => name)).toContain("bees_read_knowledge");
     expect(tools.map(({ name }) => name)).toContain("bees_request_work_review");
@@ -81,7 +83,7 @@ describe("DSH stage results", () => {
         content: "Release guide", authority: "current"
       })
     });
-    expect(prompts.join("\n")).toContain("Use DSH Agent Teams when the task asks for peers");
+    expect(prompts.join("\n")).toContain("A request for a subagent means tracked peer delegation");
     expect(prompts.join("\n")).toContain("Use ask_user_question only to obtain missing information");
     expect(prompts.join("\n")).toContain("approval after each entry, step, or child task");
     expect(prompts.join("\n")).toContain("Never create Approve, Reject, Continue, or Stop choices with ask_user_question");
@@ -184,6 +186,79 @@ describe("DSH stage results", () => {
     expect(database.connection.prepare(
       "SELECT outcome, summary FROM bees_stage_results WHERE execution_id = 'prior-run'"
     ).get()).toEqual({ outcome: "candidate", summary: "Already done" });
+  });
+
+  it("delegates through a tracked child work item and records its settlement", async () => {
+    const database = new NodeDatabase();
+    const runtime: any = new AgentRuntime({
+      on: () => () => undefined,
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
+    }, database.connection);
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
+    ).get() as { id: string };
+    database.connection.prepare(`
+      INSERT INTO work_items
+        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
+      VALUES ('parent', ?, ?, 'goal', 'Parent', 'running', '2026-01-01', '2026-01-01')
+    `).run(stage.processId, stage.stageId);
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('run', ?, 'parent', 'bees-run', 'session', 'uid', '/tmp/work', '{}', 'running',
+        '2026-01-01', '2026-01-01')
+    `).run(workspace.id);
+    const create = vi.fn(async () => [{ id: "peer" }]);
+    runtime.setSubitemStore({ create, cancel: vi.fn(async () => undefined) });
+    runtime.waitForPeers = vi.fn(async () => [{
+      id: "peer", title: "Write first", status: "completed", settledAt: "2026-01-02",
+    }]);
+    const tools: any[] = [];
+    await runtime.setup({
+      systemPrompt: { section: () => undefined, context: () => undefined },
+      tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
+    }, {
+      mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
+      workItemId: "parent", grants: [], workspaceId: workspace.id, discussionMembers: [],
+    }, "run", "/tmp");
+
+    const result = await tools.find(({ name }) => name === "bees_delegate_work").execute({
+      items_json: JSON.stringify([{ title: "Write first" }]),
+    }, { agent: { session: { id: "session" } } });
+
+    expect(create).toHaveBeenCalledWith({
+      parentId: "parent", items: [{ title: "Write first" }],
+    });
+    expect(result).toMatchObject({ count: 1, ids: "peer" });
+    expect(database.connection.prepare(`
+      SELECT event_type AS type FROM dsh_audit_events
+      WHERE execution_id = 'run' AND event_type LIKE 'peer-work-%' ORDER BY created_at, rowid
+    `).all()).toEqual([
+      { type: "peer-work-delegated" }, { type: "peer-work-settled" },
+    ]);
+  });
+
+  it("returns the durable peer settlement time", async () => {
+    const database = new NodeDatabase();
+    const runtime: any = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const stage = database.connection.prepare(`
+      SELECT s.id AS stageId, s.process_id AS processId FROM stages s
+      JOIN processes p ON p.id = s.process_id WHERE p.kind = 'goals' AND s.driver = 'agent'
+    `).get() as { stageId: string; processId: string };
+    database.connection.prepare(`
+      INSERT INTO work_items
+        (id, process_id, stage_id, kind, title, runtime_phase, created_at, updated_at)
+      VALUES ('peer', ?, ?, 'work', 'Independent result', 'completed', '2026-01-01', '2026-01-02')
+    `).run(stage.processId, stage.stageId);
+
+    await expect(runtime.waitForPeers(["peer"])).resolves.toEqual([{
+      id: "peer", title: "Independent result", status: "completed", settledAt: "2026-01-02",
+    }]);
   });
 
   it("exposes process starts only to agents with the capability", async () => {

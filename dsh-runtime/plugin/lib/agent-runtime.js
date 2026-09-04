@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. Use DSH Agent Teams when the task asks for peers to discuss, debate, or stay available for follow-up; use one-shot subagents for isolated delegation.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
 
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
@@ -29,6 +29,7 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
+const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork"];
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
@@ -143,6 +144,7 @@ function toolCallCounts(events) {
 const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
+const MAX_DELEGATION_DEPTH = 1;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const STAGE_RESULT_COLUMNS = `
@@ -174,6 +176,16 @@ function reviewTimeline(events) {
       ? [{ seq: event.seq, time: event.time, type: event.type, detail: excerpt(event.data) }]
       : [];
   }).slice(-256);
+}
+
+function removeDshOneShotDelegationTools(agentCtx) {
+  if (!agentCtx.tools.restrict) return;
+  try { agentCtx.tools.restrict({ deny: DSH_ONE_SHOT_DELEGATION_TOOLS }); }
+  catch (error) {
+    if (!String(error).includes("unknown global tool")) throw error;
+    for (const name of DSH_ONE_SHOT_DELEGATION_TOOLS) try { agentCtx.tools.restrict({ deny: [name] }); }
+    catch (nested) { if (!String(nested).includes("unknown global tool")) throw nested; }
+  }
 }
 
 function messageParts(content) {
@@ -495,6 +507,10 @@ export class AgentRuntime {
     this.knowledgeReader = read;
   }
 
+  setSubitemStore(store) {
+    this.subitemStore = store;
+  }
+
   setWorkStarter(start) {
     this.workStarter = start;
   }
@@ -764,6 +780,7 @@ export class AgentRuntime {
 
   async setup(agentCtx, data, executionId, workspace) {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
+    removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
     await this.startBrowserIfGranted(data);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
@@ -890,6 +907,49 @@ export class AgentRuntime {
         });
       }
     }));
+    if (data.mode === "work" && data.workItemId && !data.discussionMembers?.length)
+      agentCtx.tools.register(defineTool({
+        name: "bees_delegate_work",
+        description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same process lifecycle and works in this run's shared workspace while the caller waits.",
+        timeoutMs: 2_147_483_647,
+        parameters: {
+          items_json: {
+            type: "string", required: true,
+            description: "JSON array containing exactly one object shaped {title:string,description?:string}."
+          }
+        },
+        output: {
+          schema: {
+            type: "object", additionalProperties: false, properties: {
+              count: { type: "integer", required: true }, ids: { type: "string", required: true },
+              results_json: { type: "string", required: true }
+            }
+          },
+          render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+        },
+        execute: async (args, exec) => {
+          if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
+          let items;
+          try { items = JSON.parse(args.items_json); }
+          catch { throw new Error("items_json must be valid JSON"); }
+          if (!Array.isArray(items) || items.length !== 1)
+            throw new Error("items_json must contain exactly one delegated work item");
+          if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
+            throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
+          const created = await this.subitemStore.create({ parentId: data.workItemId, items });
+          const ids = created.map(({ id }) => id);
+          const sessionId = String(exec.agent?.session.id ?? "");
+          this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
+          try {
+            const results = await this.waitForPeers(ids, exec.signal);
+            this.audit("peer-work-settled", executionId, sessionId, { workItemId: data.workItemId, results });
+            return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+          } catch (error) {
+            await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
+            throw error;
+          }
+        }
+      }));
     if (data.capabilities?.includes("start-work")) agentCtx.tools.register(defineTool({
       name: "bees_start_work",
       description: "Create a Bees work item in this team and start its process when automatic. Use this after an MCP event or message clearly warrants tracked work; do not create duplicates.",
@@ -1032,6 +1092,53 @@ export class AgentRuntime {
           return result;
         }
       }));
+  }
+
+  peerDepth(workItemId) {
+    return this.database.prepare(`
+      WITH RECURSIVE up(id, parent) AS (
+        SELECT id, parent_id FROM work_items WHERE id = ?
+        UNION ALL SELECT w.id, w.parent_id FROM work_items w JOIN up ON w.id = up.parent)
+      SELECT COUNT(*) - 1 AS depth FROM up
+    `).get(workItemId).depth;
+  }
+
+  async waitForPeers(ids, signal) {
+    const read = this.database.prepare(`
+      SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error,
+             w.updated_at AS settledAt
+      FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
+    `);
+    const wanted = new Set(ids);
+    while (true) {
+      let unsubscribe = () => {};
+      const changed = this.subscribe
+        ? new Promise((resolve) => {
+            unsubscribe = this.subscribe((change) => {
+              if (wanted.has(change.workItemId)) resolve();
+            });
+          })
+        : delay(1_000, undefined, signal ? { signal } : undefined);
+      const rows = ids.map((id) => read.get(id));
+      if (rows.some((row) => !row)) {
+        unsubscribe();
+        throw new Error("Delegated work disappeared");
+      }
+      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) {
+        unsubscribe();
+        return rows.map((row) => ({
+          id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
+          ...(row.error ? { error: row.error } : {})
+        }));
+      }
+      try {
+        await (this.subscribe
+          ? Promise.race([changed, delay(5_000, undefined, signal ? { signal } : undefined)])
+          : changed);
+      } finally {
+        unsubscribe();
+      }
+    }
   }
 
   async newHandle(run, data, workspace, mode) {

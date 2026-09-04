@@ -529,7 +529,7 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
-    expect(stageRuns.at(-1)[1].body).toContain("Use one-shot subagents only for isolated delegated work");
+    expect(stageRuns.at(-1)[1].body).toContain("use bees_delegate_work only for a large separate piece");
     expect(stageRuns.at(-1)[1].body).toContain(`Available input snapshots:\n- Work: inputs/Work-${location.id.slice(0, 8)}`);
     database.connection.prepare(`
       INSERT INTO execution_links
@@ -628,8 +628,8 @@ describe("Bees DSH product plugin", () => {
     await product.command({
       action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"
     });
-    const child = await product.command({
-      action: "create_item", processId: newProcess.id, parentId: automaticItem.id, title: "Check links"
+    const [child] = await product.createSubitems({
+      parentId: automaticItem.id, items: [{ title: "Check links" }]
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
       id: child.id, parentId: automaticItem.id, agentAssignmentId: null,
@@ -638,6 +638,10 @@ describe("Bees DSH product plugin", () => {
     expect((await product.snapshot()).attachments).toContainEqual(expect.objectContaining({
       workItemId: child.id, locationId: location.id, relativePath: "brief.md"
     }));
+    const [sameChild] = await product.createSubitems({
+      parentId: automaticItem.id, items: [{ title: "Check links", description: "Recovery retry" }]
+    });
+    expect(sameChild.id).toBe(child.id);
     database.connection.prepare("UPDATE execution_links SET status = 'running' WHERE execution_id = ?")
       .run(executionId);
     await product.runProcessStage({

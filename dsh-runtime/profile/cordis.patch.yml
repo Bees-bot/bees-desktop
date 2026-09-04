@@ -19,7 +19,8 @@
     model: active
 
 # DSH rc.1 Agent Teams replaces the old parent/child control surface with a
-# durable peer mailbox and shared task board. Ordinary one-shot delegation stays.
+# durable peer mailbox and shared task board. One-shot delegation remains mounted
+# for non-Bees sessions; the Bees plugin scopes it out of managed work runs.
 - id: tool-subagent-control
   disabled: true
 
