@@ -1,5 +1,5 @@
 import {
-  h, MarkdownText, PendingQuestion, React, useEffect, useMemo, useState
+  h, MarkdownText, React, useEffect, useState
 } from "./runtime.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
@@ -182,11 +182,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const activeBinding = activeRun ? ctx.sessions.binding(activeRun.sessionId) : null;
   const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : activeBinding;
   const session = useSnapshot(binding?.session);
+  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const [composerText, setComposerText] = useState("");
   const [sending, setSending] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
   const liveRevision = useBeesChangeRevision();
-  const interaction = session?.pending?.find((pending) => !handled.has(pending.key));
+  const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
   useEffect(() => {
     setSelectedRun(""); setHistory(null); setHandled(new Set());
     setActiveTab("files"); setComposerText(""); setSending(false);
@@ -662,7 +663,7 @@ function displayOption(label) {
 export { FilePreview };
 
 function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
-  const pending = useMemo(() => new PendingQuestion(wait), [wait]);
+  const pending = wait;
   const question = pending.questions?.[0];
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
@@ -727,7 +728,7 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
 }
 
 function QuestionPanel({ wait, onAnswered, act, executionId }) {
-  const pending = useMemo(() => new PendingQuestion(wait), [wait]);
+  const pending = wait;
   const questions = pending.questions ?? [];
   return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId });
 }
@@ -846,6 +847,15 @@ function ApprovalPanel({ wait, onAnswered }) {
   );
 }
 
+// dsh 0.1.2 publishes one pending interaction per session on its own service, replacing the list
+// that used to hang off the session snapshot. A stable empty map keeps useSnapshot from resubscribing.
+const EMPTY_INTERACTIONS = new Map();
+
+const pendingInteractionFor = (waiting, sessionId, handled) => {
+  const pending = sessionId ? waiting.get(sessionId) : undefined;
+  return pending && !handled.has(pending.key) ? pending : undefined;
+};
+
 const interactionName = (kind) => kind === "approval" ? "Approval"
   : kind === "work-review" ? "Work review" : kind === "plan-review" ? "Plan review" : "Question";
 
@@ -884,7 +894,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
   const workReview = run?.pendingInteraction === "work-review" && interaction?.kind === "question";
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
-      h("div", { className: "bees-status" }, interactionName(run?.pendingInteraction ?? summary?.pendingInteraction ?? interaction?.kind)),
+      h("div", { className: "bees-status" }, interactionName(run?.pendingInteraction ?? interaction?.kind)),
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
     h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
@@ -892,7 +902,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
       : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
-        : h(Empty, null, session?.pending?.some(({ key }) => handled.has(key))
+        : h(Empty, null, handled.size
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
     files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
       ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
@@ -903,6 +913,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
 
 function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
+  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const [selectedId, setSelectedId] = useState(initialSelectedId);
   const [handled, setHandled] = useState(() => new Set());
   const [handledRuns, setHandledRuns] = useState(() => new Set());
@@ -912,16 +923,14 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   const rows = activeRuns.filter((run) => run.sessionId)
     .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
     .filter(({ run }) => ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
-  const rowKey = rows.map(({ run, session }) => `${run.id}:${session?.pendingInteraction ?? "none"}`).join("|");
+  const rowKey = rows.map(({ run }) => `${run.id}:${waiting.get(run.sessionId)?.kind ?? "none"}`).join("|");
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current)
     ? current : autoSelect ? rows[0]?.run.id ?? "" : ""), [rowKey, autoSelect]);
   useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
   const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
   const session = useSnapshot(binding?.session);
-  const interaction = session?.pending?.find((pending) => !handled.has(pending.key) &&
-    (selected?.session?.pendingInteraction === "plan-review" ? pending.kind === "question" : pending.kind === selected?.session?.pendingInteraction))
-    ?? session?.pending?.find((pending) => !handled.has(pending.key));
+  const interaction = pendingInteractionFor(waiting, selected?.run.sessionId, handled);
   const actionableRunIds = new Set(rows.map(({ run }) => run.id));
   const blocked = activeRuns.filter((run) =>
     ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !actionableRunIds.has(run.id));
@@ -966,7 +975,7 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
             title: record.label, "aria-expanded": isSelected, "aria-controls": panelId,
             onClick: () => select(live.run.id)
           }, h("span", { className: "bees-dashboard-need-copy" }, record.label),
-            h("span", { className: "bees-badge" }, interactionName(live.run.pendingInteraction ?? live.session?.pendingInteraction))),
+            h("span", { className: "bees-badge" }, interactionName(live.run.pendingInteraction))),
           record.open ? h("button", {
             type: "button", className: "bees-dashboard-launch", title: `Open ${record.label}`,
             "aria-label": `Open ${record.label}`, onClick: record.open
