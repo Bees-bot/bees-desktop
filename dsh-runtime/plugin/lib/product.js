@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   agentCapabilities, currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
@@ -24,19 +24,17 @@ const PREVIEW_BYTES = 256_000;
 function textPreview(path, logical) {
   const extension = extname(path).toLowerCase();
   const size = lstatSync(path).size;
-  const truncated = size > PREVIEW_BYTES;
-  let content;
-  if (truncated) {
-    const buffer = Buffer.alloc(PREVIEW_BYTES);
-    const fd = openSync(path, "r");
-    try { readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
-    content = buffer.toString("utf8");
-  } else content = readFileSync(path, "utf8");
-  let format = [".md", ".markdown"].includes(extension) ? "markdown" : extension === ".json" ? "json" : "text";
-  if (format === "json" && !truncated) {
-    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { format = "text"; }
+  const buffer = Buffer.alloc(PREVIEW_BYTES);
+  const fd = openSync(path, "r");
+  let read;
+  try { read = readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
+  // stream drops a multibyte character cut at the byte limit instead of showing a box
+  let content = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, read), { stream: true });
+  if (extension === ".json" && size <= PREVIEW_BYTES) {
+    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { /* not JSON after all, show it raw */ }
   }
-  return { name: basename(path), path: logical, format, content, ...(truncated ? { size, truncated } : {}) };
+  const format = [".md", ".markdown"].includes(extension) ? "markdown" : "text";
+  return { name: basename(path), path: logical, format, content, size, truncated: size > PREVIEW_BYTES };
 }
 
 export class BeesProduct {

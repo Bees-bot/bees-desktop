@@ -90,7 +90,7 @@ describe("Bees DSH product plugin", () => {
     });
     expect(product.runFile("preview-run", "inputs/brief.md")).toEqual({
       name: "brief.md", path: "inputs/brief.md", format: "markdown",
-      content: "# Brief\n\nChoose **one**."
+      content: "# Brief\n\nChoose **one**.", size: 24, truncated: false
     });
     expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
     expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");

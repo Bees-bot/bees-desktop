@@ -12,7 +12,7 @@ export class BeesProduct {
   runHistory(executionId: string): Promise<any>;
   locationFile(locationId: string, filePath?: string): any;
   runFile(executionId: string, filePath: string): {
-    name: string; path: string; format: "markdown" | "text"; content: string;
+    name: string; path: string; format: "markdown" | "text"; content: string; size: number; truncated: boolean;
   };
   storeProposal(input: Record<string, any>): any;
   createSubitems(input: { parentId: string; items: Array<{ title: string; description?: string }> }): Promise<any[]>;
