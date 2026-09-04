@@ -1462,12 +1462,13 @@ export class AgentRuntime {
         if (session !== handle.agent.session || event.type !== "turn/start") return;
         dispose();
         clearTimeout(timer);
-        void this.ctx.approval.request({
+        // still inside the turn/start publication; appending the approval here makes dsh throw "cannot reenter"
+        setTimeout(() => void this.ctx.approval.request({
           agent: handle.agent,
           toolName: pending.toolName,
           reason: pending.reason ?? "Resume the action from its last safe checkpoint?",
           signal
-        }).then(resolve, reject);
+        }).then(resolve, reject), 0);
       }, { global: true });
     });
   }
