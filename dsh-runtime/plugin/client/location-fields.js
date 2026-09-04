@@ -143,7 +143,7 @@ export function AttachedResourceFields({ owner, references, ...props }) {
 }
 
 // Viewing work never changes its inputs or output destination.
-export function WorkFiles({ data, references, inherited = [], outputId, defaultOutputId, runs }) {
+export function WorkLocations({ data, references, inherited = [], outputId, defaultOutputId }) {
   const [viewer, setViewer] = useState(null);
   const inputs = new Map();
   for (const ref of [...references, ...inherited]) {
@@ -163,8 +163,7 @@ export function WorkFiles({ data, references, inherited = [], outputId, defaultO
       h(Button, { disabled: !location?.mapped || Boolean(location.archivedAt), "aria-label": `View ${label}`,
         onClick: () => setViewer({ locationId, path: relativePath }) }, "View"));
   };
-  const outputRuns = runs.filter((run) => run.outputs?.length);
-  return h("section", { className: "bees-work-files", "aria-label": "Work files" },
+  return h("section", { className: "bees-work-files", "aria-label": "Work locations" },
     h("h3", null, "Input files & folders"),
     inputs.size ? h("div", { className: "bees-resource-list" },
       ...[...inputs.values()].map((ref) => locationRow(ref, "Unavailable input")))
@@ -174,6 +173,13 @@ export function WorkFiles({ data, references, inherited = [], outputId, defaultO
       sources: [outputId ? "Selected for this work" : "From process"] }, "Unavailable output folder")
       : h("p", { className: "bees-muted" }, "Bees only — no output folder selected."),
     h("p", { className: "bees-muted" }, "Folder previews show current files. Generated files stay in Bees; publishing saves a copy to the output folder."),
+    viewer ? h(FilePreview, { target: viewer }) : null);
+}
+
+export function WorkFiles({ runs, filesRef }) {
+  const [viewer, setViewer] = useState(null);
+  const outputRuns = runs.filter((run) => run.outputs?.length);
+  return h("section", { ref: filesRef, className: "bees-work-files", "aria-label": "Generated files" },
     h("h3", null, "Generated files"),
     outputRuns.length ? h("div", { className: "bees-output-directory" }, ...outputRuns.map((run, index) =>
       h("details", { key: run.id, open: index === 0 },

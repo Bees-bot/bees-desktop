@@ -468,6 +468,15 @@ export const css = `
   border-radius: 6px 6px 0 0 !important;
   white-space: nowrap !important;
 }
+.bees-clean-tab .bees-count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bees-accent, #f2b84b);
+  color: #21190b;
+  font-size: 11px;
+  font-weight: 700;
+}
 .bees-clean-tab:hover {
   color: var(--dsw-alias-label-primary) !important;
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.04)) !important;

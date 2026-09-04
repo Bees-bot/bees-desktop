@@ -7,7 +7,9 @@ import {
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
-import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles } from "./location-fields.js";
+import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
+
+import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
@@ -148,7 +150,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
   }));
 }
 
-function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader }) {
+function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -170,6 +172,19 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
 
   const [selectedRun, setSelectedRun] = useState("");
   const [activeTab, setActiveTab] = useState("files");
+  const filesRef = React.useRef(null);
+  const fileKeys = generatedFileKeys(itemRuns);
+  const seenKey = `seenFiles:${item.id}`;
+  const seenFiles = new Set(Array.isArray(preference[seenKey]) ? preference[seenKey] : []);
+  const unreadFiles = fileKeys.filter((key) => !seenFiles.has(key)).length;
+  const fileRevision = JSON.stringify(fileKeys);
+  useEffect(() => {
+    if (activeTab !== "files" || !unreadFiles || !filesRef.current) return;
+    return watchFilesViewed(filesRef.current, () => {
+      void preferences.set(seenKey, JSON.parse(fileRevision))
+        .catch((error) => console.error("Could not save viewed files:", error));
+    });
+  }, [activeTab, seenKey, fileRevision, unreadFiles, preferences]);
 
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
@@ -400,7 +415,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const details = h("div", { className: "bees-details-panel" },
     // 1. TABS HEADER
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
-      h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
@@ -409,7 +424,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
 
     // 3. TAB CONTENT
     h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
-      h("div", { className: "bees-action-ribbon" },
+      activeTab !== "files" ? h("div", { className: "bees-action-ribbon" },
         h("div", { className: "bees-ribbon-left", style: { flexDirection: "column", alignItems: "flex-start", gap: "6px" } },
           h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
             h("span", { className: `bees-detail-badge ${item.runtimePhase}` }, item.runtimePhase === "waiting" && pendingRun ? "waiting for assignment" : item.runtimePhase),
@@ -430,7 +445,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
             item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
         )
-      ),
+      ) : null,
       activeTab === "details" ? h(React.Fragment, null,
         // Card 1: Routing & Assignee
         h("div", { className: "bees-card-section" },
@@ -459,6 +474,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           h(MarkdownText, { text: process.description })
         ) : null,
 
+        item.runSettings && Object.keys(item.runSettings).length ? h("section", { className: "bees-callout" },
+          h("h3", null, "Goal run settings"),
+          Object.hasOwn(item.runSettings, "model") ? h("p", null, `Model: ${item.runSettings.model || "System default"}${item.runSettings.reasoningEffort ? ` · ${item.runSettings.reasoningEffort} effort` : ""}`) : null,
+          item.runSettings.mcpAccess ? h("p", null, `Connected tools: ${item.runSettings.mcpAccess === "none" ? "None" : item.runSettings.mcpAccess === "listed" ? "Selected connections only" : "Workflow defaults"}`) : null,
+          h("p", { className: "bees-muted" }, "Applies to work, review, and delegated tasks. Each agent's tool restrictions still apply.")) : null,
+        h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
+          outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId }),
+
         // Card 3: Footer Actions
         h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "auto", paddingTop: "8px" } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", {className: "bees-btn-icon"}, "✎"), "Edit item"),
@@ -466,14 +489,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           h("button", { className: "bees-btn-secondary", onClick: () => setActiveTab("files") }, "Files & folders")
         )
       ) : activeTab === "files" ? h(React.Fragment, null,
-        item.runSettings && Object.keys(item.runSettings).length ? h("section", { className: "bees-callout" },
-          h("h3", null, "Goal run settings"),
-          Object.hasOwn(item.runSettings, "model") ? h("p", null, `Model: ${item.runSettings.model || "System default"}${item.runSettings.reasoningEffort ? ` · ${item.runSettings.reasoningEffort} effort` : ""}`) : null,
-          item.runSettings.mcpAccess ? h("p", null, `Connected tools: ${item.runSettings.mcpAccess === "none" ? "None" : item.runSettings.mcpAccess === "listed" ? "Selected connections only" : "Workflow defaults"}`) : null,
-          h("p", { className: "bees-muted" }, "Applies to work, review, and delegated tasks. Each agent's tool restrictions still apply.")) : null,
-        h(WorkFiles, { key: item.id, data, runs: itemRuns,
-          references: inputReferences, inherited, outputId: item.outputLocationId ?? "",
-          defaultOutputId: process?.outputLocationId })
+        h(WorkFiles, { key: item.id, runs: itemRuns, filesRef }),
+        run?.status === "completed" && run.outputs?.length ? h(Button, { onClick: publish },
+          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
@@ -577,7 +595,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
       ctx, data, item: selected, teamId, act, onArchived: onBack, onScheduleCreated, board, layout, editing,
       onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value)),
       onEditSchedule: setScheduleEditor,
-      setPageHeader
+      setPageHeader, preference, preferences
     }),
     scheduleEditor ? h(ScheduleForm, { item: root, recurring: scheduleEditor === true ? null : scheduleEditor, act,
       onClose: () => setScheduleEditor(false), onCreated: onScheduleCreated }) : null
