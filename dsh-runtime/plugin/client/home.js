@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, openExternal, HelpTooltip } from "./shared.js";
+import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup } from "./ask-bees.js";
@@ -94,12 +94,9 @@ function ProposalsWidget({ data, workspaceIds, act }) {
   const proposals = (data.proposals ?? []).filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
   if (!proposals.length) return h(Empty, null, "No proposals waiting for review.");
   return h("div", { className: "bees-dashboard-list" }, ...proposals.map((proposal) =>
-    h("article", { className: "bees-dashboard-proposal", key: proposal.id },
-      h("strong", null, proposal.title),
-      proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
-      h("div", { className: "bees-card-actions" },
-        h(Button, { className: "primary", onClick: () => act({ action: "apply_proposal", proposalId: proposal.id }) }, "Apply"),
-        h(Button, { onClick: () => act({ action: "reject_proposal", proposalId: proposal.id }) }, "Dismiss")))));
+    h(ProposalCard, { key: proposal.id, proposal,
+      onApply: () => act({ action: "apply_proposal", proposalId: proposal.id }),
+      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
 }
 
 const WIDGETS = [

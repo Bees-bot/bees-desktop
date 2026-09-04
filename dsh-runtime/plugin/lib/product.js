@@ -670,6 +670,7 @@ export class BeesProduct {
     this.database.prepare(`
       INSERT INTO bees_proposals VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `).run(id, workspaceId, sessionId || null, required(title, "Proposal title"), String(summary ?? ""), JSON.stringify(normalized), at, at);
+    this.notify({ type: "domain-propose_changes", workspaceId });
     return { id, changes: normalized.length };
   }
 

@@ -972,17 +972,18 @@ export async function executeProductCommand(action, input) {
       const executionId = randomUUID();
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const policy = mcpPolicy(input);
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
-          agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
+          agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
-          instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
+          instructions: "Propose the agents, process, servers, schedule and first work item this outcome needs.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
-          mcpAccess: "all", mcpServers: [],
+          mcpAccess: policy.access, mcpServers: policy.servers,
           grants: []
         }
       });
