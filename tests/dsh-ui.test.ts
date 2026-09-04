@@ -44,7 +44,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('window.dispatchEvent(new window.CustomEvent("bees-change"');
     expect(client).toContain('window.addEventListener("bees-change", changed)');
     expect(client).toContain("setInterval(() => void load(), 30_000)");
-    expect(client).toContain("setInterval(() => setRefreshCount(c => c + 1), 5000)");
     expect(client).toContain('run?.status === "queued" ? "Agent is starting..." : "Agent is working..."');
   });
 
@@ -236,9 +235,9 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("merges the requested navigation screens", () => {
-    expect(client).toContain('["all-agents", "Agents, pools & presets"]');
+    expect(client).toContain('["all-agents", "Agents & presets"]');
     expect(client).toContain('agents: { label: "Agents"');
-    expect(client).toContain('pools: { label: "Agent pools"');
+    expect(client).not.toContain('pools: { label: "Agent pools"');
     expect(client).toContain('presets: { label: "Agent presets"');
     expect(client).toContain('{ id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] }');
     expect(client).toContain('label: "Knowledge Base"');
@@ -294,13 +293,12 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain("ctx.sessions.open(");
   });
 
-  it("puts creation actions in widget headers and uses a selectable pool member", () => {
+  it("puts creation actions in widget headers and uses ordered stage participants", () => {
     expect(client).toContain('panel.actions ? h("div", { className: "bees-flex-widget-actions"');
     expect(client).toContain('agents: { label: "Agents", actions: h(Button');
-    expect(client).toContain('pools: { label: "Agent pools", actions: h(Button');
     expect(client).toContain('processes: { label: "Process Templates", actions: h(Button');
-    expect(client).toContain('"aria-label": "Agent to add"');
-    expect(client).toContain('resizeAlways: true');
+    expect(client).toContain('"Add participant"');
+    expect(client).toContain('"Discussion lead"');
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {

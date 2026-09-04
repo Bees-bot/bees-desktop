@@ -303,7 +303,7 @@ export class ProcessRuntime {
       if (recurring.status !== "active") throw new Error("Recurring work is paused");
       const source = this.database.prepare(`
         SELECT process_id AS processId, title, description, owner,
-               agent_assignment_id AS agentAssignmentId, priority,
+               agent_assignment_id AS agentAssignmentId, agent_ids_json AS agentIds, priority,
                output_location_id AS outputLocationId, run_settings_json AS runSettingsJson
         FROM work_items WHERE id = ? AND deleted_at IS NULL
       `).get(recurring.sourceWorkItemId);
@@ -317,10 +317,10 @@ export class ProcessRuntime {
       this.database.prepare(`
         INSERT INTO work_items
           (id, process_id, stage_id, kind, title, description, owner, agent_assignment_id,
-           priority, output_location_id, recurring_work_id, account_user_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'run', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           agent_ids_json, priority, output_location_id, recurring_work_id, account_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, 'run', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, source.processId, stageId, source.title, source.description, source.owner,
-        source.agentAssignmentId, source.priority, source.outputLocationId, recurring.id, accountUserId || null, at, at);
+        source.agentAssignmentId, source.agentIds, source.priority, source.outputLocationId, recurring.id, accountUserId || null, at, at);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
         .run(source.runSettingsJson, id);
       this.database.prepare(`

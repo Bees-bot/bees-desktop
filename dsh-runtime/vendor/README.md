@@ -14,5 +14,5 @@ installs the bundle as one version-consistent set and rejects incomplete bundles
 After installation, the script applies one narrow compatibility patch to the
 experimental Agent Team entry point. The rc.1 continuation manager supports
 per-child model routes, but the Team wrapper does not forward that existing
-field. Bees forwards it so manually configured pool members retain their model
+field. Bees forwards it so directly assigned discussion participants retain their model
 provider when they join a roundtable.

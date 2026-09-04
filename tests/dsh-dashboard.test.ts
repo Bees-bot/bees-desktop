@@ -128,7 +128,7 @@ describe("personal dashboards", () => {
     expect(client).toContain('{ kind: "finished-work", x: 0, y: 6, w: 12, h: 6 }');
     expect(client).toContain('label: "Completed, archived & stopped"');
     expect(client).toContain('layoutId: "agents"');
-    expect(client).toContain('layoutId: "agent-pool"');
+    expect(client).not.toContain('layoutId: "agent-pool"');
     expect(client).toContain('layoutId: "processes"');
     expect(client).toContain('layoutId: "process-templates"');
     expect(client).toContain('preferences.set("pageLayouts"');

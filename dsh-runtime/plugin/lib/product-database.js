@@ -87,6 +87,7 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   const row = database.prepare(`
     SELECT w.id, w.title, w.description, w.process_id AS processId, w.stage_id AS stageId,
            w.parent_id AS parentId, w.kind, w.agent_assignment_id AS agentAssignmentId,
+           w.agent_ids_json AS agentIds,
            w.owner, w.priority, w.run_settings_json AS runSettingsJson,
            w.account_user_id AS accountUserId,
            w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
@@ -96,7 +97,11 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   `).get(required(itemId, "Work item"));
   if (!row) throw new Error("Work item not found");
   workspaceContext(database, row.workspaceId, roles);
-  return { ...row, runSettings: JSON.parse(row.runSettingsJson || "{}") };
+  return {
+    ...row,
+    agentIds: agentIds(JSON.parse(row.agentIds || "[]")),
+    runSettings: JSON.parse(row.runSettingsJson || "{}")
+  };
 }
 
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
@@ -144,6 +149,14 @@ export function capabilities(value, label = "Capabilities") {
   return normalized;
 }
 
+export function agentIds(value, label = "Agents") {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a list`);
+  const ids = value.map((id) => required(id, "Agent"));
+  if (ids.length > 8) throw new Error(`${label} can contain at most eight agents`);
+  if (new Set(ids).size !== ids.length) throw new Error(`${label} cannot contain the same agent twice`);
+  return ids;
+}
+
 export function optionalReasoningEffort(value) {
   const effort = String(value ?? "").trim();
   if (effort.length > 100) throw new Error("Reasoning effort must be at most 100 characters");
@@ -179,7 +192,7 @@ export function activeAgentRuns(database, agentId) {
   return Number(database.prepare(`
     SELECT count(*) AS count FROM agent_dispatches d
     LEFT JOIN execution_links e ON e.execution_id = d.execution_id
-    WHERE d.agent_assignment_id = ? AND (
+    WHERE EXISTS (SELECT 1 FROM json_each(d.agent_ids_json) WHERE value = ?) AND (
       e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
       OR (e.execution_id IS NULL AND d.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
     )
@@ -468,6 +481,7 @@ export function initializeProductDatabase(database) {
       agent_pool_id TEXT REFERENCES agent_pools(id) ON DELETE RESTRICT,
       required_capabilities_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      agent_ids_json TEXT NOT NULL DEFAULT '[]',
       CHECK (agent_assignment_id IS NULL OR agent_pool_id IS NULL)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS recurring_work (
@@ -492,7 +506,8 @@ export function initializeProductDatabase(database) {
       stage_id TEXT NOT NULL REFERENCES stages(id), parent_id TEXT REFERENCES work_items(id),
       kind TEXT NOT NULL DEFAULT 'work' CHECK (kind IN ('goal', 'run', 'work')),
       title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', owner TEXT,
-      agent_assignment_id TEXT REFERENCES agent_assignments(id), priority TEXT NOT NULL DEFAULT 'normal',
+      agent_assignment_id TEXT REFERENCES agent_assignments(id),
+      agent_ids_json TEXT NOT NULL DEFAULT '[]', priority TEXT NOT NULL DEFAULT 'normal',
       runtime_phase TEXT NOT NULL DEFAULT 'ready'
         CHECK (runtime_phase IN ('ready', 'running', 'waiting', 'paused', 'failed', 'completed', 'cancelled')),
       runtime_attempt INTEGER NOT NULL DEFAULT 0, runtime_review_cycle INTEGER NOT NULL DEFAULT 0,
@@ -524,6 +539,7 @@ export function initializeProductDatabase(database) {
       target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'pool', 'workspace-default')),
       target_id TEXT NOT NULL,
       agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id),
+      agent_ids_json TEXT NOT NULL DEFAULT '[]',
       specialization_id TEXT REFERENCES agent_specializations(id),
       reason TEXT NOT NULL, agent_revision TEXT NOT NULL,
       agent_config_json TEXT NOT NULL, created_at TEXT NOT NULL
@@ -610,6 +626,9 @@ export function initializeProductDatabase(database) {
     "ALTER TABLE processes ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
   );
   const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
+  if (!itemColumns.has("agent_ids_json")) database.exec(
+    "ALTER TABLE work_items ADD COLUMN agent_ids_json TEXT NOT NULL DEFAULT '[]'"
+  );
   if (!itemColumns.has("run_settings_json")) database.exec(
     "ALTER TABLE work_items ADD COLUMN run_settings_json TEXT NOT NULL DEFAULT '{}'"
   );
@@ -623,12 +642,19 @@ export function initializeProductDatabase(database) {
     "ALTER TABLE work_items ADD COLUMN account_user_id TEXT"
   );
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
+  if (!dispatchColumns.has("agent_ids_json")) database.exec(
+    "ALTER TABLE agent_dispatches ADD COLUMN agent_ids_json TEXT NOT NULL DEFAULT '[]'"
+  );
   if (!dispatchColumns.has("agent_config_json")) database.exec("ALTER TABLE agent_dispatches ADD COLUMN agent_config_json TEXT NOT NULL DEFAULT '{}'");
   if (!dispatchColumns.has("specialization_id")) database.exec(
     "ALTER TABLE agent_dispatches ADD COLUMN specialization_id TEXT REFERENCES agent_specializations(id)"
   );
   const stageColumns = new Set(database.prepare("PRAGMA table_info(stages)").all().map(({ name }) => name));
   if (stageColumns.has("completion_rules")) database.exec("ALTER TABLE stages DROP COLUMN completion_rules");
+  const routeColumns = new Set(database.prepare("PRAGMA table_info(stage_routes)").all().map(({ name }) => name));
+  if (!routeColumns.has("agent_ids_json")) database.exec(
+    "ALTER TABLE stage_routes ADD COLUMN agent_ids_json TEXT NOT NULL DEFAULT '[]'"
+  );
   database.exec(`
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
@@ -689,6 +715,33 @@ export function initializeProductDatabase(database) {
     PRAGMA user_version = 16;
   `);
   if (version < 17) database.exec("PRAGMA user_version = 17");
+  if (version < 18) {
+    for (const route of database.prepare(`
+      SELECT r.stage_id AS stageId, r.agent_assignment_id AS agentId,
+             r.agent_pool_id AS poolId, s.driver
+      FROM stage_routes r JOIN stages s ON s.id = r.stage_id
+    `).all()) {
+      let ids = route.agentId ? [route.agentId] : [];
+      if (!ids.length && route.poolId) {
+        ids = database.prepare(`
+          SELECT a.id FROM agent_pool_members m
+          JOIN agent_assignments a ON a.id = m.agent_assignment_id
+          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
+          ORDER BY m.priority, a.id LIMIT 8
+        `).all(route.poolId).map(({ id }) => id);
+        if (route.driver !== "discussion") ids = ids.slice(0, 1);
+      }
+      database.prepare("UPDATE stage_routes SET agent_assignment_id = ?, agent_pool_id = NULL, agent_ids_json = ? WHERE stage_id = ?")
+        .run(ids[0] ?? null, JSON.stringify(ids), route.stageId);
+    }
+    database.exec(`
+      UPDATE work_items SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
+      UPDATE agent_dispatches SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_ids_json = '[]';
+      PRAGMA user_version = 18;
+    `);
+  }
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

@@ -155,8 +155,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
-  const assignment = assignments.find(({ id }) => id === item.agentAssignmentId);
-  const routeAgent = assignments.find(({ id }) => id === stage?.routeTargetId);
+  const itemAgents = (item.agentIds ?? []).map((id) => assignments.find((agent) => agent.id === id)).filter(Boolean);
+  const stageAgents = (stage?.agentIds ?? []).map((id) => assignments.find((agent) => agent.id === id)).filter(Boolean);
   const processStages = data.stages.filter(({ processId }) => processId === item.processId);
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
     processStages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
@@ -165,8 +165,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
   const inputReferences = data.attachments.filter(({ workItemId }) => workItemId === item.id);
   const resolvedAgentId = itemRuns.find((row) => row.dispatchStageId === item.stageId)?.resolvedAgentId
-    ?? (stage?.driver !== "review" ? assignment?.id : null) ?? (stage?.routeType === "agent" ? routeAgent?.id
-      : !stage?.routeType ? assignments.find(({ systemRole }) => systemRole === (stage?.driver === "review" ? "reviewer" : "worker"))?.id : null);
+    ?? (stage?.driver !== "review" ? itemAgents[0]?.id : null) ?? stageAgents[0]?.id
+    ?? assignments.find(({ systemRole }) => systemRole === (stage?.driver === "review" ? "reviewer" : "worker"))?.id;
   const inherited = inheritedInputs(data, process?.id, resolvedAgentId);
 
   const [selectedRun, setSelectedRun] = useState("");
@@ -236,20 +236,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     const title = await ask("Work title", item.title); if (!title) return;
     const description = await ask("Description", item.description) ?? item.description;
     const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? item.owner ?? "";
-    const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
-    if (agentName === null) return;
-    const nextAgent = assignments.find(({ name }) => name === agentName);
-    if (agentName && !nextAgent) return;
-    await act({ action: "edit_item", itemId: item.id, title, description, owner, priority: item.priority, parentId: item.parentId, agentAssignmentId: nextAgent?.id ?? null });
+    await act({ action: "edit_item", itemId: item.id, title, description, owner,
+      priority: item.priority, parentId: item.parentId });
   };
   const addSubitem = async () => {
     const title = await ask("Delegated work title", ""); if (!title) return;
     const description = await ask("What does success look like?", "") ?? "";
-    const agentName = await ask(`Worker override (optional; blank uses stage routing):\n${assignments.map(({ name }) => name).join("\n")}`, assignment?.name ?? "");
-    if (agentName === null) return;
-    const childAgent = assignments.find(({ name }) => name === agentName);
-    if (agentName && !childAgent) return;
-    await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description, agentAssignmentId: childAgent?.id ?? null });
+    await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description });
   };
   const publish = async () => {
     let location = data.locations.find(({ id }) => id === (item.outputLocationId || process?.outputLocationId));
@@ -480,7 +473,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
       h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
       h("div", { className: "bees-cards" }, ...(rows.length ? rows.map((item) => {
         const run = latest.get(item.id); const parentPath = lineage(item);
-        const routedAgent = data.assignments.find(({ id }) => id === (run?.resolvedAgentId ?? item.agentAssignmentId));
+        const routedIds = run?.resolvedAgentIds?.length ? run.resolvedAgentIds : item.agentIds ?? [];
+        const routedAgents = routedIds.map((id) => data.assignments.find((agent) => agent.id === id)).filter(Boolean);
         return h("button", { className: `bees-hierarchy-card ${selected.id === item.id ? "active" : ""}`, key: item.id, onClick: () => setSelectedId(item.id) },
           h("h3", null, item.title),
           item.description ? h("div", { className: "bees-card-desc" }, item.description) : null,
@@ -489,8 +483,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
             item.id === root.id ? h("span", { className: "bees-root-chip" }, "Root work item") : null),
           parentPath ? h("div", { className: "bees-lineage bees-muted", title: parentPath }, `Parent: ${parentPath}`) : null,
           h("div", { className: "bees-card-metadata" },
-            h("div", null, h("span", null, run?.resolvedAgentId ? "Agent" : "Assigned agent"),
-              h("strong", null, routedAgent?.name || (run?.resolvedAgentId ? "Unavailable agent" : "Not assigned"))),
+            h("div", null, h("span", null, routedAgents.length > 1 ? "Discussion" : run?.resolvedAgentId ? "Agent" : "Assigned agent"),
+              h("strong", null, routedAgents.map(({ name }) => name).join(", ") || (run?.resolvedAgentId ? "Unavailable agent" : "Stage default"))),
             h("div", null, h("span", null, "Started"),
               run?.startedAt ? h("time", { dateTime: run.startedAt }, new Date(run.startedAt).toLocaleString())
                 : h("span", null, !run || run.status === "queued" ? "Not started" : "Time unavailable"))));
@@ -535,6 +529,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
 function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onCancel, onCreated, setPageHeader }) {
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
+  const mentionableAgents = assignments.filter(({ enabled }) => enabled);
   const goal = kind === "goal";
   const processRun = kind === "run";
   const initialProcess = goal ? processes.find(({ kind }) => kind === "goals")
@@ -542,7 +537,6 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
   const [processId, setProcessId] = useState(initialProcess?.id ?? "");
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const [outputLocationId, setOutputLocationId] = useState("");
-  const [agentId, setAgentId] = useState("");
 
   if (!workspaceId) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Process Runs"), h("h2", null, goal ? "New goal" : processRun ? "Start process run" : "New work")),
@@ -550,8 +544,8 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
 
   const process = processes.find(({ id }) => id === processId) ?? initialProcess;
   const firstStage = data.stages.find(({ processId }) => processId === process?.id);
-  const routedAgentId = (firstStage?.driver !== "review" ? agentId : "") || (firstStage?.routeType === "agent" ? firstStage.routeTargetId
-    : !firstStage?.routeType ? assignments.find(({ systemRole }) => systemRole === (firstStage?.driver === "review" ? "reviewer" : "worker"))?.id : null);
+  const routedAgentId = firstStage?.agentIds?.[0]
+    ?? assignments.find(({ systemRole }) => systemRole === (firstStage?.driver === "review" ? "reviewer" : "worker"))?.id;
   const inherited = inheritedInputs(data, process?.id, routedAgentId);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
 
@@ -564,7 +558,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     } : {
       action: processRun ? "create_run" : "create_item", processId,
       title: String(form.get("title") ?? ""), description: String(form.get("description") ?? ""),
-      priority: String(form.get("priority") ?? "normal"), agentAssignmentId: String(form.get("agentAssignmentId") ?? "") || null,
+      priority: String(form.get("priority") ?? "normal"),
       inputLocationIds, outputLocationId
     };
     const created = await act(command); if (created?.id) onCreated(created.id);
@@ -587,13 +581,13 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, act, onC
     h("label", null, goal ? "Goal" : processRun ? "Run name" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
       placeholder: goal ? "Launch the product successfully" : "Draft the launch announcement" })),
     h("label", null, "What does success look like?", h("textarea", { className: "bees-textarea", name: "description",
-      placeholder: "Include the result, constraints, and evidence Bees should produce." })),
+      placeholder: "$ceo $cmo $cso discuss the strategy, constraints, and evidence." }),
+      h("span", { className: "bees-muted" }, mentionableAgents.length
+        ? `Start with agent mentions to choose participants; multiple mentions start a discussion: ${mentionableAgents.slice(0, 4).map(({ name }) => `$${name.toLocaleLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "")}`).join(" ")}`
+        : "Create an agent before using $mentions.")),
     h("div", { className: "bees-form-row" },
       h("label", null, "Priority", h("select", { className: "bees-select", name: "priority", defaultValue: "normal" },
-        h("option", { value: "low" }, "Low"), h("option", { value: "normal" }, "Normal"), h("option", { value: "high" }, "High"))),
-      !goal ? h("label", null, "Agent override (optional)", h("select", { className: "bees-select", name: "agentAssignmentId", value: agentId, onChange: (event) => setAgentId(event.target.value) },
-        h("option", { value: "" }, "Use each stage's assigned agent"),
-        ...assignments.map((agent) => h("option", { value: agent.id, key: agent.id, disabled: !agent.enabled }, agent.name)))) : null),
+        h("option", { value: "low" }, "Low"), h("option", { value: "normal" }, "Normal"), h("option", { value: "high" }, "High")))),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId: process?.outputLocationId, defaultOutputName: data.locations.find(({ id }) => id === process?.outputLocationId)?.name ?? "" }),

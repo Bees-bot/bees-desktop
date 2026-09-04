@@ -10,7 +10,7 @@ import {
   mappedLocation, stagedLocation, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
-import { AgentCapacityError, discussionPeers, resolveStageAgent } from "./product-routing.js";
+import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { executeProductCommand } from "./product-commands.js";
 
@@ -116,7 +116,6 @@ export class BeesProduct {
     `).get(item.parentId) : null;
     const runDirectory = parentRun?.runDirectory ?? resolve(this.defaultWorkspace, "runs", executionId);
     const reviewer = stage.purpose === "reviewer";
-    const discussion = stage.purpose === "discussion";
     let assignment;
     try {
       assignment = resolveStageAgent(this.database, {
@@ -127,9 +126,8 @@ export class BeesProduct {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
       throw error;
     }
-    const peers = discussion ? discussionPeers(this.database, {
-      stageId: required(stage.stageId, "Stage"), leadId: assignment.id
-    }) : [];
+    const discussion = assignment.discussion;
+    const peers = discussion ? assignment.agents.slice(1) : [];
     const seatNames = peers.map((_peer, index) => `participant-${index + 1}`);
     const discussionMembers = peers.map((peer, index) => ({
       name: seatNames[index],
@@ -268,9 +266,7 @@ export class BeesProduct {
     const stages = processIds.length ? this.database.prepare(`
       SELECT id, process_id AS processId, name, position, driver,
              requires_human_approval AS requiresHumanApproval, is_terminal AS isTerminal,
-             CASE WHEN r.agent_assignment_id IS NOT NULL THEN 'agent'
-                  WHEN r.agent_pool_id IS NOT NULL THEN 'pool' END AS routeType,
-             coalesce(r.agent_assignment_id, r.agent_pool_id) AS routeTargetId,
+             r.agent_ids_json AS agentIds,
              r.required_capabilities_json AS requiredCapabilities
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
       WHERE process_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
@@ -278,11 +274,13 @@ export class BeesProduct {
     `).all(JSON.stringify(processIds)).map((row) => ({
       ...row, requiresHumanApproval: Boolean(row.requiresHumanApproval),
       isTerminal: Boolean(row.isTerminal),
+      agentIds: JSON.parse(row.agentIds || "[]"),
       requiredCapabilities: JSON.parse(row.requiredCapabilities || "[]")
     })) : [];
     const items = processIds.length ? this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId, w.parent_id AS parentId,
              w.kind, w.title, w.description, w.owner, w.agent_assignment_id AS agentAssignmentId,
+             w.agent_ids_json AS agentIds,
              w.priority, w.run_settings_json AS runSettingsJson, w.runtime_phase AS runtimePhase, w.runtime_attempt AS runtimeAttempt,
              w.runtime_review_cycle AS runtimeReviewCycle,
              w.runtime_execution_id AS runtimeExecutionId, w.runtime_error AS runtimeError,
@@ -293,8 +291,9 @@ export class BeesProduct {
       FROM work_items w JOIN stages s ON s.id = w.stage_id
       WHERE w.process_id IN (SELECT value FROM json_each(?)) AND w.deleted_at IS NULL
       ORDER BY w.updated_at DESC
-    `).all(JSON.stringify(processIds)).map(({ runSettingsJson, ...row }) => ({
-      ...row, runSettings: JSON.parse(runSettingsJson), completed: Boolean(row.completed)
+    `).all(JSON.stringify(processIds)).map(({ runSettingsJson, agentIds, ...row }) => ({
+      ...row, agentIds: JSON.parse(agentIds || "[]"),
+      runSettings: JSON.parse(runSettingsJson), completed: Boolean(row.completed)
     })) : [];
     const locations = allowedTeams.length ? this.database.prepare(`
       SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
@@ -364,19 +363,6 @@ export class BeesProduct {
       WHERE specialization_id IN (SELECT value FROM json_each(?))
       ORDER BY specialization_id, revision DESC
     `).all(JSON.stringify(specializations.map(({ id }) => id))) : [];
-    const pools = workspaceIds.length ? this.database.prepare(`
-      SELECT id, workspace_id AS workspaceId, name, description
-      FROM agent_pools WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
-      ORDER BY name
-    `).all(JSON.stringify(workspaceIds)) : [];
-    const poolMembers = pools.length ? this.database.prepare(`
-      SELECT pool_id AS poolId, agent_assignment_id AS agentAssignmentId,
-             priority, enabled, last_assigned_at AS lastAssignedAt
-      FROM agent_pool_members WHERE pool_id IN (SELECT value FROM json_each(?))
-      ORDER BY pool_id, priority, agent_assignment_id
-    `).all(JSON.stringify(pools.map(({ id }) => id))).map((row) => ({
-      ...row, enabled: Boolean(row.enabled)
-    })) : [];
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
@@ -385,6 +371,7 @@ export class BeesProduct {
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
+             d.agent_ids_json AS resolvedAgentIds,
              d.specialization_id AS specializationId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision,
@@ -397,8 +384,9 @@ export class BeesProduct {
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY updated_at DESC LIMIT 200
-    `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, ...run }) => ({
-      ...run, pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
+    `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => ({
+      ...run, resolvedAgentIds: JSON.parse(resolvedAgentIds || "[]"),
+      pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
       outputs: outputFiles(runDirectory),
       files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
         ? previewFiles(runDirectory) : []
@@ -420,7 +408,7 @@ export class BeesProduct {
       currentUserId: userId, currentDeviceId: deviceId,
       accounts, organizations, connections, connectionTeams, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
-      assignments, pools, poolMembers, recurringWork, recurringExecutors,
+      assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
       presets, runs, proposals
     };
@@ -695,7 +683,7 @@ export class BeesProduct {
 
   record(action, input, result, outcome) {
     const metadata = { action, outcome };
-    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "agentPoolId", "recurringWorkId", "specializationId", "locationId", "proposalId"])
+    for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "recurringWorkId", "specializationId", "locationId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
     const executionId = result?.executionId ? String(result.executionId) : null;

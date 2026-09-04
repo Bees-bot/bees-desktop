@@ -1,4 +1,4 @@
-import { h, useState, React } from "./runtime.js";
+import { h, useEffect, useState, React } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
@@ -14,6 +14,43 @@ const PROCESS_DETAIL_LAYOUT = [
   { kind: "agent", x: 0, y: 7, w: 12, h: 10 },
   { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
 ];
+
+function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
+  const ids = stage.agentIds ?? [];
+  const [nextId, setNextId] = useState("");
+  useEffect(() => { if (ids.includes(nextId)) setNextId(""); }, [JSON.stringify(ids)]);
+  const selected = ids.map((id) => agents.find((agent) => agent.id === id)).filter(Boolean);
+  const available = agents.filter((agent) => agent.enabled && !ids.includes(agent.id));
+  const save = (agentIds) => act({
+    action: "set_stage_route", stageId: stage.id, agentIds,
+    requiredCapabilities: stage.requiredCapabilities
+  });
+  const move = (index, offset) => {
+    const reordered = [...ids];
+    [reordered[index], reordered[index + offset]] = [reordered[index + offset], reordered[index]];
+    return save(reordered);
+  };
+  return h("div", { className: "bees-form", style: { marginTop: "8px" } },
+    ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
+      h("div", { className: "bees-row-main" },
+        h("strong", null, agent.name),
+        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? "Discussion lead" : "Assigned agent") : "Participant")),
+      h(Button, { onClick: () => onOpenAgent(agent.id) }, "Configure"),
+      h(Button, { disabled: index === 0, onClick: () => move(index, -1), title: "Move earlier" }, "↑"),
+      h(Button, { disabled: index === ids.length - 1, onClick: () => move(index, 1), title: "Move later" }, "↓"),
+      h(Button, { onClick: () => save(ids.filter((id) => id !== agent.id)) }, "Remove"))),
+    stage.driver === "review" && ids.length ? null : h("div", { className: "bees-row" },
+      h("select", { className: "bees-select bees-grow", value: nextId, disabled: !available.length,
+        "aria-label": `${stage.name} agent to add`, onChange: (event) => setNextId(event.target.value) },
+        h("option", { value: "" }, available.length ? "Choose an agent" : "No more available agents"),
+        ...available.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
+      h(Button, { className: "primary", disabled: !nextId, onClick: async () => {
+        await save([...ids, nextId]); setNextId("");
+      } }, ids.length ? "Add participant" : "Assign agent")),
+    h(Button, { onClick: onCreateAgent }, "+ Create new agent"),
+    ids.length > 1 ? h("p", { className: "bees-muted" }, "All assigned agents discuss; the first agent leads and submits the result.") : null
+  );
+}
 
 function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
@@ -51,7 +88,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
       placeholder: "When should someone use this workflow?" })),
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
-    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Discuss, Debate, or Roundtable uses a routed agent pool; Review uses an independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
+    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Assign two or more agents to make a discussion; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
@@ -79,7 +116,6 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const attached = data.processAttachments.filter((row) => row.processId === process.id);
       const processStages = data.stages.filter(({ processId }) => processId === process.id);
       const processAgents = data.assignments.filter(({ workspaceId }) => workspaceId === process.workspaceId);
-      const processPools = data.pools.filter(({ workspaceId }) => workspaceId === process.workspaceId);
       
       const editProcess = async () => {
         const name = await ask("Process template name", process.name); if (!name) return;
@@ -96,24 +132,6 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         if (result?.id) setProcessId(result.id);
       };
 
-      const setStageRoute = async (stage, value) => {
-        const separator = value.indexOf(":");
-        await act({
-          action: "set_stage_route", stageId: stage.id,
-          targetType: separator < 0 ? null : value.slice(0, separator),
-          targetId: separator < 0 ? null : value.slice(separator + 1),
-          requiredCapabilities: stage.requiredCapabilities
-        });
-      };
-      const setRequirements = async (stage) => {
-        const value = await ask("Required capabilities, comma separated", stage.requiredCapabilities.join(", "));
-        if (value === null) return;
-        await act({
-          action: "set_stage_route", stageId: stage.id,
-          targetType: stage.routeType, targetId: stage.routeTargetId,
-          requiredCapabilities: value.split(",").map((entry) => entry.trim()).filter(Boolean)
-        });
-      };
       const archiveProcess = async () => {
         if (!await confirmAction(`Archive process template “${process.name}”? Its process runs and history will be preserved.`)) return;
         if (await act({ action: "archive_process", processId: process.id })) setProcessId("");
@@ -122,43 +140,21 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
       
       const routingBoard = h("div", { className: "bees-cockpit-board bees-routing-board" }, ...processStages.map((stage) => {
-          const agent = stage.routeType === "agent" ? processAgents.find(({ id }) => id === stage.routeTargetId) : null;
-          const pool = stage.routeType === "pool" ? processPools.find(({ id }) => id === stage.routeTargetId) : null;
-          
           let card;
-          if (stage.driver === "terminal") {
-            card = h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } }, h("span", { className: "bees-badge" }, "Terminal"), h("p", { className: "bees-muted", style: { marginTop: "8px" } }, "Work completes here."));
-          } else if (agent) {
-            card = h("button", { type: "button", className: `bees-hierarchy-card ${selectedAgentId === agent.id ? "active" : ""}`,
-              onClick: () => { setCreatingStageId(""); setSelectedAgentId(agent.id); } },
-              h("h3", null, agent.name), h("div", { className: "bees-muted" }, [agent.presetId, agent.description].filter(Boolean).join(" · ")));
-          } else if (pool) {
-            card = h("button", { type: "button", className: "bees-hierarchy-card" }, h("h3", null, pool.name), h("div", { className: "bees-muted" }, stage.driver === "discussion" ? "Discussion pool" : "Agent pool"));
+          if (["manual", "terminal"].includes(stage.driver)) {
+            card = h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } },
+              h("span", { className: "bees-badge" }, stage.driver === "terminal" ? "Terminal" : "Human"),
+              h("p", { className: "bees-muted", style: { marginTop: "8px" } },
+                stage.driver === "terminal" ? "Work completes here." : "A person moves work through this stage."));
           } else {
             card = null;
           }
 
-          const controls = stage.driver === "terminal" ? null : h("div", { className: "bees-form", style: { marginTop: "8px" } },
-            h("div", { className: "bees-card-actions", style: { display: "flex", gap: "6px" } },
-              h("select", {
-                className: "bees-select", style: { flex: 1, fontSize: "13px", padding: "8px" }, value: stage.routeType ? `${stage.routeType}:${stage.routeTargetId}` : "",
-                "aria-label": `${stage.name} agent route`, onChange: (event) => {
-                  if (event.target.value === "create_new") {
-                    event.target.value = "";
-                    setSelectedAgentId(""); setCreatingStageId(stage.id);
-                  } else {
-                    void setStageRoute(stage, event.target.value);
-                  }
-                }
-              },
-                h("option", { value: "" }, agent || pool ? "Remove (Use team default)" : "+ Add or Create Agent"),
-                h("option", { value: "create_new" }, "+ Create new agent"),
-                h("optgroup", { label: "Agents" }, ...processAgents.map((row) =>
-                  h("option", { value: `agent:${row.id}`, key: row.id, disabled: !row.enabled || stage.driver === "discussion" }, row.name))),
-                h("optgroup", { label: "Pools" }, ...processPools.map((row) =>
-                  h("option", { value: `pool:${row.id}`, key: row.id }, row.name))))
-            )
-          );
+          const controls = ["manual", "terminal"].includes(stage.driver) ? null : h(StageAgentRoute, {
+            stage, agents: processAgents, act,
+            onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
+            onCreateAgent: () => { setSelectedAgentId(""); setCreatingStageId(stage.id); }
+          });
 
           return h("section", { className: "bees-column", key: stage.id },
             h("header", { className: "bees-column-head" }, stage.name),
@@ -169,7 +165,9 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
           
           h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
-              await setStageRoute(creatingStage, `agent:${id}`); setCreatingStageId(""); setSelectedAgentId(id);
+              await act({ action: "set_stage_route", stageId: creatingStage.id,
+                agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
+              setCreatingStageId(""); setSelectedAgentId(id);
             } }))
         : selectedAgent ? h("div", null,
           

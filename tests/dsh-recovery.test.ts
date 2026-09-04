@@ -181,7 +181,6 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('"Approve once"');
     expect(client).toContain('h(FilePreview, { target: viewer, onClose: () => setViewer(null) })');
     expect(client).toContain('h(MarkdownText, { text: file.content })');
-    expect(client).toContain('"sessions", "uiSession"]');
     expect(client).not.toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('"data-model-toggle": "download"');
@@ -195,7 +194,6 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).not.toContain("window.prompt");
     expect(client).not.toContain("window.confirm");
     expect(client).toContain('document.createElement("dialog")');
-    expect(client).toContain('item.runtimeError ? h("div", { className: "bees-convo-msg agent error" }');
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
     expect(client).not.toContain('summary.origin === "subagent"');
     expect(client).not.toContain('bees-subagent-card');

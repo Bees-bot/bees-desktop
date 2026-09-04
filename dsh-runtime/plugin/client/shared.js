@@ -9,7 +9,7 @@ export const NAVIGATION = [
   ] },
   { id: "processes", label: "Process Templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
-    ["all-agents", "Agents, pools & presets"],
+    ["all-agents", "Agents & presets"],
     ["skills", "Skills & tools"], ["mcp", "MCP servers"]
   ] },
   { id: "files", label: "Files & Folders", icon: FilesIcon, defaultChild: "locations", children: [] },
@@ -1183,7 +1183,7 @@ export function useBeesChangeRevision() {
 
 export function sectionFor(child) {
   // Routes a page owns without listing in the nav tree, so they still light up their section.
-  const section = { goals: "work", waiting: "work", completed: "work", pools: "agents", presets: "agents", sources: "knowledge" }[child];
+  const section = { goals: "work", waiting: "work", completed: "work", presets: "agents", sources: "knowledge" }[child];
   return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
