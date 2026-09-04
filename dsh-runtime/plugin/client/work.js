@@ -770,18 +770,13 @@ function ApprovalPanel({ wait, onAnswered }) {
   const [error, setError] = useState("");
   const answer = async (outcome) => {
     setBusy(outcome); setError("");
-    try {
-      const receipt = await wait.respond({ ok: true, value: {
-        sessionId: wait.sessionId, approvalId: wait.payload.approvalId, outcome
-      } });
-      if (!receipt.accepted) throw new Error(`approval response rejected: ${receipt.reason}`);
-      onAnswered(wait.key);
-    } catch (reason) { setBusy(""); setError(reason instanceof Error ? reason.message : String(reason)); }
+    try { await wait.answer(outcome); onAnswered(wait.key); }
+    catch (reason) { setBusy(""); setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   return h(React.Fragment, null,
-    h("div", null, h("div", { className: "bees-muted" }, wait.payload.toolName || "Agent action"),
+    h("div", null, h("div", { className: "bees-muted" }, wait.toolName || "Agent action"),
       h("h3", { className: "bees-section-title" }, "Approve this action?")),
-    wait.payload.reason ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: wait.payload.reason })) : null,
+    wait.reason ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: wait.reason })) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-answer-actions" },
       h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => void answer("rejected") }, busy === "rejected" ? "Denying…" : "Deny"),
