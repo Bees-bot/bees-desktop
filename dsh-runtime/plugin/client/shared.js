@@ -399,7 +399,10 @@ export const css = `
   padding: 0 !important;
 }
 .bees-cockpit-board .bees-hierarchy-card {
-  padding: 8px 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 12px !important;
   border-radius: 8px !important;
   border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.08)) !important;
   background: var(--dsw-specific-sidebar-fill, #161920) !important;
@@ -418,7 +421,7 @@ export const css = `
 .bees-cockpit-board .bees-hierarchy-card h3 {
   font-size: 13px !important;
   font-weight: 600 !important;
-  margin: 0 0 3px !important;
+  margin: 0 !important;
   line-height: 1.3 !important;
 }
 .bees-cockpit-board .bees-hierarchy-card .bees-muted {
@@ -516,12 +519,13 @@ export const css = `
 }
 .bees-action-ribbon .bees-tab-actions{max-width:60%;align-self:flex-start!important}
 .bees-control-title{font-size:13px}
-.bees-card-badges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.bees-card-badges{display:flex;flex-wrap:wrap;gap:6px;margin:0}
 .bees-root-chip{display:inline-flex;align-items:center;padding:4px 8px;border-radius:6px;background:#3b82f622;border:1px solid #3b82f666;color:var(--dsw-alias-label-primary);font-size:10px;font-weight:700}
-.bees-card-metadata{display:grid;gap:6px;margin-top:10px;font-size:11px}
-.bees-card-metadata>div{display:grid;grid-template-columns:80px minmax(0,1fr);gap:6px;overflow-wrap:anywhere}
-.bees-card-metadata>div>span:first-child{color:var(--dsw-alias-label-secondary)}
-.bees-card-metadata strong{font-weight:600}
+.bees-card-metadata { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--dsw-alias-border-l1); font-size: 11px; }
+.bees-card-metadata > div { display: flex; flex-direction: column; gap: 3px; }
+.bees-card-metadata > div:last-child { align-items: flex-end; text-align: right; }
+.bees-card-metadata > div > span:first-child { color: var(--dsw-alias-label-secondary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.bees-card-metadata strong, .bees-card-metadata time, .bees-card-metadata > div > span:last-child { font-weight: 600; color: var(--dsw-alias-label-primary); }
 @media(max-width:780px){.bees-action-ribbon{flex-direction:column!important}.bees-action-ribbon .bees-tab-actions{max-width:100%;align-self:stretch!important}}
 .bees-tab-actions {
   display: flex !important;
@@ -928,7 +932,7 @@ export const css = `
   overflow: hidden !important;
   font-size: 11.5px !important;
   color: var(--dsw-alias-label-secondary) !important;
-  margin: 4px 0 8px !important;
+  margin: 0 !important;
   line-height: 1.4 !important;
   white-space: normal !important;
 }

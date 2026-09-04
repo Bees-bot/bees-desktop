@@ -10,6 +10,7 @@ import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
+import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
@@ -186,7 +187,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
 
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);
-  const [audit, setAudit] = useState([]);
+  const [historyError, setHistoryError] = useState("");
   const convoRef = React.useRef(null);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
@@ -206,37 +207,27 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     setActiveTab("files"); setComposerText(""); setSending(false);
   }, [item.id]);
   useEffect(() => {
-    let active = true;
-    if (!run) { setHistory(null); return () => { active = false; }; }
-    request(`/bees-api/run-history?executionId=${encodeURIComponent(run.id)}`)
-      .then((value) => active && setHistory(value.history))
-      .catch((error) => active && setHistory({ error: error instanceof Error ? error.message : String(error) }));
-    return () => { active = false; };
+    setHistoryError("");
+    if (!run) { setHistory(null); return; }
+    return pollConversation(run.id, {
+      request,
+      isVisible: () => document.visibilityState !== "hidden",
+      onHistory: (next) => {
+        setHistory((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+        setHistoryError("");
+      },
+      onError: (error) => setHistoryError(error instanceof Error ? error.message : String(error))
+    });
   }, [run?.id, refreshCount, liveRevision]);
-  useEffect(() => {
-    let interval;
-    if (run && ["running", "waiting", "waiting_for_input", "waiting_for_approval"].includes(item.runtimePhase)) {
-      interval = setInterval(() => setRefreshCount(c => c + 1), 5000);
-    }
-    return () => clearInterval(interval);
-  }, [run?.id, item.runtimePhase]);
-  // The audit strip is supplementary, so a failed refresh leaves it empty rather than taking the page down.
-  useEffect(() => {
-    let active = true;
-    request("/bees-api/audit")
-      .then(({ events }) => active && setAudit(events ?? []))
-      .catch(() => active && setAudit([]));
-    return () => { active = false; };
-  }, [item.id, data.runs.length, liveRevision]);
   const isScrolledUpRef = React.useRef(false);
   useEffect(() => {
     isScrolledUpRef.current = false;
-  }, [run?.id, item.id]);
+  }, [item.id]);
 
   // Auto-scroll conversation robustly
   useEffect(() => {
     if (isScrolledUpRef.current) return;
-    const scrollToBottom = () => { if (convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
     scrollToBottom();
     let id1 = setTimeout(scrollToBottom, 50);
     return () => { clearTimeout(id1); };
@@ -276,59 +267,24 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   };
   const restore = () => act({ action: "archive_item", itemId: item.id, restore: true });
   const answered = (key) => setHandled((current) => new Set(current).add(key));
-  const runAudit = new Set(itemRuns.map(({ id }) => id));
-  const events = audit.filter(({ executionId, metadata }) => runAudit.has(executionId) || metadata?.itemId === item.id || metadata?.parentId === item.id || metadata?.resultId === item.id);
-  
-
-  // Collapse history messages
-  const convoItems = [];
-  convoItems.push(h(GoalMessage, { item, key: "start" }));
-  
-  if (history?.messages) {
-    for (const msg of history.messages) {
-      if (msg.role === "user") convoItems.push(h(UserMessage, { key: msg.id }, msg.parts.map(p => p.text).join(" ")));
-      else if (msg.role === "context") convoItems.push(h("div", { className: "bees-convo-msg system", key: msg.id }, h("span", { style: { opacity: 0.7, marginRight: 6 } }, "⚡"), h("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, msg.parts.map(p => p.text).join(" "))));
-      else if (msg.role === "error") convoItems.push(h("div", { className: "bees-convo-msg system", key: msg.id, style: { color: "#cf5b5b" } }, h("span", { style: { fontSize: "16px" } }, "✕"), h("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, msg.parts.map(p => p.text).join(" "))));
-      else {
-        const textParts = msg.parts.filter(p => p.text);
-        const toolParts = msg.parts.filter(p => p.type === "tool");
-        if (textParts.length) {
-          convoItems.push(h("div", { className: "bees-agent-turn", key: msg.id },
-            h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
-            h("div", { className: "bees-convo-msg agent" },
-              h("strong", null, "Coordinator"),
-              h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, textParts.map(p => p.text).join(" ")))));
-        }
-      }
-    }
-  } else if (history === null) {
-    convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation..."));
-  } else if (history?.error) {
-    convoItems.push(h("div", { className: "bees-convo-msg system", key: "hist-error", style: { color: "#cf5b5b" } }, `Failed to load history: ${history.error}`));
-  } else if (events.length) {
-    convoItems.push(h("div", { className: "bees-convo-msg system", key: "audit-events" }, `${events.length} background events recorded`));
+  const subitems = data.items.filter((child) => child.parentId === item.id && !child.archivedAt);
+  const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
+  const visibleHistory = history?.executionId === run?.id ? history : null;
+  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  const latestResult = itemRuns.filter((row) => row.resultSummary)
+    .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
+  const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
+  const convoItems = [h(GoalMessage, { item, key: "start" })];
+  for (const message of messages) {
+    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
+      h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
+      h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
+        h("strong", null, message.label),
+        message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
+        h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
   }
-
-  // Inject subitems status
-  const subitems = data.items.filter(i => i.parentId === item.id && !i.archivedAt);
-  for (const sub of subitems) {
-    if (["running", "waiting", "paused"].includes(sub.runtimePhase)) {
-      convoItems.push(h("div", { className: "bees-convo-msg agent", key: `sub-${sub.id}` }, h("strong", null, "Agent working on"), h("div", null, sub.title), h("div", { className: "bees-working-indicator", style: { padding: 4, justifyContent: "flex-start" } }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })))));
-    } else if (sub.runtimePhase === "completed") {
-      convoItems.push(h("div", { className: "bees-convo-msg agent", key: `sub-${sub.id}` }, h("strong", null, "Agent finished"), h("div", null, sub.title)));
-    } else if (sub.runtimePhase === "failed") {
-      convoItems.push(h("div", { className: "bees-convo-msg agent error", key: `sub-${sub.id}` }, h("strong", null, "Agent failed"), h("div", null, sub.title)));
-    }
-  }
-
-  // A finished stage writes its own account of what it did. Without this the run just stops
-  // and the conversation goes quiet, with the result sitting unread in the database.
-  const OUTCOME = { candidate: "Submitted for review", blocked: "Blocked", pass: "Review passed", revise: "Sent back for changes" };
-  for (const settled of itemRuns.filter((r) => r.resultSummary).reverse()) {
-    convoItems.push(h("div", { className: `bees-convo-msg agent${settled.resultOutcome === "blocked" ? " error" : ""}`, key: `result-${settled.id}` },
-      h("strong", null, OUTCOME[settled.resultOutcome]),
-      h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, settled.resultSummary)));
-  }
+  if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
 
   const isWorking = ["queued", "running"].includes(run?.status) ||
     item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);
@@ -353,14 +309,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
         : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..." : "Agent is working...")
-        : null,
-        item.runtimeError ? h("div", { className: "bees-convo-msg agent error" }, h("strong", null, "Error"), h("div", null, item.runtimeError)) : null
+        : null
       ),
       h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
           event.preventDefault();
           const text = composerText.trim();
-          isScrolledUpRef.current = false;
           if (!text || isAgentBusy) return;
+          isScrolledUpRef.current = false;
           const sessionBinding = activeBinding;
           // If there is no active binding but the user is trying to send a message, we continue the conversation with the backend action
           if (!sessionBinding) {
@@ -404,28 +359,28 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         }),
         h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")
       ));
-  const controls = h("section", { className: "bees-action-ribbon", "aria-label": "Selected work status" },
-        h("div", { className: "bees-ribbon-left", style: { flexDirection: "column", alignItems: "flex-start", gap: "6px" } },
-          h("strong", { className: "bees-control-title" }, item.title),
-          h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
-            h("span", { className: `bees-detail-badge ${item.runtimePhase}` }, item.runtimePhase?.replaceAll("_", " ") || "pending"),
-            item.parentId ? h("span", { className: "bees-muted", style: { fontSize: "11px" } }, "in ", data.items.find(i => i.id === item.parentId)?.title) : null
-          ),
-          item.runtimeError ? h("div", { style: { color: "#f87171", fontSize: "13px", marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, item.runtimeError) : null
-        ),
-        h("div", { className: "bees-tab-actions" },
-          run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
-          run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
-          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
-          run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
-          run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
-          run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
-          !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
-            : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
-          run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
-            item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
-        )
-      );
+  const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status", style: { display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 8px", gap: "6px", height: "100%", overflow: "hidden" } },
+      h("div", { className: "bees-tab-actions", style: { margin: 0, padding: 0, justifyContent: "flex-end", flexShrink: 0 } },
+        run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
+        run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
+        run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
+        run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
+        run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
+        run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
+        !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
+          : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
+        run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
+          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
+      ),
+      h("div", { style: { display: "flex", alignItems: "center", gap: "8px", overflow: "hidden", whiteSpace: "nowrap" } },
+        h("span", { className: `bees-detail-badge ${item.runtimePhase}`, style: { margin: 0 } }, item.runtimePhase?.replaceAll("_", " ") || "pending"),
+        item.runtimeError ? h("span", { style: { color: "#f87171", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: item.runtimeError }, item.runtimeError) 
+          : historyError ? h("span", { style: { color: "#f2b84b", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: historyError }, `Warning: ${historyError}`)
+          : activeChildren ? h("span", { className: "bees-muted", style: { fontSize: "11px" } }, `${activeChildren} delegated active`)
+          : item.parentId ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, "in ", data.items.find(i => i.id === item.parentId)?.title) 
+          : latestResult ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, `Agent update: ${OUTCOME_LABELS[latestResult.resultOutcome] || "finished"}`) : null
+      )
+    );
 
   const details = h("div", { className: "bees-details-panel" },
     // 1. TABS HEADER
@@ -478,7 +433,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     className: "bees-work-item-grid",
     panels: {
       kanban: { label: "Kanban", hideHeader: true, borderless: true, sizeToContent: true, minW: 6, minH: 2, content: board },
-      "run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12, minH: 2, content: controls },
+      "run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12, minH: 1, content: controls },
       conversation: { label: "Conversation", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: conversation },
       details: { label: "Details", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: details }
     }
