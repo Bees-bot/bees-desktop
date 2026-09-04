@@ -1009,9 +1009,11 @@ export async function executeProductCommand(action, input) {
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const policy = mcpPolicy(input);
+      const rows = this.database.prepare("SELECT name, kind FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
+      const folders = rows.length ? `\n\nTeam folders a work item can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, kind }) => `${name} (${kind})`).join(", ")}` : "";
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
+        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}${folders}`,
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
