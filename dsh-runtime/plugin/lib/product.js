@@ -593,12 +593,41 @@ export class BeesProduct {
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
     const proposedProcesses = new Set();
+    const proposedAgents = new Set();
+    const proposedItems = new Set();
+    const earlier = (set, name, what) => {
+      if (!set.has(String(name).toLocaleLowerCase())) throw new Error(`${what} must name one created earlier in the same proposal`);
+    };
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
-      if (change.action === "create_goal") return {
-        action: "create_goal", title: required(change.title, "Goal title"),
-        description: String(change.description ?? "")
-      };
+      if (change.action === "create_goal") {
+        const title = required(change.title, "Goal title");
+        proposedItems.add(title.toLocaleLowerCase());
+        return { action: "create_goal", title, description: String(change.description ?? "") };
+      }
+      if (change.action === "add_agent_assignment") {
+        const name = required(change.name, "Agent name");
+        proposedAgents.add(name.toLocaleLowerCase());
+        return {
+          action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
+          description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
+          ...(change.model ? { model: String(change.model) } : {}),
+          ...(change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {})
+        };
+      }
+      if (change.action === "set_stage_route") {
+        const process = required(change.process, "Route process");
+        earlier(proposedProcesses, process, "A proposed route's process");
+        const agents = Array.isArray(change.agents) ? change.agents.map(String) : [];
+        for (const agent of agents) earlier(proposedAgents, agent, "A proposed route's agent");
+        return { action: "set_stage_route", process, stage: required(change.stage, "Route stage"), agents };
+      }
+      if (change.action === "create_recurring_work") {
+        earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
+        return { ...change };
+      }
+      // Capabilities validates these when the proposal is applied.
+      if (["install_mcp_server", "add_mcp_server", "install_skill"].includes(change.action)) return { ...change };
       if (change.action === "create_process") {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
@@ -613,10 +642,9 @@ export class BeesProduct {
         const process = required(change.process, "Work item process");
         if (!proposedProcesses.has(process.toLocaleLowerCase()))
           throw new Error("A proposed work item must target a process created earlier in the same proposal");
-        return {
-          action: "create_item", process, title: required(change.title, "Work item title"),
-          description: String(change.description ?? "")
-        };
+        const title = required(change.title, "Work item title");
+        proposedItems.add(title.toLocaleLowerCase());
+        return { action: "create_item", process, title, description: String(change.description ?? "") };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);
     });
