@@ -23,6 +23,10 @@ export declare class AgentRuntime {
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   setKnowledgeSearch(search: (query: string, workspaceId: string) => Promise<unknown[]>): void;
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;
+  setSubitemStore(store: {
+    create(input: Record<string, unknown>): Promise<Array<{ id: string }>>;
+    cancel(workItemId: string): Promise<unknown>;
+  }): void;
   setWorkStarter(start: (input: Record<string, unknown>) => unknown): void;
   onSessionEvent(session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }): void;
   pendingInteraction(executionId: string): Record<string, unknown> | null;
@@ -32,6 +36,7 @@ export declare class AgentRuntime {
   dispatch(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
   resumeQueued(): void;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
+  waitForPeers(ids: string[], signal?: AbortSignal): Promise<Array<Record<string, unknown>>>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;
   abort(executionId: string): boolean;
   purge(executionId: string): Promise<void>;
