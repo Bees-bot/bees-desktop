@@ -197,7 +197,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
   const ready = !busy && (!entry.requiresDirectory || directory)
     && !entry.secrets.some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
   const pick = async () => {
-    const path = await ctx.workspaces.pickDirectory();
+    const path = await ctx.uiWorkspace.pickDirectory();
     if (path) setDirectory(path);
   };
   return h("section", { className: "bees-box" },

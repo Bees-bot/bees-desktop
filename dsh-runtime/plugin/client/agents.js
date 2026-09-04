@@ -41,9 +41,8 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
   const [reasoningEffort, setReasoningEffort] = useState(effort);
   useEffect(() => {
     let mounted = true;
-    void ctx.get("connection").api.llm.models({}).then((response) => {
-      if (!response.result.ok) throw new Error(response.result.error.message);
-      if (mounted) setCatalog({ ...response.result.value, loading: false, error: "" });
+    void request("/bees-api/llm-models").then((catalog) => {
+      if (mounted) setCatalog({ ...catalog, loading: false, error: "" });
     }).catch((reason) => {
       if (mounted) setCatalog({ groups: [], failures: [], loading: false,
         error: reason instanceof Error ? reason.message : String(reason) });

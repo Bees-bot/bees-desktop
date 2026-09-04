@@ -353,6 +353,8 @@ describe("Bees DSH public contract", () => {
       expect(client).not.toContain('"workspace-settings"');
       expect(client).not.toContain('"Default workspace"');
       expect(client).not.toContain('["system", "System"]');
+      expect(client).toContain("ctx.uiWorkspace.pickDirectory()");
+      expect(client).not.toContain("ctx.workspaces.pickDirectory()");
       expect(client).toContain('nextThemePreset(stored)');
       expect(client).toContain('await preferences?.set("themePreset", next.id)');
       expect(client).toContain('theme.setTheme(nextMode)');
@@ -416,7 +418,8 @@ describe("Bees DSH public contract", () => {
       expect(customAiClient).toContain('{ id: "openrouter", name: "OpenRouter"');
       expect(customAiClient).toContain('{ id: "xai", name: "xAI"');
       expect(customAiClient).toContain('"/bees-api/general-ai/test"');
-      expect(customAiClient).toContain('credentials.describe({ refs: Object.values(refs) })');
+      expect(customAiClient).toContain('credentials.describe(Object.values(refs))');
+      expect(customAiClient).toContain('ctx.remote.credentials');
       expect(customAiClient).toContain('openExternal(provider.signup)');
       expect(customAiClient).toContain('"generalAiModels"');
       expect(customAiClient).toContain('"Model ID"');
