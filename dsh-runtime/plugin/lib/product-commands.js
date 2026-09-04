@@ -3,7 +3,7 @@ import { showAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  agentCapabilities, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
+  agentCapabilities, agentIds as normalizeAgentIds, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
   parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
@@ -67,37 +67,48 @@ const referenceSlug = (value) => String(value).normalize("NFKD").toLocaleLowerCa
   .replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "");
 const referenceLabel = (value) => String(value).replace(/[\]\r\n]/g, " ").trim().slice(0, 160);
 
-/** A leading $agent is an explicit handoff; the stored form keeps the stable assignment id. */
-function invokedAgent(database, workspaceId, value) {
-  const text = String(value ?? "");
-  const canonical = text.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*[,;:\-]\s*|\s+|$)/u);
-  if (canonical) {
-    const agent = assignment(database, canonical[2], workspaceId);
-    if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
-    const request = text.slice(canonical[0].length).trim();
-    if (!request) throw new Error(`Tell ${agent.name} what you want done`);
-    return { agent, request, reference: `$[${referenceLabel(agent.name)}](bees:agent:${agent.id})` };
+/** Leading $agents are an ordered roster; the stored form keeps their stable assignment ids. */
+function invokedAgents(database, workspaceId, value) {
+  let rest = String(value ?? "");
+  const agents = [];
+  while (agents.length < 9) {
+    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*[,;:\-]\s*|\s+|$)/u);
+    let agent;
+    let consumed;
+    if (canonical) {
+      agent = assignment(database, canonical[2], workspaceId);
+      if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
+      consumed = canonical[0];
+    } else {
+      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*[,;:\-]\s*|\s+|$)/iu);
+      if (typed && typed[1].toLocaleLowerCase() !== "agent") break;
+      const shorthand = typed
+        ? [typed[0], typed[2]]
+        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*[,;:\-]\s*|\s+|$)/u);
+      if (!shorthand) break;
+      const matches = database.prepare(`
+        SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
+               instructions, model, reasoning_effort AS reasoningEffort, system_role AS systemRole,
+               capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency,
+               updated_at AS updatedAt, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
+        FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
+      `).all(workspaceId).filter(({ name }) => referenceSlug(name) === referenceSlug(shorthand[1]));
+      if (!matches.length) throw new Error(`No agent matches $${shorthand[1]} in this team`);
+      if (matches.length > 1) throw new Error(`More than one agent matches $${shorthand[1]}; use the full agent reference`);
+      agent = matches[0];
+      consumed = shorthand[0];
+    }
+    if (agents.some(({ id }) => id === agent.id)) throw new Error(`${agent.name} is mentioned more than once`);
+    agents.push(agent);
+    rest = rest.slice(consumed.length);
   }
-  const typed = text.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*[,;:\-]\s*|\s+|$)/iu);
-  if (typed && typed[1].toLocaleLowerCase() !== "agent") return null;
-  const shorthand = typed
-    ? [typed[0], typed[2]]
-    : text.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*[,;:\-]\s*|\s+|$)/u);
-  if (!shorthand) return null;
-  const matches = database.prepare(`
-    SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
-           instructions, model, reasoning_effort AS reasoningEffort, system_role AS systemRole,
-           capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency,
-           updated_at AS updatedAt, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
-    FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
-  `).all(workspaceId).filter(({ name }) => referenceSlug(name) === referenceSlug(shorthand[1]));
-  if (!matches.length) throw new Error(`No agent matches $${shorthand[1]} in this team`);
-  if (matches.length > 1) throw new Error(`More than one agent matches $${shorthand[1]}; use the full agent reference`);
-  const request = text.slice(shorthand[0].length).trim();
-  if (!request) throw new Error(`Tell ${matches[0].name} what you want done`);
+  if (!agents.length) return null;
+  if (agents.length > 8) throw new Error("Mention at most eight agents");
+  const request = rest.trim();
+  if (!request) throw new Error(`Tell ${agents.map(({ name }) => name).join(", ")} what you want done`);
   return {
-    agent: matches[0], request,
-    reference: `$[${referenceLabel(matches[0].name)}](bees:agent:${matches[0].id})`
+    agents, request,
+    reference: agents.map((agent) => `$[${referenceLabel(agent.name)}](bees:agent:${agent.id})`).join(" ")
   };
 }
 
@@ -317,17 +328,16 @@ export async function executeProductCommand(action, input) {
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
       const invocationText = String(input.description ?? "").trim() ? input.description : input.title;
-      const invocation = action === "create_goal"
-        ? invokedAgent(this.database, process.workspaceId, invocationText)
-        : null;
-      const assignmentId = input.agentAssignmentId
-        ? required(input.agentAssignmentId, "Agent")
-        : invocation?.agent.id ?? null;
-      if (invocation && input.agentAssignmentId && invocation.agent.id !== assignmentId)
-        throw new Error("The referenced agent does not match the selected agent");
-      if (assignmentId && !this.database.prepare(`
-        SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(assignmentId, process.workspaceId)) throw new Error("Agent assignment is not in this team");
+      const invocation = invokedAgents(this.database, process.workspaceId, invocationText);
+      const explicitIds = Array.isArray(input.agentIds) ? normalizeAgentIds(input.agentIds)
+        : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : [];
+      const mentionedIds = invocation?.agents.map(({ id }) => id) ?? [];
+      if (mentionedIds.length && explicitIds.length && JSON.stringify(mentionedIds) !== JSON.stringify(explicitIds))
+        throw new Error("The referenced agents do not match the selected agents");
+      const selectedAgentIds = mentionedIds.length ? mentionedIds : explicitIds;
+      for (const agentId of selectedAgentIds) if (!assignment(this.database, agentId, process.workspaceId))
+        throw new Error("Agent assignment is not in this team");
+      const assignmentId = selectedAgentIds[0] ?? null;
       const id = randomUUID();
       const parentId = action === "create_run" ? null : parentFor(this.database, id, processId, input.parentId);
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
@@ -338,17 +348,17 @@ export async function executeProductCommand(action, input) {
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       const rawTitle = required(input.title, "Title");
       const titleInvocation = invocation && /^\s*[$@]/u.test(rawTitle)
-        ? invokedAgent(this.database, process.workspaceId, rawTitle)
+        ? invokedAgents(this.database, process.workspaceId, rawTitle)
         : null;
       const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
       const description = invocation ? `${invocation.reference} ${invocation.request}` : String(input.description ?? "");
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
-          agent_assignment_id, priority, output_location_id, recurring_work_id, account_user_id,
+          agent_assignment_id, agent_ids_json, priority, output_location_id, recurring_work_id, account_user_id,
           archived_at, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(title, "Title"), description,
-        input.owner ? String(input.owner) : null, assignmentId, priorityOf(input.priority), outputLocationId,
+        input.owner ? String(input.owner) : null, assignmentId, JSON.stringify(selectedAgentIds), priorityOf(input.priority), outputLocationId,
         recurringWorkId, accountUserId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
@@ -368,17 +378,24 @@ export async function executeProductCommand(action, input) {
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
-      const assignmentId = Object.hasOwn(input, "agentAssignmentId")
-        ? input.agentAssignmentId ? required(input.agentAssignmentId, "Agent") : null
-        : item.agentAssignmentId;
-      if (assignmentId && !this.database.prepare(`
-        SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(assignmentId, item.workspaceId)) throw new Error("Agent assignment is not in this team");
+      const rawTitle = required(input.title, "Title");
+      const rawDescription = String(input.description ?? "");
+      const invocationText = rawDescription.trim() ? rawDescription : rawTitle;
+      const invocation = invokedAgents(this.database, item.workspaceId, invocationText);
+      const explicitIds = Array.isArray(input.agentIds) ? normalizeAgentIds(input.agentIds)
+        : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : [];
+      const selectedAgentIds = invocation?.agents.map(({ id }) => id) ?? explicitIds;
+      for (const agentId of selectedAgentIds) if (!assignment(this.database, agentId, item.workspaceId))
+        throw new Error("Agent assignment is not in this team");
+      const titleInvocation = invocation && /^\s*[$@]/u.test(rawTitle)
+        ? invokedAgents(this.database, item.workspaceId, rawTitle) : null;
+      const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
+      const description = invocation ? `${invocation.reference} ${invocation.request}` : rawDescription;
       this.database.prepare(`
-        UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?,
+        UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?, agent_ids_json = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
-      `).run(required(input.title, "Title"), String(input.description ?? ""), input.owner ? String(input.owner) : null,
-        assignmentId, priorityOf(input.priority), parentId, at, item.id);
+      `).run(title, description, input.owner ? String(input.owner) : null,
+        selectedAgentIds[0] ?? null, JSON.stringify(selectedAgentIds), priorityOf(input.priority), parentId, at, item.id);
       return {};
     });
     if (action === "move_item") {
@@ -414,11 +431,11 @@ export async function executeProductCommand(action, input) {
         this.database.prepare(`
           INSERT INTO work_items
             (id, process_id, stage_id, parent_id, kind, title, description, owner,
-             agent_assignment_id, priority, output_location_id, recurring_work_id,
+             agent_assignment_id, agent_ids_json, priority, output_location_id, recurring_work_id,
              archived_at, deleted_at, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
         `).run(sourceWorkItemId, item.processId, stageId, item.kind === "goal" ? "goal" : "work",
-          item.title, item.description, item.owner, item.agentAssignmentId, item.priority,
+          item.title, item.description, item.owner, item.agentAssignmentId, JSON.stringify(item.agentIds), item.priority,
           item.outputLocationId, id, at, at);
         this.database.prepare(`
           INSERT INTO work_item_locations
@@ -559,7 +576,11 @@ export async function executeProductCommand(action, input) {
       const stages = this.database.prepare(`SELECT * FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position`).all(processId);
       const stageRoutes = this.database.prepare(`SELECT * FROM stage_routes WHERE stage_id IN (SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL)`).all(processId);
       
-      const uniqueAgentIds = [...new Set(stageRoutes.filter(r => r.agent_assignment_id).map(r => r.agent_assignment_id))];
+      const routeAgentIds = (route) => {
+        const ids = normalizeAgentIds(JSON.parse(route.agent_ids_json || "[]"));
+        return ids.length ? ids : route.agent_assignment_id ? [route.agent_assignment_id] : [];
+      };
+      const uniqueAgentIds = [...new Set(stageRoutes.flatMap(routeAgentIds))];
       const oldToNewAgentId = {};
       for (const oldAgentId of uniqueAgentIds) {
         const agent = this.database.prepare(`SELECT * FROM agent_assignments WHERE id = ?`).get(oldAgentId);
@@ -589,7 +610,7 @@ export async function executeProductCommand(action, input) {
 
       // Duplicate the process
       const newProcessId = randomUUID();
-      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, process.kind, name, process.description, process.output_location_id, at, at);
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, process.kind, name, process.description, process.outputLocationId, at, at);
       this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
 
       // Duplicate the stages and routes
@@ -598,8 +619,14 @@ export async function executeProductCommand(action, input) {
         this.database.prepare(`INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`).run(newStageId, newProcessId, stage.name, stage.position, stage.driver, stage.requires_human_approval, stage.is_terminal);
         const route = stageRoutes.find(r => r.stage_id === stage.id);
         if (route) {
-          const mappedAgentId = route.agent_assignment_id ? (oldToNewAgentId[route.agent_assignment_id] || route.agent_assignment_id) : null;
-          this.database.prepare(`INSERT INTO stage_routes (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(newStageId, mappedAgentId, route.agent_pool_id, route.required_capabilities_json, at, at);
+          const mappedAgentIds = routeAgentIds(route).map((id) => oldToNewAgentId[id] || id);
+          this.database.prepare(`
+            INSERT INTO stage_routes
+              (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+               created_at, updated_at, agent_ids_json)
+            VALUES (?, ?, NULL, ?, ?, ?, ?)
+          `).run(newStageId, mappedAgentIds[0] ?? null, route.required_capabilities_json,
+            at, at, JSON.stringify(mappedAgentIds));
         }
       }
 
@@ -696,83 +723,29 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      const targetType = input.targetType || null;
-      const targetId = input.targetId ? required(input.targetId, "Route target") : null;
-      let agentId = null;
-      let poolId = null;
-      if (targetType === "agent") {
-        if (stage.driver === "discussion") throw new Error("A discussion stage must use an agent pool");
-        if (!assignment(this.database, targetId, stage.workspaceId)) throw new Error("Agent is not in this team");
-        agentId = targetId;
-      } else if (targetType === "pool") {
-        if (!this.database.prepare(`
-          SELECT 1 FROM agent_pools WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
-        `).get(targetId, stage.workspaceId)) throw new Error("Agent pool is not in this team");
-        poolId = targetId;
-      } else if (targetType) throw new Error("Stage routing must use an agent or pool");
-      if (!targetType && !requiredCapabilities.length) {
+      if (input.targetType === "pool") throw new Error("Agent pools are no longer supported; assign agents directly");
+      const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
+        : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
+      if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
+      for (const id of ids) if (!assignment(this.database, id, stage.workspaceId))
+        throw new Error("Agent is not in this team");
+      if (!ids.length && !requiredCapabilities.length) {
         this.database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
         this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
         return { id: stage.id };
       }
       this.database.prepare(`
         INSERT INTO stage_routes
-          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at, agent_ids_json)
+        VALUES (?, ?, NULL, ?, ?, ?, ?)
         ON CONFLICT(stage_id) DO UPDATE SET agent_assignment_id = excluded.agent_assignment_id,
-          agent_pool_id = excluded.agent_pool_id,
+          agent_pool_id = NULL,
           required_capabilities_json = excluded.required_capabilities_json,
+          agent_ids_json = excluded.agent_ids_json,
           updated_at = excluded.updated_at
-      `).run(stage.id, agentId, poolId, JSON.stringify(requiredCapabilities), at, at);
+      `).run(stage.id, ids[0] ?? null, JSON.stringify(requiredCapabilities), at, at, JSON.stringify(ids));
       this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
       return { id: stage.id };
-    });
-    if (action === "add_agent_pool") return transaction(this.database, () => {
-      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const id = randomUUID();
-      this.database.prepare(`
-        INSERT INTO agent_pools (id, workspace_id, name, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, workspace.id, required(input.name, "Pool name"), String(input.description ?? ""), at, at);
-      return { id };
-    });
-    if (action === "edit_agent_pool") return transaction(this.database, () => {
-      const id = required(input.agentPoolId, "Agent pool");
-      const pool = this.database.prepare(`
-        SELECT workspace_id AS workspaceId FROM agent_pools WHERE id = ? AND archived_at IS NULL
-      `).get(id);
-      if (!pool) throw new Error("Agent pool not found");
-      workspaceContext(this.database, pool.workspaceId, ["admin", "member"]);
-      this.database.prepare(`UPDATE agent_pools SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
-        .run(required(input.name, "Pool name"), String(input.description ?? ""), at, id);
-      return { id };
-    });
-    if (action === "set_agent_pool_member") return transaction(this.database, () => {
-      const poolId = required(input.agentPoolId, "Agent pool");
-      const agentId = required(input.agentAssignmentId, "Agent");
-      const pool = this.database.prepare(`
-        SELECT workspace_id AS workspaceId FROM agent_pools WHERE id = ? AND archived_at IS NULL
-      `).get(poolId);
-      if (!pool) throw new Error("Agent pool not found");
-      workspaceContext(this.database, pool.workspaceId, ["admin", "member"]);
-      if (!assignment(this.database, agentId, pool.workspaceId)) throw new Error("Agent is not in this pool's team");
-      if (input.remove) {
-        this.database.prepare(`DELETE FROM agent_pool_members WHERE pool_id = ? AND agent_assignment_id = ?`)
-          .run(poolId, agentId);
-        this.database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(at, poolId);
-        return { id: poolId };
-      }
-      const priority = Number(input.priority ?? 100);
-      if (!Number.isInteger(priority) || priority < 1 || priority > 1000)
-        throw new Error("Pool priority must be an integer from 1 to 1000");
-      this.database.prepare(`
-        INSERT INTO agent_pool_members (pool_id, agent_assignment_id, priority, enabled)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(pool_id, agent_assignment_id) DO UPDATE SET
-          priority = excluded.priority, enabled = excluded.enabled
-      `).run(poolId, agentId, priority, input.enabled === false ? 0 : 1);
-      this.database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(at, poolId);
-      return { id: poolId };
     });
     if (action === "add_agent_assignment") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);

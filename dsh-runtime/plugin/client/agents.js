@@ -1,17 +1,11 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
+import { Button, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
-  { kind: "pools", x: 7, y: 0, w: 5, h: 7 },
-  { kind: "presets", x: 0, y: 7, w: 12, h: 5 }
-];
-
-const AGENT_POOL_LAYOUT = [
-  { kind: "settings", x: 0, y: 0, w: 5, h: 8 },
-  { kind: "members", x: 5, y: 0, w: 7, h: 8 }
+  { kind: "presets", x: 7, y: 0, w: 5, h: 7 }
 ];
 
 const CODEX_CHANNELS = [
@@ -277,96 +271,16 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
   );
 }
 
-function PoolCreateForm({ workspaceId, act, onCancel, onCreated, setPageHeader }) {
-  const [busy, onSubmit] = useSubmit(async (event) => {
-    const form = new FormData(event.currentTarget);
-    const created = await act({ action: "add_agent_pool", workspaceId,
-      name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
-    if (created?.id) onCreated(created.id);
-  });
-  if (!workspaceId) return h(Empty, null, "Choose a team before creating a pool.");
-  return h("form", { className: "bees-box bees-form", onSubmit },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Pools"),
-      h("div", null, h("h2", null, "New agent pool"), h("div", { className: "bees-muted" }, "Name the interchangeable role now, then add and prioritize member agents."))),
-    h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Editorial reviewers" })),
-    h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", placeholder: "When should Bees route work to this pool?" })),
-    h("div", { className: "bees-detail-actions" },
-      h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Creating…" : "Create pool"),
-      h(Button, { onClick: onCancel }, "Cancel"))
-  );
-}
-
 export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions, setPageHeader }) {
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
-  const pools = data.pools.filter((row) => workspaceIds.includes(row.workspaceId));
   const [selectedId, setSelectedId] = useState("");
-  const [selectedPoolId, setSelectedPoolId] = useState("");
-  const [memberAgentId, setMemberAgentId] = useState("");
   const selected = assignments.find(({ id }) => id === selectedId);
-  const selectedPool = pools.find(({ id }) => id === selectedPoolId);
   if (creating === "agent") return h(AgentCreateForm, { ctx, data, servers, workspaceId, act,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); }, setPageHeader });
-  if (creating === "pool") return h(PoolCreateForm, { workspaceId, act,
-    onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedPoolId(id); }, setPageHeader });
-  if (selectedPool) {
-      const members = data.poolMembers.filter(({ poolId }) => poolId === selectedPool.id);
-      const memberAgents = members.map((member) => ({
-        ...member, agent: assignments.find(({ id }) => id === member.agentAssignmentId)
-      })).filter(({ agent }) => agent);
-      const available = assignments.filter(({ workspaceId: id, id: agentId }) =>
-        id === selectedPool.workspaceId && !members.some(({ agentAssignmentId }) => agentAssignmentId === agentId));
-      const selectedMemberAgentId = available.some(({ id }) => id === memberAgentId) ? memberAgentId : "";
-      const addMember = async () => {
-        const agent = available.find(({ id }) => id === selectedMemberAgentId); if (!agent) return;
-        const priority = await ask("Priority (1 runs first)", "100", "number"); if (priority === null) return;
-        await act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: agent.id, priority: Number(priority) });
-        setMemberAgentId("");
-      };
-      const settings = h("form", { className: "bees-form", onSubmit: async (event) => {
-          event.preventDefault(); const form = new FormData(event.currentTarget);
-          await act({ action: "edit_agent_pool", agentPoolId: selectedPool.id,
-            name: String(form.get("name") ?? ""), description: String(form.get("description") ?? "") });
-        } },
-          h("div", { className: "bees-row" }, h(Button, { onClick: () => setSelectedPoolId("") }, "← Pools"), h("strong", null, selectedPool.name)),
-          h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selectedPool.name })),
-          h("label", null, "Description", h("input", { className: "bees-input", name: "description", defaultValue: selectedPool.description })),
-          h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save pool")));
-      const memberList = h("div", null,
-          h("div", { className: "bees-row" },
-            h("select", { className: "bees-select bees-grow", value: selectedMemberAgentId,
-              "aria-label": "Agent to add", disabled: !available.length, onChange: (event) => setMemberAgentId(event.target.value) },
-              h("option", { value: "" }, available.length ? "Select an agent" : "All agents are in this pool"),
-              ...available.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
-            h(Button, { className: "primary", disabled: !selectedMemberAgentId, onClick: addMember }, "Add agent")),
-          ...(memberAgents.length ? memberAgents.map((member) => h("div", { className: "bees-row", key: member.agentAssignmentId },
-            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.agent.name),
-              h("div", { className: "bees-muted" }, `Priority ${member.priority}${member.lastAssignedAt ? ` · last selected ${new Date(member.lastAssignedAt).toLocaleString()}` : " · never selected"}`)),
-            h(Button, { onClick: () => act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id,
-              agentAssignmentId: member.agentAssignmentId, priority: member.priority, enabled: !member.enabled }) }, member.enabled ? "Pause" : "Enable"),
-            h(Button, { className: "danger", onClick: async () => (await confirmAction(`Remove ${member.agent.name} from ${selectedPool.name}?`)) &&
-              act({ action: "set_agent_pool_member", agentPoolId: selectedPool.id, agentAssignmentId: member.agentAssignmentId, remove: true }) }, "Remove")))
-            : [h(Empty, { key: "empty" }, "No agents in this pool yet")]));
-      return h(GridStackPage, {
-        layoutId: "agent-pool", defaults: AGENT_POOL_LAYOUT, preference, preferences, setPageActions, resizeAlways: true,
-        panels: {
-          settings: { label: "Pool settings", minW: 4, minH: 4, content: settings },
-          members: { label: "Pool members", minW: 4, minH: 6, content: memberList }
-        }
-      });
-  }
   if (selected) return h(AgentEditForm, { ctx, data, servers, selected, act,
     onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") });
   const agents = h("div", null,
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
-  const agentPools = h("div", null,
-      h("p", { className: "bees-muted" }, "Interchangeable agents for the same work."),
-      ...(pools.length ? pools.map((pool) => {
-        const members = data.poolMembers.filter(({ poolId }) => poolId === pool.id);
-        return h("div", { className: "bees-row", key: pool.id },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, pool.name),
-            h("div", { className: "bees-muted" }, `${members.filter(({ enabled }) => enabled).length} enabled agents · ${pool.description || "Deterministic agent pool"}`)),
-          h(Button, { onClick: () => setSelectedPoolId(pool.id) }, "Configure"));
-      }) : [h(Empty, { key: "empty" }, "No agent pools yet")]));
   const presets = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
@@ -378,7 +292,6 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
     layoutId: "agents", defaults: AGENTS_LAYOUT, preference, preferences, setPageActions,
     panels: {
       agents: { label: "Agents", actions: h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent"), minW: 4, minH: 4, content: agents },
-      pools: { label: "Agent pools", actions: h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("pool") }, "New pool"), minW: 4, minH: 4, content: agentPools },
       presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
     }
   });

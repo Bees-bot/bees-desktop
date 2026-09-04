@@ -9,11 +9,10 @@ export function goalSetup(data, workspaceId) {
   const process = data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
   const stages = data.stages.filter((row) => row.processId === process?.id && !row.isTerminal).map((stage) => {
     const role = stage.driver === "review" ? "reviewer" : "worker";
-    const agents = stage.routeType === "pool"
-      ? data.assignments.filter((agent) => agent.workspaceId === workspaceId && agent.enabled &&
-        data.poolMembers.some((member) => member.poolId === stage.routeTargetId && member.agentAssignmentId === agent.id && member.enabled))
-      : [data.assignments.find((agent) => agent.workspaceId === workspaceId &&
-        (stage.routeType === "agent" ? agent.id === stage.routeTargetId : agent.systemRole === role))].filter(Boolean);
+    const ids = stage.agentIds ?? [];
+    const agents = ids.length
+      ? ids.map((id) => data.assignments.find((agent) => agent.workspaceId === workspaceId && agent.id === id)).filter(Boolean)
+      : [data.assignments.find((agent) => agent.workspaceId === workspaceId && agent.systemRole === role)].filter(Boolean);
     return { ...stage, agents };
   });
   const inherited = [

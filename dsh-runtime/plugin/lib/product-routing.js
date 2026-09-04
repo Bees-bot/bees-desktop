@@ -1,16 +1,9 @@
 import {
-  activeAgentRuns, agentCapabilities, assignment, capabilities, defaultAssignment, iso, transaction
+  activeAgentRuns, agentCapabilities, agentIds, assignment, capabilities, defaultAssignment, iso, transaction
 } from "./product-database.js";
 import { randomUUID } from "node:crypto";
 
 export class AgentCapacityError extends Error {}
-
-function ensureAgentCapacity(database, agent, label) {
-  const activeRuns = activeAgentRuns(database, agent.id);
-  if (agent.maxConcurrency && activeRuns >= agent.maxConcurrency)
-    throw new AgentCapacityError(`${label} is at its concurrency limit`);
-  return activeRuns;
-}
 
 function specializationFor(database, recurringWorkId, agent) {
   if (!recurringWorkId) return null;
@@ -37,22 +30,26 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
   const prior = database.prepare(`
     SELECT d.agent_assignment_id AS agentAssignmentId, d.target_type AS targetType,
            d.target_id AS targetId, d.reason, d.agent_revision AS agentRevision,
-           d.specialization_id AS specializationId, d.agent_config_json AS agentConfig
+           d.specialization_id AS specializationId, d.agent_config_json AS agentConfig,
+           d.agent_ids_json AS agentIds
     FROM agent_dispatches d WHERE d.execution_id = ?
   `).get(executionId);
-  if (prior) return { ...JSON.parse(prior.agentConfig), ...prior };
+  if (prior) {
+    const lead = { ...JSON.parse(prior.agentConfig), ...prior };
+    const ids = agentIds(JSON.parse(prior.agentIds || "[]"));
+    const agents = [lead, ...ids.slice(1).map((id) => assignment(database, id, item.workspaceId)).filter(Boolean)];
+    return { ...lead, agents, discussion: agents.length > 1 };
+  }
 
   const stage = database.prepare(`
     SELECT s.id, s.name, s.driver, p.workspace_id AS workspaceId,
            r.agent_assignment_id AS routeAgentId, r.agent_pool_id AS routePoolId,
-           r.required_capabilities_json AS requiredCapabilities
+           r.agent_ids_json AS routeAgentIds, r.required_capabilities_json AS requiredCapabilities
     FROM stages s JOIN processes p ON p.id = s.process_id
     LEFT JOIN stage_routes r ON r.stage_id = s.id
     WHERE s.id = ? AND s.process_id = ? AND s.archived_at IS NULL
   `).get(stageId, item.processId);
   if (!stage) throw new Error("The process stage is unavailable");
-  if (purpose === "discussion" && !stage.routePoolId)
-    throw new Error(`The ${stage.name} discussion stage requires an agent pool`);
   const requiredCapabilities = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
   const excludedAgentId = purpose === "reviewer" && candidateExecutionId ? database.prepare(`
     SELECT agent_assignment_id AS agentAssignmentId FROM agent_dispatches WHERE execution_id = ?
@@ -61,61 +58,51 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     requiredCapabilities.every((requiredCapability) => agentCapabilities(agent).includes(requiredCapability));
 
   return transaction(database, () => {
-    let selected;
+    let ids;
     let targetType;
     let targetId;
     let reason;
-    if (!["reviewer", "discussion"].includes(purpose) && item.agentAssignmentId) {
-      selected = assignment(database, item.agentAssignmentId, stage.workspaceId);
+    if (purpose !== "reviewer" && item.agentIds.length) {
+      ids = item.agentIds;
       targetType = "item";
       targetId = item.id;
-      reason = "Work-item override";
-      if (!accepts(selected)) throw new Error("The work-item agent override is disabled or missing required capabilities");
-      ensureAgentCapacity(database, selected, selected.name);
-    } else if (stage.routeAgentId) {
-      selected = assignment(database, stage.routeAgentId, stage.workspaceId);
-      targetType = "agent";
-      targetId = stage.routeAgentId;
-      reason = `Direct stage assignment for ${stage.name}`;
-      if (!accepts(selected)) throw new Error(`The agent assigned to ${stage.name} is disabled, incompatible, or not independent`);
-      ensureAgentCapacity(database, selected, selected.name);
-    } else if (stage.routePoolId) {
-      const pool = database.prepare(`
-        SELECT id, name FROM agent_pools WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
-      `).get(stage.routePoolId, stage.workspaceId);
-      if (!pool) throw new Error(`The agent pool assigned to ${stage.name} is unavailable`);
-      const eligible = database.prepare(`
-        SELECT a.id, a.workspace_id AS workspaceId, a.preset_id AS presetId, a.name,
-               a.instructions, a.model, a.capabilities_json AS capabilities, a.enabled,
-               a.max_concurrency AS maxConcurrency, a.updated_at AS updatedAt,
-               m.priority, m.last_assigned_at AS lastAssignedAt
-        FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
-        WHERE m.pool_id = ? AND m.enabled = 1
-        ORDER BY m.priority, m.last_assigned_at IS NOT NULL, m.last_assigned_at, a.id
-      `).all(pool.id).filter(accepts).map((agent) => ({
-        ...agent, activeRuns: activeAgentRuns(database, agent.id)
-      }));
-      const candidates = eligible.filter((agent) => !agent.maxConcurrency || agent.activeRuns < agent.maxConcurrency);
-      selected = candidates[0];
-      if (!selected && eligible.length) throw new AgentCapacityError(`The ${pool.name} pool is at capacity`);
-      if (!selected) throw new Error(`The ${pool.name} pool has no enabled, compatible, independent agent`);
-      targetType = "pool";
-      targetId = pool.id;
-      reason = `${pool.name}: priority ${selected.priority}; ${selected.activeRuns} active; least recently assigned`;
-      const assignedAt = iso();
-      database.prepare(`
-        UPDATE agent_pool_members SET last_assigned_at = ? WHERE pool_id = ? AND agent_assignment_id = ?
-      `).run(assignedAt, pool.id, selected.id);
-      database.prepare("UPDATE agent_pools SET updated_at = ? WHERE id = ?").run(assignedAt, pool.id);
+      reason = ids.length > 1 ? "Work-item discussion mentions" : "Work-item agent mention";
     } else {
+      ids = agentIds(JSON.parse(stage.routeAgentIds || "[]"));
+      if (!ids.length && stage.routeAgentId) ids = [stage.routeAgentId];
+      if (!ids.length && stage.routePoolId) {
+        ids = database.prepare(`
+          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
+          ORDER BY m.priority, a.id LIMIT 8
+        `).all(stage.routePoolId).map(({ id }) => id);
+        if (stage.driver !== "discussion") ids = ids.slice(0, 1);
+      }
+    }
+    if (!targetType && ids.length) {
+      targetType = "agent";
+      targetId = ids[0];
+      reason = ids.length > 1 ? `Direct stage discussion for ${stage.name}` : `Direct stage assignment for ${stage.name}`;
+    }
+    if (!ids.length) {
       const role = purpose === "reviewer" ? "reviewer" : "worker";
-      selected = defaultAssignment(database, stage.workspaceId, role);
+      const fallback = defaultAssignment(database, stage.workspaceId, role);
+      ids = fallback ? [fallback.id] : [];
       targetType = "workspace-default";
       targetId = role;
       reason = `Team ${role} fallback`;
-      if (!accepts(selected)) throw new Error(`The team ${role} agent is disabled, incompatible, or not independent`);
-      ensureAgentCapacity(database, selected, selected.name);
     }
+    ids = agentIds(ids);
+    if (!ids.length) throw new Error(`The team ${purpose === "reviewer" ? "reviewer" : "worker"} agent is unavailable`);
+    const discussion = purpose === "discussion" || ids.length > 1;
+    if (purpose === "reviewer" && ids.length > 1) throw new Error("A review stage must use one independent agent");
+    if (discussion && ids.length < 2) throw new Error(`The ${stage.name} discussion needs at least two agents`);
+    const agents = ids.map((id) => assignment(database, id, stage.workspaceId));
+    if (agents.some((agent) => !accepts(agent)))
+      throw new Error(`An agent assigned to ${stage.name} is disabled, incompatible, or not independent`);
+    const busy = agents.filter((agent) => agent.maxConcurrency && activeAgentRuns(database, agent.id) >= agent.maxConcurrency);
+    if (busy.length) throw new AgentCapacityError(`${busy.map(({ name }) => name).join(", ")} ${busy.length === 1 ? "is" : "are"} at capacity`);
+    let selected = agents[0];
     const specialization = specializationFor(database, item.recurringWorkId, selected);
     if (Object.hasOwn(item.runSettings ?? {}, "model")) selected = {
       ...selected, model: item.runSettings.model, reasoningEffort: item.runSettings.reasoningEffort
@@ -136,9 +123,9 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     database.prepare(`
       INSERT INTO agent_dispatches
         (execution_id, work_item_id, stage_id, target_type, target_id,
-         agent_assignment_id, specialization_id, reason, agent_revision, agent_config_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(executionId, item.id, stage.id, targetType, targetId, selected.id, specialization?.id ?? null,
+         agent_assignment_id, agent_ids_json, specialization_id, reason, agent_revision, agent_config_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(executionId, item.id, stage.id, targetType, targetId, selected.id, JSON.stringify(ids), specialization?.id ?? null,
       reason, `${selected.updatedAt}:${specialization?.revision ?? 0}`, agentConfig, iso());
     return {
       ...selected, instructions: effectiveInstructions,
@@ -147,31 +134,8 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       specialistPlaybook: specialization?.playbook ?? "",
       specialistRevision: specialization?.revision ?? null,
       agentAssignmentId: selected.id, targetType, targetId, reason,
-      agentRevision: `${selected.updatedAt}:${specialization?.revision ?? 0}`
+      agentRevision: `${selected.updatedAt}:${specialization?.revision ?? 0}`,
+      agents: [selected, ...agents.slice(1)], discussion
     };
   });
-}
-
-export function discussionPeers(database, { stageId, leadId }) {
-  const stage = database.prepare(`
-    SELECT s.name, r.agent_pool_id AS poolId,
-           r.required_capabilities_json AS requiredCapabilities
-    FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id WHERE s.id = ?
-  `).get(stageId);
-  if (!stage?.poolId) throw new Error(`The ${stage?.name ?? "discussion"} stage requires an agent pool`);
-  const required = capabilities(JSON.parse(stage.requiredCapabilities || "[]"), "Stage capabilities");
-  const members = database.prepare(`
-    SELECT a.id, a.name, a.description, a.instructions, a.model,
-           a.reasoning_effort AS reasoningEffort,
-           a.capabilities_json AS capabilities, a.max_concurrency AS maxConcurrency
-    FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
-    WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
-    ORDER BY m.priority, a.id
-  `).all(stage.poolId).filter((agent) => required.every((name) => agentCapabilities(agent).includes(name)));
-  if (!members.some(({ id }) => id === leadId)) throw new Error("The selected discussion lead is not in its pool");
-  const available = members.filter((agent) => agent.id === leadId ||
-    !agent.maxConcurrency || activeAgentRuns(database, agent.id) < agent.maxConcurrency);
-  if (available.length < 2) throw new AgentCapacityError("A discussion needs at least two available pool agents");
-  if (available.length > 8) throw new Error("DSH Agent Teams supports at most eight discussion participants");
-  return available.filter(({ id }) => id !== leadId);
 }

@@ -4,7 +4,7 @@ const TYPES = ["team_location", "agent", "agent_pool", "team_process", "recurrin
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
 
 const json = (value, fallback = []) => {
-  try { return JSON.parse(value); }
+  try { return JSON.parse(value) ?? fallback; }
   catch { return fallback; }
 };
 const timestamp = (value) => value ? new Date(value).toISOString() : null;
@@ -50,25 +50,6 @@ function teamRecords(database, organizationId, connectionId = "") {
   }));
 
   for (const row of database.prepare(`
-    SELECT p.id, w.team_id AS teamId, p.name, p.description, p.archived_at AS archivedAt,
-           p.created_at AS createdAt, p.updated_at AS updatedAt
-    FROM agent_pools p JOIN workspaces w ON w.id = p.workspace_id
-    JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
-  `).all(organizationId)) {
-    const members = database.prepare(`
-      SELECT agent_assignment_id AS agentId, priority, enabled, last_assigned_at AS lastAssignedAt
-      FROM agent_pool_members WHERE pool_id = ? ORDER BY priority, agent_assignment_id
-    `).all(row.id).map((member) => ({ ...member,
-      enabled: Boolean(member.enabled), lastAssignedAt: timestamp(member.lastAssignedAt)
-    }));
-    records.push(record("agent_pool", row, {
-      teamId: row.teamId, name: row.name, description: row.description, members,
-      archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
-      updatedAt: timestamp(row.updatedAt)
-    }));
-  }
-
-  for (const row of database.prepare(`
     SELECT p.id, w.team_id AS teamId, p.name, p.description, p.kind,
            p.output_location_id AS outputLocationId, p.archived_at AS archivedAt,
            p.created_at AS createdAt, p.updated_at AS updatedAt
@@ -79,6 +60,7 @@ function teamRecords(database, organizationId, connectionId = "") {
       SELECT s.id, s.name, s.position, s.driver,
              s.requires_human_approval AS requiresHumanApproval, s.is_terminal AS isTerminal,
              r.agent_assignment_id AS agentId, r.agent_pool_id AS agentPoolId,
+             r.agent_ids_json AS agentIds,
              r.required_capabilities_json AS requiredCapabilities, r.updated_at AS routeUpdatedAt
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
       WHERE s.process_id = ? AND s.archived_at IS NULL ORDER BY s.position
@@ -86,9 +68,10 @@ function teamRecords(database, organizationId, connectionId = "") {
       id: stage.id, name: stage.name, position: stage.position, driver: stage.driver,
       requiresHumanApproval: Boolean(stage.requiresHumanApproval),
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
-      route: stage.agentId || stage.agentPoolId || stage.requiredCapabilities
+      route: json(stage.agentIds).length || stage.agentId || stage.agentPoolId || stage.requiredCapabilities
         ? {
             agentId: stage.agentId ?? null, agentPoolId: stage.agentPoolId ?? null,
+            agentIds: json(stage.agentIds),
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
           }
@@ -120,7 +103,8 @@ function teamRecords(database, organizationId, connectionId = "") {
   for (const row of database.prepare(`
     SELECT i.id, w.team_id AS teamId, i.process_id AS processId, i.stage_id AS stageId,
            i.parent_id AS parentId, i.kind, i.title, i.description, i.owner,
-           i.agent_assignment_id AS agentId, i.priority, i.runtime_phase AS runtimePhase,
+           i.agent_assignment_id AS agentId, i.agent_ids_json AS agentIds,
+           i.priority, i.runtime_phase AS runtimePhase,
            i.runtime_attempt AS runtimeAttempt, i.runtime_review_cycle AS runtimeReviewCycle,
            i.runtime_error AS runtimeError, i.output_location_id AS outputLocationId,
            i.recurring_work_id AS recurringWorkId, i.run_settings_json AS runSettingsJson,
@@ -132,7 +116,8 @@ function teamRecords(database, organizationId, connectionId = "") {
   `).all(organizationId)) records.push(record("team_work_item", row, {
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
     kind: row.kind, title: row.title, description: row.description, owner: row.owner,
-    agentId: row.agentId, priority: row.priority, runtimePhase: row.runtimePhase,
+    agentId: row.agentId, agentIds: json(row.agentIds),
+    priority: row.priority, runtimePhase: row.runtimePhase,
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
     recurringWorkId: row.recurringWorkId, accountUserId: row.accountUserId,
@@ -173,6 +158,17 @@ function replaceLocations(database, table, owner, id, references) {
   for (const reference of references) {
     if (database.prepare("SELECT 1 FROM team_locations WHERE id = ? AND archived_at IS NULL").get(reference.locationId))
       insert.run(id, reference.locationId, reference.relativePath);
+  }
+}
+
+function replaceAgentInLists(database, table, key, oldId, newId) {
+  for (const row of database.prepare(`
+    SELECT ${key} AS id, agent_ids_json AS agentIds FROM ${table}
+    WHERE EXISTS (SELECT 1 FROM json_each(agent_ids_json) WHERE value = ?)
+  `).all(oldId)) {
+    const ids = [...new Set(json(row.agentIds).map((id) => id === oldId ? newId : id))];
+    database.prepare(`UPDATE ${table} SET agent_ids_json = ? WHERE ${key} = ?`)
+      .run(JSON.stringify(ids), row.id);
   }
 }
 
@@ -260,6 +256,9 @@ function applyAgent(database, record) {
       .run(record.recordId, id);
     database.prepare("UPDATE work_items SET agent_assignment_id = ? WHERE agent_assignment_id = ?")
       .run(record.recordId, id);
+    replaceAgentInLists(database, "stage_routes", "stage_id", id, record.recordId);
+    replaceAgentInLists(database, "work_items", "id", id, record.recordId);
+    replaceAgentInLists(database, "agent_dispatches", "execution_id", id, record.recordId);
     for (const specialization of database.prepare(`
       SELECT id, recurring_work_id AS recurringWorkId FROM agent_specializations
       WHERE agent_assignment_id = ?
@@ -334,10 +333,24 @@ function applyProcess(database, record) {
     `).run(stage.id, record.recordId, stage.name, stage.position, stage.driver,
       stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
-    if (stage.route) database.prepare(`
-      INSERT INTO stage_routes VALUES (?, ?, ?, ?, ?, ?)
-    `).run(stage.id, stage.route.agentId, stage.route.agentPoolId,
-      JSON.stringify(stage.route.requiredCapabilities), stage.route.updatedAt, stage.route.updatedAt);
+    if (stage.route) {
+      let ids = Array.isArray(stage.route.agentIds) ? stage.route.agentIds : [];
+      if (!ids.length && stage.route.agentId) ids = [stage.route.agentId];
+      if (!ids.length && stage.route.agentPoolId) {
+        ids = database.prepare(`
+          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1 ORDER BY m.priority, a.id LIMIT 8
+        `).all(stage.route.agentPoolId).map(({ id }) => id);
+        if (stage.driver !== "discussion") ids = ids.slice(0, 1);
+      }
+      database.prepare(`
+        INSERT INTO stage_routes
+          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+           created_at, updated_at, agent_ids_json)
+        VALUES (?, ?, NULL, ?, ?, ?, ?)
+      `).run(stage.id, ids[0] ?? null, JSON.stringify(stage.route.requiredCapabilities),
+        stage.route.updatedAt, stage.route.updatedAt, JSON.stringify(ids));
+    }
   }
   for (const stale of database.prepare(`
     SELECT id FROM stages WHERE process_id = ? AND id NOT IN (SELECT value FROM json_each(?))
@@ -373,23 +386,25 @@ function applyItem(database, record) {
   const priorSettings = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
     .get(record.recordId)?.settings;
   const settings = normalizeRunSettings(p.runSettings ?? json(priorSettings, {}));
+  const ids = Array.isArray(p.agentIds) ? p.agentIds : p.agentId ? [p.agentId] : [];
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
-       priority, runtime_phase, runtime_attempt, runtime_review_cycle, runtime_error,
+       agent_ids_json, priority, runtime_phase, runtime_attempt, runtime_review_cycle, runtime_error,
        output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, stage_id = excluded.stage_id,
       parent_id = NULL, kind = excluded.kind, title = excluded.title, description = excluded.description,
       owner = excluded.owner, agent_assignment_id = excluded.agent_assignment_id,
+      agent_ids_json = excluded.agent_ids_json,
       priority = excluded.priority, runtime_phase = excluded.runtime_phase,
       runtime_attempt = excluded.runtime_attempt, runtime_review_cycle = excluded.runtime_review_cycle,
       runtime_error = excluded.runtime_error, output_location_id = excluded.output_location_id,
       recurring_work_id = excluded.recurring_work_id, account_user_id = excluded.account_user_id,
       archived_at = excluded.archived_at,
       deleted_at = excluded.deleted_at, updated_at = excluded.updated_at, run_settings_json = excluded.run_settings_json       
-  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,         
-    p.agentId, p.priority, p.runtimePhase, p.runtimeAttempt, p.runtimeReviewCycle, p.runtimeError,
+  `).run(record.recordId, p.processId, p.stageId, p.kind, p.title, p.description, p.owner,
+    ids[0] ?? null, JSON.stringify(ids), p.priority, p.runtimePhase, p.runtimeAttempt, p.runtimeReviewCycle, p.runtimeError,
     p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
     record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);

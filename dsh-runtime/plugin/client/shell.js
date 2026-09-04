@@ -349,8 +349,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       if (targetRoute === "presets") return data.presets.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       if (targetRoute === "mcp") return (capabilities.data?.servers ?? [])
         .map((row) => ({ id: row.id, label: row.label, open: openRoute }));
-      if (targetRoute === "pools") return data.pools.filter((row) => workspaceIds.includes(row.workspaceId))
-        .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       return assignments.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
     }
     if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt)

@@ -29,7 +29,7 @@ describe("team coordination projection", () => {
     const targetWorkspaceId = randomUUID();
     const locationId = randomUUID();
     const agentId = randomUUID();
-    const poolId = randomUUID();
+    const peerAgentId = randomUUID();
     const processId = randomUUID();
     const workStageId = randomUUID();
     const doneStageId = randomUUID();
@@ -73,13 +73,21 @@ describe("team coordination projection", () => {
       .run(targetProcessId, targetWorkspaceId, at, at);
     target.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Work', 0, 'agent', 0, 0, NULL)")
       .run(targetStageId, targetProcessId);
-    target.connection.prepare("INSERT INTO stage_routes VALUES (?, ?, NULL, '[]', ?, ?)")
-      .run(targetStageId, targetAgentId, at, at);
+    target.connection.prepare(`
+      INSERT INTO stage_routes
+        (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+         created_at, updated_at, agent_ids_json)
+      VALUES (?, ?, NULL, '[]', ?, ?, json_array(?))
+    `).run(targetStageId, targetAgentId, at, at, targetAgentId);
     source.connection.prepare("INSERT INTO agent_locations VALUES (?, ?, '')").run(agentId, locationId);
-    source.connection.prepare("INSERT INTO agent_pools VALUES (?, ?, 'Researchers', '', NULL, ?, ?)")
-      .run(poolId, workspaceId, at, at);
-    source.connection.prepare("INSERT INTO agent_pool_members VALUES (?, ?, 10, 1, NULL)")
-      .run(poolId, agentId);
+    source.connection.prepare(`
+      INSERT INTO agent_assignments
+        (id, workspace_id, preset_id, name, description, instructions, model, reasoning_effort,
+         system_role, capabilities_json, enabled, max_concurrency, mcp_access, mcp_servers_json,
+         created_at, updated_at)
+      VALUES (?, ?, 'standard', 'Research peer', '', 'Challenge the lead', NULL, NULL, NULL,
+        '["research"]', 1, 1, 'none', '[]', ?, ?)
+    `).run(peerAgentId, workspaceId, at, at);
     source.connection.prepare(`
       INSERT INTO processes VALUES (?, ?, 'Daily brief', '', 'standard', ?, NULL, ?, ?)
     `).run(processId, workspaceId, locationId, at, at);
@@ -87,8 +95,12 @@ describe("team coordination projection", () => {
       .run(workStageId, processId);
     source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Done', 1, 'terminal', 0, 1, NULL)")
       .run(doneStageId, processId);
-    source.connection.prepare("INSERT INTO stage_routes VALUES (?, NULL, ?, '[]', ?, ?)")
-      .run(workStageId, poolId, at, at);
+    source.connection.prepare(`
+      INSERT INTO stage_routes
+        (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+         created_at, updated_at, agent_ids_json)
+      VALUES (?, ?, NULL, '[]', ?, ?, ?)
+    `).run(workStageId, agentId, at, at, JSON.stringify([agentId, peerAgentId]));
     source.connection.prepare("INSERT INTO process_locations VALUES (?, ?, '')").run(processId, locationId);
     source.connection.prepare(`
       INSERT INTO recurring_work
@@ -99,18 +111,20 @@ describe("team coordination projection", () => {
     `).run(recurringId, workspaceId, processId, itemId, `bees/recurring/${recurringId}`, at, at);
     source.connection.prepare(`
       INSERT INTO work_items
-        (id, process_id, stage_id, kind, title, description, agent_assignment_id,
+        (id, process_id, stage_id, kind, title, description, agent_assignment_id, agent_ids_json,
          output_location_id, recurring_work_id, created_at, updated_at)
-      VALUES (?, ?, ?, 'work', 'Write brief', '', ?, ?, ?, ?, ?)
-    `).run(itemId, processId, workStageId, agentId, locationId, recurringId, at, at);
+      VALUES (?, ?, ?, 'work', 'Write brief', '', ?, ?, ?, ?, ?, ?)
+    `).run(itemId, processId, workStageId, agentId, JSON.stringify([agentId, peerAgentId]),
+      locationId, recurringId, at, at);
     source.connection.prepare("INSERT INTO work_item_locations VALUES (?, ?, '')").run(itemId, locationId);
     const runSettings = { model: "test/careful", reasoningEffort: "high", mcpAccess: "none", mcpServers: [] };
     source.connection.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?").run(JSON.stringify(runSettings), itemId);
 
     const records = teamRecords(source.connection, organizationId);
     expect(records.map(({ recordType }) => recordType)).toEqual(expect.arrayContaining([
-      "team_location", "agent", "agent_pool", "team_process", "recurring_work", "team_work_item"
+      "team_location", "agent", "team_process", "recurring_work", "team_work_item"
     ]));
+    expect(records.map(({ recordType }) => recordType).includes("agent_pool")).toBe(false);
     expect(JSON.stringify(records)).not.toContain("/secret/company");
     applyTeamRecords(target.connection, organizationId, records);
 
@@ -123,12 +137,18 @@ describe("team coordination projection", () => {
       .toEqual({ instructions: "Use approved sources" });
     expect(target.connection.prepare("SELECT agent_assignment_id AS agentId FROM stage_routes WHERE stage_id = ?")
       .get(targetStageId)).toEqual({ agentId });
+    expect(JSON.parse(String(target.connection.prepare(
+      "SELECT agent_ids_json AS agentIds FROM stage_routes WHERE stage_id = ?"
+    ).get(workStageId)!.agentIds))).toEqual([agentId, peerAgentId]);
     expect(target.connection.prepare("SELECT output_location_id AS outputLocationId FROM processes WHERE id = ?").get(processId))
       .toEqual({ outputLocationId: locationId });
     expect(target.connection.prepare("SELECT schedule_kind AS kind FROM recurring_work WHERE id = ?").get(recurringId))
       .toEqual({ kind: "calendar" });
     expect(target.connection.prepare("SELECT title FROM work_items WHERE id = ?").get(itemId))
       .toEqual({ title: "Write brief" });
+    expect(JSON.parse(String(target.connection.prepare(
+      "SELECT agent_ids_json AS agentIds FROM work_items WHERE id = ?"
+    ).get(itemId)!.agentIds))).toEqual([agentId, peerAgentId]);
     expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
       .toEqual(runSettings);
     const legacy = structuredClone(records.find((record) => record.recordType === "team_work_item")!);
