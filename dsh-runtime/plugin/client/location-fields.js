@@ -2,9 +2,8 @@ import { h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.j
 import { ask, Button, request } from "./shared.js";
 
 export async function addLocationFromDevice(ctx, act, teamId, kind) {
-  const path = kind === "folder" ? await ctx.workspaces.pickDirectory()
-    : typeof ctx.workspaces.pickFile === "function" ? await ctx.workspaces.pickFile()
-      : await ask("Absolute path to a file on this device", "");
+  const path = kind === "folder" ? await ctx.uiWorkspace.pickDirectory()
+    : await ask("Absolute path to a file on this device", "");
   if (!path) return null;
   const fallback = path.split(/[\\/]/).filter(Boolean).pop() ?? (kind === "folder" ? "Files" : "File");
   const name = await ask(kind === "folder" ? "Folder name in Bees" : "File name in Bees", fallback);
