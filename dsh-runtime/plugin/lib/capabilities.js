@@ -3,7 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserEndpoint } from "./agent-browser.js";
+import { browserStatePath, saveBrowserState } from "./agent-browser.js";
+import { BROWSER_CATALOG } from "./mcp-catalog.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -48,7 +49,8 @@ function rowToServer(row) {
   };
 }
 
-/** Skills and tools come from DSH. MCP servers are ours: one mounted fiber per enabled row. */
+/** Skills and tools come from DSH. MCP servers are ours: one mounted fiber per enabled row,
+ *  except the browser, which mounts per run. */
 export class Capabilities {
   constructor(ctx, database, defaultWorkspace) {
     this.ctx = ctx;
@@ -61,7 +63,25 @@ export class Capabilities {
   }
 
   async initialize() {
-    await Promise.all(this.servers().filter(({ enabled }) => enabled).map((row) => this.mount(row)));
+    await Promise.all(this.servers()
+      .filter(({ enabled, catalogId }) => enabled && catalogId !== BROWSER_CATALOG)
+      .map((row) => this.mount(row)));
+  }
+
+  /**
+   * The browser is the one server that cannot be shared. Playwright's own docs say concurrent
+   * clients on one profile conflict, and they do: two runs browsing at once landed on each other's
+   * pages, so a run asked for a calendar and read a news site. Each run mounts its own on its agent
+   * context, which dies with the run, and they stay signed in through the shared cookie file.
+   */
+  async mountBrowserFor(agentCtx) {
+    const row = this.servers().find(({ enabled, catalogId }) => enabled && catalogId === BROWSER_CATALOG);
+    if (!row) return;
+    // Whatever a person has signed into since the last run is what this one inherits.
+    await saveBrowserState().catch((error) =>
+      this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
+    const fiber = agentCtx.plugin(mcpClient, await this.configFor(row));
+    await started(fiber, row.serverName);
   }
 
   async close() {
@@ -91,13 +111,13 @@ export class Capabilities {
         const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
-      // Filled in on connect rather than at install: the port lives only as long as this process.
-      const endpoint = server.args.includes("{cdpEndpoint}") ? await browserEndpoint() : "";
+      // Filled in on connect rather than at install: the cookie file is written by whichever
+      // browser the person last signed in to.
       return {
         transport: "stdio",
         serverName: server.serverName,
         command: server.command,
-        args: server.args.map((arg) => arg === "{cdpEndpoint}" ? endpoint : arg),
+        args: server.args.map((arg) => arg === "{browserState}" ? browserStatePath() : arg),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
