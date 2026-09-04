@@ -633,9 +633,14 @@ export class BeesProduct {
         const key = name.toLocaleLowerCase();
         if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
         proposedProcesses.add(key);
+        const stages = Array.isArray(change.stages) ? [...change.stages] : [];
+        const last = stages.at(-1);
+        // The planner lists the steps; the last stage is the terminal one, so give it a real Done.
+        if (last && !(typeof last === "object" ? last.driver === "terminal" : /\b(?:done|complete|completed|finished)\b/i.test(last)))
+          stages.push("Done");
         return {
           action: "create_process", name, description: String(change.description ?? ""),
-          stages: processStages(change.stages, "proposed process")
+          stages: processStages(stages, "proposed process")
         };
       }
       if (change.action === "create_item") {
