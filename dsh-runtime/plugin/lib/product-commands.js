@@ -1,3 +1,4 @@
+import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
 import { showAgentBrowser } from "./agent-browser.js";
 import { mkdirSync } from "node:fs";
@@ -932,6 +933,11 @@ export async function executeProductCommand(action, input) {
             SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
           `).get(proposal.workspaceId, String(change.name ?? ""));
           if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+        }
+        // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
+        if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
+          const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
+          if (installed) { results.push({ id: installed.id, reused: true }); continue; }
         }
         if (change.action === "create_item") payload.processId = idOf("process", change.process);
         if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
