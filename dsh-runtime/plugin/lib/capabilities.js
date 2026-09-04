@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserEndpoint, browserStatePath } from "./agent-browser.js";
+import { browserStatePath } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -109,15 +109,13 @@ export class Capabilities {
         const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
-      // Filled in on connect rather than at install: the port lives only as long as this process,
-      // and the cookie file is written by whichever browser the person last signed in to.
-      const endpoint = server.args.includes("{cdpEndpoint}") ? await browserEndpoint() : "";
-      const fill = { "{cdpEndpoint}": endpoint, "{browserState}": browserStatePath() };
+      // Filled in on connect rather than at install: the cookie file is written by whichever
+      // browser the person last signed in to.
       return {
         transport: "stdio",
         serverName: server.serverName,
         command: server.command,
-        args: server.args.map((arg) => fill[arg] ?? arg),
+        args: server.args.map((arg) => arg === "{browserState}" ? browserStatePath() : arg),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
