@@ -77,13 +77,12 @@ export class Capabilities {
     // Whatever a person has signed into since the last run is what this one inherits.
     await saveBrowserState().catch((error) =>
       this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-    await this.mountFor(agentCtx, row.id);
+    await this.mountFor(agentCtx, row);
   }
 
   /** On the run's own context, which dies with the run. */
-  async mountFor(agentCtx, serverId) {
-    const row = this.servers().find(({ id }) => id === serverId);
-    if (!row) throw new Error("MCP server not found");
+  async mountFor(agentCtx, row) {
+    if (!row.enabled) return;
     await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
   }
 
@@ -238,11 +237,13 @@ export class Capabilities {
       servers: servers.map((server) => {
         const state = this.mounted.get(server.id);
         const toolCount = tools.filter(({ name }) => name.startsWith(`mcp__${server.serverName}__`)).length;
+        const perRun = server.catalogId === BROWSER_CATALOG;
         return {
           ...server,
           toolCount,
+          perRun,
           error: state?.error ?? "",
-          status: !server.enabled ? "off" : state?.error ? "failed" : state?.ready || server.catalogId === BROWSER_CATALOG ? "connected" : "starting"
+          status: !server.enabled ? "off" : perRun ? "per run" : state?.error ? "failed" : state?.ready ? "connected" : "starting"
         };
       }),
       catalog: MCP_CATALOG.map(({ env, headers, ...entry }) => ({
@@ -426,9 +427,9 @@ export class Capabilities {
       if (String(value ?? "").trim()) secrets[name] = String(value).trim();
     }
     const names = Object.keys(secrets);
-    // A pasted "npx -y pkg" means all of it; unsplit it spawns one absurd program name.
-    const typed = (Array.isArray(input.args) ? input.args.map(String) : String(input.args ?? "").split("\n"))
-      .map((part) => part.trim()).filter(Boolean);
+    if (input.args !== undefined && !Array.isArray(input.args))
+      throw new Error("Arguments must be a list, not one pasted string");
+    const typed = (input.args ?? []).map((part) => String(part).trim()).filter(Boolean);
     const words = transport === "stdio"
       ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))
       : [];
@@ -455,10 +456,11 @@ export class Capabilities {
 
   async setEnabled(input) {
     const server = this.row(input.serverId);
-    const enabled = input.enabled ? 1 : 0;
-    this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled, server.id);
-    await this.serialize(server.id, () => this.remount({ ...server, enabled: Boolean(enabled) }));
-    return { id: server.id, enabled: Boolean(enabled) };
+    const enabled = Boolean(input.enabled);
+    if (server.enabled === enabled) return { id: server.id, enabled };
+    this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, server.id);
+    await this.serialize(server.id, () => this.remount({ ...server, enabled }));
+    return { id: server.id, enabled };
   }
 
   async setSecret(input) {

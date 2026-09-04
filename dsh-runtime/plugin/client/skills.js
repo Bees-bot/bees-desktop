@@ -1,9 +1,9 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { Button, confirmAction, Empty, openExternal, request, useSubmit, PageHead} from "./shared.js";
 
-const STATUS_CLASS = { connected: "bees-running", failed: "bees-failed", starting: "", off: "" };
+const STATUS_CLASS = { connected: "bees-running", "per run": "bees-running", failed: "bees-failed", starting: "", off: "" };
 const STATUS_LABEL = {
-  connected: "Connected", failed: "Not running", starting: "Starting…", off: "Turned off"
+  connected: "Connected", "per run": "Per run", failed: "Not running", starting: "Starting…", off: "Turned off"
 };
 
 /** One shared loader so both routes see the same servers, tools and skills. */
@@ -265,7 +265,7 @@ function ManualServerForm({ onCancel, act, setPageHeader }) {
       const created = await act({
         action: "add_mcp_server", transport,
         serverName: String(form.get("serverName") ?? ""), label: String(form.get("label") ?? ""),
-        command: String(form.get("command") ?? ""), args: String(form.get("args") ?? ""),
+        command: String(form.get("command") ?? ""), args: String(form.get("args") ?? "").split("\n"),
         url: String(form.get("url") ?? ""), secrets
       });
       if (created?.id) onCancel();
@@ -345,7 +345,7 @@ export function McpPage({ ctx, capabilities }) {
           h("div", { className: "bees-row-title" }, server.label),
           h("div", { className: "bees-muted" }, [
             // The browser mounts per run, so a tool count and a command line would only mislead here.
-            ...(server.catalogId === "playwright" ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
+            ...(server.perRun ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
               `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
               server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
             server.source === "catalog" ? "from the catalog" : "added by hand"

@@ -180,8 +180,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
   agents.command = (input) => product.command(input);
   await product.initialize();
-  await product.recoverRuns();
   await capabilities.initialize();
+  await product.recoverRuns();
   await processes.start((stage, signal) => product.runProcessStage(stage, signal));
   const syncTick = async () => {
     await connected.sync();
