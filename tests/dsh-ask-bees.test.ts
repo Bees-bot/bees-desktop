@@ -25,7 +25,7 @@ it("shows the planner form without starting anything", () => {
   };
   let started = false;
   const render = (snapshot: any) => renderToStaticMarkup(React.createElement(AskBeesSetup, {
-    ctx: {}, data: snapshot, workspaceId: "workspace", outcome: "Research CRM options", capabilities: { data: { servers: [] } },
+    ctx: { uiSession: {} }, data: snapshot, workspaceId: "workspace", outcome: "Research CRM options", capabilities: { data: { servers: [] } },
     onOutcome: () => {}, onBack: () => {}, act: () => { started = true; }
   }));
   const markup = render(data);

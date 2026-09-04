@@ -1,5 +1,6 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button, ProposalCard } from "./shared.js";
+import { Button, ProposalCard, useSnapshot } from "./shared.js";
+import { EMPTY_INTERACTIONS, pendingInteractionFor, QuestionPanel } from "./work.js";
 import { AgentModelSelect, McpAccess } from "./agents.js";
 import { McpPage } from "./skills.js";
 import { SettingsPage } from "./settings.js";
@@ -12,11 +13,14 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const [catalogRevision, setCatalogRevision] = useState(0);
   // The planner run's session; its proposal shows up here when it lands.
   const [planning, setPlanning] = useState("");
+  const [handled, setHandled] = useState(() => new Set());
+  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const heading = useRef(null);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
   const team = data.teams.find(({ id }) => id === teamId);
   const enabledServers = (capabilities.data?.servers ?? []).filter((server) => server.enabled);
   const proposal = data.proposals.find((row) => row.sessionId === planning && row.status === "pending");
+  const question = pendingInteractionFor(waiting, planning, handled);
 
   useEffect(() => { if (active && !manage) heading.current?.focus(); }, [active, manage]);
 
@@ -46,8 +50,11 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const plan = proposal
     ? h(ProposalCard, { proposal, onApply: apply, onDismiss: dismiss })
     : h("section", { className: "bees-box" },
-      h("h2", null, "Bees is planning"),
-      h("p", { className: "bees-muted" }, "It is working out the agents, process, tools and schedule for this. The plan appears here for you to apply."),
+      h("h2", null, question ? "Bees has a question" : "Bees is planning"),
+      question
+        ? h(QuestionPanel, { key: question.key, wait: question, act, executionId: planning,
+          onAnswered: (key) => setHandled((current) => new Set(current).add(key)) })
+        : h("p", { className: "bees-muted" }, "It is working out the agents, process, tools and schedule for this. The plan appears here for you to apply."),
       h(Button, { onClick: () => setPlanning("") }, "Back to the form"));
 
   return h("div", { className: "bees-ask-setup", style: { maxWidth: 640, margin: "0 auto", padding: "16px 0" } },

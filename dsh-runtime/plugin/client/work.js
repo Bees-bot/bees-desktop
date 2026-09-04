@@ -669,7 +669,7 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
         onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
 }
 
-function QuestionPanel({ wait, onAnswered, act, executionId }) {
+export function QuestionPanel({ wait, onAnswered, act, executionId }) {
   const pending = wait;
   const questions = pending.questions ?? [];
   return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId });
@@ -791,9 +791,9 @@ function ApprovalPanel({ wait, onAnswered }) {
 
 // dsh 0.1.2 publishes one pending interaction per session on its own service, replacing the list
 // that used to hang off the session snapshot. A stable empty map keeps useSnapshot from resubscribing.
-const EMPTY_INTERACTIONS = new Map();
+export const EMPTY_INTERACTIONS = new Map();
 
-const pendingInteractionFor = (waiting, sessionId, handled) => {
+export const pendingInteractionFor = (waiting, sessionId, handled) => {
   const pending = sessionId ? waiting.get(sessionId) : undefined;
   return pending && !handled.has(pending.key) ? pending : undefined;
 };
