@@ -1,3 +1,5 @@
+export const BROWSER_CATALOG = "playwright";
+
 /** Servers offered out of the box. Nothing installs without review, because each one is a program
  *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
 const ENTRIES = [
@@ -104,10 +106,11 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    // One server per run, each with its own context. Sharing a profile is what playwright warns
-    // against and it showed: concurrent runs read each other's pages. The state file carries the
-    // sign-in from the browser a person actually logs in to, so isolation costs no sessions.
-    args: ["-y", "@playwright/mcp@latest", "--isolated", "--storage-state", "{browserState}"],
+    // One server per run, each with its own headless context. Sharing a profile is what playwright
+    // warns against and it showed: concurrent runs read each other's pages. Headless, because the
+    // only window a person should ever see is the one Bees opens for a sign-in. The state file
+    // carries that sign-in across, so isolation costs no sessions.
+    args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--storage-state", "{browserState}"],
     env: [],
     headers: []
   },

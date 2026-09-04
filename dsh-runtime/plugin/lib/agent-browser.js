@@ -8,21 +8,18 @@ import { stateDirectory } from "./product-database.js";
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 /**
- * One Chrome, started by Bees, shared with the agent over CDP. Two Chromes on one profile lost
- * the session: whichever exited last overwrote the other's cookies, so a person's sign-in came
- * back to the agent as a sign-in page. Now they share the tab. It stays minimised while the agent
- * works and keeps running between runs. The port is promised to the browser server up front and
- * Chrome takes it with the first run that can browse. Bees kills it on quit.
+ * The one visible Chrome. A person signs in here when a run asks them to; nothing else touches it.
+ * Runs browse in their own headless contexts and inherit this browser's cookies through the state
+ * file, so a sign-in done once carries to every run without any of them sharing a tab.
  */
 let chrome = null;
 let starting = null;
 let port = 0;
-let wantedOnScreen = false;
 
 const running = () => chrome?.exitCode === null && chrome.signalCode === null;
 const listening = () => fetch(`http://127.0.0.1:${port}/json/version`).then((reply) => reply.ok, () => false);
 
-/** Both the server mount and the launch come through here, and neither means anything off macOS. */
+/** Chrome needs a debugging port so its cookies can be read out. macOS only, like the binary path. */
 async function reservePort() {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   if (port) return port;
@@ -111,24 +108,23 @@ export function browserStatePath() {
   return path;
 }
 
-/** Copy this browser's cookies out so the next run starts signed in to whatever a person just used. */
+/**
+ * Copy this browser's cookies out so the next run starts signed in to whatever a person just used.
+ * Throws when Chrome cannot answer, and the caller logs it: a run that starts signed out is not
+ * fatal, but it must not be silent.
+ */
 export async function saveBrowserState() {
-  if (!running()) return false;
-  try {
-    const { cookies } = await cdp("Storage.getCookies", {});
-    writeFileSync(browserStatePath(), JSON.stringify({
-      cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
-        name, value, domain, path, httpOnly, secure,
-        expires: expires > 0 ? Math.floor(expires) : -1,
-        // chrome reports None/Lax/Strict or nothing; playwright insists on one of its three.
-        sameSite: ["Strict", "Lax", "None"].includes(sameSite) ? sameSite : "Lax"
-      })),
-      origins: []
-    }));
-    return true;
-  } catch {
-    return false;
-  }
+  if (!running()) return;
+  const { cookies } = await cdp("Storage.getCookies", {});
+  writeFileSync(browserStatePath(), JSON.stringify({
+    cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
+      name, value, domain, path, httpOnly, secure,
+      expires: expires > 0 ? Math.floor(expires) : -1,
+      // chrome reports None/Lax/Strict or nothing; playwright insists on one of its three.
+      sameSite: ["Strict", "Lax", "None"].includes(sameSite) ? sameSite : "Lax"
+    })),
+    origins: []
+  }));
 }
 
 
@@ -142,17 +138,13 @@ export function startAgentBrowser() {
 /** Put the window on screen so a person can sign in to the tab the agent is reading. */
 export async function showAgentBrowser() {
   await startAgentBrowser();
-  wantedOnScreen = true;
   await setAppHidden(false);
   await setWindow("normal");
 }
 
 /** Back out of the way once the person has answered. */
 export async function hideAgentBrowser() {
-  wantedOnScreen = false;
   if (!running()) return;
-  // Whatever they just signed into is what the next run has to inherit.
-  await saveBrowserState();
   await setWindow("minimized");
   await setAppHidden(true);
 }

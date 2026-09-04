@@ -7,7 +7,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
-import { MCP_CATALOG } from "./mcp-catalog.js";
+import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
@@ -713,11 +713,11 @@ export class AgentRuntime {
 
   /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
   async startBrowserIfGranted({ mcpAccess, mcpServers }, agentCtx) {
-    const browsers = this.database.prepare("SELECT server_name FROM mcp_servers WHERE enabled = 1 AND catalog_id = 'playwright'").all();
+    const browsers = this.database.prepare("SELECT server_name FROM mcp_servers WHERE enabled = 1 AND catalog_id = ?").all(BROWSER_CATALOG);
     if (mcpAccess === "none" || !browsers.some(({ server_name }) => mcpAccess === "all" || mcpServers.includes(server_name))) return;
     // This run's own browser, mounted on its agent context so it dies with the run. Chrome starts
     // alongside it only so a person has somewhere to sign in when a run asks for one.
-    await this.capabilities?.mountBrowserFor(agentCtx)
+    await this.capabilities.mountBrowserFor(agentCtx)
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
   }

@@ -3,7 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserStatePath } from "./agent-browser.js";
+import { browserStatePath, saveBrowserState } from "./agent-browser.js";
+import { BROWSER_CATALOG } from "./mcp-catalog.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -48,8 +49,6 @@ function rowToServer(row) {
   };
 }
 
-const BROWSER_CATALOG = "playwright";
-
 /** Skills and tools come from DSH. MCP servers are ours: one mounted fiber per enabled row,
  *  except the browser, which mounts per run. */
 export class Capabilities {
@@ -78,6 +77,9 @@ export class Capabilities {
   async mountBrowserFor(agentCtx) {
     const row = this.servers().find(({ enabled, catalogId }) => enabled && catalogId === BROWSER_CATALOG);
     if (!row) return;
+    // Whatever a person has signed into since the last run is what this one inherits.
+    await saveBrowserState().catch((error) =>
+      this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
     const fiber = agentCtx.plugin(mcpClient, await this.configFor(row));
     await started(fiber, row.serverName);
   }

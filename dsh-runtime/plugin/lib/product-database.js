@@ -745,7 +745,7 @@ export function initializeProductDatabase(database) {
   // An installed browser server still carries the arguments that shared one profile across runs.
   if (version < 19) database.exec(`
     UPDATE mcp_servers
-      SET args_json = '["-y","@playwright/mcp@latest","--isolated","--storage-state","{browserState}"]'
+      SET args_json = '["-y","@playwright/mcp@latest","--headless","--isolated","--storage-state","{browserState}"]'
       WHERE catalog_id = 'playwright';
     PRAGMA user_version = 19;
   `);
