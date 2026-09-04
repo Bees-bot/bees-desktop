@@ -213,6 +213,21 @@ describe("DSH-owned desktop and recovery", () => {
     expect(safeRecoverySeed(events)).toEqual(events.slice(0, 3));
   });
 
+  it("reindexes a recovery seed after excluding team events", () => {
+    const events = [
+      { type: "turn/start", seq: 0 },
+      { type: "team/member/spawned", seq: 1 },
+      { type: "user/message", seq: 2, data: { source: { kind: "team-message" } } },
+      { type: "user/message", seq: 3 },
+      { type: "turn/end", seq: 4 },
+    ];
+    expect(safeRecoverySeed(events)).toEqual([
+      events[0],
+      { ...events[3], seq: 1 },
+      { ...events[4], seq: 2 },
+    ]);
+  });
+
   it("includes internal prompt context in the user-facing run transcript", async () => {
     const events = [
       { type: "user/message", time: 1, data: { id: "runtime", content: [{ type: "text", text: "Current runtime context" }], source: { kind: "plugin", plugin: "@deepseek-ai/dsh-system-prompt" } } },
