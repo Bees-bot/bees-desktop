@@ -100,10 +100,6 @@ export function latestCodexModel(models, family) {
     .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
 }
 
-export function latestSolModel(models) {
-  return latestCodexModel(models, "sol");
-}
-
 async function resolveRunModel(ctx, data) {
   let selection = data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
   const channel = CODEX_CHANNELS.get(selection.model);

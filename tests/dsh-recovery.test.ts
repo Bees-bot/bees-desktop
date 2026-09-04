@@ -7,7 +7,6 @@ import {
   LATEST_SOL_MODEL,
   copyOutputs,
   latestCodexModel,
-  latestSolModel,
   safeRecoverySeed,
   typedReferences
 } from "../dsh-runtime/plugin/lib/agent-runtime.js";
@@ -113,7 +112,7 @@ describe("DSH-owned desktop and recovery", () => {
       { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },
       { id: "gpt-6.0-terra" }, { id: "gpt-5.6-luna" }
     ];
-    expect(latestSolModel(models)).toEqual({ id: "gpt-5.10-sol" });
+    expect(latestCodexModel(models, "sol")).toEqual({ id: "gpt-5.10-sol" });
     expect(latestCodexModel(models, "terra")).toEqual({ id: "gpt-6.0-terra" });
     expect(latestCodexModel(models, "luna")).toEqual({ id: "gpt-5.6-luna" });
   });
