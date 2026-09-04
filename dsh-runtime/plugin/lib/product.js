@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   agentCapabilities, currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
@@ -12,7 +12,8 @@ import {
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { executeProductCommand } from "./product-commands.js";
+import { executeProductCommand, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
 
@@ -24,19 +25,17 @@ const PREVIEW_BYTES = 256_000;
 function textPreview(path, logical) {
   const extension = extname(path).toLowerCase();
   const size = lstatSync(path).size;
-  const truncated = size > PREVIEW_BYTES;
-  let content;
-  if (truncated) {
-    const buffer = Buffer.alloc(PREVIEW_BYTES);
-    const fd = openSync(path, "r");
-    try { readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
-    content = buffer.toString("utf8");
-  } else content = readFileSync(path, "utf8");
-  let format = [".md", ".markdown"].includes(extension) ? "markdown" : extension === ".json" ? "json" : "text";
-  if (format === "json" && !truncated) {
-    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { format = "text"; }
+  const buffer = Buffer.alloc(PREVIEW_BYTES);
+  const fd = openSync(path, "r");
+  let read;
+  try { read = readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
+  // stream drops a multibyte character cut at the byte limit instead of showing a box
+  let content = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, read), { stream: true });
+  if (extension === ".json" && size <= PREVIEW_BYTES) {
+    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { /* not JSON after all, show it raw */ }
   }
-  return { name: basename(path), path: logical, format, content, ...(truncated ? { size, truncated } : {}) };
+  const format = [".md", ".markdown"].includes(extension) ? "markdown" : "text";
+  return { name: basename(path), path: logical, format, content, size, truncated: size > PREVIEW_BYTES };
 }
 
 export class BeesProduct {
@@ -417,7 +416,7 @@ export class BeesProduct {
              changes_json AS changes, status, created_at AS createdAt
       FROM bees_proposals WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY created_at DESC LIMIT 100
-    `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: JSON.parse(row.changes) })) : [];
+    `).all(JSON.stringify(workspaceIds)).map((row) => ({ ...row, changes: withoutSecrets(JSON.parse(row.changes)) })) : [];
     let presets = [];
     try {
       presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
@@ -604,9 +603,28 @@ export class BeesProduct {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
-    const proposedProcesses = new Set();
+    const proposedProcesses = new Map();
     const proposedAgents = new Set();
     const proposedItems = new Set();
+    // Names an agent may list in mcpServers: what is installed, plus what this same proposal installs.
+    const servers = new Set(this.database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all()
+      .flatMap((row) => [row.id, row.name, row.label, row.catalogId]).filter(Boolean).map((value) => String(value).toLocaleLowerCase()));
+    for (const change of changes) {
+      const entry = change?.action === "install_mcp_server" ? catalogEntry(change.catalogId) : null;
+      for (const name of entry ? [entry.id, entry.serverName, entry.label] : change?.action === "add_mcp_server" ? [change.serverName] : [])
+        servers.add(String(name ?? "").toLocaleLowerCase());
+    }
+    const folder = (name) => {
+      if (!this.database.prepare(`
+        SELECT 1 FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
+        WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
+      `).get(workspaceId, String(name))) throw new Error(`No team folder is named "${name}"; use an exact name from the brief`);
+      return String(name);
+    };
+    const locations = (change) => ({
+      ...(Array.isArray(change.inputLocations) ? { inputLocations: change.inputLocations.map(folder) } : {}),
+      ...(change.outputLocation ? { outputLocation: folder(change.outputLocation) } : {})
+    });
     const earlier = (set, name, what) => {
       if (!set.has(String(name).toLocaleLowerCase())) throw new Error(`${what} must name one created earlier in the same proposal`);
     };
@@ -615,11 +633,14 @@ export class BeesProduct {
       if (change.action === "create_goal") {
         const title = required(change.title, "Goal title");
         proposedItems.add(title.toLocaleLowerCase());
-        return { action: "create_goal", title, description: String(change.description ?? "") };
+        return { action: "create_goal", title, description: String(change.description ?? ""), ...locations(change) };
       }
       if (change.action === "add_agent_assignment") {
         const name = required(change.name, "Agent name");
         proposedAgents.add(name.toLocaleLowerCase());
+        if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
+          if (!servers.has(String(server).toLocaleLowerCase()))
+            throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
         return {
           action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
           description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
@@ -632,28 +653,53 @@ export class BeesProduct {
         earlier(proposedProcesses, process, "A proposed route's process");
         const agents = Array.isArray(change.agents) ? change.agents.map(String) : [];
         for (const agent of agents) earlier(proposedAgents, agent, "A proposed route's agent");
-        return { action: "set_stage_route", process, stage: required(change.stage, "Route stage"), agents };
+        const stage = required(change.stage, "Route stage");
+        const driver = proposedProcesses.get(process.toLocaleLowerCase()).find(({ name }) => name.toLocaleLowerCase() === stage.toLocaleLowerCase())?.driver;
+        if (!driver) throw new Error(`The stage "${stage}" is not in the proposed process ${process}`);
+        if (!["agent", "discussion"].includes(driver)) throw new Error(`The stage "${stage}" does not run an agent; route only agent stages`);
+        return { action: "set_stage_route", process, stage, agents };
       }
       if (change.action === "create_recurring_work") {
         earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
+        recurringSchedule(change);
         return { ...change };
       }
-      // Capabilities validates these when the proposal is applied.
-      if (["install_mcp_server", "add_mcp_server", "install_skill"].includes(change.action)) return { ...change };
+      if (change.action === "install_mcp_server") {
+        const entry = catalogEntry(change.catalogId);
+        if (!entry) throw new Error(`No catalog server is called ${change.catalogId}; the catalog has ${MCP_CATALOG.map(({ id }) => id).join(", ")}`);
+        for (const secret of [...entry.env, ...entry.headers])
+          if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
+        if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
+        const given = change.inputs ?? {};
+        for (const field of entry.inputs)
+          if (!field.optional && !String(given[field.name] ?? "").trim() && !(field.name === "openapiSpec" && (given.curl || given.apiBaseUrl)))
+            throw new Error(`${entry.label} needs inputs.${field.name}: ${field.label}`);
+        return { ...change };
+      }
+      if (change.action === "add_mcp_server") {
+        required(change.serverName, "Server name");
+        if (change.transport === "stdio" ? !change.command : change.transport === "streamable-http" ? !change.url : true)
+          throw new Error("add_mcp_server needs transport stdio with a command, or streamable-http with a url");
+        return { ...change };
+      }
+      if (change.action === "install_skill") {
+        required(change.repo, "Skill repo"); required(change.directory, "Skill directory");
+        return { ...change };
+      }
       if (change.action === "create_process") {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
         if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
-        proposedProcesses.add(key);
-        const stages = Array.isArray(change.stages) ? [...change.stages] : [];
-        const last = stages.at(-1);
+        const raw = Array.isArray(change.stages) ? [...change.stages] : [];
+        const last = raw.at(-1);
         // The planner lists the steps; the last stage is the terminal one, so give it a real Done.
         if (last && !(typeof last === "object" ? last.driver === "terminal" : /\b(?:done|complete|completed|finished)\b/i.test(last)))
-          stages.push("Done");
-        return {
-          action: "create_process", name, description: String(change.description ?? ""),
-          stages: processStages(stages, "proposed process")
-        };
+          raw.push("Done");
+        // A planner step is agent work unless it says otherwise; guessing drivers from names turned "Scan inbox" into a manual stage.
+        const stages = processStages(raw.map((stage, index) => typeof stage === "string" && index < raw.length - 1
+          ? { name: stage, driver: /\b(?:discuss|discussion|debate|roundtable)\b/i.test(stage) ? "discussion" : "agent" } : stage), "proposed process");
+        proposedProcesses.set(key, stages);
+        return { action: "create_process", name, description: String(change.description ?? ""), stages };
       }
       if (change.action === "create_item") {
         const process = required(change.process, "Work item process");
@@ -661,7 +707,7 @@ export class BeesProduct {
           throw new Error("A proposed work item must target a process created earlier in the same proposal");
         const title = required(change.title, "Work item title");
         proposedItems.add(title.toLocaleLowerCase());
-        return { action: "create_item", process, title, description: String(change.description ?? "") };
+        return { action: "create_item", process, title, description: String(change.description ?? ""), ...locations(change) };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);
     });
@@ -670,6 +716,7 @@ export class BeesProduct {
     this.database.prepare(`
       INSERT INTO bees_proposals VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `).run(id, workspaceId, sessionId || null, required(title, "Proposal title"), String(summary ?? ""), JSON.stringify(normalized), at, at);
+    this.notify({ type: "domain-propose_changes", workspaceId });
     return { id, changes: normalized.length };
   }
 

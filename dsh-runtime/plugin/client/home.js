@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, openExternal, HelpTooltip } from "./shared.js";
+import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup } from "./ask-bees.js";
@@ -92,14 +92,11 @@ function QuickActionsWidget({ workspaceId, createWork, createGoal, createProcess
 
 function ProposalsWidget({ data, workspaceIds, act }) {
   const proposals = (data.proposals ?? []).filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
-  if (!proposals.length) return h(Empty, null, "No proposals waiting for review.");
+  if (!proposals.length) return null;
   return h("div", { className: "bees-dashboard-list" }, ...proposals.map((proposal) =>
-    h("article", { className: "bees-dashboard-proposal", key: proposal.id },
-      h("strong", null, proposal.title),
-      proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
-      h("div", { className: "bees-card-actions" },
-        h(Button, { className: "primary", onClick: () => act({ action: "apply_proposal", proposalId: proposal.id }) }, "Apply"),
-        h(Button, { onClick: () => act({ action: "reject_proposal", proposalId: proposal.id }) }, "Dismiss")))));
+    h(ProposalCard, { key: proposal.id, proposal,
+      onApply: () => act({ action: "apply_proposal", proposalId: proposal.id }),
+      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
 }
 
 const WIDGETS = [
@@ -120,7 +117,6 @@ const WIDGETS = [
   { kind: "knowledge-sources", label: "Knowledge sources", description: "Approved knowledge locations", route: "sources", w: 6, h: 5, component: ListWidget , helpText: "Approved locations where Bees indexes knowledge for your agents.", helpExamples: []},
   { kind: "runs", label: "Executions", description: "Recent agent executions", route: "runs", w: 6, h: 5, component: ListWidget , helpText: "Recent individual agent executions.", helpExamples: []},
   { kind: "artifacts", label: "Artifacts", description: "Outputs from completed executions", route: "artifacts", w: 6, h: 5, component: ListWidget , helpText: "Outputs produced by completed agent executions.", helpExamples: []},
-  { kind: "proposals", label: "Proposals", description: "Changes awaiting review", w: 6, h: 5, component: ProposalsWidget , helpText: "Suggested changes from agents awaiting your review.", helpExamples: ["An agent proposes a change to a process template","An agent suggests updating its playbook"]}
 ];
 
 const widgetByKind = new Map(WIDGETS.map((widget) => [widget.kind, widget]));
@@ -250,6 +246,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
       active: setup === "review", onBack: () => setSetup("closed"), onStarted: openWorkItem
     })) : null,
     h("div", { className: "bees-dashboard", hidden: setup === "review" },
+    h(ProposalsWidget, { data, workspaceIds: [workspaceId], act }),
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,
       editing,

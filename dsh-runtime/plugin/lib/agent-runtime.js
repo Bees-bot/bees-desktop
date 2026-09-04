@@ -12,17 +12,17 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
-  product: ["create_process", "create_process_template", "edit_process", "create_item", "create_goal",
-    "create_recurring_work", "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
+  product: ["create_process", "create_item", "create_goal", "create_recurring_work",
+    "add_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
-const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a system Bees can run, never into documents about one. A proposal for a repeatable outcome must contain, in this order: one add_agent_assignment per distinct role (presetId "standard", a name, and instructions that say how that role works and what it must never do); one create_process whose stages are the steps of the outcome, with a stage marked for human approval wherever the person said to wait for them; one set_stage_route for every agent stage, naming the agent that owns it; an MCP server for every API the person gave a key, token, URL or curl for; an install_skill when a known pack clearly helps; a create_recurring_work when the person said how often; and the create_item that starts the first run. A one-off outcome with no role of its own can be a plain goal.
+const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a system Bees can run, never into documents about one. A proposal for a repeatable outcome must contain, in this order: one add_agent_assignment per distinct role (presetId "standard", a name, and instructions that say how that role works and what it must never do); one create_process whose stages are the steps of the outcome, with a stage marked for human approval wherever the person said to wait for them; one set_stage_route for every agent stage, naming the agent that owns it; an MCP server for every API the person gave a key, token, URL or curl for; an install_skill when a known pack clearly helps; a create_recurring_work when the person said how often; and the create_item that starts the first run. A one-off outcome with no role of its own can be a plain goal. A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
 
 MCP servers come from the catalog only, by install_mcp_server with one of these catalogId values: ${CATALOG_IDS}. An API with no server of its own goes through catalogId "openapi-bridge" with inputs {curl: the exact request the person gave} and secrets {API_HEADERS: its auth header}, which turns every endpoint into a tool. Never propose add_mcp_server with a package you have not seen. When no catalog entry fits, leave the key in the item's description and the agent calls the API over HTTP.
 
@@ -98,10 +98,6 @@ export function latestCodexModel(models, family) {
   const pattern = new RegExp(`^gpt-\\d+(?:\\.\\d+)*-${family}$`, "i");
   return models.filter(({ id }) => pattern.test(id))
     .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
-}
-
-export function latestSolModel(models) {
-  return latestCodexModel(models, "sol");
 }
 
 async function resolveRunModel(ctx, data) {
@@ -274,6 +270,7 @@ function lastTurn(events, afterSeq = -1) {
 
 export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
+  // DSH wants seq to equal the index, so renumber after dropping team events.
   return last ? events.filter((event) => event.seq <= last.seq &&
     !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message")
     .map((event, seq) => ({ ...event, seq })) : [];
@@ -296,6 +293,8 @@ export function copyOutputs(workspace, location, executionId) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
 
+  // Inputs are staged under "<name>-<id8>[-hash]/"; an output written at that same path replaces the original file.
+  const staged = `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}`;
   const pending = [];
   const stack = [sourceRoot];
   let bytes = 0;
@@ -306,7 +305,8 @@ export function copyOutputs(workspace, location, executionId) {
       const source = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(source);
       else if (entry.isFile()) {
-        const logical = relative(sourceRoot, source);
+        const [first, ...rest] = relative(sourceRoot, source).split(sep);
+        const logical = (first === staged || first.startsWith(`${staged}-`)) && rest.length ? rest.join(sep) : [first, ...rest].join(sep);
         const stat = lstatSync(source);
         if (!logical || logical.startsWith(`..${sep}`) || logical === "..") continue;
         if (stat.size > 20_000_000) throw new Error(`Output is too large to publish: ${logical}`);
@@ -893,10 +893,10 @@ export class AgentRuntime {
         return { outcome: "rejected", feedback };
       }
     }));
-    if (data.mode === "work" && this.command) agentCtx.tools.register(defineTool({
+    if (data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
-      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. Same actions and inputs the Bees screens send; the team is filled in for you. "
-        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver: agent|review|terminal}]} -> {id}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. "
+        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver: agent|review|terminal}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. set_stage_route {stageId, agentIds: [assignment ids]}. "
         + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args? (one per line), url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
@@ -912,14 +912,25 @@ export class AgentRuntime {
         },
         render: (_args, value) => [{ type: "text", text: value.result_json }]
       },
-      execute: async (args) => {
+      execute: async (args, exec) => {
         let input;
         try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
-        if (["install_mcp_server", "add_mcp_server"].includes(args.action) && result?.id) await this.capabilities.mountFor(agentCtx, result.id);
+        if (args.action === "install_mcp_server") {
+          if (!result?.id) throw new Error(`install_mcp_server did not return a server for catalog ${input.catalogId}`);
+          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
+        } else if (args.action === "add_mcp_server" && result?.id) {
+          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
+        } else if (args.action === "create_process" && result?.id) {
+          // Stage ids are otherwise invisible to the model, which needs them for set_stage_route.
+          result.stages = this.database.prepare(
+            "SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position"
+          ).all(result.id);
+        }
+        this.audit("bees-control-used", executionId, String(exec.agent?.session.id ?? ""), { action: args.action, id: result?.id ?? null });
         return { result_json: JSON.stringify(result ?? null) };
       }
     }));
@@ -931,7 +942,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description}; {action:'create_process',name,description,stages:['Stage name']}; {action:'create_item',process,title,description}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[serverName]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?,url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency:'hourly'|'daily'|'weekly'|'monthly'|'advanced',everyMinutes?,hour?,timezone?,cronExpression?}. A stage is just its name; what the work is goes in the item's description. process, stage, agents and item name things created earlier in the same array. Example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?,url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem server needs directory, an absolute path the person gave. process, stage, agents and item name things created earlier in the same array. Example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
         }
       },
       output: {
@@ -1452,12 +1463,13 @@ export class AgentRuntime {
         if (session !== handle.agent.session || event.type !== "turn/start") return;
         dispose();
         clearTimeout(timer);
-        void this.ctx.approval.request({
+        // still inside the turn/start publication; appending the approval here makes dsh throw "cannot reenter"
+        setTimeout(() => void this.ctx.approval.request({
           agent: handle.agent,
           toolName: pending.toolName,
           reason: pending.reason ?? "Resume the action from its last safe checkpoint?",
           signal
-        }).then(resolve, reject);
+        }).then(resolve, reject), 0);
       }, { global: true });
     });
   }

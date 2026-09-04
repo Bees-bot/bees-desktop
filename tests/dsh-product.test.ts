@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 19 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 20 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -90,7 +90,7 @@ describe("Bees DSH product plugin", () => {
     });
     expect(product.runFile("preview-run", "inputs/brief.md")).toEqual({
       name: "brief.md", path: "inputs/brief.md", format: "markdown",
-      content: "# Brief\n\nChoose **one**."
+      content: "# Brief\n\nChoose **one**.", size: 24, truncated: false
     });
     expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
     expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");

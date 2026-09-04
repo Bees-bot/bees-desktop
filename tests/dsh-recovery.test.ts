@@ -7,7 +7,6 @@ import {
   LATEST_SOL_MODEL,
   copyOutputs,
   latestCodexModel,
-  latestSolModel,
   safeRecoverySeed,
   typedReferences
 } from "../dsh-runtime/plugin/lib/agent-runtime.js";
@@ -113,7 +112,7 @@ describe("DSH-owned desktop and recovery", () => {
       { id: "gpt-5.9-sol" }, { id: "gpt-5.10-sol" },
       { id: "gpt-6.0-terra" }, { id: "gpt-5.6-luna" }
     ];
-    expect(latestSolModel(models)).toEqual({ id: "gpt-5.10-sol" });
+    expect(latestCodexModel(models, "sol")).toEqual({ id: "gpt-5.10-sol" });
     expect(latestCodexModel(models, "terra")).toEqual({ id: "gpt-6.0-terra" });
     expect(latestCodexModel(models, "luna")).toEqual({ id: "gpt-5.6-luna" });
   });
@@ -297,12 +296,12 @@ describe("DSH-owned desktop and recovery", () => {
     const location = mkdtempSync(join(tmpdir(), "bees-publish-location-"));
     mkdirSync(join(workspace, "outputs"));
     writeFileSync(join(workspace, "outputs", "answer.txt"), "first");
-    expect(copyOutputs(workspace, { localPath: location }, "run-1")).toMatchObject({
+    expect(copyOutputs(workspace, { id: "loc-1", name: "Answers", localPath: location }, "run-1")).toMatchObject({
       files: 1, bytes: 5, destination: ".", existing: false
     });
     writeFileSync(join(workspace, "outputs", "answer.txt"), "second");
     // overwrite works
-    copyOutputs(workspace, { localPath: location }, "run-1");
+    copyOutputs(workspace, { id: "loc-1", name: "Answers", localPath: location }, "run-1");
     expect(readFileSync(join(location, "answer.txt"), "utf8")).toBe("second");
     rmSync(workspace, { recursive: true });
     rmSync(location, { recursive: true });

@@ -264,6 +264,8 @@ const CODE_LANGUAGES = {
   toml: "toml", html: "html", css: "css", sql: "sql", xml: "xml", csv: "csv"
 };
 const languageOf = (name) => CODE_LANGUAGES[String(name ?? "").split(".").pop().toLowerCase()] ?? "text";
+const formatSize = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+const HIGHLIGHT_LIMIT = 64 * 1024; // shiki freezes the page past this size
 export function FilePreview({ target, onClose }) {
   return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target, onClose });
 }
@@ -296,8 +298,9 @@ function FileContents({ target, onClose }) {
           !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
-            file.truncated ? h("div", { className: "bees-muted" }, `Showing the first ${Math.round(file.content.length / 1024)} KB of ${(file.size / 1_000_000).toFixed(1)} MB.`) : null,
+            file.truncated ? h("div", { className: "bees-muted" }, `Showing the first ${formatSize(file.content.length)} of ${formatSize(file.size)}.`) : null,
             file.format === "markdown" ? h(MarkdownText, { text: file.content })
+              : file.content.length > HIGHLIGHT_LIMIT ? h("pre", null, file.content)
               : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));
   const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),
     target.locationId && path !== target.path ? h(Button, {

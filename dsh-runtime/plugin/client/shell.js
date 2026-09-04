@@ -248,12 +248,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
-  const askBees = async (outcome) => {
-    if (!parts.workspaceId) return null;
-    const result = await act({ action: "ask_bees", workspaceId: parts.workspaceId, outcome });
-    if (result?.executionId) { setRunId(result.executionId); setRoute("runs"); }
-    return result;
-  };
   const navigate = (id) => {
     if (id === "dsh-settings") {
       document.querySelector('button[aria-haspopup="dialog"][aria-expanded]')?.click();

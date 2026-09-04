@@ -209,7 +209,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"Filter by status"');
     expect(client).toContain('"Filter by type"');
     expect(client).toContain('`Plan outcome: ${run.purpose}`');
-    expect(client).toContain('setRunId(result.executionId)');
   });
 
   it("documents scheduling behavior for end users", () => {

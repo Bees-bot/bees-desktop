@@ -749,6 +749,11 @@ export function initializeProductDatabase(database) {
       WHERE catalog_id = 'playwright';
     PRAGMA user_version = 19;
   `);
+  // The code preset is called ptc now, and an assignment naming the old key resolves to nothing.
+  if (version < 20) database.exec(`
+    UPDATE agent_assignments SET preset_id = 'ptc' WHERE preset_id = 'code';
+    PRAGMA user_version = 20;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

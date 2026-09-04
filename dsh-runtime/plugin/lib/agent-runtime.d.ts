@@ -14,12 +14,13 @@ export declare function safeRecoverySeed(events: Array<{ type: string; seq: numb
 export declare function authorizeReferences(database: unknown, workspaceId: string, references: ReturnType<typeof typedReferences>): void;
 export declare function copyOutputs(
   workspace: string,
-  location: { localPath: string },
+  location: { id: string; name: string; localPath: string },
   executionId: string
 ): { files: number; bytes: number; destination: string; existing: boolean };
 
 export declare class AgentRuntime {
-  constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } } | null, notify?: (change: Record<string, unknown>) => void, subscribe?: ((listener: (change: Record<string, any>) => void) => () => void) | null);
+  constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } } | null, notify?: (change: Record<string, unknown>) => void, subscribe?: ((listener: (change: Record<string, any>) => void) => () => void) | null, capabilities?: unknown | null);
+  command?: (input: Record<string, unknown>) => Promise<unknown>;
   setProposalStore(store: (proposal: Record<string, unknown>) => unknown): void;
   setKnowledgeSearch(search: (query: string, workspaceId: string) => Promise<unknown[]>): void;
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;

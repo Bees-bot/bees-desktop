@@ -25,6 +25,9 @@ function priorityOf(value) {
 /** Proposal changes that belong to Capabilities, not the product database. */
 const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_skill"];
 
+/** An MCP server's API keys ride in the change list; nothing outside apply needs them. */
+export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) => change);
+
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
   if (!Object.hasOwn(input, "mcpAccess")) return current;
   const access = String(input.mcpAccess ?? "all");
@@ -36,15 +39,17 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   return { access, servers };
 }
 
-/** A server id that resolves to nothing would silently grant the agent nothing at all. */
+/** Accept an id, a server name, a label or a catalog id; anything that resolves to nothing would silently grant the agent nothing at all. */
 function checkMcpServers(database, policy) {
   if (policy.access !== "listed") return policy;
-  const known = database.prepare(`
-    SELECT id FROM mcp_servers WHERE enabled = 1 AND id IN (SELECT value FROM json_each(?))
-  `).all(JSON.stringify(policy.servers)).map(({ id }) => id);
-  const missing = policy.servers.filter((id) => !known.includes(id));
-  if (missing.length) throw new Error(`No MCP server matches ${missing.join(", ")}`);
-  return policy;
+  const rows = database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all();
+  const servers = policy.servers.map((wanted) => {
+    const key = wanted.toLocaleLowerCase();
+    const row = rows.find((row) => [row.id, row.name, row.label, row.catalogId].some((value) => String(value ?? "").toLocaleLowerCase() === key));
+    if (!row) throw new Error(`No MCP server matches ${wanted}`);
+    return row.id;
+  });
+  return { access: policy.access, servers: [...new Set(servers)] };
 }
 
 function locationIds(database, workspaceId, values, foldersOnly = false) {
@@ -76,7 +81,7 @@ function invokedAgents(database, workspaceId, value) {
   let rest = String(value ?? "");
   const agents = [];
   while (agents.length < 9) {
-    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*[,;:\-]\s*|\s+|$)/u);
+    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
     let agent;
     let consumed;
     if (canonical) {
@@ -84,11 +89,11 @@ function invokedAgents(database, workspaceId, value) {
       if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
       consumed = canonical[0];
     } else {
-      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*[,;:\-]\s*|\s+|$)/iu);
+      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/iu);
       if (typed && typed[1].toLocaleLowerCase() !== "agent") break;
       const shorthand = typed
         ? [typed[0], typed[2]]
-        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*[,;:\-]\s*|\s+|$)/u);
+        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
       if (!shorthand) break;
       const matches = database.prepare(`
         SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
@@ -159,7 +164,7 @@ function timezoneOf(value) {
   return timezone;
 }
 
-function recurringSchedule(input) {
+export function recurringSchedule(input) {
   const frequency = String(input.frequency ?? "daily");
   if (frequency === "hourly") {
     const everyMinutes = Number(input.everyMinutes ?? 60);
@@ -178,7 +183,7 @@ function recurringSchedule(input) {
   }
   if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency is invalid");
   const hour = Number(input.hour);
-  const minute = Number(input.minute);
+  const minute = Number(input.minute ?? 0);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23 ||
       !Number.isInteger(minute) || minute < 0 || minute > 59)
     throw new Error("Schedule time is invalid");
@@ -916,55 +921,95 @@ export async function executeProductCommand(action, input) {
       `).get(proposalId);
       if (!proposal) throw new Error("Proposal is no longer pending");
       workspaceContext(this.database, proposal.workspaceId, ["admin", "member"]);
-      const results = [];
+      // Claim the row before running anything, so a second click cannot apply the plan twice.
+      if (!this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ? AND status = 'pending'")
+        .run(at, proposalId).changes) throw new Error("This plan was already applied");
       // The planner names things it created earlier in the same proposal; ids exist only once applied.
-      const made = { process: new Map(), agent: new Map(), item: new Map() };
+      const made = { process: new Map(), agent: new Map(), item: new Map(), server: new Map() };
       const idOf = (kind, name) => {
         const id = made[kind].get(String(name ?? "").toLocaleLowerCase());
         if (!id) throw new Error(`The proposed ${kind} "${name}" was not created earlier in this proposal`);
         return id;
       };
-      for (const change of JSON.parse(proposal.changes)) {
-        const payload = { ...change, workspaceId: proposal.workspaceId,
-          connectionId: input.connectionId, accountUserId: input.accountUserId };
-        // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
-        if (change.action === "add_agent_assignment") {
-          const existing = this.database.prepare(`
-            SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
-          `).get(proposal.workspaceId, String(change.name ?? ""));
-          if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+      const folderId = (name) => {
+        const row = this.database.prepare(`
+          SELECT l.id FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
+          WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
+        `).get(proposal.workspaceId, String(name ?? ""));
+        if (!row) throw new Error(`No team folder is named "${name}"`);
+        return row.id;
+      };
+      const list = JSON.parse(proposal.changes);
+      const results = new Array(list.length);
+      // Servers go in first so an agent can list one installed by the same plan, whatever order the planner wrote.
+      const order = [...list.keys()].sort((a, b) => Number(CAPABILITY_CHANGES.includes(list[b].action)) - Number(CAPABILITY_CHANGES.includes(list[a].action)));
+      try {
+        for (const index of order) {
+          const change = list[index];
+          const payload = { ...change, workspaceId: proposal.workspaceId,
+            connectionId: input.connectionId, accountUserId: input.accountUserId };
+          if (change.action === "add_agent_assignment" && change.mcpServers)
+            payload.mcpServers = change.mcpServers.map((name) => made.server.get(String(name).toLocaleLowerCase()) ?? name);
+          // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
+          if (change.action === "add_agent_assignment") {
+            const existing = this.database.prepare(`
+              SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
+            `).get(proposal.workspaceId, String(change.name ?? ""));
+            if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
+          }
+          // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
+          if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
+            const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
+            if (installed) { results[index] = { id: installed.id, reused: true }; continue; }
+          }
+          if (change.action === "create_process") {
+            const existing = this.database.prepare(`
+              SELECT id FROM processes WHERE workspace_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
+            `).get(proposal.workspaceId, String(change.name ?? ""));
+            if (existing) { made.process.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
+          }
+          if (change.action === "create_item") {
+            payload.processId = idOf("process", change.process);
+            const existing = this.database.prepare(`
+              SELECT id FROM work_items WHERE process_id = ? AND lower(title) = lower(?)
+                AND archived_at IS NULL AND deleted_at IS NULL
+            `).get(payload.processId, String(change.title ?? ""));
+            if (existing) { made.item.set(String(change.title).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
+          }
+          if (change.action === "create_item" || change.action === "create_goal") {
+            payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
+            if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
+          }
+          if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
+          if (change.action === "set_stage_route") {
+            payload.stageId = this.database.prepare(`
+              SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
+            `).get(idOf("process", change.process), String(change.stage ?? ""))?.id;
+            if (!payload.stageId) throw new Error(`The proposed stage "${change.stage}" is not in that process`);
+            payload.agentIds = (change.agents ?? []).map((name) => idOf("agent", name));
+          }
+          const result = CAPABILITY_CHANGES.includes(change.action)
+            ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
+          results[index] = result;
+          const kind = { create_process: "process", add_agent_assignment: "agent", create_item: "item", create_goal: "item" }[change.action];
+          if (change.action === "install_mcp_server" && result?.id) made.server.set(String(change.catalogId).toLocaleLowerCase(), result.id);
+          if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
         }
-        // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
-        if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
-          const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
-          if (installed) { results.push({ id: installed.id, reused: true }); continue; }
-        }
-        if (change.action === "create_item") payload.processId = idOf("process", change.process);
-        if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
-        if (change.action === "set_stage_route") {
-          payload.stageId = this.database.prepare(`
-            SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
-          `).get(idOf("process", change.process), String(change.stage ?? ""))?.id;
-          if (!payload.stageId) throw new Error(`The proposed stage "${change.stage}" is not in that process`);
-          payload.agentIds = (change.agents ?? []).map((name) => idOf("agent", name));
-        }
-        const result = CAPABILITY_CHANGES.includes(change.action)
-          ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
-        results.push(result);
-        const kind = { create_process: "process", add_agent_assignment: "agent", create_item: "item", create_goal: "item" }[change.action];
-        if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
+      } catch (error) {
+        this.database.prepare("UPDATE bees_proposals SET status = 'pending', updated_at = ? WHERE id = ?").run(iso(), proposalId);
+        throw error;
       }
-      this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ?")
-        .run(iso(), proposalId);
+      this.database.prepare("UPDATE bees_proposals SET changes_json = ? WHERE id = ?")
+        .run(JSON.stringify(withoutSecrets(JSON.parse(proposal.changes))), proposalId);
       return { id: proposalId, results };
     }
     if (action === "reject_proposal") {
-      const proposal = this.database.prepare("SELECT workspace_id AS workspaceId FROM bees_proposals WHERE id = ? AND status = 'pending'")
+      const proposal = this.database.prepare("SELECT workspace_id AS workspaceId, changes_json AS changes FROM bees_proposals WHERE id = ? AND status = 'pending'")
         .get(required(input.proposalId, "Proposal"));
       if (!proposal) throw new Error("Proposal is no longer pending");
       workspaceContext(this.database, proposal.workspaceId, ["admin", "member"]);
-      this.database.prepare("UPDATE bees_proposals SET status = 'rejected', updated_at = ? WHERE id = ?")
-        .run(at, input.proposalId);
+      this.database.prepare("UPDATE bees_proposals SET status = 'rejected', changes_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(withoutSecrets(JSON.parse(proposal.changes))), at, input.proposalId);
       return {};
     }
     if (action === "ask_bees") {
@@ -972,17 +1017,22 @@ export async function executeProductCommand(action, input) {
       const executionId = randomUUID();
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const policy = mcpPolicy(input);
+      const rows = this.database.prepare("SELECT name, description FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
+      const servers = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE enabled = 1").all().map(({ name }) => name);
+      const folders = (rows.length ? `\n\nTeam folders, by exact name, that a work item about their files can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, description }) => `"${name}"${description ? `, ${description}` : ""}`).join("; ")}` : "")
+        + (servers.length ? `\n\nInstalled MCP servers an agent can list in mcpServers: ${servers.join(", ")}` : "");
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}`,
+        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}${folders}`,
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
-          agentName: "Ask Bees", purpose: String(input.outcome), model: input.model || null,
+          agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
-          instructions: "Propose a goal and/or visible process. Keep the proposal concise and executable.",
+          instructions: "Propose the agents, process, servers, schedule and first work item this outcome needs.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
-          mcpAccess: "all", mcpServers: [],
+          mcpAccess: policy.access, mcpServers: policy.servers,
           grants: []
         }
       });
