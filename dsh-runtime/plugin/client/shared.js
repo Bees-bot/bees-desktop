@@ -1000,6 +1000,14 @@ export const css = `
 .bees-file-dialog pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
 .bees-file-dialog .bees-resource-list .bees-btn{text-align:left;white-space:normal;overflow-wrap:anywhere}
 .bees-file-tree summary:focus-visible,.bees-directory-file:focus-visible,.bees-file-preview-body:focus-visible{outline:2px solid #f2b84b;outline-offset:-2px}
+/* Nothing may poke out of its box: rows wrap, flex children may shrink, long words break, code scrolls inside. */
+.bees-row{flex-wrap:wrap}
+.bees-row>*{min-width:0}
+.bees-row .bees-btn{flex:0 0 auto}
+.bees-row .bees-select.bees-grow{flex:1 1 140px}
+.bees-column,.bees-box,.bees-card,.bees-work-item-row,.bees-flex-widget,.bees-row-main{min-width:0;overflow-wrap:anywhere}
+.bees-content,.bees-cockpit-detail,.bees-flex-widget-body{min-width:0}
+.bees-content pre,.bees-flex-widget pre{max-width:100%;overflow:auto}
 `;
 
 export async function request(path, options) {
