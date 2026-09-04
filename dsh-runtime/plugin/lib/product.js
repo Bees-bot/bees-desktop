@@ -36,7 +36,7 @@ function textPreview(path, logical) {
   if (format === "json" && !truncated) {
     try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { format = "text"; }
   }
-  return { name: basename(path), path: logical, format, content, size, truncated };
+  return { name: basename(path), path: logical, format, content, ...(truncated ? { size, truncated } : {}) };
 }
 
 export class BeesProduct {
