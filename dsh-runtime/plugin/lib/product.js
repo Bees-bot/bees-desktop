@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   agentCapabilities, currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
@@ -19,6 +19,26 @@ export { initializeProductDatabase };
 const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
 const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
 
+/** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
+const PREVIEW_BYTES = 256_000;
+function textPreview(path, logical) {
+  const extension = extname(path).toLowerCase();
+  const size = lstatSync(path).size;
+  const truncated = size > PREVIEW_BYTES;
+  let content;
+  if (truncated) {
+    const buffer = Buffer.alloc(PREVIEW_BYTES);
+    const fd = openSync(path, "r");
+    try { readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
+    content = buffer.toString("utf8");
+  } else content = readFileSync(path, "utf8");
+  let format = [".md", ".markdown"].includes(extension) ? "markdown" : extension === ".json" ? "json" : "text";
+  if (format === "json" && !truncated) {
+    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { format = "text"; }
+  }
+  return { name: basename(path), path: logical, format, content, ...(truncated ? { size, truncated } : {}) };
+}
+
 export class BeesProduct {
   constructor(database, agents, processes, defaultWorkspace, services = {}) {
     this.database = database;
@@ -28,6 +48,7 @@ export class BeesProduct {
     this.workspaceRegistry = services.workspaceRegistry;
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
+    this.capabilities = services.capabilities;
     this.tools = services.tools;
     this.notify = services.notify ?? (() => {});
     initializeProductDatabase(database);
@@ -552,9 +573,7 @@ export class BeesProduct {
     if (!TEXT_EXTENSIONS.has(extension)) throw new Error("This file type cannot be previewed as text");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The file is unavailable");
-    if (stat.size > 1_000_000) throw new Error("The file is too large to preview (1 MB limit)");
-    return { name: basename(path), path: logical || basename(path),
-      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text", content: readFileSync(path, "utf8") };
+    return textPreview(path, logical || basename(path));
   }
 
   runFile(executionId, filePath) {
@@ -578,13 +597,7 @@ export class BeesProduct {
     if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("The file escaped its run directory");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The run file is unavailable");
-    if (stat.size > 1_000_000) throw new Error("The run file is too large to preview");
-    const extension = extname(path).toLowerCase();
-    return {
-      name: basename(path), path: logical,
-      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text",
-      content: readFileSync(path, "utf8")
-    };
+    return textPreview(path, logical);
   }
 
   storeProposal({ workspaceId, sessionId, title, summary, changes }) {
@@ -592,30 +605,63 @@ export class BeesProduct {
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
     const proposedProcesses = new Set();
+    const proposedAgents = new Set();
+    const proposedItems = new Set();
+    const earlier = (set, name, what) => {
+      if (!set.has(String(name).toLocaleLowerCase())) throw new Error(`${what} must name one created earlier in the same proposal`);
+    };
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
-      if (change.action === "create_goal") return {
-        action: "create_goal", title: required(change.title, "Goal title"),
-        description: String(change.description ?? "")
-      };
+      if (change.action === "create_goal") {
+        const title = required(change.title, "Goal title");
+        proposedItems.add(title.toLocaleLowerCase());
+        return { action: "create_goal", title, description: String(change.description ?? "") };
+      }
+      if (change.action === "add_agent_assignment") {
+        const name = required(change.name, "Agent name");
+        proposedAgents.add(name.toLocaleLowerCase());
+        return {
+          action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
+          description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
+          ...(change.model ? { model: String(change.model) } : {}),
+          ...(change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {})
+        };
+      }
+      if (change.action === "set_stage_route") {
+        const process = required(change.process, "Route process");
+        earlier(proposedProcesses, process, "A proposed route's process");
+        const agents = Array.isArray(change.agents) ? change.agents.map(String) : [];
+        for (const agent of agents) earlier(proposedAgents, agent, "A proposed route's agent");
+        return { action: "set_stage_route", process, stage: required(change.stage, "Route stage"), agents };
+      }
+      if (change.action === "create_recurring_work") {
+        earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
+        return { ...change };
+      }
+      // Capabilities validates these when the proposal is applied.
+      if (["install_mcp_server", "add_mcp_server", "install_skill"].includes(change.action)) return { ...change };
       if (change.action === "create_process") {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
         if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
         proposedProcesses.add(key);
+        const stages = Array.isArray(change.stages) ? [...change.stages] : [];
+        const last = stages.at(-1);
+        // The planner lists the steps; the last stage is the terminal one, so give it a real Done.
+        if (last && !(typeof last === "object" ? last.driver === "terminal" : /\b(?:done|complete|completed|finished)\b/i.test(last)))
+          stages.push("Done");
         return {
           action: "create_process", name, description: String(change.description ?? ""),
-          stages: processStages(change.stages, "proposed process")
+          stages: processStages(stages, "proposed process")
         };
       }
       if (change.action === "create_item") {
         const process = required(change.process, "Work item process");
         if (!proposedProcesses.has(process.toLocaleLowerCase()))
           throw new Error("A proposed work item must target a process created earlier in the same proposal");
-        return {
-          action: "create_item", process, title: required(change.title, "Work item title"),
-          description: String(change.description ?? "")
-        };
+        const title = required(change.title, "Work item title");
+        proposedItems.add(title.toLocaleLowerCase());
+        return { action: "create_item", process, title, description: String(change.description ?? "") };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);
     });

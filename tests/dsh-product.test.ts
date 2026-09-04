@@ -120,8 +120,9 @@ describe("Bees DSH product plugin", () => {
         .toEqual([{ name: "brief.md", path: "nested/brief.md", kind: "file" }]);
       expect(product.locationFile(location.id, "nested/brief.md"))
         .toMatchObject({ format: "markdown", content: "# Brief" });
-      for (const path of ["../private.md", "/private.md", "escape.md", ".hidden.md", "large.txt", "image.png"])
+      for (const path of ["../private.md", "/private.md", "escape.md", ".hidden.md", "image.png"])
         expect(() => product.locationFile(location.id, path)).toThrow();
+      expect(product.locationFile(location.id, "large.txt")).toMatchObject({ truncated: true, size: 1_000_001 });
       const file = await product.command({ action: "add_location", teamId, name: "Brief", kind: "file", path: join(folder, "nested", "brief.md") });
       expect(product.locationFile(file.id).content).toBe("# Brief");
       expect(() => product.locationFile(file.id, "other.md")).toThrow("already a file");

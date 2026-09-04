@@ -161,7 +161,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   }, "bees shutdown");
   const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
   initializeProductDatabase(database);
-  agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe);
+  capabilities = new Capabilities(ctx, database, workspace);
+  agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace,
     (idToken, nonce) => connected.signInWithGoogle(idToken, nonce));
@@ -174,11 +175,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets,
     tools: ctx.tools,
-    googleDrive, notify
+    googleDrive, notify, capabilities
   });
-  capabilities = new Capabilities(ctx, database, workspace);
-  // A run mounts its own browser, so the runtime needs the thing that knows how to mount one.
-  agents.capabilities = capabilities;
+  // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
+  agents.command = (input) => product.command(input);
   await product.initialize();
   await product.recoverRuns();
   await capabilities.initialize();

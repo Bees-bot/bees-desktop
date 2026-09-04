@@ -6,7 +6,7 @@ const SHIPPED = {
     description: "Files, shell, search, skills, plans, goals, subagents and workflows. The right "
       + "choice for most work."
   },
-  code: {
+  ptc: {
     name: "Code mode",
     description: "Everything Standard carries, offered to the model as a TypeScript API so it can "
       + "combine several steps into one program."

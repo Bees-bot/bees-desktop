@@ -1227,7 +1227,7 @@ export function Empty({ children }) { return h("div", { className: "bees-empty" 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
 export const isScheduleDefinition = (item) => !item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId);
 export const workItemStatus = (item) => isScheduleDefinition(item)
-  ? "scheduled" : isDone(item) ? "completed" : item.runtimePhase || "pending";
+  ? "scheduled" : item.runtimePhase === "cancelled" ? "cancelled" : isDone(item) ? "completed" : item.runtimePhase || "pending";
 
 export function runTitle(data, run) {
   return data.items.find(({ id }) => id === run.workItemId)?.title ??
