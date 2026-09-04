@@ -1238,23 +1238,24 @@ export function scopeParts(data, scope, connectionId = "") {
 
 export function Empty({ children }) { return h("div", { className: "bees-empty" }, children); }
 
-const changeLine = (change) => ({
-  add_agent_assignment: `Agent ${change.name}`,
-  create_process: `Process ${change.name}: ${change.stages.map(({ name }) => name).join(" → ")}`,
-  set_stage_route: `${change.stage} → ${change.agents.join(", ")}`,
-  create_item: `Work item ${change.title}`,
-  create_goal: `Goal ${change.title}`,
-  install_mcp_server: `Connect ${change.catalogId}`,
-  add_mcp_server: `Connect ${change.serverName}`,
-  install_skill: `Skill ${change.directory} from ${change.repo}`,
-  create_recurring_work: `Schedule ${change.name}, ${change.frequency}`
-})[change.action];
+// functions, not a plain object: every value of a literal would run for every change
+const CHANGE_LINES = {
+  add_agent_assignment: (c) => `Agent ${c.name}`,
+  create_process: (c) => `Process ${c.name}: ${c.stages.map(({ name }) => name).join(" → ")}`,
+  set_stage_route: (c) => `${c.stage} → ${c.agents.join(", ")}`,
+  create_item: (c) => `Work item ${c.title}`,
+  create_goal: (c) => `Goal ${c.title}`,
+  install_mcp_server: (c) => `Connect ${c.catalogId}`,
+  add_mcp_server: (c) => `Connect ${c.serverName}`,
+  install_skill: (c) => `Skill ${c.directory} from ${c.repo}`,
+  create_recurring_work: (c) => `Schedule ${c.name}, ${c.frequency}`
+};
 
 export function ProposalCard({ proposal, onApply, onDismiss }) {
   return h("article", { className: "bees-dashboard-proposal" },
     h("strong", null, proposal.title),
     proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
-    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, changeLine(change)))),
+    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, CHANGE_LINES[change.action](change)))),
     h("div", { className: "bees-card-actions" },
       h(Button, { className: "primary", onClick: onApply }, "Apply"),
       h(Button, { onClick: onDismiss }, "Dismiss")));
