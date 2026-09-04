@@ -288,7 +288,9 @@ function FileContents({ target, onClose }) {
             onClick: () => setPath(entry.path) }, h(entry.kind === "folder" ? FilesIcon : FileIcon), entry.name)),
           !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
-          : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content);
+          : h(React.Fragment, null,
+            file.truncated ? h("div", { className: "bees-muted" }, `Showing the first ${Math.round(file.content.length / 1024)} KB of ${(file.size / 1_000_000).toFixed(1)} MB.`) : null,
+            file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content));
   const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),
     target.locationId && path !== target.path ? h(Button, {
       onClick: () => setPath(path.split("/").slice(0, -1).join("/"))

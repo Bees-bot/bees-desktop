@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   agentCapabilities, currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
@@ -18,6 +18,26 @@ export { initializeProductDatabase };
 
 const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
 const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
+
+/** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
+const PREVIEW_BYTES = 256_000;
+function textPreview(path, logical) {
+  const extension = extname(path).toLowerCase();
+  const size = lstatSync(path).size;
+  const truncated = size > PREVIEW_BYTES;
+  let content;
+  if (truncated) {
+    const buffer = Buffer.alloc(PREVIEW_BYTES);
+    const fd = openSync(path, "r");
+    try { readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
+    content = buffer.toString("utf8");
+  } else content = readFileSync(path, "utf8");
+  let format = [".md", ".markdown"].includes(extension) ? "markdown" : extension === ".json" ? "json" : "text";
+  if (format === "json" && !truncated) {
+    try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { format = "text"; }
+  }
+  return { name: basename(path), path: logical, format, content, size, truncated };
+}
 
 export class BeesProduct {
   constructor(database, agents, processes, defaultWorkspace, services = {}) {
@@ -553,9 +573,7 @@ export class BeesProduct {
     if (!TEXT_EXTENSIONS.has(extension)) throw new Error("This file type cannot be previewed as text");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The file is unavailable");
-    if (stat.size > 1_000_000) throw new Error("The file is too large to preview (1 MB limit)");
-    return { name: basename(path), path: logical || basename(path),
-      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text", content: readFileSync(path, "utf8") };
+    return textPreview(path, logical || basename(path));
   }
 
   runFile(executionId, filePath) {
@@ -579,13 +597,7 @@ export class BeesProduct {
     if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("The file escaped its run directory");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The run file is unavailable");
-    if (stat.size > 1_000_000) throw new Error("The run file is too large to preview");
-    const extension = extname(path).toLowerCase();
-    return {
-      name: basename(path), path: logical,
-      format: [".md", ".markdown"].includes(extension) ? "markdown" : "text",
-      content: readFileSync(path, "utf8")
-    };
+    return textPreview(path, logical);
   }
 
   storeProposal({ workspaceId, sessionId, title, summary, changes }) {
