@@ -21,6 +21,9 @@ function priorityOf(value) {
 }
 
 /** An agent's MCP policy: every connected server, none of them, or a named few. */
+/** Proposal changes that belong to Capabilities, not the product database. */
+const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_skill"];
+
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
   if (!Object.hasOwn(input, "mcpAccess")) return current;
   const access = String(input.mcpAccess ?? "all");
@@ -913,20 +916,30 @@ export async function executeProductCommand(action, input) {
       if (!proposal) throw new Error("Proposal is no longer pending");
       workspaceContext(this.database, proposal.workspaceId, ["admin", "member"]);
       const results = [];
-      const proposedProcessIds = new Map();
+      // The planner names things it created earlier in the same proposal; ids exist only once applied.
+      const made = { process: new Map(), agent: new Map(), item: new Map() };
+      const idOf = (kind, name) => {
+        const id = made[kind].get(String(name ?? "").toLocaleLowerCase());
+        if (!id) throw new Error(`The proposed ${kind} "${name}" was not created earlier in this proposal`);
+        return id;
+      };
       for (const change of JSON.parse(proposal.changes)) {
-        const processId = change.action === "create_item"
-          ? proposedProcessIds.get(String(change.process).toLocaleLowerCase())
-          : undefined;
-        if (change.action === "create_item" && !processId)
-          throw new Error("The proposed work item's process was not created earlier in this proposal");
-        const result = await this.execute(change.action, {
-          ...change, processId: processId ?? change.processId, workspaceId: proposal.workspaceId,
-          connectionId: input.connectionId, accountUserId: input.accountUserId
-        });
+        const payload = { ...change, workspaceId: proposal.workspaceId,
+          connectionId: input.connectionId, accountUserId: input.accountUserId };
+        if (change.action === "create_item") payload.processId = idOf("process", change.process);
+        if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
+        if (change.action === "set_stage_route") {
+          payload.stageId = this.database.prepare(`
+            SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
+          `).get(idOf("process", change.process), String(change.stage ?? ""))?.id;
+          if (!payload.stageId) throw new Error(`The proposed stage "${change.stage}" is not in that process`);
+          payload.agentIds = (change.agents ?? []).map((name) => idOf("agent", name));
+        }
+        const result = CAPABILITY_CHANGES.includes(change.action)
+          ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
         results.push(result);
-        if (change.action === "create_process")
-          proposedProcessIds.set(String(change.name).toLocaleLowerCase(), result.id);
+        const kind = { create_process: "process", add_agent_assignment: "agent", create_item: "item", create_goal: "item" }[change.action];
+        if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
       }
       this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ?")
         .run(iso(), proposalId);

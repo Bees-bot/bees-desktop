@@ -10,13 +10,20 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 
+/** What a run may build for itself; everything else stays with the screens. */
+const CONTROL_ACTIONS = {
+  product: ["create_process", "create_process_template", "edit_process", "create_item", "create_goal",
+    "create_recurring_work", "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
+  capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
+};
+
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
 
-const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a concise, visible goal and/or repeatable process. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
+const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a system Bees can run: a repeatable process with the stages the outcome needs, one agent per distinct role with its own instructions, an MCP server for every API the person gave a key, token or URL for, a skill pack when one clearly helps, a schedule when the person said how often, and the first work item so it starts. Give every process its own agents: propose them before the process and route each agent stage to one of them with set_stage_route, so the person can tune each role's instructions and model on the Agents screen. A one-off outcome with no role of its own can be a plain goal. When a new process should begin immediately, propose the process followed by one create_item change naming that process; do not also create a duplicate goal for the same outcome.
 
-A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves belongs to the agent, so say it in the item's description rather than trying to attach it to a stage.
+A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves belongs to the agent, so say it in the agent's instructions and the item's description rather than trying to attach it to a stage. A credential the person gave belongs in the MCP server's secrets or the item's description, never in a request for the person to sign in.
 
 You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
@@ -381,15 +388,14 @@ export function authorizeReferences(database, workspaceId, references) {
 }
 
 export class AgentRuntime {
-  constructor(ctx, database, settings = null, notify = () => {}, subscribe = null) {
+  constructor(ctx, database, settings = null, notify = () => {}, subscribe = null, capabilities = null) {
     this.ctx = ctx;
     this.database = database;
     this.settings = settings;
     this.notify = notify;
     this.subscribe = subscribe;
     this.live = new Map();
-    /** Set once Capabilities exists; a run mounts its own browser through it. */
-    this.capabilities = null;
+    this.capabilities = capabilities;
     this.starting = new Set();
     this.recovery = new Set();
     this.closing = false;
@@ -883,6 +889,36 @@ export class AgentRuntime {
         return { outcome: "rejected", feedback };
       }
     }));
+    if (data.mode === "work" && this.command) agentCtx.tools.register(defineTool({
+      name: "bees_control",
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. Same actions and inputs the Bees screens send; the team is filled in for you. "
+        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver: agent|review|terminal}]} -> {id}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
+        + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. set_stage_route {stageId, agentIds: [assignment ids]}. "
+        + "search_mcp_registry {query}. install_mcp_server {catalogId, secrets: {NAME: value}} and add_mcp_server {serverName, transport: stdio|streamable-http, command?, args? (one per line), url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
+        + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
+      parameters: {
+        action: { type: "string", required: true, description: "One of the actions above." },
+        input_json: { type: "string", required: true, description: "JSON object with that action's input." }
+      },
+      output: {
+        schema: {
+          type: "object", additionalProperties: false, properties: {
+            result_json: { type: "string", required: true }
+          }
+        },
+        render: (_args, value) => [{ type: "text", text: value.result_json }]
+      },
+      execute: async (args) => {
+        let input;
+        try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
+        const capability = CONTROL_ACTIONS.capability.includes(args.action);
+        if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
+        const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
+        const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
+        if (["install_mcp_server", "add_mcp_server"].includes(args.action) && result?.id) await this.capabilities.mountFor(agentCtx, result.id);
+        return { result_json: JSON.stringify(result ?? null) };
+      }
+    }));
     if (data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
       description: "Submit a reviewable Bees proposal. This stores a preview only; the user must apply it in Bees.",
@@ -891,7 +927,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array. Each object is {action:'create_goal',title,description}, {action:'create_process',name,description,stages:['Stage name']}, or {action:'create_item',process,title,description}. A stage is just its name; what the work is goes in the item's description. A create_item must name a process created earlier in the same array."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description}; {action:'create_process',name,description,stages:['Stage name']}; {action:'create_item',process,title,description}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[serverName]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?,url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency:'hourly'|'daily'|'weekly'|'monthly'|'advanced',everyMinutes?,hour?,timezone?,cronExpression?}. A stage is just its name; what the work is goes in the item's description. process, stage, agents and item name things created earlier in the same array."
         }
       },
       output: {

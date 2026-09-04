@@ -93,7 +93,6 @@ async function launch() {
   await setWindow("minimized");
 }
 
-
 /**
  * Where each run's browser reads its cookies from, in playwright's storageState shape. It has to
  * exist before a run starts or every navigation fails on ENOENT, and on a fresh install nobody has
@@ -126,7 +125,6 @@ export async function saveBrowserState() {
     origins: []
   }));
 }
-
 
 /** Bring Chrome up minimised on the promised port. Cheap once it runs; one launch at a time. */
 export function startAgentBrowser() {

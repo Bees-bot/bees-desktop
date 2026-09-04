@@ -4,9 +4,8 @@ import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserStatePath, saveBrowserState } from "./agent-browser.js";
-import { BROWSER_CATALOG } from "./mcp-catalog.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
-import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { BROWSER_CATALOG, catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
@@ -63,9 +62,7 @@ export class Capabilities {
   }
 
   async initialize() {
-    await Promise.all(this.servers()
-      .filter(({ enabled, catalogId }) => enabled && catalogId !== BROWSER_CATALOG)
-      .map((row) => this.mount(row)));
+    await Promise.all(this.servers().filter(({ enabled }) => enabled).map((row) => this.mount(row)));
   }
 
   /**
@@ -80,8 +77,14 @@ export class Capabilities {
     // Whatever a person has signed into since the last run is what this one inherits.
     await saveBrowserState().catch((error) =>
       this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-    const fiber = agentCtx.plugin(mcpClient, await this.configFor(row));
-    await started(fiber, row.serverName);
+    await this.mountFor(agentCtx, row.id);
+  }
+
+  /** On the run's own context, which dies with the run. */
+  async mountFor(agentCtx, serverId) {
+    const row = this.servers().find(({ id }) => id === serverId);
+    if (!row) throw new Error("MCP server not found");
+    await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
   }
 
   async close() {
@@ -111,8 +114,7 @@ export class Capabilities {
         const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
-      // Filled in on connect rather than at install: the cookie file is written by whichever
-      // browser the person last signed in to.
+      // The row keeps a placeholder so one server definition works wherever the state directory lives.
       return {
         transport: "stdio",
         serverName: server.serverName,
@@ -137,6 +139,8 @@ export class Capabilities {
 
   /** A server that will not start is reportable state, not a reason to take the app down. */
   async mount(server) {
+    // The browser mounts per run in mountBrowserFor, never on the shared context.
+    if (server.catalogId === BROWSER_CATALOG) return;
     if (this.mounted.has(server.id)) return this.mounted.get(server.id);
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
     const entry = { fiber: null, error: "", ready: false };
@@ -238,7 +242,7 @@ export class Capabilities {
           ...server,
           toolCount,
           error: state?.error ?? "",
-          status: !server.enabled ? "off" : state?.error ? "failed" : state?.ready ? "connected" : "starting"
+          status: !server.enabled ? "off" : state?.error ? "failed" : state?.ready || server.catalogId === BROWSER_CATALOG ? "connected" : "starting"
         };
       }),
       catalog: MCP_CATALOG.map(({ env, headers, ...entry }) => ({

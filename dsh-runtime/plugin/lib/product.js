@@ -28,6 +28,7 @@ export class BeesProduct {
     this.workspaceRegistry = services.workspaceRegistry;
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
+    this.capabilities = services.capabilities;
     this.tools = services.tools;
     this.notify = services.notify ?? (() => {});
     initializeProductDatabase(database);

@@ -106,10 +106,8 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    // One server per run, each with its own headless context. Sharing a profile is what playwright
-    // warns against and it showed: concurrent runs read each other's pages. Headless, because the
-    // only window a person should ever see is the one Bees opens for a sign-in. The state file
-    // carries that sign-in across, so isolation costs no sessions.
+    // One headless server per run: a shared profile is what let runs read each other's pages. The
+    // only window a person sees is the one Bees opens for a sign-in; the state file carries it across.
     args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--storage-state", "{browserState}"],
     env: [],
     headers: []
