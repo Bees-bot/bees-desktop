@@ -1011,6 +1011,9 @@ export const css = `
 .bees-form>*{min-width:0}
 .bees-select,.bees-input,.bees-textarea{max-width:100%}
 .bees-column .bees-btn{white-space:normal}
+.bees-top{height:auto;min-height:58px;padding-block:8px}
+.bees-title{min-width:0;overflow-wrap:break-word}
+@media(max-width:780px){.bees-nav-link>span:not(:first-child){display:none}}
 `;
 
 export async function request(path, options) {
