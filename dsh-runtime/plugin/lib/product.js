@@ -12,7 +12,7 @@ import {
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { executeProductCommand, withoutSecrets } from "./product-commands.js";
+import { executeProductCommand, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
@@ -657,6 +657,7 @@ export class BeesProduct {
       }
       if (change.action === "create_recurring_work") {
         earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
+        recurringSchedule(change);
         return { ...change };
       }
       if (change.action === "install_mcp_server") {

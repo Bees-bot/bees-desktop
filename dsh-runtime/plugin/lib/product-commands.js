@@ -164,7 +164,7 @@ function timezoneOf(value) {
   return timezone;
 }
 
-function recurringSchedule(input) {
+export function recurringSchedule(input) {
   const frequency = String(input.frequency ?? "daily");
   if (frequency === "hourly") {
     const everyMinutes = Number(input.everyMinutes ?? 60);
