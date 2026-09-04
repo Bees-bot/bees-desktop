@@ -281,12 +281,12 @@ describe("DSH-owned desktop and recovery", () => {
     const location = mkdtempSync(join(tmpdir(), "bees-publish-location-"));
     mkdirSync(join(workspace, "outputs"));
     writeFileSync(join(workspace, "outputs", "answer.txt"), "first");
-    expect(copyOutputs(workspace, { localPath: location }, "run-1")).toMatchObject({
+    expect(copyOutputs(workspace, { id: "loc-1", name: "Answers", localPath: location }, "run-1")).toMatchObject({
       files: 1, bytes: 5, destination: ".", existing: false
     });
     writeFileSync(join(workspace, "outputs", "answer.txt"), "second");
     // overwrite works
-    copyOutputs(workspace, { localPath: location }, "run-1");
+    copyOutputs(workspace, { id: "loc-1", name: "Answers", localPath: location }, "run-1");
     expect(readFileSync(join(location, "answer.txt"), "utf8")).toBe("second");
     rmSync(workspace, { recursive: true });
     rmSync(location, { recursive: true });

@@ -14,7 +14,7 @@ export declare function safeRecoverySeed(events: Array<{ type: string; seq: numb
 export declare function authorizeReferences(database: unknown, workspaceId: string, references: ReturnType<typeof typedReferences>): void;
 export declare function copyOutputs(
   workspace: string,
-  location: { localPath: string },
+  location: { id: string; name: string; localPath: string },
   executionId: string
 ): { files: number; bytes: number; destination: string; existing: boolean };
 

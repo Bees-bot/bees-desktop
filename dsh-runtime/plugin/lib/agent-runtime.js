@@ -292,6 +292,8 @@ export function copyOutputs(workspace, location, executionId) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
 
+  // Inputs are staged under "<name>-<id8>[-hash]/"; an output written at that same path replaces the original file.
+  const staged = `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}`;
   const pending = [];
   const stack = [sourceRoot];
   let bytes = 0;
@@ -302,7 +304,8 @@ export function copyOutputs(workspace, location, executionId) {
       const source = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(source);
       else if (entry.isFile()) {
-        const logical = relative(sourceRoot, source);
+        const [first, ...rest] = relative(sourceRoot, source).split(sep);
+        const logical = (first === staged || first.startsWith(`${staged}-`)) && rest.length ? rest.join(sep) : [first, ...rest].join(sep);
         const stat = lstatSync(source);
         if (!logical || logical.startsWith(`..${sep}`) || logical === "..") continue;
         if (stat.size > 20_000_000) throw new Error(`Output is too large to publish: ${logical}`);
