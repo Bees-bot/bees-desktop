@@ -10,8 +10,9 @@ const DEFAULT_WIDGETS = [
 
 const DEFAULT_WORK_ITEM_WIDGETS = [
   { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-  { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
-  { kind: "details", x: 6, y: 4, w: 6, h: 8 }
+  { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
+  { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
+  { kind: "details", x: 6, y: 6, w: 6, h: 8 }
 ];
 
 const number = (value, fallback, min, max) => {
@@ -98,5 +99,19 @@ export function applyFixedLayout(defaults, layout) {
   })));
 }
 
-export const workItemLayoutFrom = (value) => fixedLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS, value);
-export const applyWorkItemLayout = (layout) => applyFixedLayout(DEFAULT_WORK_ITEM_WIDGETS, layout);
+export function workItemLayoutFrom(value) {
+  const widgets = fixedLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS, value);
+  if (!Array.isArray(value) || !value.length || value.some((widget) => widget?.kind === "run-status")) return widgets;
+  const kanban = widgets.find(({ kind }) => kind === "kanban");
+  const status = widgets.find(({ kind }) => kind === "run-status");
+  status.y = kanban.y + kanban.h;
+  for (const widget of widgets) {
+    if (!["kanban", "run-status"].includes(widget.kind) && widget.y + widget.h > status.y) {
+      widget.y = Math.max(widget.y, status.y + status.h);
+    }
+  }
+  return widgets;
+}
+export const applyWorkItemLayout = (layout) => workItemLayoutFrom(
+  (Array.isArray(layout) ? layout : []).map((widget) => ({ ...widget, kind: widget?.id }))
+);

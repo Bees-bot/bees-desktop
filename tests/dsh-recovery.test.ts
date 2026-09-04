@@ -179,7 +179,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('action: "create_run"');
     expect(client).toContain('ctx.uiSession.pendingInteractions');
     expect(client).toContain('"Approve once"');
-    expect(client).toContain('h(FilePreview, { target: viewer })');
+    expect(client).toContain('h(FilePreview, { target: viewer, onClose: () => setViewer(null) })');
     expect(client).toContain('h(MarkdownText, { text: file.content })');
     expect(client).toContain('"sessions", "uiSession"]');
     expect(client).not.toContain('const LOCAL_MODELS = [');
@@ -199,7 +199,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
     expect(client).not.toContain('summary.origin === "subagent"');
     expect(client).not.toContain('bees-subagent-card');
-    expect(client).toContain('parentPath || "Delegated work"');
+    expect(client).toContain('`Parent: ${parentPath}`');
     expect(client).not.toContain('function AgentActivity');
     expect(client).toContain('"New work"');
     expect(client).not.toContain("<iframe");

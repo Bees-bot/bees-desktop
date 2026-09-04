@@ -65,15 +65,17 @@ describe("personal dashboards", () => {
   it("provides and sanitizes the fixed work-item layout", () => {
     expect(workItemLayoutFrom(undefined)).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
-      { kind: "details", x: 6, y: 4, w: 6, h: 8 }
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
+      { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
+      { kind: "details", x: 6, y: 6, w: 6, h: 8 }
     ]);
     expect(workItemLayoutFrom([
       { kind: "details", x: 50, y: -1, w: 50, h: 1 },
       { kind: "unknown", x: 0, y: 0, w: 2, h: 2 }
     ])).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "conversation", x: 0, y: 4, w: 6, h: 8 },
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
+      { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
       { kind: "details", x: 0, y: 0, w: 12, h: 2 }
     ]);
   });
@@ -84,13 +86,27 @@ describe("personal dashboards", () => {
       { id: "details", x: 7, y: 4, w: 5, h: 8 }
     ])).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "conversation", x: 0, y: 4, w: 7, h: 8 },
-      { kind: "details", x: 7, y: 4, w: 5, h: 8 }
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
+      { kind: "conversation", x: 0, y: 6, w: 7, h: 8 },
+      { kind: "details", x: 7, y: 6, w: 5, h: 8 }
     ]);
     expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle" }');
     expect(client).toContain("if (!element.gridstackNode) grid.makeWidget(element)");
     expect(client).toContain('preferences.set("workItemLayout"');
     expect(client).toContain('editing ? "Done" : "Edit layout"');
+  });
+
+  it("inserts status below a saved Kanban and preserves the migrated layout on reload", () => {
+    const migrated = workItemLayoutFrom([
+      { kind: "kanban", x: 0, y: 0, w: 12, h: 6 },
+      { kind: "conversation", x: 0, y: 6, w: 7, h: 8 },
+      { kind: "details", x: 7, y: 6, w: 5, h: 8 }, null
+    ]);
+    expect(migrated.find(({ kind }: any) => kind === "run-status"))
+      .toEqual({ kind: "run-status", x: 0, y: 6, w: 12, h: 2 });
+    expect(migrated.filter(({ kind }: any) => ["conversation", "details"].includes(kind))
+      .map(({ y }: any) => y)).toEqual([8, 8]);
+    expect(workItemLayoutFrom(migrated)).toEqual(migrated);
   });
 
   it("sanitizes reusable fixed page layouts", () => {

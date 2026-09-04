@@ -76,7 +76,15 @@ describe("Bees DSH product plugin", () => {
         '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
     `).run(workspaceId, runDirectory);
 
+    expect((await product.snapshot()).runs[0].startedAt).toBeNull();
+    database.connection.prepare(`
+      INSERT INTO dsh_audit_events (id, event_type, execution_id, metadata_json, created_at)
+      VALUES ('first-start', 'run-started', 'preview-run', '{}', '2026-08-23T00:00:05.000Z'),
+             ('later-start', 'run-started', 'preview-run', '{}', '2026-08-23T00:02:00.000Z'),
+             ('other-run', 'run-started', 'other', '{}', '2026-08-22T00:00:00.000Z')
+    `).run();
     expect((await product.snapshot()).runs[0]).toMatchObject({
+      startedAt: "2026-08-23T00:00:05.000Z",
       mode: "planning", purpose: "Preview outcome",
       files: ["inputs/brief.md", "outputs/notes.txt"]
     });

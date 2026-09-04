@@ -376,12 +376,16 @@ export class BeesProduct {
              e.status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
+             starts.startedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.specialization_id AS specializationId,
              d.target_type AS dispatchTargetType, d.target_id AS dispatchTargetId,
              d.reason AS dispatchReason, d.agent_revision AS agentRevision,
-             r.outcome AS resultOutcome, r.summary AS resultSummary
+             r.outcome AS resultOutcome, r.summary AS resultSummary, r.created_at AS resultCreatedAt
       FROM execution_links e
+      LEFT JOIN (SELECT execution_id, MIN(created_at) AS startedAt FROM dsh_audit_events
+                 WHERE event_type = 'run-started' GROUP BY execution_id) starts
+        ON starts.execution_id = e.execution_id
       LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE workspace_id IN (SELECT value FROM json_each(?))

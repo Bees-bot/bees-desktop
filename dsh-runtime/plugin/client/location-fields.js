@@ -1,5 +1,6 @@
 import { h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request } from "./shared.js";
+import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon } from "./icons.js";
 
 export async function addLocationFromDevice(ctx, act, teamId, kind) {
   const path = kind === "folder" ? await ctx.uiWorkspace.pickDirectory()
@@ -110,8 +111,7 @@ export function ResourceFields({
           onClick: () => setViewer({ locationId: output.id, path: "" }) }, "View") : null,
         h(Button, { disabled: locked || team?.role !== "admin", onClick: () => change(() => add("folder", true)) }, "Add folder"))) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    viewer ? h("div", null,
-      h(Button, { onClick: () => setViewer(null) }, "Close preview"), h(FilePreview, { target: viewer })) : null);
+    viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
 }
 
 // Existing owners save one changed selection at a time, preserving other references' child paths.
@@ -143,7 +143,7 @@ export function AttachedResourceFields({ owner, references, ...props }) {
 }
 
 // Viewing work never changes its inputs or output destination.
-export function WorkFiles({ data, references, inherited = [], outputId, defaultOutputId, runs }) {
+export function WorkLocations({ data, references, inherited = [], outputId, defaultOutputId }) {
   const [viewer, setViewer] = useState(null);
   const inputs = new Map();
   for (const ref of [...references, ...inherited]) {
@@ -156,33 +156,80 @@ export function WorkFiles({ data, references, inherited = [], outputId, defaultO
     const location = data.locations.find(({ id }) => id === locationId);
     const label = `${location?.name || fallback}${relativePath ? `/${relativePath}` : ""}`;
     const path = location?.localPath ? `${location.localPath}${relativePath ? `/${relativePath}` : ""}` : "Not mapped on this device";
-    return h("div", { className: "bees-resource-option", key: JSON.stringify([locationId, relativePath]) },
-      h("div", { className: "bees-file-location" }, h("strong", null, label),
-        h("span", { className: "bees-muted" }, [...sources].join(" + ")),
-        h("span", { className: "bees-muted", title: path }, location?.archivedAt ? `Archived · ${path}` : path)),
-      h(Button, { disabled: !location?.mapped || Boolean(location.archivedAt), "aria-label": `View ${label}`,
-        onClick: () => setViewer({ locationId, path: relativePath }) }, "View"));
+    return h("li", { key: JSON.stringify([locationId, relativePath]) },
+      h(LocationEntry, { locationId, path: relativePath, name: label,
+        kind: relativePath ? undefined : location?.kind, viewer, onOpen: setViewer,
+        disabled: !location?.mapped || Boolean(location?.archivedAt),
+        title: `${path} · ${[...sources].join(" + ")}${location?.archivedAt ? " · Archived" : ""}` }));
   };
+  if (!inputs.size && !outputId && !defaultOutputId) return null;
+  return h("section", { className: `bees-work-files bees-work-locations${viewer ? " bees-editor-open" : ""}`, "aria-label": "Work locations" },
+    inputs.size ? h("div", null,
+      h("h3", null, "Input files & folders"),
+      h("ul", { className: "bees-file-tree bees-location-tree" },
+        ...[...inputs.values()].map((ref) => locationRow(ref, "Unavailable input")))) : null,
+    outputId || defaultOutputId ? h("div", null,
+      h("h3", null, outputId ? "Output folder" : "Default output folder"),
+      h("ul", { className: "bees-file-tree bees-location-tree" },
+        locationRow({ locationId: outputId || defaultOutputId,
+          sources: [outputId ? "Selected for this work" : "From process"] }, "Unavailable output folder"))) : null,
+    viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
+}
+
+export function LocationEntry({ locationId, path, name, kind, disabled, title, viewer, onOpen }) {
+  const [expanded, setExpanded] = useState(false);
+  const [file, setFile] = useState(null);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!expanded || disabled || kind === "file") return;
+    let current = true;
+    setFile(null); setError("");
+    const query = new URLSearchParams({ locationId, path });
+    request(`/bees-api/location-file?${query}`).then((value) => {
+      if (!current) return;
+      setFile(value);
+      // A reference into a folder can point at a file rather than a subfolder.
+      if (!value.entries) { setExpanded(false); onOpen({ locationId, path }); }
+    }).catch((reason) => {
+      if (current) setError(reason instanceof Error ? reason.message : String(reason));
+    });
+    return () => { current = false; };
+  }, [locationId, path, kind, expanded, disabled, revision, onOpen]);
+  const selected = viewer?.locationId === locationId && viewer?.path === path;
+  if (disabled || kind === "file" || file && !file.entries) return h(Button, {
+    className: `bees-directory-file${selected ? " active" : ""}`, disabled, title,
+    "aria-pressed": selected, onClick: () => onOpen({ locationId, path })
+  }, h(kind === "folder" ? FilesIcon : FileIcon), name);
+  return h("details", { open: expanded, onToggle: (event) => {
+    if (event.target === event.currentTarget) setExpanded(event.currentTarget.open);
+  } },
+    h("summary", { title }, h(FilesIcon), name),
+    expanded ? error ? h("div", { role: "alert", className: "bees-error" }, error,
+      h(Button, { onClick: () => setRevision((value) => value + 1) }, "Retry"))
+      : !file ? h("p", { className: "bees-muted", role: "status" }, "Loading folder…")
+      : h(React.Fragment, null,
+        h("ul", { className: "bees-file-tree" }, ...file.entries.map((entry) =>
+          h("li", { key: entry.path }, h(LocationEntry, { ...entry, locationId, viewer, onOpen, title: entry.path })))),
+        !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
+        file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null) : null);
+}
+
+export function WorkFiles({ runs, filesRef }) {
+  const [viewer, setViewer] = useState(null);
   const outputRuns = runs.filter((run) => run.outputs?.length);
-  return h("section", { className: "bees-work-files", "aria-label": "Work files" },
-    h("h3", null, "Input files & folders"),
-    inputs.size ? h("div", { className: "bees-resource-list" },
-      ...[...inputs.values()].map((ref) => locationRow(ref, "Unavailable input")))
-      : h("p", { className: "bees-muted" }, "No input files or folders selected."),
-    h("h3", null, "Output folder"),
-    outputId || defaultOutputId ? locationRow({ locationId: outputId || defaultOutputId,
-      sources: [outputId ? "Selected for this work" : "From process"] }, "Unavailable output folder")
-      : h("p", { className: "bees-muted" }, "Bees only — no output folder selected."),
-    h("p", { className: "bees-muted" }, "Folder previews show current files. Generated files stay in Bees; publishing saves a copy to the output folder."),
-    h("h3", null, "Generated files"),
-    outputRuns.length ? h("div", { className: "bees-output-directory" }, ...outputRuns.map((run, index) =>
-      h("details", { key: run.id, open: index === 0 },
-        h("summary", null, `Run ${runs.length - runs.indexOf(run)} · ${run.status} · ${run.outputs.length} ${run.outputs.length === 1 ? "file" : "files"}`,
-          h("span", { className: "bees-muted" }, new Date(run.updatedAt).toLocaleString())),
-        h(OutputDirectory, { files: [...new Set(run.outputs.map((path) => path.replaceAll("\\", "/")))], executionId: run.id, viewer, onOpen: setViewer }))))
+  return h("section", { className: `bees-work-files${viewer ? " bees-editor-open" : ""}`, "aria-label": "Generated files" },
+    outputRuns.length ? h("div", { ref: filesRef, className: "bees-output-directory" }, ...outputRuns.map((run) => {
+      const files = [...new Set(run.outputs.map((path) => path.replaceAll("\\", "/")))];
+      return h("section", { key: run.id, className: "bees-output-run" },
+        h("header", { className: "bees-output-run-head" },
+          h("h3", { title: new Date(run.updatedAt).toLocaleString() }, `Run ${runs.length - runs.indexOf(run)} · ${files.length} ${files.length === 1 ? "file" : "files"}`),
+          h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+        h(OutputDirectory, { files, executionId: run.id, viewer, onOpen: setViewer }));
+    }))
       : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."),
-    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: runs.find(r => r.id === viewer.executionId)?.updatedAt } })
-      : outputRuns.length ? h("p", { className: "bees-muted" }, "Select a file to read its contents.") : null);
+    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: runs.find(r => r.id === viewer.executionId)?.updatedAt }, onClose: () => setViewer(null) })
+      : null);
 }
 
 function OutputDirectory({ files, executionId, viewer, onOpen, prefix = "" }) {
@@ -198,23 +245,23 @@ function OutputDirectory({ files, executionId, viewer, onOpen, prefix = "" }) {
       folders.get(folder).push(path);
     }
   }
-  return h("ul", { className: "bees-file-tree" },
+  return h("ul", { className: `bees-file-tree${prefix ? "" : " bees-location-tree"}` },
     ...[...folders.keys()].sort().map((name) => h("li", { key: `folder:${name}` },
-      h("details", { open: true }, h("summary", null, `${name}/`),
+      h("details", null, h("summary", null, h(FilesIcon), name),
         h(OutputDirectory, { files: folders.get(name), executionId, viewer, onOpen, prefix: `${prefix}${name}/` })))),
     ...leaves.sort().map((name) => {
       const path = `outputs/${name}`;
       const selected = viewer?.executionId === executionId && viewer?.path === path;
       return h("li", { key: `file:${name}` }, h(Button, { className: `bees-directory-file${selected ? " active" : ""}`,
-        title: name, "aria-pressed": selected, onClick: () => onOpen({ executionId, path }) }, name.slice(prefix.length)));
+        title: name, "aria-pressed": selected, onClick: () => onOpen({ executionId, path }) }, h(FileIcon), name.slice(prefix.length)));
     }));
 }
 
-export function FilePreview({ target }) {
-  return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target });
+export function FilePreview({ target, onClose }) {
+  return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target, onClose });
 }
 
-function FileContents({ target }) {
+function FileContents({ target, onClose }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(target.path);
@@ -238,16 +285,18 @@ function FileContents({ target }) {
       : !file ? h("div", { className: "bees-loading" }, "Opening file…")
         : file.entries ? h("div", { className: "bees-resource-list" },
           ...file.entries.map((entry) => h(Button, { key: entry.path, title: entry.path,
-            onClick: () => setPath(entry.path) }, `${entry.name}${entry.kind === "folder" ? "/" : ""}`)),
+            onClick: () => setPath(entry.path) }, h(entry.kind === "folder" ? FilesIcon : FileIcon), entry.name)),
           !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : file.format === "markdown" ? h(MarkdownText, { text: file.content }) : h("pre", null, file.content);
-  const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h("strong", { title }, title),
+  const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),
     target.locationId && path !== target.path ? h(Button, {
       onClick: () => setPath(path.split("/").slice(0, -1).join("/"))
     }, "Back") : null,
-    fullScreen ? h(Button, { autoFocus: true, onClick: () => dialog.current.close() }, "Close full screen")
-      : h(Button, { onClick: () => setExpanded(true) }, "Full screen"));
+    h(Button, { className: "bees-editor-action", autoFocus: fullScreen,
+      title: fullScreen ? "Exit full screen" : "Full screen", "aria-label": fullScreen ? "Exit full screen" : "Full screen",
+      onClick: () => fullScreen ? dialog.current.close() : setExpanded(true) }, h(fullScreen ? CollapseIcon : ExpandIcon)),
+    onClose ? h(Button, { className: "bees-editor-action", onClick: onClose, title: "Close file", "aria-label": "Close file preview" }, h(CloseIcon)) : null);
   return h(React.Fragment, null,
     h("section", { className: "bees-file-preview", "aria-label": "File contents" }, header(false),
       h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, contents)),
