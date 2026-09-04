@@ -177,11 +177,11 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('button[aria-haspopup="dialog"][aria-expanded]');
     expect(client).toContain('action: "create_organization"');
     expect(client).toContain('action: "create_run"');
-    expect(client).toContain('new PendingQuestion(wait)');
+    expect(client).toContain('ctx.uiSession.pendingInteractions');
     expect(client).toContain('"Approve once"');
     expect(client).toContain('h(FilePreview, { target: viewer })');
     expect(client).toContain('h(MarkdownText, { text: file.content })');
-    expect(client).toContain('"sessions"]');
+    expect(client).toContain('"sessions", "uiSession"]');
     expect(client).not.toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('const LOCAL_MODELS = [');
     expect(localAiClient).toContain('"data-model-toggle": "download"');
