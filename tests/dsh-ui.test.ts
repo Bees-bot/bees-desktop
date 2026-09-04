@@ -96,8 +96,10 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('role: "tablist"');
     expect(client).toContain('role: "tabpanel"');
     expect(client).toContain('className: "bees-tab-actions"');
-    expect(client.indexOf('className: "bees-tab-panel"'))
-      .toBeLessThan(client.indexOf('className: "bees-tab-actions"'));
+    expect(client).toContain('"run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12');
+    const tabContents = client.slice(client.indexOf('const details = h('), client.indexOf('return h(FlexibleGrid,'));
+    expect(tabContents).not.toContain('className: "bees-action-ribbon"');
+    expect(tabContents).not.toContain('"Files & folders"');
   });
 
   it("collapses long user messages in work-item details", () => {
@@ -116,7 +118,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('gap: 12px !important');
     expect(client).toContain('.bees-column { flex: 0 0 300px !important; background: var(--dsw-specific-sidebar-fill) !important;');
     expect(client).toContain('.bees-cockpit-board { display: flex !important;');
-    expect(client.match(/sizeToContent: true/g)).toHaveLength(3);
+    expect(client.match(/sizeToContent: true/g)).toHaveLength(4);
     expect(client).toContain('.bees-work-item-grid .bees-convo-history,');
     expect(client).toContain('return h("div", { style: { display: "flex", flexDirection: "column" } },');
   });
@@ -304,7 +306,7 @@ describe("Bees work cockpit UI", () => {
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {
     expect(client).not.toContain("sessions.subagentsByParent");
     expect(client).not.toContain("setSubagentCatalogOpen");
-    expect(client).toContain('parentPath || "Delegated work"');
+    expect(client).toContain('`Parent: ${parentPath}`');
     expect(client).toContain("item.runtimePhase");
   });
 

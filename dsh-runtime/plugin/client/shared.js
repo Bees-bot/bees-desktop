@@ -496,16 +496,14 @@ export const css = `
   border-radius: 2px 2px 0 0 !important;
 }
 
-/* Action Ribbon (Below Tabs) */
+/* Full-width status and controls below Kanban. */
 .bees-action-ribbon {
   display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  justify-content: flex-start !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
   gap: 12px !important;
   padding: 12px 14px !important;
-  background: rgba(0, 0, 0, 0.12) !important;
-  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.06)) !important;
 }
 .bees-ribbon-left {
   display: flex !important;
@@ -514,8 +512,17 @@ export const css = `
   gap: 10px !important;
   min-width: 0 !important;
   flex: 1 !important;
-  width: 100% !important;
+  overflow-wrap: anywhere;
 }
+.bees-action-ribbon .bees-tab-actions{max-width:60%;align-self:flex-start!important}
+.bees-control-title{font-size:13px}
+.bees-card-badges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.bees-root-chip{display:inline-flex;align-items:center;padding:4px 8px;border-radius:6px;background:#3b82f622;border:1px solid #3b82f666;color:var(--dsw-alias-label-primary);font-size:10px;font-weight:700}
+.bees-card-metadata{display:grid;gap:6px;margin-top:10px;font-size:11px}
+.bees-card-metadata>div{display:grid;grid-template-columns:80px minmax(0,1fr);gap:6px;overflow-wrap:anywhere}
+.bees-card-metadata>div>span:first-child{color:var(--dsw-alias-label-secondary)}
+.bees-card-metadata strong{font-weight:600}
+@media(max-width:780px){.bees-action-ribbon{flex-direction:column!important}.bees-action-ribbon .bees-tab-actions{max-width:100%;align-self:stretch!important}}
 .bees-tab-actions {
   display: flex !important;
   align-items: center !important;
@@ -527,6 +534,9 @@ export const css = `
 
 /* Status Badges */
 .bees-detail-badge {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid transparent;
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;

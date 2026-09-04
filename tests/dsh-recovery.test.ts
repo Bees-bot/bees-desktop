@@ -199,7 +199,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(client).toContain('["waiting", "failed"].includes(item.runtimePhase)');
     expect(client).not.toContain('summary.origin === "subagent"');
     expect(client).not.toContain('bees-subagent-card');
-    expect(client).toContain('parentPath || "Delegated work"');
+    expect(client).toContain('`Parent: ${parentPath}`');
     expect(client).not.toContain('function AgentActivity');
     expect(client).toContain('"New work"');
     expect(client).not.toContain("<iframe");
