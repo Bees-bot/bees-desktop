@@ -5,6 +5,7 @@ export let useMemo;
 export let useRef;
 export let useState;
 export let MarkdownText;
+export let CodeBlock;
 export let LocalAiController;
 export let LocalAiSettings;
 export let ExternalLocalAiSettings;
@@ -17,7 +18,7 @@ export function configureRuntime(require) {
   React = require("react");
   h = React.createElement;
   ({ useEffect, useMemo, useRef, useState } = React);
-  ({ MarkdownText } = require("@deepseek-ai/dsh-client-ui-primitives"));
+  ({ MarkdownText, CodeBlock } = require("@deepseek-ai/dsh-client-ui-primitives"));
   ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai"));
   ({ FreeAiController, FreeAiSettings } = require("@bees/dsh-free-ai"));
   ({ CustomAiSettings } = require("@bees/dsh-custom-ai"));

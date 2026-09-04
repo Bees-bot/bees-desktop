@@ -1,4 +1,4 @@
-import { h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
+import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon } from "./icons.js";
 
@@ -257,19 +257,13 @@ function OutputDirectory({ files, executionId, viewer, onOpen, prefix = "" }) {
     }));
 }
 
-/** Code and data files go through the markdown renderer as a fenced block, which is where the highlighter lives. */
+/** Code and data files render through the same highlighter the chat uses. */
 const CODE_LANGUAGES = {
   json: "json", js: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", tsx: "tsx", jsx: "jsx",
   py: "python", rb: "ruby", go: "go", rs: "rust", java: "java", sh: "bash", zsh: "bash", yml: "yaml", yaml: "yaml",
   toml: "toml", html: "html", css: "css", sql: "sql", xml: "xml", csv: "csv"
 };
-function fenced(name, content) {
-  const language = CODE_LANGUAGES[String(name ?? "").split(".").pop().toLowerCase()] ?? "";
-  // A fence longer than any backtick run inside the file keeps the block from closing early.
-  const longest = Math.max(3, ...(content.match(/`+/g) ?? []).map((run) => run.length));
-  const ticks = "`".repeat(longest + 1);
-  return `${ticks}${language}\n${content}\n${ticks}`;
-}
+const languageOf = (name) => CODE_LANGUAGES[String(name ?? "").split(".").pop().toLowerCase()] ?? "text";
 export function FilePreview({ target, onClose }) {
   return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target, onClose });
 }
@@ -303,7 +297,8 @@ function FileContents({ target, onClose }) {
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
             file.truncated ? h("div", { className: "bees-muted" }, `Showing the first ${Math.round(file.content.length / 1024)} KB of ${(file.size / 1_000_000).toFixed(1)} MB.`) : null,
-            h(MarkdownText, { text: file.format === "markdown" ? file.content : fenced(file.name, file.content) }));
+            file.format === "markdown" ? h(MarkdownText, { text: file.content })
+              : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));
   const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),
     target.locationId && path !== target.path ? h(Button, {
       onClick: () => setPath(path.split("/").slice(0, -1).join("/"))
