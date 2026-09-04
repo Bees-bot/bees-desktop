@@ -603,7 +603,7 @@ export class BeesProduct {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     if (!Array.isArray(changes) || !changes.length || changes.length > 20)
       throw new Error("A proposal needs between 1 and 20 changes");
-    const proposedProcesses = new Set();
+    const proposedProcesses = new Map();
     const proposedAgents = new Set();
     const proposedItems = new Set();
     // Names an agent may list in mcpServers: what is installed, plus what this same proposal installs.
@@ -653,7 +653,11 @@ export class BeesProduct {
         earlier(proposedProcesses, process, "A proposed route's process");
         const agents = Array.isArray(change.agents) ? change.agents.map(String) : [];
         for (const agent of agents) earlier(proposedAgents, agent, "A proposed route's agent");
-        return { action: "set_stage_route", process, stage: required(change.stage, "Route stage"), agents };
+        const stage = required(change.stage, "Route stage");
+        const driver = proposedProcesses.get(process.toLocaleLowerCase()).find(({ name }) => name.toLocaleLowerCase() === stage.toLocaleLowerCase())?.driver;
+        if (!driver) throw new Error(`The stage "${stage}" is not in the proposed process ${process}`);
+        if (!["agent", "discussion"].includes(driver)) throw new Error(`The stage "${stage}" does not run an agent; route only agent stages`);
+        return { action: "set_stage_route", process, stage, agents };
       }
       if (change.action === "create_recurring_work") {
         earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
@@ -686,16 +690,16 @@ export class BeesProduct {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
         if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
-        proposedProcesses.add(key);
-        const stages = Array.isArray(change.stages) ? [...change.stages] : [];
-        const last = stages.at(-1);
+        const raw = Array.isArray(change.stages) ? [...change.stages] : [];
+        const last = raw.at(-1);
         // The planner lists the steps; the last stage is the terminal one, so give it a real Done.
         if (last && !(typeof last === "object" ? last.driver === "terminal" : /\b(?:done|complete|completed|finished)\b/i.test(last)))
-          stages.push("Done");
-        return {
-          action: "create_process", name, description: String(change.description ?? ""),
-          stages: processStages(stages, "proposed process")
-        };
+          raw.push("Done");
+        // A planner step is agent work unless it says otherwise; guessing drivers from names turned "Scan inbox" into a manual stage.
+        const stages = processStages(raw.map((stage, index) => typeof stage === "string" && index < raw.length - 1
+          ? { name: stage, driver: /\b(?:discuss|discussion|debate|roundtable)\b/i.test(stage) ? "discussion" : "agent" } : stage), "proposed process");
+        proposedProcesses.set(key, stages);
+        return { action: "create_process", name, description: String(change.description ?? ""), stages };
       }
       if (change.action === "create_item") {
         const process = required(change.process, "Work item process");
