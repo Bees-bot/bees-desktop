@@ -1008,6 +1008,9 @@ export const css = `
 .bees-column,.bees-box,.bees-card,.bees-work-item-row,.bees-flex-widget,.bees-row-main{min-width:0;overflow-wrap:anywhere}
 .bees-content,.bees-cockpit-detail,.bees-flex-widget-body{min-width:0}
 .bees-content pre,.bees-flex-widget pre{max-width:100%;overflow:auto}
+.bees-form>*{min-width:0}
+.bees-select,.bees-input,.bees-textarea{max-width:100%}
+.bees-column .bees-btn{white-space:normal}
 `;
 
 export async function request(path, options) {
