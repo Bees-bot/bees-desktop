@@ -177,6 +177,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
     googleDrive, notify
   });
   capabilities = new Capabilities(ctx, database, workspace);
+  // A run mounts its own browser, so the runtime needs the thing that knows how to mount one.
+  agents.capabilities = capabilities;
   await product.initialize();
   await product.recoverRuns();
   await capabilities.initialize();

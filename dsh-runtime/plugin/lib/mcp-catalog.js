@@ -104,11 +104,10 @@ const ENTRIES = [
       + "that browser profile are reachable too.",
     transport: "stdio",
     command: "npx",
-    // Attach to the browser Bees runs rather than starting a second one. Letting this server launch
-    // its own put two Chromes on one profile, and whichever left last wrote its cookie jar over the
-    // other's, so a sign-in a person had just done came back to the agent as a sign-in page. The
-    // endpoint is filled in when the server connects: the port is only known once Chrome is up.
-    args: ["-y", "@playwright/mcp@latest", "--cdp-endpoint", "{cdpEndpoint}"],
+    // One server per run, each with its own context. Sharing a profile is what playwright warns
+    // against and it showed: concurrent runs read each other's pages. The state file carries the
+    // sign-in from the browser a person actually logs in to, so isolation costs no sessions.
+    args: ["-y", "@playwright/mcp@latest", "--isolated", "--storage-state", "{browserState}"],
     env: [],
     headers: []
   },

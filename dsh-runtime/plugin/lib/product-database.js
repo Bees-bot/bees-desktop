@@ -742,6 +742,13 @@ export function initializeProductDatabase(database) {
       PRAGMA user_version = 18;
     `);
   }
+  // An installed browser server still carries the arguments that shared one profile across runs.
+  if (version < 19) database.exec(`
+    UPDATE mcp_servers
+      SET args_json = '["-y","@playwright/mcp@latest","--isolated","--storage-state","{browserState}"]'
+      WHERE catalog_id = 'playwright';
+    PRAGMA user_version = 19;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

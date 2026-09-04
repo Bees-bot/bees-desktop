@@ -388,6 +388,8 @@ export class AgentRuntime {
     this.notify = notify;
     this.subscribe = subscribe;
     this.live = new Map();
+    /** Set once Capabilities exists; a run mounts its own browser through it. */
+    this.capabilities = null;
     this.starting = new Set();
     this.recovery = new Set();
     this.closing = false;
@@ -710,9 +712,13 @@ export class AgentRuntime {
   }
 
   /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
-  async startBrowserIfGranted({ mcpAccess, mcpServers }) {
+  async startBrowserIfGranted({ mcpAccess, mcpServers }, agentCtx) {
     const browsers = this.database.prepare("SELECT server_name FROM mcp_servers WHERE enabled = 1 AND catalog_id = 'playwright'").all();
     if (mcpAccess === "none" || !browsers.some(({ server_name }) => mcpAccess === "all" || mcpServers.includes(server_name))) return;
+    // This run's own browser, mounted on its agent context so it dies with the run. Chrome starts
+    // alongside it only so a person has somewhere to sign in when a run asks for one.
+    await this.capabilities?.mountBrowserFor(agentCtx)
+      .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
   }
 
@@ -782,7 +788,7 @@ export class AgentRuntime {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
-    await this.startBrowserIfGranted(data);
+    await this.startBrowserIfGranted(data, agentCtx);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,

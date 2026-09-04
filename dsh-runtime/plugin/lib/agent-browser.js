@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -116,6 +116,40 @@ async function watchForNewTabs() {
   watcher.onclose = () => { watcher = null; };
 }
 
+/**
+ * Where each run's browser reads its cookies from, in playwright's storageState shape. It has to
+ * exist before a run starts or every navigation fails on ENOENT, and on a fresh install nobody has
+ * signed in yet, so an empty file stands in for "no cookies".
+ */
+export function browserStatePath() {
+  const path = join(stateDirectory(), "browser-state.json");
+  if (!existsSync(path)) {
+    mkdirSync(stateDirectory(), { recursive: true });
+    writeFileSync(path, JSON.stringify({ cookies: [], origins: [] }));
+  }
+  return path;
+}
+
+/** Copy this browser's cookies out so the next run starts signed in to whatever a person just used. */
+export async function saveBrowserState() {
+  if (!running()) return false;
+  try {
+    const { cookies } = await cdp("Storage.getCookies", {});
+    writeFileSync(browserStatePath(), JSON.stringify({
+      cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
+        name, value, domain, path, httpOnly, secure,
+        expires: expires > 0 ? Math.floor(expires) : -1,
+        // chrome reports None/Lax/Strict or nothing; playwright insists on one of its three.
+        sameSite: ["Strict", "Lax", "None"].includes(sameSite) ? sameSite : "Lax"
+      })),
+      origins: []
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The CDP endpoint the browser MCP server dials. Chrome is not up yet; a run starts it first. */
 export async function browserEndpoint() {
   return `http://127.0.0.1:${await reservePort()}`;
@@ -140,6 +174,8 @@ export async function showAgentBrowser() {
 export async function hideAgentBrowser() {
   wantedOnScreen = false;
   if (!running()) return;
+  // Whatever they just signed into is what the next run has to inherit.
+  await saveBrowserState();
   await setWindow("minimized");
   await setAppHidden(true);
 }
