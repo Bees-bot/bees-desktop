@@ -79,7 +79,7 @@ function invokedAgents(database, workspaceId, value) {
   let rest = String(value ?? "");
   const agents = [];
   while (agents.length < 9) {
-    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*[,;:\-]\s*|\s+|$)/u);
+    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
     let agent;
     let consumed;
     if (canonical) {
@@ -87,11 +87,11 @@ function invokedAgents(database, workspaceId, value) {
       if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
       consumed = canonical[0];
     } else {
-      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*[,;:\-]\s*|\s+|$)/iu);
+      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/iu);
       if (typed && typed[1].toLocaleLowerCase() !== "agent") break;
       const shorthand = typed
         ? [typed[0], typed[2]]
-        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*[,;:\-]\s*|\s+|$)/u);
+        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
       if (!shorthand) break;
       const matches = database.prepare(`
         SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
