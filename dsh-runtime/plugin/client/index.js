@@ -3,6 +3,7 @@ import gridstackCss from "gridstack/dist/gridstack.min.css";
 import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
+import { installScrollbars } from "./scrollbars.js";
 
 window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
@@ -38,6 +39,7 @@ window.__ModuleLoader__.load({
       style.textContent = `${gridstackCss}\n${cronGeneratorCss}\n${css}`;
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
+      ctx.effect(() => installScrollbars(document), "bees: scrollbars");
       const toggleDsh = (event) => {
         if (event.repeat || event.code !== "KeyD" || !event.altKey || !event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
         event.preventDefault();
