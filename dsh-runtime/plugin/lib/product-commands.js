@@ -1018,9 +1018,9 @@ export async function executeProductCommand(action, input) {
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const policy = mcpPolicy(input);
-      const rows = this.database.prepare("SELECT name, kind FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
+      const rows = this.database.prepare("SELECT name, description FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
       const servers = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE enabled = 1").all().map(({ name }) => name);
-      const folders = (rows.length ? `\n\nTeam folders a work item can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, kind }) => `${name} (${kind})`).join(", ")}` : "")
+      const folders = (rows.length ? `\n\nTeam folders, by exact name, that a work item about their files can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, description }) => `"${name}"${description ? `, ${description}` : ""}`).join("; ")}` : "")
         + (servers.length ? `\n\nInstalled MCP servers an agent can list in mcpServers: ${servers.join(", ")}` : "");
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,

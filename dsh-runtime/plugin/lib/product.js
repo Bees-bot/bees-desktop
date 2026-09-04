@@ -614,9 +614,16 @@ export class BeesProduct {
       for (const name of entry ? [entry.id, entry.serverName, entry.label] : change?.action === "add_mcp_server" ? [change.serverName] : [])
         servers.add(String(name ?? "").toLocaleLowerCase());
     }
+    const folder = (name) => {
+      if (!this.database.prepare(`
+        SELECT 1 FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
+        WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
+      `).get(workspaceId, String(name))) throw new Error(`No team folder is named "${name}"; use an exact name from the brief`);
+      return String(name);
+    };
     const locations = (change) => ({
-      ...(Array.isArray(change.inputLocations) ? { inputLocations: change.inputLocations.map(String) } : {}),
-      ...(change.outputLocation ? { outputLocation: String(change.outputLocation) } : {})
+      ...(Array.isArray(change.inputLocations) ? { inputLocations: change.inputLocations.map(folder) } : {}),
+      ...(change.outputLocation ? { outputLocation: folder(change.outputLocation) } : {})
     });
     const earlier = (set, name, what) => {
       if (!set.has(String(name).toLocaleLowerCase())) throw new Error(`${what} must name one created earlier in the same proposal`);
