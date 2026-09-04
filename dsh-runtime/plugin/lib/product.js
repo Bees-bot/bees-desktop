@@ -13,6 +13,7 @@ import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { executeProductCommand, withoutSecrets } from "./product-commands.js";
+import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
 
@@ -605,6 +606,18 @@ export class BeesProduct {
     const proposedProcesses = new Set();
     const proposedAgents = new Set();
     const proposedItems = new Set();
+    // Names an agent may list in mcpServers: what is installed, plus what this same proposal installs.
+    const servers = new Set(this.database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all()
+      .flatMap((row) => [row.id, row.name, row.label, row.catalogId]).filter(Boolean).map((value) => String(value).toLocaleLowerCase()));
+    for (const change of changes) {
+      const entry = change?.action === "install_mcp_server" ? catalogEntry(change.catalogId) : null;
+      for (const name of entry ? [entry.id, entry.serverName, entry.label] : change?.action === "add_mcp_server" ? [change.serverName] : [])
+        servers.add(String(name ?? "").toLocaleLowerCase());
+    }
+    const locations = (change) => ({
+      ...(Array.isArray(change.inputLocations) ? { inputLocations: change.inputLocations.map(String) } : {}),
+      ...(change.outputLocation ? { outputLocation: String(change.outputLocation) } : {})
+    });
     const earlier = (set, name, what) => {
       if (!set.has(String(name).toLocaleLowerCase())) throw new Error(`${what} must name one created earlier in the same proposal`);
     };
@@ -613,11 +626,14 @@ export class BeesProduct {
       if (change.action === "create_goal") {
         const title = required(change.title, "Goal title");
         proposedItems.add(title.toLocaleLowerCase());
-        return { action: "create_goal", title, description: String(change.description ?? "") };
+        return { action: "create_goal", title, description: String(change.description ?? ""), ...locations(change) };
       }
       if (change.action === "add_agent_assignment") {
         const name = required(change.name, "Agent name");
         proposedAgents.add(name.toLocaleLowerCase());
+        if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
+          if (!servers.has(String(server).toLocaleLowerCase()))
+            throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
         return {
           action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
           description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
@@ -636,8 +652,28 @@ export class BeesProduct {
         earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
         return { ...change };
       }
-      // Capabilities validates these when the proposal is applied.
-      if (["install_mcp_server", "add_mcp_server", "install_skill"].includes(change.action)) return { ...change };
+      if (change.action === "install_mcp_server") {
+        const entry = catalogEntry(change.catalogId);
+        if (!entry) throw new Error(`No catalog server is called ${change.catalogId}; the catalog has ${MCP_CATALOG.map(({ id }) => id).join(", ")}`);
+        for (const secret of [...entry.env, ...entry.headers])
+          if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
+        if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
+        const given = change.inputs ?? {};
+        for (const field of entry.inputs)
+          if (!field.optional && !String(given[field.name] ?? "").trim() && !(field.name === "openapiSpec" && (given.curl || given.apiBaseUrl)))
+            throw new Error(`${entry.label} needs inputs.${field.name}: ${field.label}`);
+        return { ...change };
+      }
+      if (change.action === "add_mcp_server") {
+        required(change.serverName, "Server name");
+        if (change.transport === "stdio" ? !change.command : change.transport === "streamable-http" ? !change.url : true)
+          throw new Error("add_mcp_server needs transport stdio with a command, or streamable-http with a url");
+        return { ...change };
+      }
+      if (change.action === "install_skill") {
+        required(change.repo, "Skill repo"); required(change.directory, "Skill directory");
+        return { ...change };
+      }
       if (change.action === "create_process") {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
@@ -659,7 +695,7 @@ export class BeesProduct {
           throw new Error("A proposed work item must target a process created earlier in the same proposal");
         const title = required(change.title, "Work item title");
         proposedItems.add(title.toLocaleLowerCase());
-        return { action: "create_item", process, title, description: String(change.description ?? "") };
+        return { action: "create_item", process, title, description: String(change.description ?? ""), ...locations(change) };
       }
       throw new Error(`Unsupported proposed action: ${change.action}`);
     });

@@ -39,15 +39,17 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   return { access, servers };
 }
 
-/** A server id that resolves to nothing would silently grant the agent nothing at all. */
+/** Accept an id, a server name, a label or a catalog id; anything that resolves to nothing would silently grant the agent nothing at all. */
 function checkMcpServers(database, policy) {
   if (policy.access !== "listed") return policy;
-  const known = database.prepare(`
-    SELECT id FROM mcp_servers WHERE enabled = 1 AND id IN (SELECT value FROM json_each(?))
-  `).all(JSON.stringify(policy.servers)).map(({ id }) => id);
-  const missing = policy.servers.filter((id) => !known.includes(id));
-  if (missing.length) throw new Error(`No MCP server matches ${missing.join(", ")}`);
-  return policy;
+  const rows = database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all();
+  const servers = policy.servers.map((wanted) => {
+    const key = wanted.toLocaleLowerCase();
+    const row = rows.find((row) => [row.id, row.name, row.label, row.catalogId].some((value) => String(value ?? "").toLocaleLowerCase() === key));
+    if (!row) throw new Error(`No MCP server matches ${wanted}`);
+    return row.id;
+  });
+  return { access: policy.access, servers: [...new Set(servers)] };
 }
 
 function locationIds(database, workspaceId, values, foldersOnly = false) {
@@ -181,7 +183,7 @@ function recurringSchedule(input) {
   }
   if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency is invalid");
   const hour = Number(input.hour);
-  const minute = Number(input.minute);
+  const minute = Number(input.minute ?? 0);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23 ||
       !Number.isInteger(minute) || minute < 0 || minute > 59)
     throw new Error("Schedule time is invalid");
@@ -922,9 +924,8 @@ export async function executeProductCommand(action, input) {
       // Claim the row before running anything, so a second click cannot apply the plan twice.
       if (!this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ? AND status = 'pending'")
         .run(at, proposalId).changes) throw new Error("This plan was already applied");
-      const results = [];
       // The planner names things it created earlier in the same proposal; ids exist only once applied.
-      const made = { process: new Map(), agent: new Map(), item: new Map() };
+      const made = { process: new Map(), agent: new Map(), item: new Map(), server: new Map() };
       const idOf = (kind, name) => {
         const id = made[kind].get(String(name ?? "").toLocaleLowerCase());
         if (!id) throw new Error(`The proposed ${kind} "${name}" was not created earlier in this proposal`);
@@ -938,27 +939,34 @@ export async function executeProductCommand(action, input) {
         if (!row) throw new Error(`No team folder is named "${name}"`);
         return row.id;
       };
+      const list = JSON.parse(proposal.changes);
+      const results = new Array(list.length);
+      // Servers go in first so an agent can list one installed by the same plan, whatever order the planner wrote.
+      const order = [...list.keys()].sort((a, b) => Number(CAPABILITY_CHANGES.includes(list[b].action)) - Number(CAPABILITY_CHANGES.includes(list[a].action)));
       try {
-        for (const change of JSON.parse(proposal.changes)) {
+        for (const index of order) {
+          const change = list[index];
           const payload = { ...change, workspaceId: proposal.workspaceId,
             connectionId: input.connectionId, accountUserId: input.accountUserId };
+          if (change.action === "add_agent_assignment" && change.mcpServers)
+            payload.mcpServers = change.mcpServers.map((name) => made.server.get(String(name).toLocaleLowerCase()) ?? name);
           // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
           if (change.action === "add_agent_assignment") {
             const existing = this.database.prepare(`
               SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
             `).get(proposal.workspaceId, String(change.name ?? ""));
-            if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+            if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
           // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
           if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
             const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
-            if (installed) { results.push({ id: installed.id, reused: true }); continue; }
+            if (installed) { results[index] = { id: installed.id, reused: true }; continue; }
           }
           if (change.action === "create_process") {
             const existing = this.database.prepare(`
               SELECT id FROM processes WHERE workspace_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
             `).get(proposal.workspaceId, String(change.name ?? ""));
-            if (existing) { made.process.set(String(change.name).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+            if (existing) { made.process.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
           if (change.action === "create_item") {
             payload.processId = idOf("process", change.process);
@@ -966,7 +974,7 @@ export async function executeProductCommand(action, input) {
               SELECT id FROM work_items WHERE process_id = ? AND lower(title) = lower(?)
                 AND archived_at IS NULL AND deleted_at IS NULL
             `).get(payload.processId, String(change.title ?? ""));
-            if (existing) { made.item.set(String(change.title).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+            if (existing) { made.item.set(String(change.title).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
           if (change.action === "create_item" || change.action === "create_goal") {
             payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
@@ -982,8 +990,9 @@ export async function executeProductCommand(action, input) {
           }
           const result = CAPABILITY_CHANGES.includes(change.action)
             ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
-          results.push(result);
+          results[index] = result;
           const kind = { create_process: "process", add_agent_assignment: "agent", create_item: "item", create_goal: "item" }[change.action];
+          if (change.action === "install_mcp_server" && result?.id) made.server.set(String(change.catalogId).toLocaleLowerCase(), result.id);
           if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
         }
       } catch (error) {
@@ -1010,7 +1019,9 @@ export async function executeProductCommand(action, input) {
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const policy = mcpPolicy(input);
       const rows = this.database.prepare("SELECT name, kind FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
-      const folders = rows.length ? `\n\nTeam folders a work item can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, kind }) => `${name} (${kind})`).join(", ")}` : "";
+      const servers = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE enabled = 1").all().map(({ name }) => name);
+      const folders = (rows.length ? `\n\nTeam folders a work item can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, kind }) => `${name} (${kind})`).join(", ")}` : "")
+        + (servers.length ? `\n\nInstalled MCP servers an agent can list in mcpServers: ${servers.join(", ")}` : "");
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}${folders}`,
