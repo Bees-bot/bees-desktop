@@ -926,6 +926,13 @@ export async function executeProductCommand(action, input) {
       for (const change of JSON.parse(proposal.changes)) {
         const payload = { ...change, workspaceId: proposal.workspaceId,
           connectionId: input.connectionId, accountUserId: input.accountUserId };
+        // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
+        if (change.action === "add_agent_assignment") {
+          const existing = this.database.prepare(`
+            SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
+          `).get(proposal.workspaceId, String(change.name ?? ""));
+          if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results.push({ id: existing.id, reused: true }); continue; }
+        }
         if (change.action === "create_item") payload.processId = idOf("process", change.process);
         if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
         if (change.action === "set_stage_route") {
