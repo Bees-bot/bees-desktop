@@ -427,7 +427,8 @@ export class Capabilities {
     }
     const names = Object.keys(secrets);
     // A pasted "npx -y pkg" means all of it; unsplit it spawns one absurd program name.
-    const typed = String(input.args ?? "").split("\n").map((part) => part.trim()).filter(Boolean);
+    const typed = (Array.isArray(input.args) ? input.args.map(String) : String(input.args ?? "").split("\n"))
+      .map((part) => part.trim()).filter(Boolean);
     const words = transport === "stdio"
       ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))
       : [];
