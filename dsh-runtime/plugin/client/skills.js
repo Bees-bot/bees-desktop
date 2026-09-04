@@ -344,8 +344,10 @@ export function McpPage({ ctx, capabilities }) {
         h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, server.label),
           h("div", { className: "bees-muted" }, [
-            `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
-            server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url,
+            // The browser mounts per run, so a tool count and a command line would only mislead here.
+            ...(server.catalogId === "playwright" ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
+              `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+              server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
             server.source === "catalog" ? "from the catalog" : "added by hand"
           ].filter(Boolean).join(" · ")),
           server.error ? h("div", { className: "bees-muted" }, server.error) : null),
