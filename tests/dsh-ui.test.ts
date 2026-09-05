@@ -122,6 +122,12 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('return h("div", { style: { display: "flex", flexDirection: "column" } },');
   });
 
+  it("wraps process-template routing controls inside narrow stage columns", () => {
+    expect(client).toContain('.bees-routing-board .bees-row{align-items:flex-start;flex-wrap:wrap}');
+    expect(client).toContain('.bees-routing-board .bees-row-main{flex-basis:100%;overflow-wrap:anywhere}');
+    expect(client).toContain('.bees-routing-board .bees-row>.bees-select{min-width:0;flex:1 1 130px}');
+  });
+
   it("uses theme-aware conversation bubbles, expandable tool cards, and a compact composer", () => {
 
     expect(client).toContain('className: "bees-agent-turn"');
