@@ -12,7 +12,7 @@ import { currentIdentity, message, transaction } from "./product-database.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
-  product: ["create_process", "create_item", "create_goal", "create_recurring_work",
+  product: ["list_items", "create_process", "create_item", "create_goal", "create_recurring_work",
     "add_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
@@ -39,6 +39,14 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
+const reviewQuestions = (summary) => [{
+  id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
+  options: [
+    { label: "Approve", description: "Accept the work and let the agent continue." },
+    { label: "Reject", description: "Return the work with specific revision feedback." }
+  ],
+  multiSelect: false
+}];
 const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork"];
 
 const RUN_DATA_KEYS = new Set([
@@ -578,6 +586,11 @@ export class AgentRuntime {
     return pending?.kind === "approval" ? pending : null;
   }
 
+  pendingQuestion(executionId) {
+    const pending = this.pendingInteraction(executionId);
+    return ["question", "work-review"].includes(pending?.kind) ? pending : null;
+  }
+
   needsRecovery(executionId) {
     return this.recovery.has(executionId);
   }
@@ -871,17 +884,7 @@ export class AgentRuntime {
         if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
-        const answer = await this.ctx.userQuestions.ask({
-          agent: exec.agent, signal: exec.signal,
-          questions: [{
-            id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
-            options: [
-              { label: "Approve", description: "Accept the work and let the agent continue." },
-              { label: "Reject", description: "Return the work with specific revision feedback." }
-            ],
-            multiSelect: false
-          }]
-        });
+        const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
           this.audit("human-work-approved", executionId, String(exec.agent.session.id), { summary });
@@ -895,10 +898,10 @@ export class AgentRuntime {
     }));
     if (data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
-      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. "
-        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver: agent|review|terminal}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. "
+        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. set_stage_route {stageId, agentIds: [assignment ids]}. "
-        + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args? (one per line), url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
+        + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, directory?, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools and catalogId filesystem or git needs directory, an absolute path; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
       parameters: {
         action: { type: "string", required: true, description: "One of the actions above." },
@@ -919,10 +922,8 @@ export class AgentRuntime {
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
-        if (args.action === "install_mcp_server") {
-          if (!result?.id) throw new Error(`install_mcp_server did not return a server for catalog ${input.catalogId}`);
-          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
-        } else if (args.action === "add_mcp_server" && result?.id) {
+        if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
+          if (!result?.id) throw new Error(`${args.action} did not return a server`);
           await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
         } else if (args.action === "create_process" && result?.id) {
           // Stage ids are otherwise invisible to the model, which needs them for set_stage_route.
@@ -942,7 +943,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?,url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem server needs directory, an absolute path the person gave. process, stage, agents and item name things created earlier in the same array. Example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem or git server needs directory, an absolute path the person gave. process, stage, agents and item name things created earlier in the same array. Example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
         }
       },
       output: {
@@ -1377,6 +1378,7 @@ export class AgentRuntime {
     }
     const workspace = run.runDirectory;
     const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
+    const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
     const mode = recovery ? "recovery" : prepared || !existed ? "create" : "resume";
     let opened;
     try {
@@ -1421,11 +1423,10 @@ export class AgentRuntime {
     const recoveryNotice = recovery
       ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
       : "";
-    if (recoveryApproval) {
-      this.track(this.recoverApproval(
-        executionId, submissionId, sessionId, handle, approvalAbort,
-        recoveryApproval, `${payload.body}${recoveryNotice}`
-      ));
+    if (recoveryApproval || recoveryQuestion) {
+      this.track(recoveryApproval
+        ? this.recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, recoveryApproval, `${payload.body}${recoveryNotice}`)
+        : this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
       this.recovery.delete(executionId);
     } else {
       let before;
@@ -1504,6 +1505,29 @@ export class AgentRuntime {
         outcome: "failed",
         error: { message: message(error) }
       });
+    }
+  }
+
+  /** The model asked before the restart; Bees asks again itself and hands the answer to the resumed run. */
+  async recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, pending, body) {
+    try {
+      const args = JSON.parse(pending.questions);
+      const review = pending.kind === "work-review";
+      const answer = await this.ctx.userQuestions.ask({
+        agent: handle.agent, signal: approvalAbort.signal, questions: review ? reviewQuestions(args.summary) : args.questions
+      });
+      const response = review ? answer.answers.find(({ id }) => id === "work-review") : null;
+      const approved = Boolean(response?.selected?.includes("Approve"));
+      if (review) this.audit(approved ? "human-work-approved" : "human-work-rejected", executionId, sessionId, { summary: args.summary, feedback: response?.custom ?? "" });
+      this.checkpoint(executionId, sessionId, "running", { pendingInteraction: null, idempotencyKey: `${pending.kind}-answered:${sessionId}:${pending.callId}` });
+      const outcome = review
+        ? `The review you requested before the restart was ${approved ? "approved" : `rejected with this feedback: ${response?.custom ?? ""}`}.`
+        : `The user answered the question you asked before the restart:\n${JSON.stringify(answer.answers)}`;
+      const before = handle.agent.session.seq;
+      handle.agent.followup(createUserMessage({ content: [{ type: "text", text: `${body}\n\n${outcome}` }], source: { kind: "user" } }));
+      await this.settle(executionId, submissionId, sessionId, handle, before);
+    } catch (error) {
+      await this.finish(executionId, submissionId, sessionId, handle, { outcome: "failed", error: { message: message(error) } });
     }
   }
 
