@@ -298,7 +298,7 @@ function FileContents({ target, onClose }) {
           !file.entries.length ? h("p", { className: "bees-muted" }, "This folder is empty.") : null,
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
-            file.truncated ? h("div", { className: "bees-muted" }, `Showing the first ${formatSize(file.content.length)} of ${formatSize(file.size)}.`) : null,
+            file.truncated ? h("div", { className: "bees-muted" }, `Showing the first part of a ${formatSize(file.size)} file.`) : null,
             file.format === "markdown" ? h(MarkdownText, { text: file.content })
               : file.content.length > HIGHLIGHT_LIMIT ? h("pre", null, file.content)
               : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));

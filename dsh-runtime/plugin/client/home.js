@@ -91,7 +91,7 @@ function QuickActionsWidget({ workspaceId, createWork, createGoal, createProcess
 }
 
 function ProposalsWidget({ data, workspaceIds, act }) {
-  const proposals = (data.proposals ?? []).filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
+  const proposals = data.proposals.filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
   if (!proposals.length) return null;
   return h("div", { className: "bees-dashboard-list" }, ...proposals.map((proposal) =>
     h(ProposalCard, { key: proposal.id, proposal,
