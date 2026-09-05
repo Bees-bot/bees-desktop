@@ -1,7 +1,7 @@
 # DSH upgrade checklist
 
 Bees ships one tested DeepSeek Harness release as a unit. The current release is
-`0.1.0-rc.8`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
+`0.1.2-rc.1`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
 use that exact version.
 
 ## Prepare a candidate

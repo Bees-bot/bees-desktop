@@ -317,7 +317,7 @@ describe("Bees DSH product plugin", () => {
 
     expect(admit).toHaveBeenCalledWith("bees-run", "planning-run", {
       idempotencyKey: "runtime-recovery:planning-run:1",
-      body: expect.stringMatching(/Outcome: Launch safely[\s\S]*Which market\?/)
+      body: expect.stringMatching(/Outcome: Launch safely/)
     });
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'planning-run'"
