@@ -256,6 +256,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('collaboration("delete_organization"');
     expect(client).toContain('action: "delete_organization", organizationId: organization.id');
     expect(client).toContain('name !== organization.name');
+    expect(client).toContain('collaboration("delete_team"');
+    expect(client).toContain('action: "delete_team", teamId: team.id');
+    expect(client).toContain('name !== team.name');
   });
 
   it("uses the old Bees organization and team hierarchy", () => {

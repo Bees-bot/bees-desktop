@@ -285,6 +285,22 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("DELETE FROM organizations WHERE id = ?").run(id);
       return { id };
     });
+    if (action === "delete_team") return transaction(this.database, () => {
+      const { userId } = currentIdentity(this.database);
+      const id = required(input.teamId, "Team");
+      const team = this.database.prepare(`
+        SELECT t.organization_id AS organizationId, om.role, EXISTS (
+          SELECT 1 FROM bees_connections WHERE organization_id = t.organization_id
+        ) AS connected
+        FROM teams t JOIN organization_memberships om ON om.organization_id = t.organization_id
+        WHERE t.id = ? AND om.user_id = ? AND om.status = 'active'
+      `).get(id, userId);
+      if (!team) throw new Error("Team not found");
+      if (team.connected) throw new Error("Delete connected teams through their workspace account");
+      if (!["owner", "admin"].includes(team.role)) throw new Error("Only workspace owners and admins can delete teams");
+      this.database.prepare("DELETE FROM teams WHERE id = ?").run(id);
+      return { id, organizationId: team.organizationId };
+    });
     if (action === "create_team") {
       const { userId } = currentIdentity(this.database);
       const organizationId = required(input.organizationId, "Organization");

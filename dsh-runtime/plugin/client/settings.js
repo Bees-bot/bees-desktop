@@ -476,9 +476,10 @@ function OrganizationSettings({
     failure);
 }
 
-function TeamSettings({ team, organization, connectionId }) {
+function TeamSettings({ team, organization, connectionId, openOrganization }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     let active = true;
     setPeople(null);
@@ -491,11 +492,41 @@ function TeamSettings({ team, organization, connectionId }) {
     return () => { active = false; };
   }, [team?.id, connectionId]);
   if (!team) return h(Empty, null, "Choose a team");
-  if (!organization?.connected) return h("section", { className: "bees-box" }, h("h3", null, team.name),
-    h("p", { className: "bees-muted" }, "This team is local to this device."));
+  const deleteTeam = async () => {
+    const name = await ask(
+      `Delete ${team.name} permanently?\nThis deletes its workspaces and all of its Bees data. Files in folders outside Bees stay on disk. Type the team name to confirm.`,
+      ""
+    );
+    if (name === null) return;
+    if (name !== team.name) { setError("The team name did not match"); return; }
+    setDeleting(true);
+    try {
+      if (organization.connected) await collaboration("delete_team", { teamId: team.id, connectionId });
+      else await request("/bees-api/command", {
+        method: "POST", body: JSON.stringify({ action: "delete_team", teamId: team.id })
+      });
+      setError("");
+      await openOrganization({ ...organization, connectionId });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setDeleting(false); }
+  };
+  const dangerZone = ["owner", "admin"].includes(organization?.role) ? h("section", {
+    className: "bees-box bees-danger-zone"
+  },
+  h("h3", null, "Delete team"),
+  h("p", { className: "bees-muted" },
+    "Permanently deletes this team, its workspaces, and its Bees data. Files in folders outside Bees stay on disk."),
+  h(Button, { className: "danger", disabled: deleting, onClick: deleteTeam },
+    deleting ? "Deleting…" : "Delete team")) : null;
+  const failure = error ? h("div", { className: "bees-error", role: "alert" }, error) : null;
+  if (!organization?.connected) return h("div", { className: "bees-stack" },
+    h("section", { className: "bees-box" }, h("h3", null, team.name),
+      h("p", { className: "bees-muted" }, "This team is local to this device.")),
+    dangerZone, failure);
   if (team.role !== "admin") return h("section", { className: "bees-box" }, h("h3", null, team.name),
     h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
-  if (!people) return h(Empty, null, error || "Loading team members…");
+  if (!people) return h("div", { className: "bees-stack" },
+    h(Empty, null, error || "Loading team members…"), dangerZone);
   const add = async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     try { setPeople(await collaboration("add_team_member", { teamId: team.id, connectionId,
@@ -514,7 +545,8 @@ function TeamSettings({ team, organization, connectionId }) {
           ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
         h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
         h("button", { className: "bees-btn primary" }, "Add member")) : h(Empty, null, "Every active organization member is already on this team")),
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+    dangerZone,
+    failure);
 }
 
 const GLOBAL_SETTINGS = [
@@ -562,7 +594,9 @@ export function SettingsPage({
   const organization = rawOrganization
     ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
     : null;
-  if (route === "team-settings") return h(TeamSettings, { team, organization, connectionId });
+  if (route === "team-settings") return h(TeamSettings, {
+    team, organization, connectionId, openOrganization
+  });
   const content = route === "personal-ai"
     ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
     : route === "system-instructions"

@@ -353,6 +353,13 @@ export class ConnectedAccount {
         }
       }
       this.database.prepare(`
+        DELETE FROM teams WHERE personal = 0
+          AND organization_id IN (SELECT value FROM json_each(?))
+          AND NOT EXISTS (
+            SELECT 1 FROM bees_connection_teams ct WHERE ct.team_id = teams.id
+          )
+      `).run(JSON.stringify(organizations.map(({ id }) => id)));
+      this.database.prepare(`
         DELETE FROM bees_connections WHERE account_user_id = ?
           AND organization_id NOT IN (SELECT value FROM json_each(?))
       `).run(account.userId, JSON.stringify(organizations.map(({ id }) => id)));
@@ -633,6 +640,21 @@ export class ConnectedAccount {
     return { id: team.id, connectionId };
   }
 
+  async deleteTeam(teamId, connectionId) {
+    const connection = this.connections().find(({ id }) => id === connectionId);
+    const team = this.database.prepare(
+      "SELECT organization_id AS organizationId FROM teams WHERE id = ?"
+    ).get(teamId);
+    if (!connection || !team || connection.organizationId !== team.organizationId) {
+      throw new Error("Choose the workspace connection that owns this team");
+    }
+    await this.request(`/api/teams/${encodeURIComponent(teamId)}`, {
+      method: "DELETE", organizationId: team.organizationId, connectionId
+    });
+    this.database.prepare("DELETE FROM teams WHERE id = ?").run(teamId);
+    return { id: teamId, organizationId: team.organizationId };
+  }
+
   async command(input) {
     switch (input.action) {
       case "sign_in": return this.signIn(input.email, input.password);
@@ -661,6 +683,7 @@ export class ConnectedAccount {
       case "create_organization": return this.createOrganization(input.name, input.accountUserId);
       case "delete_organization": return this.deleteOrganization(input.organizationId, input.connectionId);
       case "create_team": return this.createTeam(input.name, input.connectionId);
+      case "delete_team": return this.deleteTeam(input.teamId, input.connectionId);
       default: throw new Error("Unknown collaboration action");
     }
   }

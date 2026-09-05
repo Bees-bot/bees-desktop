@@ -789,6 +789,7 @@ Current international expansion strategy`);
       set: async (_ref: string, value: string) => { storedToken = value; },
       unset: async () => { storedToken = ""; }
     };
+    let remoteTeams = [{ id: "remote-team", name: "Design" }];
     const seen: { url: string; authorization: string | null; organization: string | null }[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
@@ -803,7 +804,7 @@ Current international expansion strategy`);
         : url.endsWith("/api/organizations")
           ? { organizations: [{ id: "remote-org", name: "Acme", role: "admin" }] }
           : url.endsWith("/api/teams")
-            ? { teams: [{ id: "remote-team", name: "Design" }] }
+            ? { teams: remoteTeams }
             : url.endsWith("/api/teams/remote-team/members")
               ? { members: [{ id: "member-1", teamId: "remote-team", userId: "remote-user", role: "admin" }] }
               : url.includes("/api/sync/pull")
@@ -846,6 +847,10 @@ Current international expansion strategy`);
     }));
     expect(seen.some(({ url }) => url.includes("/api/sync/pull"))).toBe(true);
 
+    remoteTeams = [];
+    await connected.sync();
+    expect(database.prepare("SELECT 1 FROM teams WHERE id = 'remote-team'").get()).toBeUndefined();
+
     await connected.signOut();
     expect(connected.publicAccount()).toBeNull();
     expect(database.prepare(`
@@ -853,7 +858,7 @@ Current international expansion strategy`);
     `).get()).toEqual({ status: "suspended" });
   });
 
-  it("deletes a local organization and its teams through the product command", async () => {
+  it("deletes local teams and organizations through product commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-local-organization-"));
     const database = new NodeDatabase();
     database.connection.exec("PRAGMA foreign_keys = ON");
@@ -868,6 +873,20 @@ Current international expansion strategy`);
     const team = await product.command({
       action: "create_team", organizationId: organization.id, name: "Local team"
     });
+    const keptTeam = await product.command({
+      action: "create_team", organizationId: organization.id, name: "Kept team"
+    });
+
+    await product.command({ action: "delete_team", teamId: team.id });
+
+    expect(database.connection.prepare("SELECT 1 FROM organizations WHERE id = ?").get(organization.id))
+      .toBeDefined();
+    expect(database.connection.prepare("SELECT 1 FROM teams WHERE id = ?").get(team.id))
+      .toBeUndefined();
+    expect(database.connection.prepare("SELECT 1 FROM workspaces WHERE id = ?").get(team.workspaceId))
+      .toBeUndefined();
+    expect(database.connection.prepare("SELECT 1 FROM teams WHERE id = ?").get(keptTeam.id))
+      .toBeDefined();
 
     await product.command({ action: "delete_organization", organizationId: organization.id });
 
@@ -1011,6 +1030,8 @@ Current international expansion strategy`);
         const team = { id: "new-team", name: "Operations" };
         teams.push(team);
         body = { team };
+      } else if (url.endsWith("/api/teams/new-team") && method === "DELETE") {
+        teams.length = 0; body = { ok: true };
       } else if (url.endsWith("/api/teams")) body = { teams };
       else if (url.endsWith("/api/teams/new-team/members")) body = {
         members: [{ id: "creator-member", userId: "creator", role: "admin" }]
@@ -1036,6 +1057,15 @@ Current international expansion strategy`);
     });
     expect(seen).toContainEqual({
       url: "https://api.example/api/teams", method: "POST",
+      authorization: "Bearer creator-token", organization: "new-org"
+    });
+
+    await connected.command({
+      action: "delete_team", teamId: "new-team", connectionId: organization.connectionId
+    });
+    expect(database.prepare("SELECT 1 FROM teams WHERE id = 'new-team'").get()).toBeUndefined();
+    expect(seen).toContainEqual({
+      url: "https://api.example/api/teams/new-team", method: "DELETE",
       authorization: "Bearer creator-token", organization: "new-org"
     });
 
