@@ -39,6 +39,13 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   return { access, servers };
 }
 
+/** Work that is still moving; a schedule's definition item only describes future runs. */
+const hasActiveWork = (database, processId) => Boolean(database.prepare(`
+  SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
+    AND runtime_phase NOT IN ('completed', 'cancelled')
+    AND id NOT IN (SELECT source_work_item_id FROM recurring_work) LIMIT 1
+`).get(processId));
+
 /** An agent may name a server by its id, its server name, its label or its catalog id. */
 export function enabledServers(database) {
   return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
@@ -702,21 +709,23 @@ export async function executeProductCommand(action, input) {
       const process = processContext(this.database, input.processId, ["admin", "member"]);
       const row = this.database.prepare("SELECT kind FROM processes WHERE id = ?").get(process.id);
       if (row.kind === "goals") throw new Error("The built-in Goals process cannot be archived");
-      if (this.processes.isAutomatic(process.id) && this.database.prepare(`
-        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
-          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
-      `).get(process.id)) throw new Error("Finish or cancel active work before archiving this process");
-      this.database.prepare("UPDATE processes SET archived_at = ?, updated_at = ? WHERE id = ?")
-        .run(at, at, process.id);
+      if (this.database.prepare("SELECT 1 FROM recurring_work WHERE process_id = ? AND status = 'active' LIMIT 1").get(process.id))
+        throw new Error("Pause this process's schedules before archiving it");
+      if (this.processes.isAutomatic(process.id) && hasActiveWork(this.database, process.id))
+        throw new Error("Finish or cancel active work before archiving this process");
+      this.database.prepare("UPDATE processes SET archived_at = ?, updated_at = ? WHERE id = ?").run(at, at, process.id);
+      // A schedule's definition item goes with its process, or the Schedules screen keeps listing it.
+      this.database.prepare(`
+        UPDATE work_items SET archived_at = ?, updated_at = ? WHERE process_id = ? AND archived_at IS NULL
+          AND id IN (SELECT source_work_item_id FROM recurring_work)
+      `).run(at, at, process.id);
       return {};
     });
     if (action === "edit_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
       processContext(this.database, processId, ["admin", "member"]);
-      if (this.processes.isAutomatic(processId) && this.database.prepare(`
-        SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
-          AND runtime_phase NOT IN ('completed', 'cancelled') LIMIT 1
-      `).get(processId)) throw new Error("Finish or cancel active automatic work before editing this process");
+      if (this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId))
+        throw new Error("Finish or cancel active automatic work before editing this process");
       const names = processStages(input.stages);
       const existing = this.database.prepare(`
         SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
