@@ -12,7 +12,7 @@ import {
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { executeProductCommand, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { enabledServers, executeProductCommand, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
@@ -25,10 +25,10 @@ const PREVIEW_BYTES = 256_000;
 function textPreview(path, logical) {
   const extension = extname(path).toLowerCase();
   const size = lstatSync(path).size;
-  const buffer = Buffer.alloc(PREVIEW_BYTES);
+  const buffer = Buffer.alloc(Math.min(size, PREVIEW_BYTES));
   const fd = openSync(path, "r");
   let read;
-  try { read = readSync(fd, buffer, 0, PREVIEW_BYTES, 0); } finally { closeSync(fd); }
+  try { read = readSync(fd, buffer, 0, buffer.length, 0); } finally { closeSync(fd); }
   // stream drops a multibyte character cut at the byte limit instead of showing a box
   let content = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, read), { stream: true });
   if (extension === ".json" && size <= PREVIEW_BYTES) {
@@ -607,20 +607,13 @@ export class BeesProduct {
     const proposedAgents = new Set();
     const proposedItems = new Set();
     // Names an agent may list in mcpServers: what is installed, plus what this same proposal installs.
-    const servers = new Set(this.database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all()
-      .flatMap((row) => [row.id, row.name, row.label, row.catalogId]).filter(Boolean).map((value) => String(value).toLocaleLowerCase()));
+    const servers = new Set(enabledServers(this.database).flatMap(({ names }) => names));
     for (const change of changes) {
       const entry = change?.action === "install_mcp_server" ? catalogEntry(change.catalogId) : null;
       for (const name of entry ? [entry.id, entry.serverName, entry.label] : change?.action === "add_mcp_server" ? [change.serverName] : [])
         servers.add(String(name ?? "").toLocaleLowerCase());
     }
-    const folder = (name) => {
-      if (!this.database.prepare(`
-        SELECT 1 FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
-        WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
-      `).get(workspaceId, String(name))) throw new Error(`No team folder is named "${name}"; use an exact name from the brief`);
-      return String(name);
-    };
+    const folder = (name) => proposedFolder(this.database, workspaceId, name).name;
     const locations = (change) => ({
       ...(Array.isArray(change.inputLocations) ? { inputLocations: change.inputLocations.map(folder) } : {}),
       ...(change.outputLocation ? { outputLocation: folder(change.outputLocation) } : {})
@@ -656,11 +649,13 @@ export class BeesProduct {
         const stage = required(change.stage, "Route stage");
         const driver = proposedProcesses.get(process.toLocaleLowerCase()).find(({ name }) => name.toLocaleLowerCase() === stage.toLocaleLowerCase())?.driver;
         if (!driver) throw new Error(`The stage "${stage}" is not in the proposed process ${process}`);
-        if (!["agent", "discussion"].includes(driver)) throw new Error(`The stage "${stage}" does not run an agent; route only agent stages`);
+        if (["manual", "terminal"].includes(driver)) throw new Error(`The stage "${stage}" does not run an agent`);
+        if (driver === "review" && agents.length > 1) throw new Error(`The review stage "${stage}" takes one independent agent`);
         return { action: "set_stage_route", process, stage, agents };
       }
       if (change.action === "create_recurring_work") {
         earlier(proposedItems, required(change.item, "Recurring work item"), "Proposed recurring work");
+        required(change.name, "Recurring work name");
         recurringSchedule(change);
         return { ...change };
       }
@@ -672,14 +667,15 @@ export class BeesProduct {
         if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
         const given = change.inputs ?? {};
         for (const field of entry.inputs)
-          if (!field.optional && !String(given[field.name] ?? "").trim() && !(field.name === "openapiSpec" && (given.curl || given.apiBaseUrl)))
+          // A pasted curl command carries the base URL, so the bridge takes one or the other.
+          if (!field.optional && !String(given[field.name] ?? "").trim() && !(field.name === "apiBaseUrl" && String(given.curl ?? "").trim()))
             throw new Error(`${entry.label} needs inputs.${field.name}: ${field.label}`);
         return { ...change };
       }
       if (change.action === "add_mcp_server") {
         required(change.serverName, "Server name");
         if (change.transport === "stdio" ? !change.command : change.transport === "streamable-http" ? !change.url : true)
-          throw new Error("add_mcp_server needs transport stdio with a command, or streamable-http with a url");
+          throw new Error("A proposed MCP server needs transport stdio with a command, or streamable-http with a url");
         return { ...change };
       }
       if (change.action === "install_skill") {

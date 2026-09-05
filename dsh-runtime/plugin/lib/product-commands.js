@@ -39,13 +39,20 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   return { access, servers };
 }
 
-/** Accept an id, a server name, a label or a catalog id; anything that resolves to nothing would silently grant the agent nothing at all. */
+/** An agent may name a server by its id, its server name, its label or its catalog id. */
+export function enabledServers(database) {
+  return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
+    .all().map(({ id, name, label, catalogId }) => ({
+      id, names: [id, name, label, catalogId].filter(Boolean).map((value) => String(value).toLocaleLowerCase())
+    }));
+}
+
+/** A name that resolves to nothing would silently grant the agent nothing at all. */
 function checkMcpServers(database, policy) {
   if (policy.access !== "listed") return policy;
-  const rows = database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1").all();
+  const rows = enabledServers(database);
   const servers = policy.servers.map((wanted) => {
-    const key = wanted.toLocaleLowerCase();
-    const row = rows.find((row) => [row.id, row.name, row.label, row.catalogId].some((value) => String(value ?? "").toLocaleLowerCase() === key));
+    const row = rows.find(({ names }) => names.includes(String(wanted).toLocaleLowerCase()));
     if (!row) throw new Error(`No MCP server matches ${wanted}`);
     return row.id;
   });
@@ -72,6 +79,16 @@ function replaceLocations(database, table, ownerColumn, ownerId, ids) {
   ids.forEach((id) => insert.run(ownerId, id));
 }
 
+/** A proposal names team folders the way a person does; the store and apply both resolve them here. */
+export function proposedFolder(database, workspaceId, name) {
+  const row = database.prepare(`
+    SELECT l.id, l.name FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
+    WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
+  `).get(workspaceId, String(name ?? ""));
+  if (!row) throw new Error(`No team folder is named "${name}"; use an exact name from the brief`);
+  return row;
+}
+
 const referenceSlug = (value) => String(value).normalize("NFKD").toLocaleLowerCase()
   .replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "");
 const referenceLabel = (value) => String(value).replace(/[\]\r\n]/g, " ").trim().slice(0, 160);
@@ -81,7 +98,7 @@ function invokedAgents(database, workspaceId, value) {
   let rest = String(value ?? "");
   const agents = [];
   while (agents.length < 9) {
-    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
+    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/u);
     let agent;
     let consumed;
     if (canonical) {
@@ -89,11 +106,11 @@ function invokedAgents(database, workspaceId, value) {
       if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
       consumed = canonical[0];
     } else {
-      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/iu);
+      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/iu);
       if (typed && typed[1].toLocaleLowerCase() !== "agent") break;
       const shorthand = typed
         ? [typed[0], typed[2]]
-        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*(?:[,;:\-]|\band\b|&)\s*|\s+|$)/u);
+        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/u);
       if (!shorthand) break;
       const matches = database.prepare(`
         SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
@@ -941,20 +958,13 @@ export async function executeProductCommand(action, input) {
       if (!this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ? AND status = 'pending'")
         .run(at, proposalId).changes) throw new Error("This plan was already applied");
       // The planner names things it created earlier in the same proposal; ids exist only once applied.
-      const made = { process: new Map(), agent: new Map(), item: new Map(), server: new Map() };
+      const made = { process: new Map(), agent: new Map(), item: new Map() };
       const idOf = (kind, name) => {
-        const id = made[kind].get(String(name ?? "").toLocaleLowerCase());
+        const id = made[kind].get(String(name ?? "").trim().toLocaleLowerCase());
         if (!id) throw new Error(`The proposed ${kind} "${name}" was not created earlier in this proposal`);
         return id;
       };
-      const folderId = (name) => {
-        const row = this.database.prepare(`
-          SELECT l.id FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
-          WHERE w.id = ? AND lower(l.name) = lower(?) AND l.archived_at IS NULL
-        `).get(proposal.workspaceId, String(name ?? ""));
-        if (!row) throw new Error(`No team folder is named "${name}"`);
-        return row.id;
-      };
+      const folderId = (name) => proposedFolder(this.database, proposal.workspaceId, name).id;
       const list = JSON.parse(proposal.changes);
       const results = new Array(list.length);
       // Servers go in first so an agent can list one installed by the same plan, whatever order the planner wrote.
@@ -964,8 +974,6 @@ export async function executeProductCommand(action, input) {
           const change = list[index];
           const payload = { ...change, workspaceId: proposal.workspaceId,
             connectionId: input.connectionId, accountUserId: input.accountUserId };
-          if (change.action === "add_agent_assignment" && change.mcpServers)
-            payload.mcpServers = change.mcpServers.map((name) => made.server.get(String(name).toLocaleLowerCase()) ?? name);
           // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
           if (change.action === "add_agent_assignment") {
             const existing = this.database.prepare(`
@@ -1008,15 +1016,14 @@ export async function executeProductCommand(action, input) {
             ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
           results[index] = result;
           const kind = { create_process: "process", add_agent_assignment: "agent", create_item: "item", create_goal: "item" }[change.action];
-          if (change.action === "install_mcp_server" && result?.id) made.server.set(String(change.catalogId).toLocaleLowerCase(), result.id);
           if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
         }
       } catch (error) {
-        this.database.prepare("UPDATE bees_proposals SET status = 'pending', updated_at = ? WHERE id = ?").run(iso(), proposalId);
+        this.database.prepare("UPDATE bees_proposals SET status = 'pending', updated_at = ? WHERE id = ?").run(at, proposalId);
         throw error;
       }
       this.database.prepare("UPDATE bees_proposals SET changes_json = ? WHERE id = ?")
-        .run(JSON.stringify(withoutSecrets(JSON.parse(proposal.changes))), proposalId);
+        .run(JSON.stringify(withoutSecrets(list)), proposalId);
       return { id: proposalId, results };
     }
     if (action === "reject_proposal") {
@@ -1033,14 +1040,17 @@ export async function executeProductCommand(action, input) {
       const executionId = randomUUID();
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
-      const policy = mcpPolicy(input);
-      const rows = this.database.prepare("SELECT name, description FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId);
+      const policy = checkMcpServers(this.database, mcpPolicy(input));
+      const outcome = required(input.outcome, "Outcome");
+      // Only a folder the person named in the outcome reaches the planner; given the whole list it attached folders to anything.
+      const folders = this.database.prepare("SELECT name, description FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId)
+        .filter(({ name }) => outcome.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
       const servers = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE enabled = 1").all().map(({ name }) => name);
-      const folders = (rows.length ? `\n\nTeam folders, by exact name, that a work item about their files can read (inputLocations) and publish to (outputLocation): ${rows.map(({ name, description }) => `"${name}"${description ? `, ${description}` : ""}`).join("; ")}` : "")
+      const brief = (folders.length ? `\n\nTeam folders you named, by exact name, for the item to read (inputLocations) and publish to (outputLocation): ${folders.map(({ name, description }) => `"${name}"${description ? `, ${description}` : ""}`).join("; ")}` : "")
         + (servers.length ? `\n\nInstalled MCP servers an agent can list in mcpServers: ${servers.join(", ")}` : "");
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${required(input.outcome, "Outcome")}${folders}`,
+        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${outcome}${brief}`,
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
