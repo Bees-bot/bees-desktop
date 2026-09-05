@@ -39,6 +39,14 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
+const reviewQuestions = (summary) => [{
+  id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
+  options: [
+    { label: "Approve", description: "Accept the work and let the agent continue." },
+    { label: "Reject", description: "Return the work with specific revision feedback." }
+  ],
+  multiSelect: false
+}];
 const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork"];
 
 const RUN_DATA_KEYS = new Set([
@@ -578,6 +586,11 @@ export class AgentRuntime {
     return pending?.kind === "approval" ? pending : null;
   }
 
+  pendingQuestion(executionId) {
+    const pending = this.pendingInteraction(executionId);
+    return ["question", "work-review"].includes(pending?.kind) ? pending : null;
+  }
+
   needsRecovery(executionId) {
     return this.recovery.has(executionId);
   }
@@ -871,17 +884,7 @@ export class AgentRuntime {
         if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
-        const answer = await this.ctx.userQuestions.ask({
-          agent: exec.agent, signal: exec.signal,
-          questions: [{
-            id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
-            options: [
-              { label: "Approve", description: "Accept the work and let the agent continue." },
-              { label: "Reject", description: "Return the work with specific revision feedback." }
-            ],
-            multiSelect: false
-          }]
-        });
+        const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
           this.audit("human-work-approved", executionId, String(exec.agent.session.id), { summary });
@@ -1375,6 +1378,7 @@ export class AgentRuntime {
     }
     const workspace = run.runDirectory;
     const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
+    const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
     const mode = recovery ? "recovery" : prepared || !existed ? "create" : "resume";
     let opened;
     try {
@@ -1419,11 +1423,10 @@ export class AgentRuntime {
     const recoveryNotice = recovery
       ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
       : "";
-    if (recoveryApproval) {
-      this.track(this.recoverApproval(
-        executionId, submissionId, sessionId, handle, approvalAbort,
-        recoveryApproval, `${payload.body}${recoveryNotice}`
-      ));
+    if (recoveryApproval || recoveryQuestion) {
+      this.track(recoveryApproval
+        ? this.recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, recoveryApproval, `${payload.body}${recoveryNotice}`)
+        : this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
       this.recovery.delete(executionId);
     } else {
       let before;
@@ -1502,6 +1505,29 @@ export class AgentRuntime {
         outcome: "failed",
         error: { message: message(error) }
       });
+    }
+  }
+
+  /** The model asked before the restart; Bees asks again itself and hands the answer to the resumed run. */
+  async recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, pending, body) {
+    try {
+      const args = JSON.parse(pending.questions);
+      const review = pending.kind === "work-review";
+      const answer = await this.ctx.userQuestions.ask({
+        agent: handle.agent, signal: approvalAbort.signal, questions: review ? reviewQuestions(args.summary) : args.questions
+      });
+      const response = review ? answer.answers.find(({ id }) => id === "work-review") : null;
+      const approved = Boolean(response?.selected?.includes("Approve"));
+      if (review) this.audit(approved ? "human-work-approved" : "human-work-rejected", executionId, sessionId, { summary: args.summary, feedback: response?.custom ?? "" });
+      this.checkpoint(executionId, sessionId, "running", { pendingInteraction: null, idempotencyKey: `${pending.kind}-answered:${sessionId}:${pending.callId}` });
+      const outcome = review
+        ? `The review you requested before the restart was ${approved ? "approved" : `rejected with this feedback: ${response?.custom ?? ""}`}.`
+        : `The user answered the question you asked before the restart:\n${JSON.stringify(answer.answers)}`;
+      const before = handle.agent.session.seq;
+      handle.agent.followup(createUserMessage({ content: [{ type: "text", text: `${body}\n\n${outcome}` }], source: { kind: "user" } }));
+      await this.settle(executionId, submissionId, sessionId, handle, before);
+    } catch (error) {
+      await this.finish(executionId, submissionId, sessionId, handle, { outcome: "failed", error: { message: message(error) } });
     }
   }
 

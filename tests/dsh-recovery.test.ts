@@ -340,7 +340,7 @@ describe("DSH-owned desktop and recovery", () => {
     insertRun(database);
     runtime.onSessionEvent({ id: "session" }, {
       type: "tool/call", seq: 4,
-      data: { name: "ask_user_question", callId: "question-1", arguments: "Which market?" }
+      data: { name: "ask_user_question", callId: "question-1", arguments: JSON.stringify({ questions: [{ id: "market", question: "Which market?" }] }) }
     });
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
@@ -349,7 +349,9 @@ describe("DSH-owned desktop and recovery", () => {
       kind: "question", callId: "question-1"
     });
 
-    const replacement = new AgentRuntime(context(), database.connection);
+    // Bees asks the question again itself; the run stays waiting until the person answers.
+    const asked: unknown[] = [];
+    const replacement = new AgentRuntime({ ...context(), userQuestions: { ask: (request: unknown) => { asked.push(request); return new Promise(() => undefined); } } }, database.connection);
     expect(database.connection.prepare(
       "SELECT status FROM execution_links WHERE execution_id = 'run'"
     ).get()).toEqual({ status: "waiting_for_input" });

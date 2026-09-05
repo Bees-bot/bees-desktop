@@ -115,10 +115,6 @@ export class BeesProduct {
       if (this.processes?.isAutomatic(item.processId)) return [];
       body = `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}`;
     } else return [];
-    if (["question", "work-review"].includes(pending?.kind))
-      body += pending.kind === "work-review"
-        ? `\n\nThe application restarted during human review. Re-present this unresolved review with bees_request_work_review before continuing:\n${pending.questions}`
-        : `\n\nThe application restarted while waiting for the user. Re-present this unresolved question with ask_user_question before continuing:\n${pending.questions}`;
     return [this.agents.admit("bees-run", run.executionId, {
       idempotencyKey: `runtime-recovery:${run.executionId}:${Number(run.recoveryCount) + 1}`,
       body
