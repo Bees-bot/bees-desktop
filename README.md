@@ -27,7 +27,7 @@ make build    # Build the desktop release installer
 
 `bees`, `prod`, and `dev` launch the app in development mode; `prod` selects the deployed API and does not deploy anything. Fully quit Bees before switching servers because the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
 
-`npm run tauri:dev` also uses the deployed API by default. Set `BEES_ACCOUNT_API_URL` to override it.
+`npm run tauri:prod` launches the development app against the deployed API without building an installer. `npm run tauri:dev` also uses the deployed API by default; set `BEES_ACCOUNT_API_URL` to override it.
 
 Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app.
 

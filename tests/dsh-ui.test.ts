@@ -290,6 +290,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain('["local-ai", "Local models"]');
     expect(client).toContain('h(LocalAiSettings, { modelSettings, preferences, systemDefault');
     expect(client).toContain('type: "color", className: "bees-color-input"');
+    expect(client).toContain('value: organizationColor');
     expect(client).toContain('preferences?.set("organizationColors"');
     expect(client).not.toContain('["permissions", "Permissions"]');
   });

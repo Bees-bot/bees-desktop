@@ -381,7 +381,7 @@ function OrganizationSettings({
         h("span", { className: "bees-org-branding-preview", style: { background: organizationColor }, "aria-hidden": "true" },
           organization.name.trim().charAt(0).toLocaleUpperCase() || "•"),
         h("label", null, "Organization color", h("input", { type: "color", className: "bees-color-input",
-          value: customColor || "#4f46e5", onChange: (event) => setOrganizationColor(event.target.value) })),
+          value: organizationColor, onChange: (event) => setOrganizationColor(event.target.value) })),
         customColor ? h(Button, { onClick: resetOrganizationColor }, "Use automatic color") : null)),
     dangerZone,
     failure);

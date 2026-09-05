@@ -15,6 +15,7 @@
     "test": "npm run build:dsh-client && vitest run tests/dsh-*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "tauri:dev": "tauri dev",
+    "tauri:prod": "BEES_ACCOUNT_API_URL=https://app.bees.bot tauri dev",
     "tauri:build": "tauri build"
   },
   "dependencies": { "@tauri-apps/api": "2.11.1" },
