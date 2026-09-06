@@ -259,8 +259,8 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
 
 export function GuidePage() {
   const guides = [
-    ["Getting started", "Create an organization and team, connect AI, then ask Bees to build your first process.", () => void openExternal("https://bees.bot/help/getting-started")],
-    ["Understanding Bees", "Learn organizations, teams, process templates, runs, work items, executions, and schedules.", () => void openExternal("https://bees.bot/help/understanding-basics")],
+    ["Getting started", "Create an organization and team, connect AI, then start your first process run.", () => void openExternal("https://bees.bot/help/getting-started")],
+    ["Understanding Bees", "Learn organizations, teams, process templates, process runs, work items, executions, and schedules.", () => void openExternal("https://bees.bot/help/understanding-basics")],
     ["Loop Engineering", "See how Goals, stages, peer delegation, review, retries, and recovery work together.", () => void openExternal("https://bees.bot/help/loop-engineering")],
     ["Graph workflow", "Learn why business state drives routing and the graph remains a derived view.", () => void openExternal("https://bees.bot/help/graph-workflow")],
     ["Human in the loop", "Understand questions, protected-action approval, completed-work review, and manual stages.", () => void openExternal("https://bees.bot/help/human-in-the-loop")],
