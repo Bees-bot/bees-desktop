@@ -1,6 +1,6 @@
 export class ConnectedAccount {
   constructor(database: any, credentials: any, baseUrl?: string, logger?: any);
-  accounts(): Array<{ userId: string; email: string; name: string }>;
+  accounts(): Array<{ userId: string; email: string; name: string; enabled: boolean }>;
   connections(): any[];
   publicAccount(): { userId: string; email: string; name: string } | null;
   authConfig(): Promise<any>;
@@ -9,6 +9,8 @@ export class ConnectedAccount {
   signUp(name: string, email: string, password: string): Promise<any>;
   signInWithGoogle(idToken: string, nonce: string): Promise<any>;
   signOut(userId?: string): Promise<void>;
+  setAccountEnabled(userId: string, enabled: boolean): Promise<any>;
+  claimScope(teamId: string, accountUserId?: string): any;
   sync(): Promise<any[]>;
   syncCoordination(connectionIds?: string[] | null): Promise<any[]>;
   createOrganization(name: string, accountUserId: string): Promise<any>;

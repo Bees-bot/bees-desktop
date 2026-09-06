@@ -223,16 +223,23 @@ export class BeesProduct {
   async snapshot() {
     const { userId, deviceId } = currentIdentity(this.database);
     const accounts = this.database.prepare(`
-      SELECT user_id AS userId, email, name FROM bees_accounts ORDER BY created_at, user_id
+      SELECT user_id AS userId, email, name FROM bees_accounts
+      WHERE enabled = 1 ORDER BY created_at, user_id
     `).all();
     const organizations = this.database.prepare(`
       SELECT o.id, o.name, o.personal, om.role,
-             EXISTS (SELECT 1 FROM bees_connections c WHERE c.organization_id = o.id) AS connected
+             EXISTS (
+               SELECT 1 FROM bees_connections c JOIN bees_accounts a ON a.user_id = c.account_user_id
+               WHERE c.organization_id = o.id AND a.enabled = 1
+             ) AS connected
       FROM organizations o
       LEFT JOIN organization_memberships om ON om.organization_id = o.id AND om.user_id = ?
       WHERE o.status = 'active' AND (
         om.status = 'active'
-        OR EXISTS (SELECT 1 FROM bees_connections c WHERE c.organization_id = o.id)
+        OR EXISTS (
+          SELECT 1 FROM bees_connections c JOIN bees_accounts a ON a.user_id = c.account_user_id
+          WHERE c.organization_id = o.id AND a.enabled = 1
+        )
       ) ORDER BY o.created_at
     `).all(userId).map((row) => ({
       ...row, personal: Boolean(row.personal), connected: Boolean(row.connected)
@@ -245,7 +252,12 @@ export class BeesProduct {
       LEFT JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = ? AND tm.status = 'active'
       WHERE t.status = 'active' AND (
         (om.status = 'active' AND (tm.user_id IS NOT NULL OR om.role IN ('owner','admin')))
-        OR EXISTS (SELECT 1 FROM bees_connection_teams ct WHERE ct.team_id = t.id)
+        OR EXISTS (
+          SELECT 1 FROM bees_connection_teams ct
+          JOIN bees_connections c ON c.id = ct.connection_id
+          JOIN bees_accounts a ON a.user_id = c.account_user_id
+          WHERE ct.team_id = t.id AND a.enabled = 1
+        )
       )
       ORDER BY t.created_at
     `).all(userId, userId).map((row) => ({ ...row, personal: Boolean(row.personal) }));
@@ -254,11 +266,15 @@ export class BeesProduct {
              c.role, o.name AS organizationName, a.email, a.name AS accountName
       FROM bees_connections c JOIN organizations o ON o.id = c.organization_id
       JOIN bees_accounts a ON a.user_id = c.account_user_id
+      WHERE a.enabled = 1
       ORDER BY o.name, a.email
     `).all();
     const connectionTeams = this.database.prepare(`
-      SELECT connection_id AS connectionId, team_id AS teamId, role
-      FROM bees_connection_teams ORDER BY connection_id, team_id
+      SELECT ct.connection_id AS connectionId, ct.team_id AS teamId, ct.role
+      FROM bees_connection_teams ct
+      JOIN bees_connections c ON c.id = ct.connection_id
+      JOIN bees_accounts a ON a.user_id = c.account_user_id
+      WHERE a.enabled = 1 ORDER BY ct.connection_id, ct.team_id
     `).all();
     const allowedTeams = teams.map(({ id }) => id);
     const workspaces = allowedTeams.length ? this.database.prepare(`

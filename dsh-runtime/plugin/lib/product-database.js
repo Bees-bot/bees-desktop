@@ -405,7 +405,7 @@ export function initializeProductDatabase(database) {
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_accounts (
       user_id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_sign_in_attempts (
       state TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
@@ -609,6 +609,10 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_specializations_recurring ON agent_specializations(recurring_work_id);
     CREATE INDEX IF NOT EXISTS bees_locations_team ON team_locations(team_id, name);
   `);
+  const accountColumns = new Set(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }) => name));
+  if (!accountColumns.has("enabled")) database.exec(
+    "ALTER TABLE bees_accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
+  );
   const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
   if (!assignmentColumns.has("instructions")) database.exec("ALTER TABLE agent_assignments ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
   if (!assignmentColumns.has("model")) database.exec("ALTER TABLE agent_assignments ADD COLUMN model TEXT");
@@ -754,6 +758,7 @@ export function initializeProductDatabase(database) {
     UPDATE agent_assignments SET preset_id = 'ptc' WHERE preset_id = 'code';
     PRAGMA user_version = 20;
   `);
+  if (version < 21) database.exec("PRAGMA user_version = 21");
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

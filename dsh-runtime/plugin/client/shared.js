@@ -20,7 +20,7 @@ export const NAVIGATION = [
     ["search", "Search & sources"], ["artifacts", "Artifacts"]
   ] },
   { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "organizations", children: [
-    ["organizations", "Account & invitations"], ["connections", "Connections"],
+    ["organizations", "Organizations"], ["connections", "Connections"],
     ["organization-settings", "Organization general"], ["organization-members", "Organization members"],
     ["organization-invitations", "Organization invitations"], ["organization-ai", "Connect AI"],
     ["organization-workspace", "Organization workspace"], ["organization-authentication", "Organization authentication"],
@@ -880,6 +880,16 @@ export const css = `
 .bees-form>*{min-width:0}
 .bees-select,.bees-input,.bees-textarea{max-width:100%}
 .bees-column .bees-btn{white-space:normal}
+.bees-accounts{width:min(560px,100%)}
+.bees-account-auth{display:grid;gap:8px}
+.bees-account-toggle{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.bees-account-toggle input{position:absolute;opacity:0;pointer-events:none}
+.bees-account-toggle span{display:block;width:38px;height:22px;padding:3px;border-radius:999px;background:var(--dsw-alias-border-l2);transition:background .15s}
+.bees-account-toggle span::after{content:"";display:block;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-base);box-shadow:0 1px 3px #0005;transition:transform .15s}
+.bees-account-toggle input:checked+span{background:var(--bees-accent)}
+.bees-account-toggle input:checked+span::after{transform:translateX(16px)}
+.bees-account-toggle input:focus-visible+span{outline:2px solid var(--bees-accent);outline-offset:2px}
+.bees-account-toggle input:disabled+span{opacity:.5;cursor:not-allowed}
 `;
 
 export async function request(path, options) {
@@ -1063,7 +1073,7 @@ export function useBeesChangeRevision() {
 
 export function sectionFor(child) {
   // Routes a page owns without listing in the nav tree, so they still light up their section.
-  const section = { goals: "work", waiting: "work", completed: "work", presets: "agents", sources: "knowledge" }[child];
+  const section = { goals: "work", waiting: "work", completed: "work", presets: "agents", sources: "knowledge", accounts: "settings" }[child];
   return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
