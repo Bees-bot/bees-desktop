@@ -557,7 +557,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
             onChange: (e) => setIsLocal(e.target.checked),
             disabled: busy
           }),
-          "Keep this organization local to this device (not shared with teammates)"
+          "Make it private (organization will be local to this device and cannot be shared with teammates)"
         ),
         isLocal ? h(Button, { className: "primary", disabled: busy || !name.trim(), onClick: handleLocalSubmit, style: { marginTop: "16px" } }, "Create organization") : null
       )
