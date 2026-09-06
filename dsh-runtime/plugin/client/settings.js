@@ -85,10 +85,21 @@ function SystemInstructionsSettings({ preferences, instructions }) {
       message ? h("p", { className: "bees-muted", role: "status" }, message) : null));
 }
 
-function AccountSettings({ reload, openOrganization }) {
+export function AccountSignInButtons({ disabled = false, onStart }) {
+  return h("div", { className: "bees-account-auth" },
+    h(Button, { disabled,
+      onClick: () => onStart("google_start", { provider: "google" }) }, "Sign up/in with Google"),
+    h(Button, { disabled,
+      onClick: () => onStart("social_start", { provider: "github" }) }, "Sign up/in with GitHub"),
+    h(Button, { disabled, onClick: async () => {
+      const email = await ask("Work email for company SSO", "");
+      if (email) await onStart("sso_start", { email });
+    } }, "Continue with Company SSO"));
+}
+
+export function AccountsPage({ reload }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState("sign_in");
   const [busy, setBusy] = useState(false);
   const refresh = async () => {
     try { setData(await collaboration()); setError(""); }
@@ -98,30 +109,18 @@ function AccountSettings({ reload, openOrganization }) {
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
-      const before = new Set((data?.accounts ?? []).map(({ userId }) => userId));
+      const before = new Map((data?.accounts ?? []).map(({ userId, enabled }) => [userId, enabled]));
       const { url } = await collaboration(action, values);
       await openExternal(url);
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         const next = await collaboration();
-        if ((next.accounts ?? []).some(({ userId }) => !before.has(userId))) {
+        if ((next.accounts ?? []).some(({ userId, enabled }) =>
+          !before.has(userId) || before.get(userId) === false && enabled)) {
           setData(next); setError(""); await reload(); return;
         }
       }
       throw new Error("Sign in was not completed");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
-  const auth = async (event) => {
-    event.preventDefault(); setBusy(true);
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    try {
-      setData(await collaboration(mode, {
-        name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""),
-        password: String(form.get("password") ?? "")
-      }));
-      setError(""); await reload();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
@@ -133,40 +132,45 @@ function AccountSettings({ reload, openOrganization }) {
     finally { setBusy(false); }
   };
   return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, "Add account"),
-      h("p", { className: "bees-muted" },
-        "Each account stays signed in. Its organizations sync and run background work without switching."),
-      data.auth?.socialProviders?.length ? h("div", { className: "bees-form-row" },
-        ...data.auth.socialProviders.map((provider) => h(Button, {
-          key: provider, disabled: busy,
-          onClick: () => browserAuth(provider === "google" ? "google_start" : "social_start", { provider })
-        }, `Continue with ${{ google: "Google", github: "GitHub" }[provider] ?? provider}`))) : null,
-      data.auth?.ssoEnabled ? h(Button, { disabled: busy, onClick: async () => {
-        const email = await ask("Work email for company SSO", "");
-        if (email) await browserAuth("sso_start", { email });
-      } }, "Continue with company SSO") : null,
-      h("hr"),
-      h("h3", null, mode === "sign_in" ? "Sign in with email" : "Create account with email"),
-      h("div", { className: "bees-segmented" },
-        h(Button, { className: mode === "sign_in" ? "active" : "", onClick: () => setMode("sign_in") }, "Sign in"),
-        h(Button, { className: mode === "sign_up" ? "active" : "", onClick: () => setMode("sign_up") }, "Create account")),
-      h("form", { className: "bees-form", onSubmit: auth },
-        mode === "sign_up" ? h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true })) : null,
-        h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
-        h("label", null, "Password", h("input", { className: "bees-input", name: "password", type: "password", minLength: 8, required: true })),
-        h(Button, { type: "submit", className: "primary", disabled: busy },
-          busy ? "Connecting…" : mode === "sign_in" ? "Add account" : "Create account"))),
-    h("section", { className: "bees-box" }, h("h3", null, "Signed-in accounts"),
-      h("div", { className: "bees-form-row" },
-        h(Button, { disabled: busy || !(data.accounts ?? []).length, onClick: () => run("sync") }, "Refresh all")),
+    h("section", { className: "bees-box bees-accounts" },
       ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
         className: "bees-row", key: account.userId
-      }, h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, account.name || account.email),
-        h("div", { className: "bees-muted" }, account.email)),
-      h(Button, { className: "danger", disabled: busy,
-        onClick: () => run("sign_out", { accountUserId: account.userId }) }, "Sign out")))
-        : [h(Empty, { key: "empty" }, "No accounts signed in")])),
+      }, h("div", { className: "bees-row-main bees-row-title" }, account.email),
+      h("label", { className: "bees-account-toggle" },
+        h("input", { type: "checkbox", role: "switch", checked: account.enabled !== false,
+          disabled: busy, "aria-label": `Turn ${account.email} ${account.enabled === false ? "on" : "off"}`,
+          onChange: (event) => run("set_account_enabled", {
+            accountUserId: account.userId, enabled: event.target.checked
+          }) }),
+        h("span", { "aria-hidden": "true" })),
+      h(Button, { className: "danger", disabled: busy, onClick: async () => {
+        if (await confirmAction(`Delete ${account.email} from this device?`)) {
+          await run("sign_out", { accountUserId: account.userId });
+        }
+      } }, "Delete"))) : [h(Empty, { key: "empty" }, "No accounts signed in")]),
+      h("hr"),
+      h(AccountSignInButtons, { disabled: busy, onStart: browserAuth }),
+      error ? h("div", { className: "bees-error", role: "alert" }, error) : null));
+}
+
+function OrganizationsSettings({ reload, openOrganization }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { collaboration().then(setData).catch((reason) =>
+    setError(reason instanceof Error ? reason.message : String(reason))); }, []);
+  const accept = async (invitation) => {
+    setBusy(true);
+    try {
+      setData(await collaboration("accept_invitation", {
+        invitationId: invitation.id, accountUserId: invitation.accountUserId
+      }));
+      setError(""); await reload();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  if (!data) return h(Empty, null, error || "Loading organizations…");
+  return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, "Organizations"),
       ...(data.organizations.length ? data.organizations.map((organization) => h("div", {
         className: "bees-row", key: organization.connectionId
@@ -185,9 +189,7 @@ function AccountSettings({ reload, openOrganization }) {
           h("div", { className: "bees-muted" },
             `${invitation.accountEmail} · ${invitation.role} · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
         h(Button, { className: "primary", disabled: busy,
-          onClick: () => run("accept_invitation", {
-            invitationId: invitation.id, accountUserId: invitation.accountUserId
-          }) }, "Accept")))
+          onClick: () => accept(invitation) }, "Accept")))
         : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
@@ -553,7 +555,7 @@ const GLOBAL_SETTINGS = [
   ["appearance", "Appearance"],
   ["system-instructions", "System instructions"],
   ["personal-ai", "AI connections"],
-  ["organizations", "Accounts & organizations"],
+  ["organizations", "Organizations"],
   ["connections", "Connections"]
 ];
 
@@ -602,7 +604,7 @@ export function SettingsPage({
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
-    : route === "organizations" ? h(AccountSettings, { reload, openOrganization })
+    : route === "organizations" ? h(OrganizationsSettings, { reload, openOrganization })
     : route === "connections" ? h(ConnectionsSettings)
     : route === "organization-ai" ? h("div", { className: "bees-stack" },
       h("section", { className: "bees-callout" }, h("strong", null, "AI for this organization"),

@@ -37,18 +37,21 @@ export class ConnectedAccount {
 
   accounts() {
     return this.database.prepare(`
-      SELECT user_id AS userId, email, name, created_at AS createdAt, updated_at AS updatedAt
+      SELECT user_id AS userId, email, name, enabled,
+             created_at AS createdAt, updated_at AS updatedAt
       FROM bees_accounts ORDER BY created_at, user_id
-    `).all();
+    `).all().map((row) => ({ ...row, enabled: Boolean(row.enabled) }));
   }
 
   account(userId = "") {
-    return userId
+    const row = userId
       ? this.database.prepare(`
-          SELECT user_id AS userId, email, name, created_at AS createdAt, updated_at AS updatedAt
+          SELECT user_id AS userId, email, name, enabled,
+                 created_at AS createdAt, updated_at AS updatedAt
           FROM bees_accounts WHERE user_id = ?
-        `).get(userId) ?? null
-      : this.accounts()[0] ?? null;
+        `).get(userId)
+      : this.accounts().find(({ enabled }) => enabled) ?? null;
+    return row ? { ...row, enabled: Boolean(row.enabled) } : null;
   }
 
   publicAccount() {
@@ -62,13 +65,16 @@ export class ConnectedAccount {
              c.role, o.name AS organizationName, a.email, a.name AS accountName
       FROM bees_connections c JOIN organizations o ON o.id = c.organization_id
       JOIN bees_accounts a ON a.user_id = c.account_user_id
+      WHERE a.enabled = 1
       ORDER BY o.name, a.email
     `).all();
   }
 
   accountForConnection(connectionId) {
     const row = this.database.prepare(`
-      SELECT account_user_id AS accountUserId FROM bees_connections WHERE id = ?
+      SELECT c.account_user_id AS accountUserId FROM bees_connections c
+      JOIN bees_accounts a ON a.user_id = c.account_user_id
+      WHERE c.id = ? AND a.enabled = 1
     `).get(connectionId);
     if (!row) throw new Error("Organization connection not found");
     return row.accountUserId;
@@ -85,6 +91,7 @@ export class ConnectedAccount {
     const userId = accountUserId || (connectionId ? this.accountForConnection(connectionId) : this.account()?.userId);
     const account = userId ? this.account(userId) : null;
     if (authenticated && !account) throw new Error("Sign in to manage connected organizations");
+    if (authenticated && !account.enabled) throw new Error(`Turn on ${account.email} to use this account`);
     const token = account ? await this.tokenFor(account.userId) : null;
     if (authenticated && !token) throw new Error(`The session for ${account?.email ?? "this account"} expired; sign in again`);
     let response;
@@ -148,7 +155,7 @@ export class ConnectedAccount {
       INSERT INTO bees_accounts(user_id, email, name, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET email = excluded.email, name = excluded.name,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at, enabled = 1
     `).run(value.user.id, value.user.email, value.user.name ?? value.user.email, at, at);
     return this.summary();
   }
@@ -252,6 +259,19 @@ export class ConnectedAccount {
     this.refreshLocalAccess(affected);
   }
 
+  async setAccountEnabled(userId, enabled) {
+    const account = this.account(userId);
+    if (!account) throw new Error("Account not found");
+    const affected = this.database.prepare(
+      "SELECT organization_id AS id FROM bees_connections WHERE account_user_id = ?"
+    ).all(account.userId).map(({ id }) => id);
+    this.database.prepare("UPDATE bees_accounts SET enabled = ?, updated_at = ? WHERE user_id = ?")
+      .run(enabled ? 1 : 0, new Date().toISOString(), account.userId);
+    this.rejectedSyncs.delete(account.userId);
+    this.refreshLocalAccess(affected);
+    return this.summary();
+  }
+
   refreshLocalAccess(affectedOrganizationIds = []) {
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
     if (!localUser) return;
@@ -278,6 +298,7 @@ export class ConnectedAccount {
     const teams = this.database.prepare(`
       SELECT ct.team_id AS teamId, ct.role FROM bees_connection_teams ct
       JOIN bees_connections c ON c.id = ct.connection_id
+      JOIN bees_accounts a ON a.user_id = c.account_user_id AND a.enabled = 1
     `).all();
     for (const teamId of new Set(teams.map(({ teamId }) => teamId))) {
       const role = teams.filter((row) => row.teamId === teamId)
@@ -291,7 +312,11 @@ export class ConnectedAccount {
     this.database.prepare(`
       UPDATE team_memberships SET status = 'suspended' WHERE user_id = ?
         AND team_id IN (SELECT t.id FROM teams t JOIN organizations o ON o.id = t.organization_id WHERE o.personal = 0)
-        AND team_id NOT IN (SELECT team_id FROM bees_connection_teams)
+        AND team_id NOT IN (
+          SELECT ct.team_id FROM bees_connection_teams ct
+          JOIN bees_connections c ON c.id = ct.connection_id
+          JOIN bees_accounts a ON a.user_id = c.account_user_id AND a.enabled = 1
+        )
     `).run(localUser.id);
   }
 
@@ -370,7 +395,7 @@ export class ConnectedAccount {
 
   async sync() {
     const results = [];
-    for (const account of this.accounts()) {
+    for (const account of this.accounts().filter(({ enabled }) => enabled)) {
       try {
         results.push(...await this.syncAccount(account));
         this.rejectedSyncs.delete(account.userId);
@@ -422,7 +447,8 @@ export class ConnectedAccount {
       SELECT t.organization_id AS organizationId, c.id AS connectionId
       FROM teams t JOIN bees_connection_teams ct ON ct.team_id = t.id
       JOIN bees_connections c ON c.id = ct.connection_id
-      WHERE t.id = ? AND c.account_user_id = ?
+      JOIN bees_accounts a ON a.user_id = c.account_user_id
+      WHERE t.id = ? AND c.account_user_id = ? AND a.enabled = 1
     `).get(teamId, accountUserId) ?? null;
   }
 
@@ -463,7 +489,7 @@ export class ConnectedAccount {
   }
 
   async summary() {
-    let accounts = this.accounts().map(({ userId, email, name }) => ({ userId, email, name }));
+    let accounts = this.accounts().map(({ userId, email, name, enabled }) => ({ userId, email, name, enabled }));
     const auth = await this.authConfig();
     if (!accounts.length) return {
       account: null, accounts: [], connections: [], organizations: [], invitations: [], auth
@@ -471,8 +497,8 @@ export class ConnectedAccount {
     let invitations = [];
     try {
       await this.sync();
-      accounts = this.accounts().map(({ userId, email, name }) => ({ userId, email, name }));
-      for (const account of accounts) {
+      accounts = this.accounts().map(({ userId, email, name, enabled }) => ({ userId, email, name, enabled }));
+      for (const account of accounts.filter(({ enabled }) => enabled)) {
         const result = await this.request("/api/me/organization-invitations", {
           accountUserId: account.userId
         });
@@ -486,7 +512,7 @@ export class ConnectedAccount {
     }
     const connections = this.connections();
     return {
-      account: accounts[0] ?? null, accounts, connections,
+      account: accounts.find(({ enabled }) => enabled) ?? null, accounts, connections,
       organizations: connections.map((connection) => ({
         id: connection.organizationId,
         name: connection.organizationName,
@@ -661,6 +687,7 @@ export class ConnectedAccount {
       case "sign_up": return this.signUp(input.name, input.email, input.password);
       case "social_start": return this.startBrowserSignIn("social", input.provider, input.callbackPort);
       case "sso_start": return this.startBrowserSignIn("sso", input.email, input.callbackPort);
+      case "set_account_enabled": return this.setAccountEnabled(input.accountUserId, input.enabled !== false);
       case "sign_out": await this.signOut(input.accountUserId); return this.summary();
       case "sync": return this.summary();
       case "accept_invitation": return this.acceptInvitation(input.invitationId, input.accountUserId);

@@ -142,8 +142,8 @@ describe("Temporal process projection", () => {
     `).get(state.workspaceId)!;
     state.database.connection.exec(`
       INSERT INTO bees_accounts VALUES
-        ('user-a', 'a@acme.com', 'A', '2026-01-01', '2026-01-01'),
-        ('user-b', 'b@acme.com', 'B', '2026-01-01', '2026-01-01');
+        ('user-a', 'a@acme.com', 'A', '2026-01-01', '2026-01-01', 1),
+        ('user-b', 'b@acme.com', 'B', '2026-01-01', '2026-01-01', 1);
     `);
     state.database.connection.prepare(`
       INSERT INTO bees_connections VALUES

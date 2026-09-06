@@ -295,6 +295,21 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain('["permissions", "Permissions"]');
   });
 
+  it("keeps account controls at the bottom of the main sidebar", () => {
+    expect(client).toContain('onClick: () => navigate("accounts")');
+    expect(client).toContain('h("span", null, "Accounts")');
+    expect(client).toContain('role: "switch"');
+    expect(client).toContain('run("set_account_enabled"');
+    expect(client).toContain('"Sign up/in with Google"');
+    expect(client).toContain('"Sign up/in with GitHub"');
+    expect(client).toContain('"Continue with Company SSO"');
+    expect(client).toContain('["organizations", "Organizations"]');
+    expect(client).not.toContain('"Accounts & organizations"');
+    expect(client.match(/h\(AccountSignInButtons/g)).toHaveLength(2);
+    expect(client).not.toContain('"Sign in & Create"');
+    expect(client).not.toContain('"Create account & Org"');
+  });
+
   it("keeps work-item navigation inside the Bees task screen", () => {
     expect(client).toContain("onClick: () => setWorkItemId(item.id)");
     expect(client).toContain('type: "button", className: "bees-row bees-work-item-row"');

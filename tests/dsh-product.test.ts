@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 20 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 21 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -53,6 +53,12 @@ describe("Bees DSH product plugin", () => {
       .toEqual({ count: 1 });
     expect(database.prepare("PRAGMA table_info(stages)").all().map(({ name }: any) => name))
       .not.toContain("completion_rules");
+
+    database.exec("ALTER TABLE bees_accounts DROP COLUMN enabled; PRAGMA user_version = 20");
+    initializeProductDatabase(database);
+    expect(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }: any) => name))
+      .toContain("enabled");
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 21 });
   });
 
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
@@ -943,8 +949,8 @@ Current international expansion strategy`);
     );
 
     expect(summary.accounts).toEqual([
-      { userId: "user-a", email: "a@acme.com", name: "A" },
-      { userId: "user-b", email: "b@acme.com", name: "B" }
+      { userId: "user-a", email: "a@acme.com", name: "A", enabled: true },
+      { userId: "user-b", email: "b@acme.com", name: "B", enabled: true }
     ]);
     expect(summary.organizations).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "shared-org", accountUserId: "user-a", role: "admin" }),
@@ -960,6 +966,18 @@ Current international expansion strategy`);
     ]);
     expect(new Set(authorizations)).toEqual(new Set(["Bearer token-a", "Bearer token-b"]));
     expect([...tokens.keys()].every((ref) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(ref))).toBe(true);
+
+    const disabled = await connected.setAccountEnabled("user-a", false);
+    expect(disabled.accounts).toContainEqual({
+      userId: "user-a", email: "a@acme.com", name: "A", enabled: false
+    });
+    expect(connected.connections()).toEqual([
+      expect.objectContaining({ accountUserId: "user-b" })
+    ]);
+    expect(connected.claimScope("shared-team", "user-a")).toBeNull();
+    await expect((connected as any).request("/api/me", { accountUserId: "user-a" }))
+      .rejects.toThrow("Turn on a@acme.com to use this account");
+    await connected.setAccountEnabled("user-a", true);
 
     const root = mkdtempSync(join(tmpdir(), "bees-identities-"));
     database.exec(`
@@ -998,7 +1016,7 @@ Current international expansion strategy`);
     initializeProductDatabase(database);
     database.prepare(`
       INSERT INTO bees_accounts VALUES
-        ('creator', 'creator@acme.com', 'Creator', '2026-01-01', '2026-01-01')
+        ('creator', 'creator@acme.com', 'Creator', '2026-01-01', '2026-01-01', 1)
     `).run();
     const credentials = {
       resolve: async (ref: string) => ref === "BEES_ACCOUNT_SESSION_63726561746f72"
@@ -1117,7 +1135,7 @@ Current international expansion strategy`);
     initializeProductDatabase(database);
     database.prepare(`
       INSERT INTO bees_accounts VALUES
-        ('remote-user', 'you@example.com', 'You', '2026-01-01', '2026-01-01')
+        ('remote-user', 'you@example.com', 'You', '2026-01-01', '2026-01-01', 1)
     `).run();
     const credentials = { resolve: async () => ({ value: "session-token" }) };
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) =>
