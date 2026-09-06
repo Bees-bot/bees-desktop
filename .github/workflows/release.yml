@@ -5,8 +5,38 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
+# Serialize releases so an older build cannot publish over a newer one.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - id: draft
+        name: Validate version and prepare private draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release.mjs draft
+
   build:
+    needs: prepare
+    timeout-minutes: 90
     permissions:
       contents: write
     strategy:
@@ -19,7 +49,7 @@ jobs:
           - platform: macos-15-intel
             target: x86_64-apple-darwin
             signing_identity: "-"
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             signing_identity: ""
           - platform: windows-2025
@@ -54,7 +84,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -114,6 +144,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           # OFF until an upgrade from 0.1.1 keeps a person's data. 0.1.1 shipped with the
           # updater plugin polling this repo's latest.json, and its pubkey matches the key
@@ -121,14 +152,12 @@ jobs:
           # That release read the legacy runtime database and this one reads bees-stage1.db, so they
           # would silently open an empty app. Nothing in 0.2.0 reads latest.json anyway.
           includeUpdaterJson: false
-          releaseName: "Bees v__VERSION__"
-          releaseBody: |
-            Private, local-first AI agents for organizations.
-
-            Mac builds are signed and notarized when release credentials are configured. Installers are built for Apple Silicon, Intel Mac, Linux, and Windows.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
+
+      - name: Test the compiled Rust application
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       # Tauri notarizes the .app but not the .dmg wrapped around it, so the disk image itself
       # comes back "Unnotarized Developer ID" from Gatekeeper even though the app inside is fine.
@@ -149,3 +178,32 @@ jobs:
           xcrun stapler staple "$dmg"
           spctl --assess --verbose=2 --type install "$dmg"
           gh release upload "${{ github.ref_name }}" "$dmg" --clobber
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.3
+      - name: Verify all installers, checksum, and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release.mjs publish
+
+  announce:
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.3
+      - name: Announce published release to Discord
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+        run: node scripts/release.mjs notify
