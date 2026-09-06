@@ -228,6 +228,27 @@ function ensureAgentDefaults(database, workspaceId, at = iso()) {
   }
 }
 
+/** The default Work roster plans together, then its lead executes. Preserve custom routing. */
+function ensureGoalDiscussion(database, workspaceId, at = iso()) {
+  const stage = database.prepare(`
+    SELECT s.id, p.id AS processId FROM stages s JOIN processes p ON p.id = s.process_id
+    WHERE p.workspace_id = ? AND p.kind = 'goals' AND p.archived_at IS NULL
+      AND s.position = 0 AND s.name = 'Work' AND s.driver = 'agent' AND s.archived_at IS NULL
+  `).get(workspaceId);
+  if (!stage) return;
+  const worker = defaultAssignment(database, workspaceId);
+  const reviewer = defaultAssignment(database, workspaceId, "reviewer");
+  const route = database.prepare("SELECT * FROM stage_routes WHERE stage_id = ?").get(stage.id);
+  if (route && (route.agent_pool_id || route.required_capabilities_json !== "[]" ||
+      route.agent_assignment_id !== worker.id || !["[]", JSON.stringify([worker.id])].includes(route.agent_ids_json))) return;
+  database.prepare(`INSERT INTO stage_routes
+    (stage_id, agent_assignment_id, agent_ids_json, required_capabilities_json, created_at, updated_at)
+    VALUES (?, ?, ?, '[]', ?, ?)
+    ON CONFLICT(stage_id) DO UPDATE SET agent_ids_json = excluded.agent_ids_json, updated_at = excluded.updated_at
+  `).run(stage.id, worker.id, JSON.stringify([worker.id, reviewer.id]), at, at);
+  database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
+}
+
 export function insertProcess(
   database, workspaceId, name, description, stages, kind = "standard", id = randomUUID(), at = iso()
 ) {
@@ -301,6 +322,7 @@ function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
     database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
       .run(stableUuid(`${workspaceId}:template:${name}`), workspaceId, name, description, JSON.stringify(stages), at, at);
   ensureAgentDefaults(database, workspaceId, at);
+  ensureGoalDiscussion(database, workspaceId, at);
 }
 
 export function insertDefaultWorkspace(database, teamId, {
@@ -759,6 +781,13 @@ export function initializeProductDatabase(database) {
     PRAGMA user_version = 20;
   `);
   if (version < 21) database.exec("PRAGMA user_version = 21");
+  if (version < 22) transaction(database, () => {
+    for (const { id } of database.prepare("SELECT id FROM workspaces WHERE status = 'active'").all()) {
+      ensureAgentDefaults(database, id);
+      ensureGoalDiscussion(database, id);
+    }
+    database.exec("PRAGMA user_version = 22");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

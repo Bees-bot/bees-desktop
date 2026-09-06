@@ -7,7 +7,7 @@ import {
 } from "./shared.js";
 import { AccountIcon, BookIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
-import { GettingStarted, GettingStartedBar, starterDescription } from "./getting-started.js";
+import { GettingStarted, GettingStartedBar, onboardingAiKey, planningAgents, starterDescription } from "./getting-started.js";
 import { BasicsPage } from "./basics.js";
 import { dashboardsFrom } from "./dashboard-model.js";
 import { WorkPage } from "./work.js";
@@ -385,14 +385,39 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     return [];
   };
-  const aiKey = JSON.stringify({ selection: data.systemDefaultModel, config: modelConfig });
+  const aiKey = onboardingAiKey(data, parts.workspaceId, modelConfig);
   const aiReady = aiTest === aiKey;
+  const saveAgentModel = async (agent, model) => {
+    const result = await act({ ...agent, ...model, action: "edit_agent_assignment", agentAssignmentId: agent.id });
+    if (!result?.id) throw new Error("Could not save the agent's AI");
+    setAiTest(null);
+    return { ...agent, ...model };
+  };
+  const savePlanningAi = async (agent, model) => {
+    if (setupLock.current) return;
+    setupLock.current = true; setSetupBusy(true);
+    try { await saveAgentModel(agent, model); setAiStatus("AI choice saved. Test the selected AI before starting."); }
+    catch (reason) { setAiStatus(`Connection test failed: ${reason.message || reason}`); }
+    finally { setupLock.current = false; setSetupBusy(false); }
+  };
   const testAi = async () => {
     if (setupLock.current) return;
     setupLock.current = true; setSetupBusy(true); setAiTest(null); setAiStatus("Testing your selected model…");
     try {
-      await request("/bees-api/onboarding/test-ai", { method: "POST", body: "{}" });
-      setAiTest(aiKey); setAiStatus("Your selected AI responded successfully. Ready for your first task.");
+      const [planner, reviewer] = planningAgents(data, parts.workspaceId);
+      if (planner?.enabled === false || reviewer?.enabled === false) throw new Error("Enable the agents in Agents first.");
+      const result = await request("/bees-api/onboarding/test-ai", { method: "POST",
+        body: JSON.stringify({ plannerModel: planner?.model || null, reviewerModel: reviewer?.model || null,
+          plannerReasoningEffort: planner?.reasoningEffort || null, reviewerReasoningEffort: reviewer?.reasoningEffort || null }) });
+      let testedData = data;
+      if (result.fallback && reviewer) {
+        const saved = await saveAgentModel(reviewer, { model: planner?.model || null, reasoningEffort: planner?.reasoningEffort || null });
+        testedData = { ...data, assignments: data.assignments.map((agent) => agent.id === saved.id ? saved : agent) };
+      }
+      setAiTest(onboardingAiKey(testedData, parts.workspaceId, modelConfig));
+      setAiStatus(result.fallback
+        ? `Reviewer AI was unavailable. Both agents now use ${result.plannerModel}. Ready for your first task.`
+        : "Your selected AI responded successfully. Ready for your first task.");
     } catch (reason) { setAiStatus(`Connection test failed: ${reason.message || reason}`); }
     finally { setupLock.current = false; setSetupBusy(false); }
   };
@@ -426,7 +451,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })
-    : route === "getting-started" ? h(GettingStarted, { data, parts, state: onboarding, update: updateOnboarding,
+    : route === "getting-started" ? h(GettingStarted, { ctx, data, parts, state: onboarding, update: updateOnboarding, saveAgentModel: savePlanningAi,
         aiReady, aiStatus: aiReady ? aiStatus : setupBusy ? aiStatus : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {
           if (setupLock.current) return;
           setupLock.current = true; setSetupBusy(true);

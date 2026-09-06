@@ -1,19 +1,34 @@
-import { latestCodexModel } from "./agent-runtime.js";
+import { resolveRunModel } from "./agent-runtime.js";
+import { optionalModelRoute, optionalReasoningEffort } from "./product-database.js";
 
 // Explicitly invoked by the user; never send a paid probe in a polling loop.
-export async function testOnboardingModel(ctx) {
-  const selection = ctx.agentDefaultModel.currentSelection();
-  if (!selection?.provider || !selection?.model) throw new Error("Choose a system default model first.");
-  let model = selection.model;
-  const channel = /^__bees_latest_(sol|terra|luna)__$/.exec(model);
-  if (channel && selection.provider === "openai-codex") {
-    model = latestCodexModel(await ctx.llm.listModels(selection.provider), channel[1])?.id;
-    if (!model) throw new Error("The selected Codex model is unavailable.");
+export async function testOnboardingModel(ctx, model = null) {
+  const selection = await resolveRunModel(ctx, { model: optionalModelRoute(model) });
+  return probeModel(ctx, selection);
+}
+
+export async function testPlanningModels(ctx, { plannerModel = null, reviewerModel = null,
+  plannerReasoningEffort = null, reviewerReasoningEffort = null } = {}) {
+  const planner = await resolveRunModel(ctx, { model: optionalModelRoute(plannerModel), reasoningEffort: optionalReasoningEffort(plannerReasoningEffort) });
+  await probeModel(ctx, planner);
+  try {
+    const reviewer = await resolveRunModel(ctx, { model: optionalModelRoute(reviewerModel), reasoningEffort: optionalReasoningEffort(reviewerReasoningEffort) });
+    // An alias and an explicit route can select the same model. Probe that model only once.
+    if (reviewer.resolvedModel !== planner.resolvedModel) await probeModel(ctx, reviewer);
+    return { plannerModel: planner.resolvedModel, reviewerModel: reviewer.resolvedModel, fallback: false };
+  } catch {
+    return { plannerModel: planner.resolvedModel, reviewerModel: planner.resolvedModel, fallback: true };
   }
+}
+
+async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
+  const separator = resolvedModel.indexOf("/");
+  const selection = { provider: resolvedModel.slice(0, separator), model: resolvedModel.slice(separator + 1) };
   const signal = AbortSignal.timeout(60_000);
   let text = false;
   let finished = false;
-  for await (const chunk of ctx.llm.stream({ ...selection, model, signal, maxTokens: 128,
+  for await (const chunk of ctx.llm.stream({ ...selection, signal, maxTokens: 128,
+    ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
     messages: [{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "Reply with a short hello." }] }],
     tools: [] })) {
     signal.throwIfAborted();
@@ -26,5 +41,5 @@ export async function testOnboardingModel(ctx) {
   }
   signal.throwIfAborted();
   if (!finished || !text) throw new Error("The model did not return a greeting. Try again or choose another model.");
-  return { provider: selection.provider, model: selection.model };
+  return selection;
 }

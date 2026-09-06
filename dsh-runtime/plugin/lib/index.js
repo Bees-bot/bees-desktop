@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import z from "@deepseek-ai/schemastery";
-import { testOnboardingModel } from "./onboarding.js";
+import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
@@ -288,7 +288,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
   // that used to build this in the browser; the runtime service is server-side only now.
   register(ctx, { kind: "exact", path: "/bees-api/onboarding/test-ai", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
-    try { reply(res, 200, await testOnboardingModel(ctx)); }
+    try {
+      const input = await body(req);
+      reply(res, 200, Object.hasOwn(input, "plannerModel")
+        ? await testPlanningModels(ctx, input) : await testOnboardingModel(ctx));
+    }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/llm-models", handler: async (_req, res) => {
