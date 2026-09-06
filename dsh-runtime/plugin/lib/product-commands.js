@@ -800,11 +800,11 @@ export async function executeProductCommand(action, input) {
     });
     if (action === "add_agent_assignment") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      const presetId = required(input.presetId, "DSH preset");
+      const presetId = required(input.presetId, "agent preset");
       if (this.agentPresets) {
         const presets = await this.agentPresets.list();
         const preset = presets.find(({ id }) => id === presetId);
-        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The DSH preset is unavailable");
+        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The agent preset is unavailable");
       }
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       return transaction(this.database, () => {
@@ -838,10 +838,10 @@ export async function executeProductCommand(action, input) {
       `).get(id);
       if (!assignment) throw new Error("Agent not found");
       workspaceContext(this.database, assignment.workspaceId, ["admin", "member"]);
-      const presetId = required(input.presetId, "DSH preset");
+      const presetId = required(input.presetId, "agent preset");
       if (this.agentPresets) {
         const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
-        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The DSH preset is unavailable");
+        if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The agent preset is unavailable");
       }
       const nextCapabilities = Object.hasOwn(input, "capabilities")
         ? capabilities(input.capabilities) : JSON.parse(assignment.capabilities || "[]");

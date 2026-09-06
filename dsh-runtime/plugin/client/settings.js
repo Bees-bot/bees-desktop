@@ -180,7 +180,7 @@ function OrganizationsSettings({ reload, openOrganization }) {
       ["owner", "admin"].includes(organization.role) ? h(Button, {
         onClick: () => openOrganization(organization)
       }, "Invite members") : null))
-        : [h(Empty, { key: "empty" }, "No connected organizations yet")])),
+        : [h(Empty, { key: "empty" }, "No Regular organizations yet")])),
     h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
       ...(data.invitations.length ? data.invitations.map((invitation) => h("div", {
         className: "bees-row", key: `${invitation.accountUserId}:${invitation.id}`
@@ -375,7 +375,7 @@ function OrganizationSettings({
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, organization.name),
         h("div", { className: "bees-muted" }, organization.connected
-          ? `Connected organization · ${organization.role}` : "Local to this device")))),
+          ? `Regular organization · ${organization.role}` : "Private organization · this device")))),
     h("section", { className: "bees-box" }, h("h3", null, "Branding"),
       h("p", { className: "bees-muted" },
         "Choose the color used for this organization in the switcher. This preference is saved on this device."),
@@ -403,9 +403,9 @@ function OrganizationSettings({
   }
 
   if (!organization.connected) return message(
-    route === "organization-members" ? "Local organizations do not have shared members."
-      : route === "organization-invitations" ? "Local organizations do not use member invitations."
-      : "Enterprise authentication is only available to connected organizations."
+    route === "organization-members" ? "Private organizations do not have shared members."
+      : route === "organization-invitations" ? "Private organizations do not use member invitations."
+      : "Enterprise authentication is only available to Regular organizations."
   );
   if (!["owner", "admin"].includes(organization.role)) return message(
     `Your role is ${organization.role}. Only organization administrators can manage this section.`
@@ -523,7 +523,7 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
   const failure = error ? h("div", { className: "bees-error", role: "alert" }, error) : null;
   if (!organization?.connected) return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, team.name),
-      h("p", { className: "bees-muted" }, "This team is local to this device.")),
+      h("p", { className: "bees-muted" }, "This team belongs to a Private organization on this device.")),
     dangerZone, failure);
   if (team.role !== "admin") return h("section", { className: "bees-box" }, h("h3", null, team.name),
     h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));

@@ -153,7 +153,7 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
       }) : [h(Empty, { key: "empty" }, "No transcript messages yet")]),
       ...(history.events?.length ? [
         h("section", { className: "bees-box", style: { marginTop: "20px" }, key: "harness-logs" },
-          h("h3", null, "DeepSeek Harness Logs"),
+          h("h3", null, "Agent runtime logs"),
           ...history.events.map((event, index) => h(HarnessEvent, { event, key: `event-${index}` }))
         )
       ] : [])

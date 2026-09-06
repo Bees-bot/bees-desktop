@@ -168,7 +168,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
         preset.broken
           ? h("p", { className: "bees-muted" }, preset.broken)
           : h("p", { className: "bees-muted" }, "What an agent on this preset can run. Which preset an "
-            + "agent uses is set on the agent; what a preset contains is edited in DSH settings."),
+            + "agent uses is set on the agent; what a preset contains is edited in runtime settings."),
         ...(own.length ? own.map((tool) => h("div", { className: "bees-row", key: tool.name },
           h("div", { className: "bees-row-main" },
             h("div", { className: "bees-row-title" }, tool.name),
@@ -242,7 +242,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
       }),
       secret.help ? h("span", { className: "bees-muted" }, secret.help) : null)),
     entry.secrets.length ? h("p", { className: "bees-muted" },
-      "Secrets are kept in your DSH credential store, not in the Bees database.") : null,
+      "Secrets are kept in your local credential store, not in the Bees database.") : null,
     h("div", { className: "bees-detail-actions" },
       h(Button, {
         className: "primary", disabled: !ready, onClick: async () => {
@@ -298,7 +298,7 @@ function ManualServerForm({ onCancel, act, setPageHeader }) {
         h("label", null, "Headers, one Name=value per line", h("textarea", {
           className: "bees-textarea", name: "secrets", placeholder: "Authorization=Bearer …"
         }))),
-    h("p", { className: "bees-muted" }, "Values on those last lines are stored in your DSH credential store."),
+    h("p", { className: "bees-muted" }, "Values on those last lines are stored in your local credential store."),
     h("div", { className: "bees-detail-actions" },
       h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Adding…" : "Add and turn on"),
       h(Button, { onClick: onCancel }, "Cancel")));

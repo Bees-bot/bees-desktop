@@ -258,40 +258,26 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
 }
 
 export function GuidePage() {
+  const guides = [
+    ["Getting started", "Create an organization and team, connect AI, then ask Bees to build your first process.", () => void openExternal("https://bees.bot/help/getting-started")],
+    ["Understanding Bees", "Learn organizations, teams, process templates, runs, work items, executions, and schedules.", () => void openExternal("https://bees.bot/help/understanding-basics")],
+    ["Loop Engineering", "See how Goals, stages, peer delegation, review, retries, and recovery work together.", () => void openExternal("https://bees.bot/help/loop-engineering")],
+    ["Graph workflow", "Learn why business state drives routing and the graph remains a derived view.", () => void openExternal("https://bees.bot/help/graph-workflow")],
+    ["Human in the loop", "Understand questions, protected-action approval, completed-work review, and manual stages.", () => void openExternal("https://bees.bot/help/human-in-the-loop")],
+    ["Self-improving agents", "See how scheduled specialists inherit, learn, version, undo, and reset guidance.", () => void openExternal("https://bees.bot/help/self-improving-agents")],
+    ["Company Brain", "Use logical team locations, local indexes, and local execution for shared company knowledge.", () => void openExternal("https://bees.bot/help/company-brain")],
+    ["Privacy", "See exactly what synchronizes and what stays on each desktop.", () => void openExternal("https://bees.bot/help/privacy")],
+    ["Scheduling", "Create recurring process runs and manage timing, overlaps, approvals, and specialist learning.", () => void openExternal("https://bees.bot/help/scheduling"), "Open Scheduling guide"],
+    ["Architecture panel", "Build a multi-model discussion with independent roles and human sign-off.", () => void openExternal("https://bees.bot/help/software-development"), "Open Architecture Panel guide"]
+  ];
   return h("div", { className: "bees-stack" },
-    h("div", { className: "bees-callout" }, h("h3", null, "Bees in one sentence"),
-      h("div", null, "Tell Bees the outcome, choose the repeatable path, and let agents move the work through it.")),
+    h("div", { className: "bees-callout" }, h("h3", null, "Bees documentation"),
+      h("div", null, "The website help center is the canonical guide to Bees. Open a topic below for the current product model and instructions.")),
     h("div", { className: "bees-grid bees-help-grid" },
-      h("section", { className: "bees-box" }, h("h3", null, "Goal = the outcome"),
-        h("p", null, "Use a goal when you care about the result but do not want to plan every task."),
-        h("p", { className: "bees-muted" }, "Example: “Launch the new website.” Bees may create or coordinate several work items to reach it.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Work item = one piece of work"),
-        h("p", null, "Use a work item for one concrete deliverable that follows a process."),
-        h("p", { className: "bees-muted" }, "Example: “Write the launch announcement.” It moves through Draft → Review → Done.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Process template = the reusable path"),
-        h("p", null, "A process template defines the stages and agents used for repeatable work."),
-        h("p", { className: "bees-muted" }, "A template runs nothing until you start a process run.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Process run = the active board"),
-        h("p", null, "A process run is a Kanban board created from a process template."),
-        h("p", { className: "bees-muted" }, "Work items move across its stages; each agent attempt is recorded as an execution.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Agent roundtable = peers debating"),
-        h("p", null, "Assign two or more agents to a stage, or start work with $agent mentions, to seat them in one discussion."),
-        h("p", { className: "bees-muted" }, "Peers can pitch or challenge ideas without waiting for the lead; the lead submits only after everyone reports.")),
-      h("section", { className: "bees-box" }, h("h3", null, "Needs you = blocked work"),
-        h("p", null, "This queue collects questions, approvals, failures, and other work an agent cannot continue alone."),
-        h("p", { className: "bees-muted" }, "It is not a stage and you do not assign an agent to it. Assign agents on a process stage or override one on the work item."))
+      ...guides.map(([title, description, open, buttonLabel = "Open guide"]) => h("section", { className: "bees-box", key: title },
+        h("h3", null, title), h("p", null, description),
+        h(Button, { onClick: open }, buttonLabel)))
     ),
-    h("section", { className: "bees-box" }, h("h3", null, "Company Brain"),
-      h("p", null, "Learn how shared company knowledge works with local indexes and execution."),
-      h(Button, { onClick: () => void openExternal("https://bees.bot/help/company-brain") }, "Open Company Brain guide")),
-    h("section", { className: "bees-box" }, h("h3", null, "Privacy: shared control, local data"),
-      h("p", null, "See exactly what Bees synchronizes and what stays on each desktop."),
-      h(Button, { onClick: () => void openExternal("https://bees.bot/help/privacy") }, "Open Privacy guide")),
-    h("section", { className: "bees-box" }, h("h3", null, "Scheduling"),
-      h("p", null, "Learn how definitions, generated occurrences, timing, approvals, specialist learning, and skipped overlaps work."),
-      h(Button, { onClick: () => void openExternal("https://bees.bot/help/scheduling") }, "Open Scheduling guide")),
-    h("section", { className: "bees-box" }, h("h3", null, "Build a software architecture panel"),
-      h("p", null, "Create an OpenAI and Anthropic roundtable that debates reuse, cost, simplicity, and extensibility before you approve the decision."),
-      h(Button, { onClick: () => void openExternal("https://bees.bot/help/software-development") }, "Open Architecture Panel guide"))
+    h(Button, { className: "primary", onClick: () => void openExternal("https://bees.bot/help/") }, "Open all documentation")
   );
 }

@@ -541,7 +541,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
             onChange: (e) => setIsLocal(e.target.checked),
             disabled: busy
           }),
-          "Make it private (organization will be local to this device and cannot be shared with teammates)"
+          "Private organization (kept on this device and cannot be shared with teammates)"
         ),
         isLocal ? h(Button, { className: "primary", disabled: busy || !name.trim(), onClick: handleLocalSubmit, style: { marginTop: "16px" } }, "Create organization") : null
       )
@@ -566,7 +566,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
 
       h("section", { className: "bees-box", style: !data ? { opacity: 0.6, pointerEvents: "none" } : {} },
         h("h3", null, (!data || accounts.length) ? "Or sign in with another account" : "Sign in to continue"),
-        h("p", { className: "bees-muted" }, "Sign in to create a connected organization that you can share with your team."),
+        h("p", { className: "bees-muted" }, "Sign in to create a Regular organization that you can share with your team."),
         h(AccountSignInButtons, { disabled: busy || !name.trim() || !data, onStart: browserAuth }))
     ) : null,
     
