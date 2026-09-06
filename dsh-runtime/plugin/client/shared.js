@@ -1077,6 +1077,27 @@ export function sectionFor(child) {
   return NAVIGATION.find((item) => item.id === (section ?? child) || item.defaultChild === child || item.children.some(([id]) => id === child)) ?? NAVIGATION[0];
 }
 
+export function connectionIdForScope(data, scope, current = "", preferred = "") {
+  const [kind, id] = String(scope).split(":");
+  const teamId = kind === "workspace"
+    ? data.workspaces.find((row) => row.id === id)?.teamId
+    : kind === "team" ? id : "";
+  const organizationId = kind === "organization" ? id
+    : data.teams.find((row) => row.id === teamId)?.organizationId;
+  const connections = data.connections ?? [];
+  const matches = (connectionId) => connections.some((row) =>
+    row.id === connectionId && (!organizationId || row.organizationId === organizationId) &&
+    (!teamId || (data.connectionTeams ?? []).some((access) =>
+      access.connectionId === connectionId && access.teamId === teamId)));
+  if (matches(current)) return current;
+  if (matches(preferred)) return preferred;
+  if (!organizationId) return "";
+  return connections.find((row) =>
+    row.organizationId === organizationId &&
+    (!teamId || (data.connectionTeams ?? []).some((access) =>
+      access.connectionId === row.id && access.teamId === teamId)))?.id ?? "";
+}
+
 export function scopeParts(data, scope, connectionId = "") {
   const [kind, id] = String(scope).split(":");
   const connection = connectionId

@@ -1,10 +1,24 @@
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Client modules are plain JavaScript.
-import { defaultOrgColor, nextThemePreset, THEME_PRESETS } from "../dsh-runtime/plugin/client/shared.js";
+import { connectionIdForScope, defaultOrgColor, nextThemePreset, THEME_PRESETS } from "../dsh-runtime/plugin/client/shared.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("Bees work cockpit UI", () => {
+  it("switches directly from a connected organization to a private one", () => {
+    const data = {
+      organizations: [{ id: "private" }, { id: "regular" }], teams: [], workspaces: [],
+      connections: [{ id: "regular-connection", organizationId: "regular" }], connectionTeams: []
+    };
+    expect(connectionIdForScope(
+      data, "organization:private", "", "regular-connection"
+    )).toBe("");
+    expect(connectionIdForScope(
+      data, "organization:regular", "", "regular-connection"
+    )).toBe("regular-connection");
+    expect(connectionIdForScope(data, "")).toBe("");
+  });
+
   it("assigns stable, distinct fallback organization colors", () => {
     expect(defaultOrgColor("Acme")).toBe(defaultOrgColor("Acme"));
     expect(defaultOrgColor("Acme")).not.toBe(defaultOrgColor("Ace"));
@@ -37,6 +51,11 @@ describe("Bees work cockpit UI", () => {
 
   it("ships a parseable client bundle", () => {
     expect(() => new Script(clientBundle)).not.toThrow();
+  });
+
+  it("keeps Google account sign-in separate from Drive authorization", () => {
+    expect(client).toContain('onStart("social_start", { provider: "google" })');
+    expect(client).not.toContain('onStart("google_start", { provider: "google" })');
   });
 
   it("refreshes agent state from push notifications with polling only as a fallback", () => {
@@ -308,6 +327,7 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/h\(AccountSignInButtons/g)).toHaveLength(2);
     expect(client).not.toContain('"Sign in & Create"');
     expect(client).not.toContain('"Create account & Org"');
+    expect(client.match(/before\.get\(userId\) !== updatedAt/g)).toHaveLength(2);
   });
 
   it("keeps work-item navigation inside the Bees task screen", () => {

@@ -2,7 +2,7 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, askWithCheckbox, choose, collaboration, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
+  ask, askWithCheckbox, choose, collaboration, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { AccountIcon, BookIcon, SettingsIcon } from "./icons.js";
@@ -14,6 +14,7 @@ import { AgentsPage } from "./agents.js";
 import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { AccountsPage, AccountSignInButtons, SettingsPage } from "./settings.js";
+import brandMark from "../../../src/brand-mark.png";
 
 function ScopeSwitcher({
   data, organizationId, teamId, connectionId, onChange,
@@ -188,14 +189,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   useEffect(() => {
     if (!data) return;
     const connections = data.connections ?? [];
-    const [scopeKind, scopeId] = String(scope).split(":");
-    const scopedOrganizationId = scopeKind === "organization" ? scopeId
-      : data.teams.find(({ id }) => id === scopeId)?.organizationId;
-    const selectedConnectionId = connections.some(({ id }) => id === connectionId)
-      ? connectionId
-      : connections.some(({ id }) => id === preference.lastConnectionId)
-        ? preference.lastConnectionId
-        : connections.find(({ organizationId }) => organizationId === scopedOrganizationId)?.id ?? "";
+    const selectedConnectionId = connectionIdForScope(
+      data, scope, connectionId, preference.lastConnectionId
+    );
     if (selectedConnectionId !== connectionId) setConnectionId(selectedConnectionId);
     const selected = scopeParts(data, scope, selectedConnectionId);
     if (selected.organizationId) return;
@@ -407,7 +403,10 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
   },
     h("aside", { className: "bees-sidebar" },
-      h("div", { className: "bees-brand" }, h("span", { className: "bees-mark" }, "B"), h("span", null, "Bees"),
+      h("div", { className: "bees-brand" },
+        h("span", { className: "bees-mark", style: { background: "transparent", overflow: "hidden" } },
+          h("img", { src: brandMark, alt: "", width: 28, height: 28 })),
+        h("span", null, "Bees"),
         h("div", { className: "bees-brand-settings" },
           h("button", { type: "button",
             className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings"].includes(route) ? "active" : ""}`,
@@ -488,14 +487,14 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
-      const before = new Map((data?.accounts ?? []).map(({ userId, enabled }) => [userId, enabled]));
+      const before = new Map((data?.accounts ?? []).map(({ userId, updatedAt }) => [userId, updatedAt]));
       const { url } = await collaboration(action, values);
       await openExternal(url);
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         const next = await collaboration();
-        const newAccount = (next.accounts ?? []).find(({ userId, enabled }) =>
-          !before.has(userId) || before.get(userId) === false && enabled);
+        const newAccount = (next.accounts ?? []).find(({ userId, updatedAt }) =>
+          before.get(userId) !== updatedAt);
         if (newAccount) {
           await createWithAccount(newAccount.userId);
           return;

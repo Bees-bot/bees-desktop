@@ -14,7 +14,6 @@ const requiredScopes = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/forms.body.readonly"
 ];
-const identityScopes = ["openid", "email", "profile"];
 const pointerFormats = {
   ".gdoc": {
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -207,21 +206,17 @@ async function exportedMarkdown(api, auth, id, format, title) {
 }
 
 export class GoogleDriveConnection {
-  constructor(credentials, root, signInWithGoogle = null) {
+  constructor(credentials, root) {
     this.credentials = credentials;
     this.root = root;
-    this.signInWithGoogle = signInWithGoogle;
     this.clientId = "";
     this.pending = null;
     this.exported = new Map();
   }
 
-  configure(clientId, clientSecret) {
+  configure(clientId) {
     const value = String(clientId ?? "").trim();
-    if (value) {
-      this.clientId = value;
-      this.clientSecret = String(clientSecret ?? "").trim();
-    }
+    if (value) this.clientId = value;
   }
 
   async stored(name) {
@@ -267,7 +262,7 @@ export class GoogleDriveConnection {
     };
   }
 
-  async start(includeIdentity = false) {
+  async start() {
     if (!this.clientId) throw new Error("Google Drive is not configured by your Bees server");
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.pending?.server?.close();
@@ -289,12 +284,11 @@ export class GoogleDriveConnection {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("The local Drive callback is unavailable");
     const redirectUri = `http://127.0.0.1:${address.port}`;
-    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined, redirectUri);
+    const client = new OAuth2Client(this.clientId, undefined, redirectUri);
     const verifier = await client.generateCodeVerifierAsync();
     const state = randomBytes(24).toString("hex");
-    const nonce = includeIdentity ? randomBytes(24).toString("hex") : "";
     this.pending = {
-      state, nonce, includeIdentity, redirectUri, codeVerifier: verifier.codeVerifier,
+      state, redirectUri, codeVerifier: verifier.codeVerifier,
       expiresAt: Date.now() + 5 * 60_000, server
     };
     this.pending.timer = setTimeout(() => {
@@ -307,9 +301,8 @@ export class GoogleDriveConnection {
       url: client.generateAuthUrl({
         access_type: "offline",
         prompt: "consent select_account",
-        scope: includeIdentity ? [...identityScopes, ...requiredScopes] : requiredScopes,
+        scope: requiredScopes,
         state,
-        ...(nonce ? { nonce } : {}),
         code_challenge: verifier.codeChallenge,
         code_challenge_method: CodeChallengeMethod.S256
       })
@@ -335,17 +328,13 @@ export class GoogleDriveConnection {
     if (params.get("error")) throw new Error("Google Drive access was not granted");
     const code = params.get("code");
     if (!code) throw new Error("Google did not return an authorization code");
-    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined, pending.redirectUri);
+    const client = new OAuth2Client(this.clientId, undefined, pending.redirectUri);
     const record = await this.tokenRecord();
     const previous = record?.clientId === this.clientId ? record.tokens : null;
     const { tokens } = await client.getToken({ code, codeVerifier: pending.codeVerifier });
     client.setCredentials({ ...previous, ...tokens, refresh_token: tokens.refresh_token ?? previous?.refresh_token });
     const api = drive({ version: "v3", auth: client });
     const { data } = await api.about.get({ fields: "user(displayName,emailAddress,permissionId)" });
-    if (pending.includeIdentity) {
-      if (!tokens.id_token || !this.signInWithGoogle) throw new Error("Google did not return a usable identity");
-      await this.signInWithGoogle(tokens.id_token, pending.nonce);
-    }
     await Promise.all([
       this.saveTokens(client.credentials),
       this.credentials.set(profileCredential, JSON.stringify(data.user ?? {}))
@@ -374,7 +363,7 @@ export class GoogleDriveConnection {
   async client() {
     const tokens = await this.tokens();
     if (!tokens) return null;
-    const client = new OAuth2Client(this.clientId, this.clientSecret || undefined);
+    const client = new OAuth2Client(this.clientId, undefined);
     client.setCredentials(tokens);
     return client;
   }
