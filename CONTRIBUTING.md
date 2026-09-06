@@ -64,6 +64,9 @@ We'd rather say no clearly than leave your PR sitting for six months.
 
 ## How we work
 
+- Include user-facing changes in `CHANGELOG.md` under `## Unreleased`; see
+  [the release guide](docs/releases.md) for versioning and publication.
+
 - Branch off `main`, open a PR
 - CI has to pass
 - A change that touches more than one repository wants the same branch name in each,

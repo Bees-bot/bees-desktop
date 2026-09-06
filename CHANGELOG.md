@@ -2,6 +2,15 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## Unreleased
+
+- Releases build installers for Apple Silicon, Intel Mac, Linux x64, and Windows x64.
+  All builds must succeed before the release becomes public. Downloads include SHA-256 checksums.
+- Published release notes are announced to the community's Discord updates channel.
+- Upgrade notice: the 0.2 series uses a different local database from 0.1.1. Existing
+  0.1.1 data is not automatically migrated. Back up your existing application data and
+  keep your old installation before trying the new version. Automatic updates remain disabled.
+
 ## 0.1.1
 
 First release signed with a real Developer ID and notarized by Apple, so macOS opens it
