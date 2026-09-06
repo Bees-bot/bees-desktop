@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error Runtime JavaScript.
-import { onboardingProgress, starterDescription, GettingStarted } from "../dsh-runtime/plugin/client/getting-started.js";
+import { onboardingAiKey, onboardingProgress, planningAgents, starterDescription, GettingStarted } from "../dsh-runtime/plugin/client/getting-started.js";
 // @ts-expect-error Runtime JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Runtime JavaScript.
-import { testOnboardingModel } from "../dsh-runtime/plugin/lib/onboarding.js";
+import { testOnboardingModel, testPlanningModels } from "../dsh-runtime/plugin/lib/onboarding.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const React = require("react");
@@ -15,6 +15,28 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const data = { teams: [{ id: "team" }], locations: [], items: [], runs: [] };
 
 describe("Getting started", () => {
+  it("shows both Work agents and invalidates the test when either AI or team changes", () => {
+    configureRuntime((id: string) => id === "react" ? React : {});
+    const snapshot = { ...data, systemDefaultModel: { provider: "local", model: "active" },
+      processes: [{ id: "goals", workspaceId: "workspace", kind: "goals" }],
+      stages: [{ id: "work", processId: "goals", position: 0, agentIds: ["worker", "reviewer"] }],
+      assignments: [{ id: "worker", model: null, enabled: true }, { id: "reviewer", model: null, enabled: true }] };
+    expect(planningAgents(snapshot, "workspace").map((agent: any) => agent.id)).toEqual(["worker", "reviewer"]);
+    const key = onboardingAiKey(snapshot, "workspace", {});
+    expect(onboardingAiKey(snapshot, "another-team", {})).not.toBe(key);
+    expect(onboardingAiKey({ ...snapshot, assignments: [snapshot.assignments[0],
+      { ...snapshot.assignments[1], model: "other/model" }] }, "workspace", {})).not.toBe(key);
+    const html = renderToStaticMarkup(React.createElement(GettingStarted, {
+      data: snapshot, parts: { teamId: "team", workspaceId: "workspace" }, state: { step: 1 },
+      update: vi.fn(), aiReady: false, busy: false
+    }));
+    expect(html).toContain("Planner and executor");
+    expect(html).toContain("Plan and result reviewer");
+    expect(html).toContain("One model is enough");
+    expect(html.match(/Change AI \(optional\)/g)).toHaveLength(2);
+    expect(starterDescription("Make a brief", "sample")).toContain("then execute");
+  });
+
   it("uses real setup state and requires a completed task with an output", () => {
     expect(onboardingProgress(data, "team", {}, false)).toEqual([true, false, false, false]);
     const snapshot = { ...data, locations: [{ id: "file", teamId: "other", mapped: true }],
@@ -61,6 +83,38 @@ describe("AI connection probe", () => {
   });
   it("reports authentication errors instead of treating an advertised model as ready", async () => {
     await expect(testOnboardingModel(context([{ type: "finish", reason: { kind: "error", failure: { message: "Sign in again" } } }]))).rejects.toThrow("Sign in again");
+  });
+  it("tests a shared model once and never probes an unselected provider", async () => {
+    const ctx = context([{ type: "text-delta", text: "Hello" }, { type: "finish", reason: { kind: "stop" } }]);
+    await expect(testPlanningModels(ctx, { reviewerModel: "local/active" })).resolves.toMatchObject({
+      plannerModel: "local/active", reviewerModel: "local/active", fallback: false
+    });
+    expect(ctx.llm.stream).toHaveBeenCalledTimes(1);
+    expect(ctx.llm.stream).toHaveBeenCalledWith(expect.objectContaining({ provider: "local", model: "active" }));
+  });
+  it("deduplicates resolved aliases and tests distinct reviewer models", async () => {
+    const ctx: any = context([{ type: "text-delta", text: "Hello" }, { type: "finish", reason: { kind: "stop" } }]);
+    ctx.llm.listModels = async () => [{ id: "gpt-5.6-sol" }];
+    await expect(testPlanningModels(ctx, { plannerModel: "openai-codex/__bees_latest_sol__", reviewerModel: "openai-codex/gpt-5.6-sol" }))
+      .resolves.toMatchObject({ fallback: false });
+    expect(ctx.llm.stream).toHaveBeenCalledTimes(1);
+    ctx.llm.stream.mockClear();
+    await expect(testPlanningModels(ctx, { reviewerModel: "other/reviewer" })).resolves.toMatchObject({
+      plannerModel: "local/active", reviewerModel: "other/reviewer", fallback: false
+    });
+    expect(ctx.llm.stream).toHaveBeenCalledTimes(2);
+  });
+  it("falls back to the working lead model and still rejects a broken lead", async () => {
+    const ctx = context([]);
+    ctx.llm.stream = vi.fn(async function* (options: any) {
+      if (options.provider === "broken") throw new Error("Sign in again");
+      yield { type: "text-delta", text: "Hello" };
+      yield { type: "finish", reason: { kind: "stop" } };
+    }) as any;
+    await expect(testPlanningModels(ctx, { reviewerModel: "broken/reviewer" })).resolves.toMatchObject({
+      reviewerModel: "local/active", fallback: true
+    });
+    await expect(testPlanningModels(ctx, { plannerModel: "broken/lead" })).rejects.toThrow("Sign in again");
   });
 });
 

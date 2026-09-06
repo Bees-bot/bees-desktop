@@ -19,6 +19,7 @@ export { initializeProductDatabase };
 
 const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
 const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
+const GOALS_DISCUSSION_PROTOCOL = "Within this Work stage, plan together before executing. As lead, propose a concise approach with assumptions, success criteria, dependencies, and validation. Send it to the plan reviewer, wait for their critique, then reconcile the feedback. Use one proposal, one critique, and one reconciliation by default; record unresolved decisions rather than repeating rounds. After planning, you own execution: complete the goal and verify the actual deliverables. A plan alone does not complete Work. The seated reviewer only challenges the approach; final result review happens in a fresh session in Review.";
 
 /** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
 const PREVIEW_BYTES = 256_000;
@@ -144,13 +145,18 @@ export class BeesProduct {
     }
     const discussion = assignment.discussion;
     const peers = discussion ? assignment.agents.slice(1) : [];
+    const goalPlanning = item.processKind === "goals" && assignment.systemRole === "worker" &&
+      peers.length === 1 && peers[0].systemRole === "reviewer";
     const seatNames = peers.map((_peer, index) => `participant-${index + 1}`);
     const discussionMembers = peers.map((peer, index) => ({
       name: seatNames[index],
       description: peer.name,
-      model: peer.model,
-      reasoningEffort: peer.reasoningEffort,
-      prompt: `Participate as ${peer.name}. ${peer.description || ""}\n\n${peer.instructions || ""}\n\nGoal: ${item.title}\n\n${item.description}\n\nDiscussion stage: ${stage.stageName || "Discussion"}.\n\nThe expected peer seats are ${seatNames.join(", ")}. Wait until list_agents shows all of them, then analyze independently and exchange ideas and challenges with lead and every other participant using send_message or followup_task. You may initiate a new round whenever it could improve the decision. Before becoming idle, send your current recommendation and reasoning to lead. Do not call bees_submit_stage_result; the lead submits the coherent conclusion.`
+      model: Object.hasOwn(item.runSettings, "model") ? item.runSettings.model : peer.model,
+      reasoningEffort: Object.hasOwn(item.runSettings, "model") ? item.runSettings.reasoningEffort : peer.reasoningEffort,
+      planningReviewer: goalPlanning,
+      prompt: `Participate as ${peer.name}. ${peer.description || ""}\n\n${peer.instructions || ""}\n\nGoal: ${item.title}\n\n${item.description}\n\nDiscussion stage: ${stage.stageName || "Discussion"}.\n\n${goalPlanning
+        ? "You are the plan reviewer in Work. Independently inspect the goal for missing requirements, risks, and unnecessary complexity. Wait for the lead's proposal, challenge it once, and send concrete improvements to lead with send_message. Then become idle so the lead can reconcile your critique and execute the goal. Do not implement the goal, publish, or create delegated work. Do not initiate extra rounds."
+        : `The expected peer seats are ${seatNames.join(", ")}. Wait until list_agents shows all of them, then analyze independently and exchange ideas and challenges with lead and every other participant using send_message or followup_task. You may initiate a new round whenever it could improve the decision. Before becoming idle, send your current recommendation and reasoning to lead.`} Do not call bees_submit_stage_result; the lead submits the completed work.`
     }));
     const locations = stageInputs(this.database, item.id, runDirectory, assignment.id);
     const manifest = inputManifest(locations);
@@ -186,13 +192,13 @@ export class BeesProduct {
       : "";
     const inputs = manifest ? `\n\n${manifest}` : "";
     const goalsProtocol = item.processKind === "goals"
-      ? reviewer ? GOALS_REVIEW_PROTOCOL : discussion ? "" : GOALS_WORK_PROTOCOL
+      ? reviewer ? GOALS_REVIEW_PROTOCOL : goalPlanning ? GOALS_DISCUSSION_PROTOCOL : discussion ? "" : GOALS_WORK_PROTOCOL
       : "";
     const approval = stage.requiresHumanApproval
       ? "\n\nThis stage cannot finish until the human approves the completed result through bees_request_work_review."
       : "";
     const discussionProtocol = discussion
-      ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported.`
+      ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. ${goalPlanning ? GOALS_DISCUSSION_PROTOCOL : "They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported."}`
       : "";
     const delegationProtocol = discussion
       ? "Use the seated DSH Agent Team for discussion and follow-up; do not create separate delegated work for a seated participant."

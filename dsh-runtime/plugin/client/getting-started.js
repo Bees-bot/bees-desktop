@@ -1,5 +1,6 @@
 import { h, useEffect, useState } from "./runtime.js";
 import { Button } from "./shared.js";
+import { AgentModelSelect } from "./agents.js";
 
 export const SAMPLE_BRIEF = `Project: launch a neighborhood repair café in four weeks.
 Budget: $600. Venue: library meeting room, free on Saturdays.
@@ -25,16 +26,31 @@ export function onboardingProgress(data, teamId, state, aiReady) {
 }
 
 export function starterDescription(prompt, filesChoice) {
-  return `${prompt.trim()}\n\n${(filesChoice === "sample" || !filesChoice) ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}Discuss the approach briefly. Delegate an independent planning or review subtask when useful, reconcile the findings, and write the final result to outputs/first-result.md. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
+  return `${prompt.trim()}\n\n${(filesChoice === "sample" || !filesChoice) ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
 }
 
-export function GettingStarted({ data, parts, state, update, aiReady, aiStatus, testAi, busy,
+export function planningAgents(data, workspaceId) {
+  const process = data.processes?.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
+  if (!process) return [];
+  const stage = data.stages?.filter((row) => row.processId === process.id).sort((a, b) => a.position - b.position)[0];
+  return (stage?.agentIds ?? []).map((id) => data.assignments?.find((row) => row.id === id)).filter(Boolean);
+}
+
+export function onboardingAiKey(data, workspaceId, config) {
+  return JSON.stringify({ workspaceId, selection: data.systemDefaultModel, config,
+    agents: planningAgents(data, workspaceId).map(({ id, model, reasoningEffort, enabled }) => ({ id, model, reasoningEffort, enabled })) });
+}
+
+export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiStatus, testAi, busy, saveAgentModel,
   go, start, openWorkItem, navigate, ensureTeam }) {
   const [task, setTask] = useState(state.task || "plan");
   const [prompt, setPrompt] = useState(state.prompt || STARTER_TASKS[0].prompt);
   const done = onboardingProgress(data, parts.teamId, state, aiReady);
   const step = Math.min(3, Math.max(0, state.step || 0));
   const titles = ["Make space for your work", "Choose your AI", "Give Bees something to work with", "Create your first result"];
+  const agents = planningAgents(data, parts.workspaceId);
+  const defaultModel = data.systemDefaultModel?.provider && data.systemDefaultModel?.model
+    ? `${data.systemDefaultModel.provider}/${data.systemDefaultModel.model}` : "Choose your AI above";
   return h("div", { className: "bees-stack bees-onboarding" },
     h("section", { className: "bees-callout" }, h("h1", null, "Your first result starts here"),
       h("p", null, "Set up your workspace, choose AI, and watch Bees turn a brief into a useful file."),
@@ -60,9 +76,23 @@ export function GettingStarted({ data, parts, state, update, aiReady, aiStatus, 
           h(Button, { className: "primary", onClick: () => go(1, "local") }, "Use AI on this computer"),
           h(Button, { onClick: () => go(1, "subscriptions") }, "Connect Codex or Claude"),
           h(Button, { onClick: () => go(1, "other") }, "Choose another provider")),
+        h("p", null, "Two agents start Work together: the lead proposes an approach, and the reviewer challenges it. The lead then executes. Both use your selected AI by default."),
+        ...agents.map((agent, index) => h("div", { key: agent.id, className: "bees-box" },
+          h("strong", null, index === 0 ? "Planner and executor" : "Plan and result reviewer"),
+          h("p", null, agent.model || defaultModel),
+          !agent.enabled ? h("p", { role: "status" }, "This agent is disabled. Enable it in Agents before starting.") : null,
+          h("details", null, h("summary", null, "Change AI (optional)"),
+            h("form", { className: "bees-form", onSubmit: (event) => {
+              event.preventDefault(); const form = new FormData(event.currentTarget);
+              void saveAgentModel(agent, { model: String(form.get("model") || "") || null,
+                reasoningEffort: String(form.get("reasoningEffort") || "") || null });
+            } }, h(AgentModelSelect, { key: `${agent.model}:${agent.reasoningEffort}`, ctx,
+              value: agent.model || "", effort: agent.reasoningEffort || "", systemDefault: data.systemDefaultModel }),
+            h(Button, { type: "submit", disabled: busy }, "Save AI"))))),
+        h("p", { className: "bees-muted" }, "One model is enough: the agents use separate conversations and responsibilities. Another connected provider is used only when you select it. These choices update your team’s work and review agents."),
         h("p", { className: "bees-muted", role: "status" }, aiStatus),
-        h(Button, { disabled: busy || !data.systemDefaultModel?.provider, onClick: testAi }, busy ? "Testing…" : "Test selected AI"),
-        h("small", { className: "bees-muted" }, "The test sends a short greeting to your selected model. Provider usage may apply.")) : null,
+        h(Button, { disabled: busy || !data.systemDefaultModel?.provider || agents.some((agent) => !agent.enabled), onClick: testAi }, busy ? "Testing…" : "Test selected AI"),
+        h("small", { className: "bees-muted" }, "The test sends one short greeting per distinct selected model. If the reviewer’s model fails, both agents use the working lead model. Provider usage may apply.")) : null,
       step === 2 ? h("div", { className: "bees-stack" },
         h("p", null, "Choose a file or folder for your team, try a fictional brief, or provide your own instructions without files."),
         h("div", { className: "bees-card-actions" },
@@ -87,7 +117,7 @@ export function GettingStarted({ data, parts, state, update, aiReady, aiStatus, 
             ...data.locations.filter((row) => row.teamId === parts.teamId && row.mapped && !row.archivedAt).map((row) =>
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),
-            h("p", { className: "bees-muted" }, "Bees will use the Goals process template to plan, delegate where useful, review, and create first-result.md in this process run’s output folder."),
+            h("p", { className: "bees-muted" }, "Work (plan together, then execute) → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it. Planning uses additional AI calls. If the planning partner cannot run, the lead performs a self-review and shows the fallback."),
             !aiReady ? h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads.") : null,
             h(Button, { type: "submit", className: "primary", disabled: busy || !done[0] || !aiReady || !prompt.trim() }, busy ? "Starting…" : "Create my first result"))) : null,
       h("div", { className: "bees-card-actions" },

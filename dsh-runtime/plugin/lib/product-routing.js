@@ -111,6 +111,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     const agentConfig = JSON.stringify({
       id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,
       name: selected.name, instructions: effectiveInstructions, baseInstructions: selected.instructions,
+      systemRole: selected.systemRole,
       specializationId: specialization?.id ?? null,
       specializationName: specialization?.name ?? null,
       specialistPlaybook: specialization?.playbook ?? "",

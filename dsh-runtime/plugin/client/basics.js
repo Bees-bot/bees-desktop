@@ -42,7 +42,7 @@ export function BasicsPage({ navigate, onStart }) {
               ["Stage", "The current step in a work item’s lifecycle.", "Work, Review, or Done"]
             ].map(([term, meaning, example]) => h("tr", { key: term },
               h("th", { scope: "row" }, term), h("td", null, meaning), h("td", null, example)))))),
-      h("p", null, "Start a goal with the built-in ", h("strong", null, "Goals process template"), ": Work → Review → Done. An independent reviewer can send work back for revision. Use ", h("strong", null, "Process Templates"), " to define your own stages for repeatable work."),
+      h("p", null, "Start a goal with the built-in ", h("strong", null, "Goals process template"), ": Work → Review → Done. Work starts with two agents discussing the plan, then the lead executes it. Both can use the same AI in separate conversations. Review starts a fresh reviewer session, which can send work back for revision. Use ", h("strong", null, "Process Templates"), " to define your own stages for repeatable work."),
       h("details", null, h("summary", null, "What is an execution?"),
         h("p", null, "An execution is one agent attempt at a stage. A process run can have several executions, including revisions. Open Activity → Executions to inspect an attempt when troubleshooting."))),
 

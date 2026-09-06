@@ -108,8 +108,9 @@ export function latestCodexModel(models, family) {
     .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
 }
 
-async function resolveRunModel(ctx, data) {
+export async function resolveRunModel(ctx, data) {
   let selection = data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
+  if (!selection?.provider || !selection?.model) throw new Error("Choose a system default model first.");
   const channel = CODEX_CHANNELS.get(selection.model);
   if (channel) {
     const name = `${channel[0].toUpperCase()}${channel.slice(1)}`;
@@ -773,10 +774,8 @@ export class AgentRuntime {
 
   async prepareDiscussion(agent, members, signal) {
     for (const member of members ?? []) {
-      const route = member.model ? modelRef(member.model) : {};
-      const agentOptions = member.model || member.reasoningEffort
-        ? { ...route, ...(member.reasoningEffort ? { reasoningEffort: member.reasoningEffort } : {}) }
-        : null;
+      const resolved = await resolveRunModel(this.ctx, member);
+      const agentOptions = runAgentOptions(this.ctx, resolved);
       await this.ctx.agentTeams.spawnTeammate(agent, {
         name: member.name,
         description: member.description,
@@ -789,15 +788,25 @@ export class AgentRuntime {
     }
   }
 
-  assertDiscussionReady(agent, members) {
+  assertDiscussionReady(agent, members, executionId) {
     if (!members?.length) return;
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
-    if (expected.some((entry) => !entry || entry.status === "failed"))
-      throw new Error("A required discussion participant failed to join");
-    if (expected.some(({ status }) => status === "running" || status === "provisioning"))
+    if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
       throw new Error("Discussion participants are still working; wait for their pitches before submitting");
     const leadId = String(agent.session.id);
+    if (expected.some((entry) => !entry || entry.status === "failed")) {
+      if (!executionId || !members.every((member) => member.planningReviewer))
+        throw new Error("A required discussion participant failed to join");
+      const noted = this.database.prepare(`SELECT 1 FROM dsh_audit_events
+        WHERE execution_id = ? AND session_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
+      `).get(executionId, leadId);
+      if (!noted) {
+        this.audit("goal-planning-fallback", executionId, leadId, { reason: "Plan reviewer unavailable" });
+        throw new Error("The plan reviewer is unavailable. Self-review the approach and completed work for missing requirements, risks, and validation. Disclose the fallback in your summary, then resubmit the completed work.");
+      }
+      return;
+    }
     const events = agent.session.snapshotEvents();
     for (const member of expected) {
       const reported = events.some((event) => event.type === "team/message/queued" &&
@@ -1063,6 +1072,9 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
+        if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
+          WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
+        `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
         const prior = this.database.prepare(`
           SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
         `).get(executionId);
@@ -1079,7 +1091,7 @@ export class AgentRuntime {
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
           throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
-        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers);
+        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
@@ -1430,12 +1442,19 @@ export class AgentRuntime {
       this.recovery.delete(executionId);
     } else {
       let before;
+      let planningFallback = "";
       try {
-        if (data.discussionMembers?.length && mode !== "resume")
-          await this.prepareDiscussion(handle.agent, data.discussionMembers, approvalAbort.signal);
+        if (data.discussionMembers?.length && mode !== "resume") {
+          try { await this.prepareDiscussion(handle.agent, data.discussionMembers, approvalAbort.signal); }
+          catch (error) {
+            if (!data.discussionMembers.every((member) => member.planningReviewer) || approvalAbort.signal.aborted) throw error;
+            this.audit("goal-planning-fallback", executionId, sessionId, { reason: message(error) });
+            planningFallback = "\n\nThe planning partner could not start. Self-review your proposed approach for missing requirements, risks, and validation, then execute the goal. Disclose this fallback in your stage summary. Do not wait for the unavailable peer.";
+          }
+        }
         before = handle.agent.session.seq;
         handle.agent.followup(createUserMessage({
-          content: [{ type: "text", text: `${payload.body}${recoveryNotice}` }],
+          content: [{ type: "text", text: `${payload.body}${recoveryNotice}${planningFallback}` }],
           source: { kind: "user" }
         }));
       } catch (error) {

@@ -7,6 +7,77 @@ import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/li
 import { NodeDatabase } from "./node-database.js";
 
 describe("DSH Agent Teams discussions", () => {
+  it("adds the two default agents to Work without changing stages or custom routes", () => {
+    const database = new NodeDatabase().connection;
+    const stages = database.prepare("SELECT * FROM stages ORDER BY position").all();
+    expect(stages.map(({ name }) => name)).toEqual(["Work", "Review", "Done"]);
+    const worker = database.prepare("SELECT id FROM agent_assignments WHERE system_role = 'worker'").get()!;
+    const reviewer = database.prepare("SELECT id FROM agent_assignments WHERE system_role = 'reviewer'").get()!;
+    expect(database.prepare("SELECT count(*) AS n FROM agent_assignments").get()!.n).toBe(2);
+    const route = () => database.prepare("SELECT * FROM stage_routes WHERE stage_id = ?").get(String(stages[0]!.id))!;
+    expect(JSON.parse(String(route().agent_ids_json))).toEqual([worker.id, reviewer.id]);
+
+    // Upgrade both an implicit default and a saved single-worker default.
+    for (const explicit of [false, true]) {
+      if (explicit) database.prepare("UPDATE stage_routes SET agent_ids_json = ? WHERE stage_id = ?")
+        .run(JSON.stringify([worker.id]), String(stages[0]!.id));
+      else database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(String(stages[0]!.id));
+      database.exec("PRAGMA user_version = 21");
+      initializeProductDatabase(database);
+      expect(JSON.parse(String(route().agent_ids_json))).toEqual([worker.id, reviewer.id]);
+      expect(database.prepare("SELECT * FROM stages ORDER BY position").all()).toEqual(stages);
+    }
+    database.prepare("UPDATE stage_routes SET agent_assignment_id = ?, agent_ids_json = ? WHERE stage_id = ?")
+      .run(String(reviewer.id), JSON.stringify([reviewer.id]), String(stages[0]!.id));
+    const custom = route();
+    database.exec("PRAGMA user_version = 21");
+    initializeProductDatabase(database);
+    initializeProductDatabase(database);
+    expect(route()).toEqual(custom);
+    expect(database.prepare("SELECT * FROM stages ORDER BY position").all()).toEqual(stages);
+  });
+
+  it("plans with two agents inside Work, executes there, and keeps final Review separate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-goal-discussion-"));
+    try {
+      const database = new NodeDatabase();
+      const runtime = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const execute = vi.spyOn(runtime, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const product = new BeesProduct(database.connection, runtime, { startItem: async () => ({}) }, root);
+      const initial = await product.snapshot();
+      const workspaceId = initial.workspaces[0].id;
+      const goal = await product.command({ action: "create_goal", workspaceId, title: "Create a launch brief" });
+      const work = initial.stages.find((stage: any) => stage.name === "Work")!;
+      const review = initial.stages.find((stage: any) => stage.name === "Review")!;
+      const run = (id: string, stage: any) => product.runProcessStage({ workItemId: goal.id,
+        executionId: id, stageId: stage.id, stageName: stage.name,
+        purpose: stage.driver === "review" ? "reviewer" : "worker" });
+      await run("goal-work", work);
+      const payload = execute.mock.calls.at(-1)![1];
+      expect(payload.initialData.model).toBeNull();
+      expect(payload.initialData.discussionMembers).toHaveLength(1);
+      expect(payload.initialData.discussionMembers[0]).toMatchObject({ model: null, planningReviewer: true });
+      expect(payload.body).toContain("A plan alone does not complete Work");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("Do not implement the goal");
+      await run("goal-work", work); // Replayed dispatch preserves the planning role.
+      expect(execute.mock.calls.at(-1)![1].initialData.discussionMembers[0].planningReviewer).toBe(true);
+      await run("goal-review", review);
+      const final = execute.mock.calls.at(-1)![1].initialData;
+      expect(final.mode).toBe("review");
+      expect(final.agentId).not.toBe(payload.initialData.agentId);
+      expect(final.discussionMembers).toEqual([]);
+      expect(final.grants).toEqual([]);
+
+      database.connection.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
+        .run(JSON.stringify({ model: "local/only-model", reasoningEffort: "high" }), goal.id);
+      await run("goal-local", work);
+      const local = execute.mock.calls.at(-1)![1].initialData;
+      expect(local).toMatchObject({ model: "local/only-model", reasoningEffort: "high" });
+      expect(local.discussionMembers[0]).toMatchObject({ model: "local/only-model", reasoningEffort: "high" });
+      expect((await product.snapshot()).assignments).toEqual(initial.assignments);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("migrates a legacy discussion pool into an ordered direct roster", () => {
     const database = new NodeDatabase();
     const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
@@ -28,7 +99,7 @@ describe("DSH Agent Teams discussions", () => {
     member.run(agents[0]!, 10);
     member.run(agents[1]!, 20);
     database.connection.prepare(`
-      INSERT INTO stage_routes
+      INSERT OR REPLACE INTO stage_routes
         (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at)
       VALUES (?, NULL, 'legacy-pool', '[]', '2026-01-01', '2026-01-01')
     `).run(stageId);
@@ -189,6 +260,39 @@ describe("DSH Agent Teams discussions", () => {
       data: { message: { senderId: "peer", targetId: "lead" } },
     });
     expect(() => runtime.assertDiscussionReady(agent, members)).not.toThrow();
+  });
+
+  it("uses fresh sessions for one-model planning and resolves reviewer model aliases", async () => {
+    const spawnTeammate = vi.fn();
+    const runtime: any = new AgentRuntime({ on: () => () => undefined,
+      agentDefaultModel: { currentSelection: () => ({ provider: "local", model: "only-model" }) },
+      llm: { listModels: async () => [{ id: "gpt-5.6-sol" }] },
+      agentTeams: { spawnTeammate }
+    }, new NodeDatabase().connection);
+    await runtime.prepareDiscussion({}, [{ name: "reviewer", model: null, prompt: "Review" }], new AbortController().signal);
+    expect(spawnTeammate).toHaveBeenLastCalledWith({}, expect.objectContaining({
+      context: "fresh", agentOptions: { provider: "local", model: "only-model" }
+    }));
+    await runtime.prepareDiscussion({}, [{ name: "reviewer", model: "openai-codex/__bees_latest_sol__", prompt: "Review" }], new AbortController().signal);
+    expect(spawnTeammate).toHaveBeenLastCalledWith({}, expect.objectContaining({
+      context: "fresh", agentOptions: { provider: "openai-codex", model: "gpt-5.6-sol" }
+    }));
+  });
+
+  it("requires a disclosed self-review on planning failure without weakening ordinary discussions", () => {
+    const database = new NodeDatabase().connection;
+    let status = "failed";
+    const runtime: any = new AgentRuntime({ on: () => () => undefined,
+      agentTeams: { listMembers: () => [{ name: "reviewer", status }] }
+    }, database);
+    const agent = { session: { id: "lead", snapshotEvents: () => [] } };
+    const members = [{ name: "reviewer", planningReviewer: true }];
+    expect(() => runtime.assertDiscussionReady(agent, members, "run")).toThrow("Self-review");
+    expect(database.prepare("SELECT event_type FROM dsh_audit_events").get()!.event_type).toBe("goal-planning-fallback");
+    expect(() => runtime.assertDiscussionReady(agent, members, "run")).not.toThrow();
+    expect(() => runtime.assertDiscussionReady(agent, [{ name: "reviewer" }], "run")).toThrow("failed to join");
+    status = "running";
+    expect(() => runtime.assertDiscussionReady(agent, members, "run")).toThrow("still working");
   });
 
   it("deduplicates agent-started work by source event id", async () => {
