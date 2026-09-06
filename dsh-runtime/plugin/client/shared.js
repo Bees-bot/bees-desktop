@@ -1151,10 +1151,15 @@ const CHANGE_LINES = {
 };
 
 export function ProposalCard({ proposal, onApply, onDismiss }) {
+  const references = proposal.changes.find((change) => change.references?.length)?.references ?? [];
   return h("article", { className: "bees-dashboard-proposal" },
     h("strong", null, proposal.title),
     proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
     h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, CHANGE_LINES[change.action](change)))),
+    references.length ? h("div", { className: "bees-muted" },
+      h("strong", null, "Referenced resources"),
+      h("ul", null, ...references.map((reference) => h("li", { key: `${reference.kind}:${reference.id}` },
+        `${reference.label} · ${reference.kind.replaceAll("-", " ")}`)))) : null,
     h("div", { className: "bees-card-actions" },
       h(Button, { className: "primary", onClick: onApply }, "Apply"),
       h(Button, { onClick: onDismiss }, "Dismiss")));

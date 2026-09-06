@@ -9,6 +9,8 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
+import { authorizeReferences, typedReferences } from "./product-references.js";
+export { authorizeReferences, typedReferences } from "./product-references.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
@@ -27,6 +29,8 @@ const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest s
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals already has two agents planning together in Work, followed by independent Review and Done; keep those stages and routes. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
 
 Only propose create_process when the person explicitly asks to create a reusable workflow. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role or an explicit request for a new agent. Give a new agent presetId "standard", a name, and instructions defining its role and boundaries. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
+
+Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
 Keep setup capabilities: propose a missing MCP connection when the outcome requires one, install_skill only when an available pack clearly helps and is not already installed, and a schedule when the person specifies recurrence. A request only to configure a resource does not also need a work item. Reuse the configured model; do not invent a provider/model or require a second provider. Model connections and local model downloads are managed through the model settings screen, not proposal actions. The selected model and tool access follow the resulting work; do not broaden tool access or claim an unavailable connection is usable. Explain any missing access in the proposal.
 
@@ -346,67 +350,6 @@ export function copyOutputs(workspace, location, executionId) {
   return { files: pending.length, bytes, destination: ".", existing: false };
 }
 
-export function typedReferences(text) {
-  const found = [];
-  const pattern = /([@$])\[([^\]\n]{1,160})\]\(bees:([a-z-]+):([^)\s]{1,256})\)/g;
-  for (const match of String(text ?? "").matchAll(pattern)) {
-    found.push({ namespace: match[1], label: match[2], kind: match[3], id: match[4] });
-  }
-  return found;
-}
-
-export function authorizeReferences(database, workspaceId, references) {
-  if (!references.length) return;
-  if (!workspaceId) throw new Error("Typed Bees references require a workspace scope");
-  for (const reference of references) {
-    let allowed = false;
-    if (reference.kind === "agent") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?
-      `).get(reference.id, workspaceId));
-    } else if (reference.kind === "team") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM workspaces WHERE id = ? AND team_id = ?
-      `).get(workspaceId, reference.id));
-    } else if (reference.kind === "work-item") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM work_items w JOIN processes p ON p.id = w.process_id
-        WHERE w.id = ? AND w.deleted_at IS NULL AND p.workspace_id = ?
-      `).get(reference.id, workspaceId));
-    } else if (reference.kind === "location") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM team_locations l JOIN workspaces w ON w.team_id = l.team_id
-        WHERE l.id = ? AND l.archived_at IS NULL AND w.id = ?
-      `).get(reference.id, workspaceId));
-    } else if (reference.kind === "organization") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM workspaces w JOIN teams t ON t.id = w.team_id
-        WHERE w.id = ? AND t.organization_id = ?
-      `).get(workspaceId, reference.id));
-    } else if (reference.kind === "workspace") {
-      allowed = reference.id === workspaceId && Boolean(database.prepare(`
-        SELECT 1 FROM workspaces WHERE id = ? AND status = 'active'
-      `).get(workspaceId));
-    } else if (reference.kind === "human") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM workspaces w JOIN teams t ON t.id = w.team_id
-        LEFT JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = ? AND tm.status = 'active'
-        LEFT JOIN organization_memberships om ON om.organization_id = t.organization_id
-          AND om.user_id = ? AND om.status = 'active'
-        WHERE w.id = ? AND (tm.user_id IS NOT NULL OR om.role IN ('owner', 'admin'))
-      `).get(reference.id, reference.id, workspaceId));
-    } else if (reference.kind === "process") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM processes WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
-      `).get(reference.id, workspaceId));
-    } else if (reference.kind === "process-template") {
-      allowed = Boolean(database.prepare(`
-        SELECT 1 FROM process_templates WHERE id = ? AND workspace_id = ? AND archived_at IS NULL
-      `).get(reference.id, workspaceId));
-    }
-    if (!allowed) throw new Error(`Bees reference ${reference.namespace}${reference.label} is unavailable in this workspace`);
-  }
-}
 
 export class AgentRuntime {
   constructor(ctx, database, settings = null, notify = () => {}, subscribe = null, capabilities = null) {
@@ -960,7 +903,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem or git server needs directory, an absolute path the person gave. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9,timezone:'America/Los_Angeles'}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem or git server needs directory, an absolute path the person gave. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9,timezone:'America/Los_Angeles'}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
         }
       },
       output: {
@@ -978,7 +921,7 @@ export class AgentRuntime {
         catch { throw new Error("changes_json must be valid JSON"); }
         return this.proposalStore({
           workspaceId: data.workspaceId, sessionId: String(exec.agent?.session.id ?? ""),
-          title: args.proposal_title, summary: args.proposal_summary, changes,
+          title: args.proposal_title, summary: args.proposal_summary, changes, request: data.purpose,
           runSettings: {
             ...(data.model ? { model: data.model, reasoningEffort: data.reasoningEffort } : {}),
             mcpAccess: data.mcpAccess, mcpServers: data.mcpServers
