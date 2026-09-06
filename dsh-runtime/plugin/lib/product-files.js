@@ -38,7 +38,7 @@ export function logicalRelativePath(value) {
   return parts.join("/");
 }
 
-function walkLocation(location, onFile) {
+export function walkLocation(location, onFile) {
   const root = realpathSync(location.localPath);
   const rootStat = lstatSync(root);
   if (location.kind === "file") {
@@ -113,6 +113,11 @@ export function stageInputs(database, itemId, runDirectory, agentId = null) {
     LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
     WHERE l.archived_at IS NULL ORDER BY l.name
   `).all(itemId, itemId, agentId, itemId, deviceId);
+  return stageInputLocations(locations, runDirectory);
+}
+
+export function stageInputLocations(locations, runDirectory) {
+  const inputRoot = resolve(runDirectory, "inputs");
   for (const location of locations) {
     if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
     // realpathSync below reports a bare "ENOENT ... lstat <path>", which tells a person nothing

@@ -10,8 +10,9 @@ import {
   message, requireTeam, required, stableUuid, transaction, workspaceContext
 } from "./product-database.js";
 import {
-  canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputs
+  canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputs, stageInputLocations
 } from "./product-files.js";
+import { authorizeReferences, leadingAgentInvocation, referenceInputs, resolveReference, resolveReferences } from "./product-references.js";
 import { resolveStageAgent } from "./product-routing.js";
 
 /** The three the UI offers. Anything else is a typo or a client that has drifted. */
@@ -68,6 +69,12 @@ export function checkMcpServers(database, policy) {
 
 /** Proposals can reuse active resources, but only within their own workspace. */
 export function proposalResource(database, workspaceId, kind, reference) {
+  if (/^[$@]/.test(reference)) {
+    const resolved = resolveReferences(database, workspaceId, reference);
+    const row = resolved.references[0];
+    if (resolved.references.length !== 1 || row.kind !== kind) throw new Error(`Choose one ${kind} reference`);
+    return { id: row.id, name: row.label };
+  }
   const table = kind === "process" ? "processes" : "agent_assignments";
   const active = kind === "process" ? "archived_at IS NULL" : "enabled = 1";
   const rows = database.prepare(`
@@ -108,55 +115,6 @@ export function proposedFolder(database, workspaceId, name) {
   `).get(workspaceId, String(name ?? ""));
   if (!row) throw new Error(`No team folder is named "${name}"; use an exact name from the brief`);
   return row;
-}
-
-const referenceSlug = (value) => String(value).normalize("NFKD").toLocaleLowerCase()
-  .replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "");
-const referenceLabel = (value) => String(value).replace(/[\]\r\n]/g, " ").trim().slice(0, 160);
-
-/** Leading $agents are an ordered roster; the stored form keeps their stable assignment ids. */
-function invokedAgents(database, workspaceId, value) {
-  let rest = String(value ?? "");
-  const agents = [];
-  while (agents.length < 9) {
-    const canonical = rest.match(/^\s*[$@]\[([^\]\n]{1,160})\]\(bees:agent:([^)\s]{1,256})\)(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/u);
-    let agent;
-    let consumed;
-    if (canonical) {
-      agent = assignment(database, canonical[2], workspaceId);
-      if (!agent?.enabled) throw new Error(`The referenced agent ${canonical[1]} is unavailable in this team`);
-      consumed = canonical[0];
-    } else {
-      const typed = rest.match(/^\s*\$(agent|human|organization|org|team|workspace|process|template|work|location):([\p{Letter}\p{Number}_-]{1,80})(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/iu);
-      if (typed && typed[1].toLocaleLowerCase() !== "agent") break;
-      const shorthand = typed
-        ? [typed[0], typed[2]]
-        : rest.match(/^\s*\$([\p{Letter}][\p{Letter}\p{Number}_-]{0,79})(?=\s|[,;:.!?-]|$)(?:\s*(?:[,;:\-]|(?:\band\b|&)(?=\s*[$@]))\s*|\s+|$)/u);
-      if (!shorthand) break;
-      const matches = database.prepare(`
-        SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
-               instructions, model, reasoning_effort AS reasoningEffort, system_role AS systemRole,
-               capabilities_json AS capabilities, enabled, max_concurrency AS maxConcurrency,
-               updated_at AS updatedAt, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
-        FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
-      `).all(workspaceId).filter(({ name }) => referenceSlug(name) === referenceSlug(shorthand[1]));
-      if (!matches.length) throw new Error(`No agent matches $${shorthand[1]} in this team`);
-      if (matches.length > 1) throw new Error(`More than one agent matches $${shorthand[1]}; use the full agent reference`);
-      agent = matches[0];
-      consumed = shorthand[0];
-    }
-    if (agents.some(({ id }) => id === agent.id)) throw new Error(`${agent.name} is mentioned more than once`);
-    agents.push(agent);
-    rest = rest.slice(consumed.length);
-  }
-  if (!agents.length) return null;
-  if (agents.length > 8) throw new Error("Mention at most eight agents");
-  const request = rest.trim();
-  if (!request) throw new Error(`Tell ${agents.map(({ name }) => name).join(", ")} what you want done`);
-  return {
-    agents, request,
-    reference: agents.map((agent) => `$[${referenceLabel(agent.name)}](bees:agent:${agent.id})`).join(" ")
-  };
 }
 
 /** Work is owned by the active org+identity connection, not by whichever account was added first. */
@@ -397,8 +355,10 @@ export async function executeProductCommand(action, input) {
       if (!stageId || !this.database.prepare(`
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
-      const invocationText = String(input.description ?? "").trim() ? input.description : input.title;
-      const invocation = invokedAgents(this.database, process.workspaceId, invocationText);
+      const resolvedTitle = resolveReferences(this.database, process.workspaceId, required(input.title, "Title"));
+      const resolvedDescription = resolveReferences(this.database, process.workspaceId, input.description);
+      const invocationText = resolvedDescription.text.trim() ? resolvedDescription.text : resolvedTitle.text;
+      const invocation = leadingAgentInvocation(invocationText);
       const explicitIds = Array.isArray(input.agentIds) ? normalizeAgentIds(input.agentIds)
         : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : [];
       const mentionedIds = invocation?.agents.map(({ id }) => id) ?? [];
@@ -416,12 +376,12 @@ export async function executeProductCommand(action, input) {
       const settings = normalizeRunSettings(parent?.runSettings ?? input.runSettings ?? {});
       if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
-      const rawTitle = required(input.title, "Title");
+      const rawTitle = resolvedTitle.text;
       const titleInvocation = invocation && /^\s*[$@]/u.test(rawTitle)
-        ? invokedAgents(this.database, process.workspaceId, rawTitle)
+        ? leadingAgentInvocation(rawTitle)
         : null;
       const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
-      const description = invocation ? `${invocation.reference} ${invocation.request}` : String(input.description ?? "");
+      const description = invocation ? `${invocation.reference} ${invocation.request}` : resolvedDescription.text;
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
           agent_assignment_id, agent_ids_json, priority, output_location_id, recurring_work_id, account_user_id,
@@ -431,6 +391,8 @@ export async function executeProductCommand(action, input) {
         input.owner ? String(input.owner) : null, assignmentId, JSON.stringify(selectedAgentIds), priorityOf(input.priority), outputLocationId,
         recurringWorkId, accountUserId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
+      for (const location of referenceInputs(this.database, workspace.id, [...resolvedTitle.references, ...resolvedDescription.references]))
+        this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(id, location.id, location.relativePath);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
         .run(JSON.stringify(settings), id);
       if (parent) {
@@ -451,17 +413,19 @@ export async function executeProductCommand(action, input) {
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
-      const rawTitle = required(input.title, "Title");
-      const rawDescription = String(input.description ?? "");
+      const titleReferences = resolveReferences(this.database, item.workspaceId, required(input.title, "Title"));
+      const descriptionReferences = resolveReferences(this.database, item.workspaceId, input.description);
+      const rawTitle = titleReferences.text;
+      const rawDescription = descriptionReferences.text;
       const invocationText = rawDescription.trim() ? rawDescription : rawTitle;
-      const invocation = invokedAgents(this.database, item.workspaceId, invocationText);
+      const invocation = leadingAgentInvocation(invocationText);
       const explicitIds = Array.isArray(input.agentIds) ? normalizeAgentIds(input.agentIds)
         : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : [];
       const selectedAgentIds = invocation?.agents.map(({ id }) => id) ?? explicitIds;
       for (const agentId of selectedAgentIds) if (!assignment(this.database, agentId, item.workspaceId))
         throw new Error("Agent assignment is not in this team");
       const titleInvocation = invocation && /^\s*[$@]/u.test(rawTitle)
-        ? invokedAgents(this.database, item.workspaceId, rawTitle) : null;
+        ? leadingAgentInvocation(rawTitle) : null;
       const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
       const description = invocation ? `${invocation.reference} ${invocation.request}` : rawDescription;
       this.database.prepare(`
@@ -469,6 +433,8 @@ export async function executeProductCommand(action, input) {
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
       `).run(title, description, input.owner ? String(input.owner) : null,
         selectedAgentIds[0] ?? null, JSON.stringify(selectedAgentIds), priorityOf(input.priority), parentId, at, item.id);
+      for (const location of referenceInputs(this.database, item.workspaceId, [...titleReferences.references, ...descriptionReferences.references]))
+        this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(item.id, location.id, location.relativePath);
       return {};
     });
     if (action === "move_item") {
@@ -987,6 +953,11 @@ export async function executeProductCommand(action, input) {
       `).get(proposalId);
       if (!proposal) throw new Error("Proposal is no longer pending");
       workspaceContext(this.database, proposal.workspaceId, ["admin", "member"]);
+      const list = JSON.parse(proposal.changes);
+      for (const change of list) {
+        authorizeReferences(this.database, proposal.workspaceId, change.references ?? []);
+        if (change.templateId) resolveReference(this.database, proposal.workspaceId, "process-template", change.templateId, true);
+      }
       // Claim the row before running anything, so a second click cannot apply the plan twice.
       if (!this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ? AND status = 'pending'")
         .run(at, proposalId).changes) throw new Error("This plan was already applied");
@@ -999,7 +970,6 @@ export async function executeProductCommand(action, input) {
         return proposalResource(this.database, proposal.workspaceId, kind, String(name ?? "").trim()).id;
       };
       const folderId = (name) => proposedFolder(this.database, proposal.workspaceId, name).id;
-      const list = JSON.parse(proposal.changes);
       const results = new Array(list.length);
       // Servers go in first so an agent can list one installed by the same plan, whatever order the planner wrote.
       const order = [...list.keys()].sort((a, b) => Number(CAPABILITY_CHANGES.includes(list[b].action)) - Number(CAPABILITY_CHANGES.includes(list[a].action)));
@@ -1021,6 +991,8 @@ export async function executeProductCommand(action, input) {
             if (installed) { results[index] = { id: installed.id, reused: true }; continue; }
           }
           if (change.action === "create_process") {
+            // Execute the stages shown in the approved proposal, even if the saved template was edited.
+            delete payload.templateId;
             const existing = this.database.prepare(`
               SELECT id FROM processes WHERE workspace_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
             `).get(proposal.workspaceId, String(change.name ?? ""));
@@ -1080,13 +1052,15 @@ export async function executeProductCommand(action, input) {
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const policy = checkMcpServers(this.database, mcpPolicy(input));
-      const outcome = required(input.outcome, "Outcome");
+      const resolved = resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
+      const outcome = resolved.text;
+      const manifest = inputManifest(stageInputLocations(referenceInputs(this.database, workspace.id, resolved.references), runDirectory));
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: await this.planningBrief(workspace.id, outcome),
+        body: await this.planningBrief(workspace.id, outcome) + (manifest ? `\n\n${manifest}` : ""),
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
-          agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
+          agentName: "Ask Bees", purpose: outcome, model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
           instructions: "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",

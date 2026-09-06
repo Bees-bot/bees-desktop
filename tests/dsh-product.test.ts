@@ -277,7 +277,7 @@ describe("Bees DSH product plugin", () => {
       expect(execute.mock.calls[0]![1].initialData.agentId).toBe(ceo.id);
       await expect(product.command({
         action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"
-      })).rejects.toThrow("No agent matches $missing");
+      })).rejects.toThrow('The agent reference "missing" is unavailable');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
