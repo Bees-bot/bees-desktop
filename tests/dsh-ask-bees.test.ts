@@ -1,5 +1,11 @@
 import { createRequire } from "node:module";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+import { BeesProduct } from "../dsh-runtime/plugin/lib/product.js";
+import { NodeDatabase } from "./node-database.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
@@ -35,6 +41,179 @@ it("shows the planner form without starting anything", () => {
   expect(markup).toContain("No MCP servers are connected yet");
   expect(markup).toContain("Manage connected tools");
   expect(markup).toContain("Connect another model provider");
+  expect(markup).toContain("Bees uses Goals or an existing process");
+  expect(markup).toContain("Tools for this work");
   expect(started).toBe(false);
   expect(render({ ...data, teams: [{ ...data.teams[0], role: "viewer" }] })).toMatch(/<fieldset[^>]*disabled=""[^>]*>/);
+});
+
+const roots: string[] = [];
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function setup() {
+  const root = mkdtempSync(join(tmpdir(), "bees-ask-"));
+  roots.push(root);
+  const database = new NodeDatabase().connection;
+  const runtime: any = new AgentRuntime({
+    on: () => () => undefined,
+    agentPresets: { defaultId: "standard", mount: async () => undefined },
+    tools: { schemas: () => [{ name: "mcp__news__read" }, { name: "mcp__other__read" }] }
+  }, database);
+  const dispatch = vi.spyOn(runtime, "dispatch").mockResolvedValue({ sessionId: "ask-session", status: "queued" });
+  const processes = {
+    startItem: vi.fn(async () => ({ status: "started" })),
+    isAutomatic: () => true,
+    createRecurring: vi.fn(async () => ({}))
+  };
+  const capabilities = {
+    presetTools: async () => [{ id: "standard", skills: [{ name: "research", description: "Research sources" }] }],
+    command: vi.fn(async () => ({ id: "installed" }))
+  };
+  const product = new BeesProduct(database, runtime, processes, root, { capabilities });
+  const workspaceId = database.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id as string;
+  const propose = (changes: any[], runSettings = {}) => product.storeProposal({
+    workspaceId, sessionId: "ask-session", title: "Requested work", changes, runSettings
+  });
+  return { database, runtime, dispatch, processes, capabilities, product, workspaceId, propose };
+}
+
+it("briefs Ask with existing resources in its workspace and keeps new setup reviewable", async () => {
+  const { database, product, dispatch, workspaceId, propose, capabilities } = setup();
+  const goals = database.prepare("SELECT id FROM processes WHERE workspace_id = ? AND kind = 'goals'").get(workspaceId)!;
+  const team = database.prepare("SELECT team_id AS id FROM workspaces WHERE id = ?").get(workspaceId) as { id: string };
+  const organization = database.prepare("SELECT organization_id AS id FROM teams WHERE id = ?").get(team.id)!;
+  const other = await product.command({ action: "create_team", organizationId: organization.id, name: "Other team" });
+  const otherWorkspace = database.prepare("SELECT id FROM workspaces WHERE team_id = ?").get(other.id)!;
+  const privateProcess = await product.command({ action: "create_process", workspaceId: otherWorkspace.id, name: "Private launch", stages: ["Work", "Done"] });
+  const privateAgent = await product.command({ action: "add_agent_assignment", workspaceId: otherWorkspace.id, name: "Private agent", presetId: "standard" });
+  await product.command({ action: "create_process", workspaceId, name: "News brief", description: "Summarize news", stages: ["Work", "Done"] });
+  const archived = await product.command({ action: "create_process", workspaceId, name: "Old brief", stages: ["Work", "Done"] });
+  database.prepare("UPDATE processes SET archived_at = '2026-09-06' WHERE id = ?").run(archived.id);
+  await product.command({ action: "ask_bees", workspaceId, outcome: "Brief me every morning", mcpAccess: "none" });
+  const payload: any = dispatch.mock.calls[0]![2];
+  expect(payload.body).toContain(String(goals.id));
+  expect(payload.body).toContain('"name":"News brief"');
+  expect(payload.body).toContain('"name":"research"');
+  expect(payload.body).toContain('"systemRole":"reviewer"');
+  expect(payload.body).not.toContain("Private launch");
+  expect(payload.body).not.toContain("Private agent");
+  expect(payload.body).not.toContain("Old brief");
+  expect(payload.initialData.instructions).toContain("default to Goals");
+  expect(() => propose([{ action: "create_item", process: privateProcess.id, title: "Wrong workspace" }])).toThrow("active in this workspace");
+  expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [privateAgent.id] }])).toThrow("active in this workspace");
+
+  const proposal = propose([
+    { action: "add_agent_assignment", name: "Editor", instructions: "Check the copy" },
+    { action: "create_process", name: "Publishing", stages: [{ name: "Edit", driver: "agent", requiresHumanApproval: true }, "Done"] },
+    { action: "set_stage_route", process: "Publishing", stage: "Edit", agents: ["Editor"] },
+    { action: "install_skill", repo: "example/skills", directory: "editor" }
+  ]);
+  expect(database.prepare("SELECT id FROM processes WHERE name = 'Publishing'").get()).toBeUndefined();
+  expect(capabilities.command).not.toHaveBeenCalled();
+  await product.command({ action: "apply_proposal", proposalId: proposal.id });
+  expect(database.prepare("SELECT name FROM agent_assignments WHERE name = 'Editor'").get()).toEqual({ name: "Editor" });
+  expect(database.prepare("SELECT requires_human_approval AS approval FROM stages WHERE name = 'Edit'").get()).toEqual({ approval: 1 });
+  expect(capabilities.command).toHaveBeenCalledWith(expect.objectContaining({ action: "install_skill" }));
+});
+
+it("reuses Goals and custom processes without replacing routes or same-title work", async () => {
+  const { database, product, processes, workspaceId, propose } = setup();
+  const existing = await product.command({ action: "create_process", workspaceId, name: "Research", stages: ["Work", "Done"] });
+  const before = database.prepare("SELECT * FROM stage_routes ORDER BY stage_id").all();
+  const agentsBefore = database.prepare("SELECT count(*) AS count FROM agent_assignments").get();
+  const processesBefore = database.prepare("SELECT count(*) AS count FROM processes").get();
+  const changes = [{ action: "create_goal", title: "Brief" }, { action: "create_item", process: "research", title: "Brief" }];
+  const first = await product.command({ action: "apply_proposal", proposalId: propose(changes).id });
+  const second = await product.command({ action: "apply_proposal", proposalId: propose(changes).id });
+  expect(second.results[0].id).not.toBe(first.results[0].id);
+  expect(second.results[1].id).not.toBe(first.results[1].id);
+  expect(database.prepare("SELECT process_id AS processId FROM work_items WHERE id = ?").get(second.results[1].id))
+    .toEqual({ processId: existing.id });
+  expect(database.prepare("SELECT * FROM stage_routes ORDER BY stage_id").all()).toEqual(before);
+  expect(database.prepare("SELECT count(*) AS count FROM agent_assignments").get()).toEqual(agentsBefore);
+  expect(database.prepare("SELECT count(*) AS count FROM processes").get()).toEqual(processesBefore);
+  expect(processes.startItem).toHaveBeenCalledTimes(4);
+});
+
+it.each(["create_goal", "create_item"])("retries %s and its schedule without starting the work twice", async (action) => {
+  const { database, product, processes, propose } = setup();
+  const proposal = propose([
+    { action, process: "Goals", title: "Morning brief" },
+    { action: "create_recurring_work", item: "Morning brief", name: "Daily brief", frequency: "daily", hour: 9, timezone: "America/Los_Angeles" }
+  ]);
+  processes.createRecurring.mockRejectedValueOnce(new Error("Scheduler offline"));
+  await expect(product.command({ action: "apply_proposal", proposalId: proposal.id })).rejects.toThrow("Scheduler offline");
+  expect(database.prepare("SELECT status FROM bees_proposals WHERE id = ?").get(proposal.id)).toEqual({ status: "pending" });
+  const applied = await product.command({ action: "apply_proposal", proposalId: proposal.id });
+  expect(applied.results[0].reused).toBe(true);
+  expect(processes.startItem).toHaveBeenCalledTimes(1);
+  expect(database.prepare("SELECT count(*) AS count FROM recurring_work").get()).toEqual({ count: 1 });
+  await expect(product.command({ action: "apply_proposal", proposalId: proposal.id })).rejects.toThrow("no longer pending");
+  expect(() => propose([
+    { action: "create_recurring_work", item: "Later", name: "Too early", frequency: "daily", hour: 9 },
+    { action: "create_goal", title: "Later" }
+  ])).toThrow("created earlier");
+});
+
+it("validates reused resources in the proposal workspace and again when applying", async () => {
+  const { database, product, workspaceId, propose } = setup();
+  const existing = await product.command({ action: "create_process", workspaceId, name: "Publishing", stages: ["Work", "Done"] });
+  const worker = database.prepare("SELECT id, name FROM agent_assignments WHERE workspace_id = ? AND system_role = 'worker'").get(workspaceId) as { id: string; name: string };
+  const proposal = propose([{ action: "set_stage_route", process: "Publishing", stage: "Work", agents: [worker.name] }]);
+  const work = propose([{ action: "create_item", process: "Publishing", title: "Publish" }]);
+  database.prepare("UPDATE processes SET name = 'Renamed' WHERE id = ?").run(existing.id);
+  database.prepare("UPDATE agent_assignments SET name = 'Renamed worker' WHERE id = ?").run(worker.id);
+  await product.command({ action: "create_process", workspaceId, name: "Publishing", stages: ["Work", "Done"] });
+  await product.command({ action: "apply_proposal", proposalId: proposal.id });
+  const applied = await product.command({ action: "apply_proposal", proposalId: work.id });
+  expect(database.prepare("SELECT process_id AS id FROM work_items WHERE id = ?").get(applied.results[0].id)).toEqual({ id: existing.id });
+  expect(database.prepare(`SELECT r.agent_assignment_id AS id FROM stage_routes r JOIN stages s ON s.id = r.stage_id
+    WHERE s.process_id = ? AND s.name = 'Work'`).get(existing.id)).toEqual({ id: worker.id });
+  expect(() => propose([{ action: "create_item", process: "Missing", title: "No" }])).toThrow("active in this workspace");
+  expect(() => propose([{ action: "set_stage_route", process: existing.id, stage: "Done", agents: [worker.id] }])).toThrow("does not run an agent");
+  const pending = propose([{ action: "create_item", process: existing.id, title: "Later" }]);
+  database.prepare("UPDATE processes SET archived_at = '2026-09-06' WHERE id = ?").run(existing.id);
+  await expect(product.command({ action: "apply_proposal", proposalId: pending.id })).rejects.toThrow("active in this workspace");
+  database.prepare("UPDATE agent_assignments SET enabled = 0 WHERE id = ?").run(worker.id);
+  expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [worker.id] }])).toThrow("active in this workspace");
+});
+
+it.each(["provider/model", null])("carries Ask model %s and tool access through proposal, work and schedule", async (model) => {
+  const { database, product, runtime, dispatch, workspaceId } = setup();
+  database.prepare(`INSERT INTO mcp_servers
+    (id, server_name, label, transport, command, args_json, enabled, created_at)
+    VALUES ('news-id', 'news', 'News', 'stdio', 'news-server', '[]', 1, '2026-09-06')`).run();
+  await product.command({ action: "ask_bees", workspaceId, outcome: "Morning brief", model,
+    reasoningEffort: model ? "high" : null, mcpAccess: "listed", mcpServers: ["news-id"] });
+  const payload: any = dispatch.mock.calls[0]![2];
+  expect(payload.initialData.mcpServers).toEqual(["news"]);
+  const tools: any[] = [];
+  const prompts: string[] = [];
+  const restrictions: string[] = [];
+  await runtime.setup({
+    systemPrompt: { section: ({ text }: any) => prompts.push(text), context: () => undefined },
+    tools: { register: (tool: any) => tools.push(tool), restrict: ({ deny }: any) => restrictions.push(...deny) }
+  }, payload.initialData, "ask-run", "/tmp");
+  expect(restrictions).toContain("mcp__other__read");
+  expect(restrictions).not.toContain("mcp__news__read");
+  expect(prompts.join("\n")).toContain("Otherwise use create_goal");
+  expect(prompts.join("\n")).toContain("Only propose create_process when the person explicitly asks");
+  expect(tools.map(({ name }) => name)).not.toContain("bees_control");
+  const proposal = await tools.find(({ name }) => name === "bees_propose_changes").execute({
+    proposal_title: "Morning brief", proposal_summary: "Use Goals daily",
+    changes_json: JSON.stringify([
+      { action: "create_goal", title: "Brief", runSettings: { model: "unwanted/model", mcpAccess: "all" } },
+      { action: "create_recurring_work", item: "Brief", name: "Daily brief", frequency: "daily", hour: 9 }
+    ])
+  }, { agent: { session: { id: "ask-session" } } });
+  const settings = { ...(model ? { model, reasoningEffort: "high" } : {}), mcpAccess: "listed", mcpServers: ["news-id"] };
+  const stored = JSON.parse(database.prepare("SELECT changes_json AS changes FROM bees_proposals WHERE id = ?").get(proposal.id)!.changes as string);
+  expect(stored[0].runSettings).toEqual(settings);
+  const applied = await product.command({ action: "apply_proposal", proposalId: proposal.id });
+  for (const id of [applied.results[0].id, applied.results[1].sourceWorkItemId]) {
+    expect(JSON.parse(database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(id)!.settings as string)).toEqual(settings);
+  }
 });
