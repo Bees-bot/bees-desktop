@@ -1,5 +1,5 @@
 import {
-  FreeAiController, h, LocalAiController, React, useEffect, useState
+  FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
   ask, askWithCheckbox, choose, collaboration, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
@@ -7,6 +7,7 @@ import {
 } from "./shared.js";
 import { AccountIcon, BookIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
+import { GettingStarted, GettingStartedBar, starterDescription } from "./getting-started.js";
 import { dashboardsFrom } from "./dashboard-model.js";
 import { WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
@@ -141,6 +142,16 @@ function ScopeSwitcher({
 
 export function BeesApp({ ctx, preferences, modelSettings }) {
   const preference = usePreference(preferences);
+  const onboarding = preference.onboarding ?? {};
+  const initializedOnboarding = useRef(false);
+  const [aiTest, setAiTest] = useState(null);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const setupLock = useRef(false);
+  const [aiStatus, setAiStatus] = useState("Choose a model in AI connections, then test it here.");
+  const modelConfig = usePreference(modelSettings);
+  const updateOnboarding = (patch) => preferences.set("onboarding", {
+    ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
+  });
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -207,6 +218,16 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       : data.organizations.find(({ personal }) => personal)?.id;
     setScopeState(team ? `team:${team.id}` : `organization:${organizationId ?? ""}`);
   }, [data, preference.lastScope, preference.lastConnectionId, connectionId, scope]);
+  useEffect(() => {
+    if (!data || initializedOnboarding.current) return;
+    initializedOnboarding.current = true;
+    if (!onboarding.version) {
+      const active = data.items.length === 0;
+      void updateOnboarding({ version: 1, active });
+      if (active) setRoute("getting-started");
+    } else if (onboarding.active) setRoute("getting-started");
+  }, [data, onboarding.version]);
+  useEffect(() => { setAiTest(null); }, [JSON.stringify(modelConfig), JSON.stringify(data?.systemDefaultModel)]);
   const setScope = (next, nextConnectionId = connectionId) => {
     setConnectionId(nextConnectionId);
     setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
@@ -226,13 +247,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       : team),
   } : data;
   const workspaceIds = parts.workspaceId ? [parts.workspaceId] : [];
-  const act = async (command) => {
+  const act = async (command, context = parts) => {
     try {
       const result = await request("/bees-api/command", {
         method: "POST",
         body: JSON.stringify({
-          ...command, connectionId: parts.connection?.id ?? "",
-          accountUserId: parts.accountUserId ?? ""
+          ...command, connectionId: context.connection?.id ?? "",
+          accountUserId: context.accountUserId ?? ""
         })
       });
       await load();
@@ -253,28 +274,30 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const section = NAVIGATION.find((row) => row.id === id);
     setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
   };
+  const finishOrganization = async (organizationId, nextConnectionId = "") => {
+    const fresh = await load();
+    let team = fresh?.teams.find((row) => row.organizationId === organizationId && row.name === "Default")
+      ?? fresh?.teams.find((row) => row.organizationId === organizationId);
+    setScope(team ? `team:${team.id}` : `organization:${organizationId}`, nextConnectionId);
+    if (!team && onboarding.active) {
+      navigate("getting-started");
+      await updateOnboarding({ step: 0 });
+      team = nextConnectionId
+        ? await collaboration("create_team", { name: "Default", connectionId: nextConnectionId })
+        : await act({ action: "create_team", organizationId, name: "Default" }, {});
+      if (!team?.id) throw new Error("Workspace created. Open it and add a team to continue.");
+      await load();
+    }
+    setScope(team ? `team:${team.id}` : `organization:${organizationId}`, nextConnectionId);
+    if (onboarding.active) {
+      await updateOnboarding({ step: 1, teamId: team?.id || "", connectionId: nextConnectionId });
+      navigate("getting-started");
+    } else navigate("home");
+  };
   const createLocalOrganization = async (name) => {
-    const beforeCount = data?.organizations?.length || 0;
-    const result = await act({ action: "create_organization", name });
-    
-    // Attempt to find the newly created organization in the updated data
-    // since act() calls load() which updates the snapshot.
-    // If result.id exists, we use it directly.
-    let newOrgId = result?.id;
-    if (!newOrgId) {
-       // fallback: find the org that wasn't there before, or just use the last local org
-       const newOrg = data?.organizations?.find(o => !o.connectionId && o.name === name);
-       if (newOrg) newOrgId = newOrg.id;
-    }
-    
-    if (newOrgId) {
-      setScope(`organization:${newOrgId}`, "");
-      navigate("home");
-    } else {
-      // Even if we couldn't find the ID, we should navigate back to home
-      // because the creation action was dispatched.
-      navigate("home");
-    }
+    const result = await act({ action: "create_organization", name }, {});
+    if (!result?.id) throw new Error("Could not create the organization. Please try again.");
+    await finishOrganization(result.id);
   };
   const createOrganizationFromSwitcher = () => {
     setRoute("create-organization");
@@ -312,7 +335,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const activeTheme = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
     ?? THEME_PRESETS.find(({ id }) => id === "forest");
   const section = sectionFor(route);
-  const routeLabel = route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
+  const routeLabel = route === "getting-started" ? "Getting started" : route === "guide" ? "How Bees works" : route === "create-organization" ? "Create workspace" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
@@ -361,12 +384,56 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     return [];
   };
+  const aiKey = JSON.stringify({ selection: data.systemDefaultModel, config: modelConfig });
+  const aiReady = aiTest === aiKey;
+  const testAi = async () => {
+    if (setupLock.current) return;
+    setupLock.current = true; setSetupBusy(true); setAiTest(null); setAiStatus("Testing your selected model…");
+    try {
+      await request("/bees-api/onboarding/test-ai", { method: "POST", body: "{}" });
+      setAiTest(aiKey); setAiStatus("Your selected AI responded successfully. Ready for your first task.");
+    } catch (reason) { setAiStatus(`Connection test failed: ${reason.message || reason}`); }
+    finally { setupLock.current = false; setSetupBusy(false); }
+  };
+  const goSetup = (step, focus) => {
+    void updateOnboarding({ active: true, step, ...(step === 2 ? { filesChoice: "own" } : {}) });
+    navigate(step === 0 ? "create-organization" : step === 1 ? "personal-ai" : "locations");
+    if (focus) void preferences.set("onboardingAiFocus", focus);
+  };
+  const openStarter = (id) => {
+    const item = data.items.find((row) => row.id === id);
+    const team = data.teams.find((row) => data.workspaces.some((workspace) => workspace.id === item?.workspaceId && workspace.teamId === row.id));
+    if (team) setScope(`team:${team.id}`, onboarding.connectionId || "");
+    openWorkItem(id);
+  };
+  const startFirstTask = async (prompt) => {
+    if (setupLock.current || !aiReady || !parts.workspaceId || !prompt.trim()) return;
+    if (onboarding.workItemId && data.items.some(({ id }) => id === onboarding.workItemId)) return openStarter(onboarding.workItemId);
+    setupLock.current = true; setSetupBusy(true);
+    try {
+      const result = await act({ action: "create_goal", workspaceId: parts.workspaceId,
+        title: prompt.trim().split("\n")[0].slice(0, 120), description: starterDescription(prompt, onboarding.filesChoice),
+        inputLocationIds: (onboarding.inputLocationIds || []).filter((id) => data.locations.some((row) => row.id === id && row.teamId === parts.teamId && row.mapped && !row.archivedAt)) });
+      if (!result?.id) return;
+      await updateOnboarding({ workItemId: result.id, teamId: parts.teamId, connectionId, step: 3 });
+      openWorkItem(result.id);
+      if (result.error) setError(`Your task was saved, but could not start: ${result.error}`);
+    } finally { setupLock.current = false; setSetupBusy(false); }
+  };
   const page = route === "home" ? h(Home, {
     key: parts.workspaceId, capabilities, modelSettings, reload: load,
     ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
   })
-    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization })
+    : route === "getting-started" ? h(GettingStarted, { data, parts, state: onboarding, update: updateOnboarding,
+        aiReady, aiStatus: aiReady ? aiStatus : setupBusy ? aiStatus : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {
+          if (setupLock.current) return;
+          setupLock.current = true; setSetupBusy(true);
+          try { await finishOrganization(parts.organizationId, connectionId); }
+          catch (reason) { setError(reason.message || String(reason)); }
+          finally { setupLock.current = false; setSetupBusy(false); }
+        }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
+    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
@@ -419,12 +486,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         onOpenDashboard: (dashboardId) => { setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
         organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
-        h("button", { className: `bees-nav-link ${route === "guide" ? "active" : ""}`, "aria-current": route === "guide" ? "page" : null, onClick: () => navigate("guide") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "How Bees works")),
+        h("button", { className: `bees-nav-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
         h("button", { className: `bees-nav-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"))
       )
     ),
     h("section", { className: "bees-main" },
       h(AppHeader, { route, routeLabel, parts, ctx, preferences }),
+      onboarding.active && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
@@ -456,8 +524,8 @@ function AppHeader({ route, routeLabel, parts, ctx, preferences }) {
 
 
 
-function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
-  const [name, setName] = useState("");
+function CreateOrganizationPage({ reload, setScope, navigate, createLocal, onboarding, onCreated }) {
+  const [name, setName] = useState(onboarding ? "My workspace" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -477,8 +545,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
       const result = await collaboration("create_organization", { name, accountUserId });
       await reload();
       if (result?.id) {
-        setScope(`organization:${result.id}`, result.connectionId);
-        navigate("home");
+        await onCreated(result.id, result.connectionId);
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
@@ -513,8 +580,7 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal }) {
       await createLocal(name);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const accounts = (data?.accounts ?? []).filter(({ enabled }) => enabled !== false);

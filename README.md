@@ -45,7 +45,7 @@ DSH releases are upgraded as one pinned set through the
 - `dsh-runtime/plugins/*` contains small optional integration plugins. Local AI, embedded FreeLLMAPI free-tier routing, and direct custom OpenAI-compatible connections each ship as a separate DSH Host + Web Client package.
 - Product data starts fresh in the app-owned `bees-stage1.db`. Old Bees workspaces and runs are not migrated.
 
-Bees is the only visible product surface. On first launch it downloads and starts the default local model, then resumes that model on later launches. Settings → AI connections shows download progress and lets a user run any shipped local model or connect another OpenAI-compatible endpoint.
+Bees is the only visible product surface. New users open Getting started: a resumable four-step checklist for a workspace, AI connection, optional files, and a first Goals task. It reuses the existing setup screens, offers a fictional sample brief, and tests the selected AI before starting work. Local model downloads are explicit; AI connections suggests a conservative model from the shipped catalog using available memory and disk space. Download progress stays visible while setup continues. Previously enabled local models resume on later launches.
 
 ## Data boundary
 

@@ -39,6 +39,19 @@ window.__ModuleLoader__.load({
     ];
     const DEFAULT_LOCAL_MODEL = LOCAL_MODELS[0];
 
+    // Conservative first-run choice from the shipped catalog, not an intelligence ranking.
+    function recommendedLocalModel(hardware, models, statuses) {
+      const running = models.find((model) => statuses[model.id]?.running);
+      if (running) return running;
+      if (!hardware || hardware.totalMemory < 8 * 1024 ** 3) return null;
+      const candidates = models.filter((model) => model.id !== "qwen3-0-6b-q8-0" && model.bytes > 0 &&
+        model.bytes + 2 * 1024 ** 3 <= Math.min(hardware.totalMemory * 0.6, hardware.availableMemory));
+      return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
+        ?? candidates.find((model) => model.id === DEFAULT_LOCAL_MODEL.id &&
+          hardware.availableDisk != null && hardware.availableDisk >= model.bytes + 1024 ** 3) ?? null;
+    }
+
+
     const css = `
       .bees-local-model-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}
       .bees-local-model-table table{width:100%;min-width:680px;border-collapse:collapse}.bees-local-model-table th,.bees-local-model-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-local-model-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-local-model-table tbody tr:last-child td{border-bottom:0}.bees-local-model-table th:nth-last-child(-n+3),.bees-local-model-table td:nth-last-child(-n+3){width:1%;text-align:center;white-space:nowrap}
@@ -143,6 +156,14 @@ window.__ModuleLoader__.load({
       const config = usePreference(preferences);
       const models = useMemo(() => allModels(config), [config.localModels, config.removedLocalModelIds]);
       const [statuses, setStatuses] = useState({});
+      const [hardware, setHardware] = useState(null);
+      useEffect(() => {
+        let active = true;
+        if (window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware")
+          .then((value) => { if (active) setHardware(value); }, () => {});
+        return () => { active = false; };
+      }, []);
+
       const [progress, setProgress] = useState({});
       const [busy, setBusy] = useState([]);
       const [error, setError] = useState("");
@@ -239,7 +260,19 @@ window.__ModuleLoader__.load({
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
 
+      const recommended = recommendedLocalModel(hardware, models, statuses);
+      const recommendedStatus = recommended && statuses[recommended.id];
       return h("div", { className: "bees-stack" },
+        h("section", { className: "bees-callout" },
+          h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Local model setup"),
+          h("p", { className: "bees-muted" }, hardware
+            ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} currently available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
+            : "Hardware information is unavailable. Choose an installed model or review the model sizes below."),
+          h("p", null, recommended ? "A conservative choice based on available memory and storage. Actual speed depends on your computer. Start it below, then select it as your system default."
+            : "We cannot recommend an agent model within the currently measured budget. You can free memory or storage, use an existing model, or connect another AI provider."),
+          recommended ? h(Button, { className: "primary", disabled: Boolean(recommendedStatus?.running) || busy.some((key) => key.endsWith(`:${recommended.id}`)),
+            onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
+              : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
         h("div", { className: "bees-local-model-head" },
           h("p", { className: "bees-muted" }, "Models stay private on this device. Run as many as this computer's memory can hold."),
           h(Button, { className: "primary", onClick: addModel }, "Add a model")),
@@ -380,6 +413,7 @@ window.__ModuleLoader__.load({
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 
+    exports.recommendedLocalModel = recommendedLocalModel;
     exports.LOCAL_MODELS = LOCAL_MODELS;
     exports.DEFAULT_LOCAL_MODEL = DEFAULT_LOCAL_MODEL;
     exports.LocalAiController = LocalAiController;
