@@ -8,6 +8,7 @@ import {
 import { AccountIcon, BookIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
 import { GettingStarted, GettingStartedBar, starterDescription } from "./getting-started.js";
+import { BasicsPage } from "./basics.js";
 import { dashboardsFrom } from "./dashboard-model.js";
 import { WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
@@ -335,7 +336,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const activeTheme = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
     ?? THEME_PRESETS.find(({ id }) => id === "forest");
   const section = sectionFor(route);
-  const routeLabel = route === "getting-started" ? "Getting started" : route === "guide" ? "How Bees works" : route === "create-organization" ? "Create workspace" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
+  const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create workspace" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
@@ -434,6 +435,10 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           finally { setupLock.current = false; setSetupBusy(false); }
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
     : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
+    : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
+        await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
+        navigate("getting-started");
+      } })
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
@@ -487,6 +492,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
         h("button", { className: `bees-nav-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
+        h("button", { className: `bees-nav-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Bees basics")),
         h("button", { className: `bees-nav-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"))
       )
     ),

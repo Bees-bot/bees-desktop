@@ -1,0 +1,85 @@
+import { h } from "./runtime.js";
+import { Button, openExternal } from "./shared.js";
+
+export function BasicsPage({ navigate, onStart }) {
+  return h("article", { className: "bees-stack bees-basics", "aria-labelledby": "bees-basics-title" },
+    h("header", null,
+      h("span", { className: "bees-badge" }, "The essentials"),
+      h("h1", { id: "bees-basics-title" }, "Bees basics"),
+      h("p", null, "Learn where work belongs, how agents carry it out, and when you stay in control. You can return here at any time.")),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "1. From an outcome to a result"),
+      h("p", null, "Start with an outcome: “Turn these project notes into a launch plan for our repair café.”"),
+      h("ol", { className: "bees-basics-flow", "aria-label": "From request to result" },
+        h("li", null, "Choose inputs"),
+        h("li", null, "Start a process run"),
+        h("li", null, "Agents work and review"),
+        h("li", null, "Open the result file")),
+      h("p", null, "Follow progress in ", h("strong", null, "Process Runs"), ". Your request, discussions, delegated work, and files stay connected.")),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "2. Where your work belongs"),
+      h("p", null, "An ", h("strong", null, "organization"), " groups people and teams under shared administration."),
+      h("ul", null,
+        h("li", null, h("strong", null, "Regular organization"), ": requires an account and supports collaboration and synchronized coordination records."),
+        h("li", null, h("strong", null, "Private organization"), ": requires no account, stays on this device, and cannot be shared later.")),
+      h("p", null, "A ", h("strong", null, "team"), " has its own process templates, process runs, agents, file locations, and knowledge sources. Create another team when a different group needs a separate working context—not for every request."),
+      h("p", null, "A Private organization can still use cloud AI. Your AI connection determines where model requests go.")),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "3. Process templates, process runs, and work items"),
+      h("div", { className: "bees-basics-table", role: "region", "aria-label": "Work concepts and examples", tabIndex: 0 },
+        h("table", null,
+          h("caption", null, "One repair café project, four concepts"),
+          h("thead", null, h("tr", null,
+            h("th", { scope: "col" }, "Concept"), h("th", { scope: "col" }, "Meaning"), h("th", { scope: "col" }, "Example"))),
+          h("tbody", null,
+            ...[
+              ["Process template", "Reusable stages and rules for a type of work.", "Launch planning"],
+              ["Process run", "A specific instance of work following a process template.", "Repair café launch"],
+              ["Work item", "A tracked unit of work within a process run.", "Review volunteer availability"],
+              ["Stage", "The current step in a work item’s lifecycle.", "Work, Review, or Done"]
+            ].map(([term, meaning, example]) => h("tr", { key: term },
+              h("th", { scope: "row" }, term), h("td", null, meaning), h("td", null, example)))))),
+      h("p", null, "Start a goal with the built-in ", h("strong", null, "Goals process template"), ": Work → Review → Done. An independent reviewer can send work back for revision. Use ", h("strong", null, "Process Templates"), " to define your own stages for repeatable work."),
+      h("details", null, h("summary", null, "What is an execution?"),
+        h("p", null, "An execution is one agent attempt at a stage. A process run can have several executions, including revisions. Open Activity → Executions to inspect an attempt when troubleshooting."))),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "4. What agents need to work"),
+      h("ul", null,
+        h("li", null, h("strong", null, "Agent"), ": instructions and configuration for a role, such as planner or reviewer."),
+        h("li", null, h("strong", null, "AI model"), ": the model that powers the agent’s responses."),
+        h("li", null, h("strong", null, "Tools"), ": capabilities for taking actions."),
+        h("li", null, h("strong", null, "Skills"), ": reusable instructions for particular kinds of work.")),
+      h("p", null, "Agents can discuss a problem or delegate independent work. Their contributions remain visible; more agents do not automatically improve a result."),
+      h("p", null, "Choose a ", h("strong", null, "System default"), " in Settings → AI connections. Agents and process runs use it unless you specify another model.")),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "5. Files, knowledge, and results"),
+      h("p", null, "Configure locations in ", h("strong", null, "Files & Folders"), " and select inputs for the work. ", h("strong", null, "Knowledge Base"), " helps find relevant information in configured sources."),
+      h("p", null, "Open a process run’s files to find its deliverables. Publishing a result into a shared destination is a separate action."),
+      h("details", null, h("summary", null, "Does inviting someone give them access to my files?"),
+        h("p", null, "Team membership gives access to team coordination records. Document access still depends on storage-provider permissions and each device’s file mappings. Inviting someone does not automatically share your documents."))),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "6. When Bees needs you"),
+      h("p", null, h("strong", null, "Needs your attention"), " collects questions, action approvals, requests to review completed work, and failed or blocked work."),
+      h("p", null, "Approving an action lets it proceed; accepting a result confirms the work meets your expectations. Waiting preserves progress. Use ", h("strong", null, "Pause"), ", ", h("strong", null, "Resume"), ", ", h("strong", null, "Retry"), ", or ", h("strong", null, "Stop"), " when you need control.")),
+
+    h("section", { className: "bees-box" },
+      h("h2", null, "7. What runs locally—and what is shared"),
+      h("p", null, "Execution happens on an available desktop. Schedules need Bees running and the machine awake."),
+      h("p", null, "Regular organizations can synchronize coordination records. Files remain in your storage; credentials, installed models, and knowledge indexes remain on each device. Cloud AI and connected tools may receive content needed for the work."),
+      h("p", null, "AI connections are configured per device and can be used across its organizations."),
+      h(Button, { onClick: () => void openExternal("https://bees.bot/help/privacy") }, "Read the privacy guide")),
+
+    h("details", { className: "bees-box" },
+      h("summary", null, "Explore further"),
+      h("p", null, "Explore schedules, specialist learning, agent presets, tools, and permissions when you need them."),
+      h(Button, { onClick: () => navigate("guide") }, "Open detailed guides")),
+    h("footer", { className: "bees-basics-actions" },
+      h(Button, { className: "primary", onClick: onStart }, "Create your first result"),
+      h(Button, { onClick: () => navigate("getting-started") }, "Return to Getting started")));
+}
