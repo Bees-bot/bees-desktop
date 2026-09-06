@@ -3,7 +3,7 @@ mod process;
 
 use getrandom::fill;
 use local_models::{
-    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status,
+    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status, local_model_hardware,
     start_local_model, stop_local_model, LocalModelManager,
 };
 use process::{
@@ -668,6 +668,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ensure_dsh_runtime,
             local_model_status,
+            local_model_hardware,
             ensure_local_model,
             start_local_model,
             stop_local_model,

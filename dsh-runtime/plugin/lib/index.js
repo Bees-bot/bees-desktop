@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import z from "@deepseek-ai/schemastery";
+import { testOnboardingModel } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
@@ -38,6 +39,19 @@ const DashboardPreference = z.object({
 });
 
 const BeesUiSettings = z.object({
+  onboardingAiFocus: z.string().default(""),
+  onboarding: z.object({
+    version: z.number().default(0),
+    active: z.boolean().default(false),
+    step: z.number().default(0),
+    filesChoice: z.string().default(""),
+    workItemId: z.string().default(""),
+    teamId: z.string().default(""),
+    connectionId: z.string().default(""),
+    task: z.string().default("plan"),
+    prompt: z.string().default(""),
+    inputLocationIds: z.array(z.string()).default([])
+  }).default({}),
   lastScope: z.string().default(""),
   systemInstructions: z.string().default(""),
   activeDashboardId: z.string().default("home"),
@@ -272,6 +286,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   // The model catalog the agent editor picks from. dsh 0.1.2 dropped the client-side llm.models()
   // that used to build this in the browser; the runtime service is server-side only now.
+  register(ctx, { kind: "exact", path: "/bees-api/onboarding/test-ai", handler: async (req, res) => {
+    if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+    try { reply(res, 200, await testOnboardingModel(ctx)); }
+    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/llm-models", handler: async (_req, res) => {
     const groups = [];
     const failures = [];

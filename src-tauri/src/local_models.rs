@@ -385,6 +385,38 @@ pub fn models_directory(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelHardware {
+    total_memory: u64,
+    available_memory: u64,
+    available_disk: Option<u64>,
+    architecture: &'static str,
+}
+
+#[tauri::command]
+pub fn local_model_hardware(app: AppHandle) -> Result<LocalModelHardware, String> {
+    let system = sysinfo::System::new_with_specifics(
+        sysinfo::RefreshKind::nothing().with_memory(sysinfo::MemoryRefreshKind::everything()),
+    );
+    let directory = models_directory(&app)?;
+    let available_disk = available_disk_space(&directory);
+    Ok(LocalModelHardware {
+        total_memory: system.total_memory(),
+        available_memory: system.available_memory(),
+        available_disk,
+        architecture: std::env::consts::ARCH,
+    })
+}
+
+fn available_disk_space(path: &Path) -> Option<u64> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    disks.list().iter()
+        .filter(|disk| path.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().components().count())
+        .map(|disk| disk.available_space())
+}
+
 fn model_path(app: &AppHandle, spec: &ModelSpec) -> Result<PathBuf, String> {
     spec.validate()?;
     if let Some(path) = &spec.local_path {
@@ -625,6 +657,11 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
         );
     }
 
+    if let Some(available) = available_disk_space(directory) {
+        if total > 0 && available < total.saturating_sub(offset).saturating_add(GIB) {
+            return Err("Not enough free disk space for this model and 1 GiB of headroom. Free some space and retry; your partial download is saved.".into());
+        }
+    }
     let mut bytes = offset;
     let mut last_emitted = bytes;
     let mut buffer = vec![0_u8; 1024 * 1024];
