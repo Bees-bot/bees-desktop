@@ -55,7 +55,7 @@ export function enabledServers(database) {
 }
 
 /** A name that resolves to nothing would silently grant the agent nothing at all. */
-function checkMcpServers(database, policy) {
+export function checkMcpServers(database, policy) {
   if (policy.access !== "listed") return policy;
   const rows = enabledServers(database);
   const servers = policy.servers.map((wanted) => {
@@ -64,6 +64,20 @@ function checkMcpServers(database, policy) {
     return row.id;
   });
   return { access: policy.access, servers: [...new Set(servers)] };
+}
+
+/** Proposals can reuse active resources, but only within their own workspace. */
+export function proposalResource(database, workspaceId, kind, reference) {
+  const table = kind === "process" ? "processes" : "agent_assignments";
+  const active = kind === "process" ? "archived_at IS NULL" : "enabled = 1";
+  const rows = database.prepare(`
+    SELECT id, name FROM ${table} WHERE workspace_id = ? AND ${active}
+      AND (id = ? OR lower(name) = lower(?)) ORDER BY id = ? DESC
+  `).all(workspaceId, reference, reference, reference);
+  if (rows.length > 1 && rows[0].id !== reference)
+    throw new Error(`More than one ${kind} is called "${reference}"; use its id`);
+  if (!rows.length) throw new Error(`The ${kind} "${reference}" must be active in this workspace or created earlier in the same proposal`);
+  return rows[0];
 }
 
 function locationIds(database, workspaceId, values, foldersOnly = false) {
@@ -366,6 +380,13 @@ export async function executeProductCommand(action, input) {
       `).get(processId);
       if (!process) throw new Error("Process not found");
       const workspace = workspaceContext(this.database, process.workspaceId, ["admin", "member"]);
+      const receiptKey = input.idempotencyKey ? required(input.idempotencyKey, "Idempotency key") : null;
+      if (receiptKey) {
+        const receipt = this.database.prepare(`
+          SELECT work_item_id AS id FROM bees_work_receipts WHERE workspace_id = ? AND idempotency_key = ?
+        `).get(workspace.id, receiptKey);
+        if (receipt) return { ...receipt, reused: true };
+      }
       const accountUserId = executionAccount(this.database, workspace.teamId, input);
       const inputLocationIds = locationIds(this.database, process.workspaceId, input.inputLocationIds);
       const outputLocationId = locationIds(this.database, process.workspaceId,
@@ -419,8 +440,11 @@ export async function executeProductCommand(action, input) {
         this.database.prepare("UPDATE work_items SET output_location_id = coalesce(output_location_id, ?) WHERE id = ?")
           .run(parent.outputLocationId, id);
       }
+      if (receiptKey) this.database.prepare("INSERT INTO bees_work_receipts VALUES (?, ?, ?, ?)")
+        .run(workspace.id, receiptKey, id, at);
       return { id };
       });
+      if (created.reused) return created;
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
@@ -966,12 +990,13 @@ export async function executeProductCommand(action, input) {
       // Claim the row before running anything, so a second click cannot apply the plan twice.
       if (!this.database.prepare("UPDATE bees_proposals SET status = 'applied', updated_at = ? WHERE id = ? AND status = 'pending'")
         .run(at, proposalId).changes) throw new Error("This plan was already applied");
-      // The planner names things it created earlier in the same proposal; ids exist only once applied.
+      // Resolve earlier creations first, then active resources in this workspace.
       const made = { process: new Map(), agent: new Map(), item: new Map() };
       const idOf = (kind, name) => {
         const id = made[kind].get(String(name ?? "").trim().toLocaleLowerCase());
-        if (!id) throw new Error(`The proposed ${kind} "${name}" was not created earlier in this proposal`);
-        return id;
+        if (id) return id;
+        if (kind === "item") throw new Error(`The proposed item "${name}" was not created earlier in this proposal`);
+        return proposalResource(this.database, proposal.workspaceId, kind, String(name ?? "").trim()).id;
       };
       const folderId = (name) => proposedFolder(this.database, proposal.workspaceId, name).id;
       const list = JSON.parse(proposal.changes);
@@ -1002,14 +1027,10 @@ export async function executeProductCommand(action, input) {
             if (existing) { made.process.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
           if (change.action === "create_item") {
-            payload.processId = idOf("process", change.process);
-            const existing = this.database.prepare(`
-              SELECT id FROM work_items WHERE process_id = ? AND lower(title) = lower(?)
-                AND archived_at IS NULL AND deleted_at IS NULL
-            `).get(payload.processId, String(change.title ?? ""));
-            if (existing) { made.item.set(String(change.title).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
+            payload.processId = idOf("process", change.processId ?? change.process);
           }
           if (change.action === "create_item" || change.action === "create_goal") {
+            payload.idempotencyKey = `proposal:${proposalId}:${index}`;
             payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
             if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
           }
@@ -1017,9 +1038,9 @@ export async function executeProductCommand(action, input) {
           if (change.action === "set_stage_route") {
             payload.stageId = this.database.prepare(`
               SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
-            `).get(idOf("process", change.process), String(change.stage ?? ""))?.id;
+            `).get(idOf("process", change.processId ?? change.process), String(change.stage ?? ""))?.id;
             if (!payload.stageId) throw new Error(`The proposed stage "${change.stage}" is not in that process`);
-            payload.agentIds = (change.agents ?? []).map((name) => idOf("agent", name));
+            payload.agentIds = (change.agents ?? []).map((name, index) => idOf("agent", change.agentIds?.[index] ?? name));
           }
           const result = CAPABILITY_CHANGES.includes(change.action)
             ? await this.capabilities.command(payload) : await this.execute(change.action, payload);
@@ -1060,23 +1081,19 @@ export async function executeProductCommand(action, input) {
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       const outcome = required(input.outcome, "Outcome");
-      // Only a folder the person named in the outcome reaches the planner; given the whole list it attached folders to anything.
-      const folders = this.database.prepare("SELECT name, description FROM team_locations WHERE team_id = ? AND archived_at IS NULL").all(workspace.teamId)
-        .filter(({ name }) => outcome.toLocaleLowerCase().includes(name.toLocaleLowerCase()));
-      const servers = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE enabled = 1").all().map(({ name }) => name);
-      const brief = (folders.length ? `\n\nTeam folders you named, by exact name, for the item to read (inputLocations) and publish to (outputLocation): ${folders.map(({ name, description }) => `"${name}"${description ? `, ${description}` : ""}`).join("; ")}` : "")
-        + (servers.length ? `\n\nInstalled MCP servers an agent can list in mcpServers: ${servers.join(", ")}` : "");
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Plan this outcome for the current Bees team. Propose reviewable changes with bees_propose_changes; do not apply them yourself.\n\nOutcome: ${outcome}${brief}`,
+        body: await this.planningBrief(workspace.id, outcome),
         initialData: {
           version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
           agentName: "Ask Bees", purpose: String(input.outcome), model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
-          instructions: "Propose the agents, process, servers, schedule and first work item this outcome needs.",
+          instructions: "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
-          mcpAccess: policy.access, mcpServers: policy.servers,
+          mcpAccess: policy.access, mcpServers: this.database.prepare(`
+            SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
+          `).all(JSON.stringify(policy.servers)).map(({ name }) => name),
           grants: []
         }
       });

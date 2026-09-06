@@ -1141,8 +1141,8 @@ export function Empty({ children }) { return h("div", { className: "bees-empty" 
 const CHANGE_LINES = {
   add_agent_assignment: (c) => `Agent ${c.name}`,
   create_process: (c) => `Process ${c.name}: ${c.stages.map(({ name }) => name).join(" → ")}`,
-  set_stage_route: (c) => `${c.stage} → ${c.agents.join(", ")}`,
-  create_item: (c) => `Work item ${c.title}`,
+  set_stage_route: (c) => `${c.process}: ${c.stage} → ${c.agents.join(", ")}`,
+  create_item: (c) => `Work item ${c.title} in ${c.process}`,
   create_goal: (c) => `Goal ${c.title}`,
   install_mcp_server: (c) => `Connect ${c.catalogId}`,
   add_mcp_server: (c) => `Connect ${c.serverName}`,
