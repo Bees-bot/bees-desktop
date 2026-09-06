@@ -19,7 +19,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; DSH will ask the user for approval. Request DSH approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result; if a source or tool is unavailable, say which one and stop. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Turn the requested outcome into a system Bees can run, never into documents about one. A proposal for a repeatable outcome must contain, in this order: one add_agent_assignment per distinct role (presetId "standard", a name, and instructions that say how that role works and what it must never do); one create_process whose stages are the steps of the outcome, with a stage marked for human approval wherever the person said to wait for them; one set_stage_route for every agent stage, naming the agent that owns it; an MCP server for every API the person gave a key, token, URL or curl for; an install_skill when a known pack clearly helps; a create_recurring_work when the person said how often; and the create_item that starts the first run. A one-off outcome with no role of its own can be a plain goal. A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
@@ -73,7 +73,7 @@ export function validateRunData(value) {
     throw new Error("Work run data needs a work item");
   if (value.stagePurpose && !["worker", "reviewer"].includes(value.stagePurpose))
     throw new Error("Run data has an invalid stage purpose");
-  if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs a DSH preset");
+  if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs an agent preset");
   if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
     throw new Error("Run data needs an MCP access policy");
   if (!Array.isArray(value.capabilities ?? []) || !Array.isArray(value.discussionMembers ?? []))
@@ -288,7 +288,7 @@ function outcomeFor(event) {
   const reason = event?.data?.reason;
   if (reason?.kind === "completed" || reason?.kind === "max-tokens") return { outcome: "completed", error: null };
   if (reason?.kind === "aborted") return { outcome: "cancelled", error: { message: "Stopped by user" } };
-  const message = reason?.error?.message ?? (reason?.kind ? `DSH turn ended: ${reason.kind}` : "DSH did not record a terminal turn");
+  const message = reason?.error?.message ?? (reason?.kind ? `Agent turn ended: ${reason.kind}` : "The agent runtime did not record a terminal turn");
   return { outcome: "failed", error: { message, code: reason?.error?.code } };
 }
 
@@ -880,7 +880,7 @@ export class AgentRuntime {
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
       execute: async (args, exec) => {
-        if (!exec.agent) throw new Error("Work review requires an active DSH agent turn");
+        if (!exec.agent) throw new Error("Work review requires an active agent turn");
         if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
@@ -1111,12 +1111,12 @@ export class AgentRuntime {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
         order: 90,
-        text: `Approved publication targets (an additional DSH approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`
+        text: `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`
       });
     }
     if (data.mode === "work") agentCtx.tools.register(defineTool({
         name: "bees_publish_outputs",
-        description: "Copy the finished files under outputs/ to one granted company folder. This always asks the user for DSH approval before writing outside the run workspace.",
+        description: "Copy the finished files under outputs/ to one granted company folder. This always asks the user for approval before writing outside the run workspace.",
         parameters: {
           location_id: { type: "string", required: true, description: "Exact id of a granted publication target." }
         },
@@ -1134,7 +1134,7 @@ export class AgentRuntime {
         execute: async (args, exec) => {
           const location = granted().find((grant) => grant.id === args.location_id);
           if (!location) throw new Error("That publication target was not granted to this run");
-          if (!exec.agent) throw new Error("Publication requires an active DSH agent turn");
+          if (!exec.agent) throw new Error("Publication requires an active agent turn");
           const outcome = await this.ctx.approval.request({
             agent: exec.agent,
             toolName: "bees_publish_outputs",
@@ -1421,7 +1421,7 @@ export class AgentRuntime {
       idempotencyKey: `running:${payload.idempotencyKey}`
     });
     const recoveryNotice = recovery
-      ? "\n\nRecovery note: this is a replacement DSH session seeded through the previous runtime session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval through DSH approval before continuing."
+      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval before continuing."
       : "";
     if (recoveryApproval || recoveryQuestion) {
       this.track(recoveryApproval
@@ -1481,7 +1481,7 @@ export class AgentRuntime {
       handle.agent.followup(createUserMessage({
         content: [{
           type: "text",
-          text: "Recovery checkpoint validation. Do not call tools or repeat the prior action in this turn. The prior DSH approval is being re-presented to the user."
+          text: "Recovery checkpoint validation. Do not call tools or repeat the prior action in this turn. The prior approval is being re-presented to the user."
         }],
         source: { kind: "user" }
       }));
@@ -1579,7 +1579,7 @@ export class AgentRuntime {
       const delivery = this.database.prepare(`
         SELECT outcome, error_json AS errorJson FROM dsh_deliveries WHERE submission_id = ?
       `).get(submissionId);
-      if (!delivery) throw new Error("The DSH stage delivery disappeared");
+      if (!delivery) throw new Error("The agent stage delivery disappeared");
       if (delivery.outcome) return delivery;
       if (signal?.aborted) {
         if (signal.reason?.message === "CANCELLED") this.abort(executionId);
@@ -1612,7 +1612,7 @@ export class AgentRuntime {
         ...payload,
         initialData: undefined,
         idempotencyKey: `process:${executionId}:recover:${Number(run.recoveryCount) + 1}`,
-        body: `Resume this automatic process stage from its durable DSH checkpoint.\n\n${payload.body}`
+        body: `Resume this automatic process stage from its durable runtime checkpoint.\n\n${payload.body}`
       });
     } else if (!submission || submission.outcome) {
       const result = this.stageResult(executionId);
@@ -1633,10 +1633,10 @@ export class AgentRuntime {
     if (delivery.outcome !== "completed") {
       const failure = delivery.errorJson ? JSON.parse(delivery.errorJson) : null;
       if (failure && providerBadTurn(failure)) throw badTurn(failure.message);
-      throw new Error(failure?.message || `DSH stage ${delivery.outcome}`);
+      throw new Error(failure?.message || `Agent stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
-    if (!result) throw badTurn("DSH completed without calling bees_submit_stage_result");
+    if (!result) throw badTurn("The agent runtime completed without calling bees_submit_stage_result");
     return result;
   }
 
@@ -1713,7 +1713,7 @@ export class AgentRuntime {
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from durable DSH session and Bees audit records; candidate files cannot modify this evidence. A peer-work-settled audit event is emitted only after delegated work reaches a terminal lifecycle state and includes the system-observed result and settlement time. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
+      note: "System-generated from the durable runtime session and Bees audit records; candidate files cannot modify this evidence. A peer-work-settled audit event is emitted only after delegated work reaches a terminal lifecycle state and includes the system-observed result and settlement time. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
       executions
     };
   }

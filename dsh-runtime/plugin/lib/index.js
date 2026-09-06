@@ -195,7 +195,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   void syncTick().catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
-  if (!server?.prependListener) throw new Error("bees: DSH webserver seam changed");
+  if (!server?.prependListener) throw new Error("bees: agent runtime webserver seam changed");
   const guard = (req) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     if ([

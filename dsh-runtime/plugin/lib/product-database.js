@@ -292,7 +292,7 @@ const STARTER_TEMPLATES = [
 ];
 
 function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
-  insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and reviewed by DSH", [
+  insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and independently reviewed by agents", [
     { name: "Work", driver: "agent" },
     { name: "Review", driver: "review" },
     { name: "Done", driver: "terminal" }

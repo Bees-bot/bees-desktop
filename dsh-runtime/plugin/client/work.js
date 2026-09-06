@@ -415,7 +415,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         run ? h("iframe", {
           src: `/bees-api/harness?executionId=${run.id}`,
           style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
-          title: "DSH Traces"
+          title: "Runtime traces"
         }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
       )
     )
