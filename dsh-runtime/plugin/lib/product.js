@@ -510,6 +510,13 @@ export class BeesProduct {
 
   readKnowledge(resultId, workspaceId) {
     const { workspace, locations } = this.knowledgeLocations(workspaceId);
+    // search returns work items next to files, so read has to open both kinds
+    const item = this.database.prepare(`
+      SELECT w.id, w.title, w.description FROM work_items w
+      JOIN processes p ON p.id = w.process_id
+      WHERE w.id = ? AND p.workspace_id = ? AND w.deleted_at IS NULL
+    `).get(resultId, workspace.id);
+    if (item) return { kind: "item", id: item.id, title: item.title, content: item.description ?? "" };
     return this.knowledge.read(resultId, workspace.teamId, locations);
   }
 
