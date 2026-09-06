@@ -949,8 +949,10 @@ Current international expansion strategy`);
     );
 
     expect(summary.accounts).toEqual([
-      { userId: "user-a", email: "a@acme.com", name: "A", enabled: true },
-      { userId: "user-b", email: "b@acme.com", name: "B", enabled: true }
+      { userId: "user-a", email: "a@acme.com", name: "A", enabled: true,
+        updatedAt: expect.any(String) },
+      { userId: "user-b", email: "b@acme.com", name: "B", enabled: true,
+        updatedAt: expect.any(String) }
     ]);
     expect(summary.organizations).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "shared-org", accountUserId: "user-a", role: "admin" }),
@@ -968,9 +970,10 @@ Current international expansion strategy`);
     expect([...tokens.keys()].every((ref) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(ref))).toBe(true);
 
     const disabled = await connected.setAccountEnabled("user-a", false);
-    expect(disabled.accounts).toContainEqual({
-      userId: "user-a", email: "a@acme.com", name: "A", enabled: false
-    });
+    expect(disabled.accounts).toContainEqual(expect.objectContaining({
+      userId: "user-a", email: "a@acme.com", name: "A", enabled: false,
+      updatedAt: expect.any(String)
+    }));
     expect(connected.connections()).toEqual([
       expect.objectContaining({ accountUserId: "user-b" })
     ]);
@@ -1106,27 +1109,6 @@ Current international expansion strategy`);
       socialProviders: ["google", "github"],
       ssoEnabled: true,
       googleDriveDesktopClientId: ""
-    });
-  });
-
-  it("signs in with a locally obtained Google identity without sending Drive tokens", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      token: "bees-session", user: { id: "google-user", email: "you@example.com" }
-    }), { status: 200, headers: { "content-type": "application/json" } })));
-    const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
-    const resume = vi.spyOn(connected, "resumeSession").mockResolvedValue({ account: {} });
-
-    await connected.signInWithGoogle("google-id-token", "oauth-nonce");
-
-    expect(fetch).toHaveBeenCalledWith("https://api.example/api/auth/sign-in/social",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          provider: "google", idToken: { token: "google-id-token", nonce: "oauth-nonce" }
-        })
-      }));
-    expect(resume).toHaveBeenCalledWith("bees-session", {
-      id: "google-user", email: "you@example.com"
     });
   });
 

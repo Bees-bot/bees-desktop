@@ -164,10 +164,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
   capabilities = new Capabilities(ctx, database, workspace);
   agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
-  googleDrive = new GoogleDriveConnection(ctx.credentials, workspace,
-    (idToken, nonce) => connected.signInWithGoogle(idToken, nonce));
+  googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
   void connected.authConfig().then((config) =>
-    googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret));
+    googleDrive.configure(config.googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify
   });
@@ -296,7 +295,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
     try {
       const config = await connected.authConfig();
-      googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret);
+      googleDrive.configure(config.googleDriveDesktopClientId);
       if (req.method === "GET") return reply(res, 200, { googleDrive: await googleDrive.status() });
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const input = await body(req);
@@ -361,11 +360,6 @@ export async function apply(ctx, _config = {}, internals = {}) {
       }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const input = await body(req);
-      if (input.action === "google_start") {
-        const config = await connected.authConfig();
-        googleDrive.configure(config.googleDriveDesktopClientId, config.googleDriveDesktopClientSecret);
-        return reply(res, 200, await googleDrive.start(true));
-      }
       if (["social_start", "sso_start"].includes(input.action)) input.callbackPort = req.socket.localPort;
       const result = await connected.command(input);
       await product.initialize();

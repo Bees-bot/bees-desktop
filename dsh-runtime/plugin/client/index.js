@@ -4,6 +4,7 @@ import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
 import { installScrollbars } from "./scrollbars.js";
+import brandMark from "../../../src/brand-mark.png";
 
 window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
@@ -22,7 +23,7 @@ window.__ModuleLoader__.load({
         if (this.state.error === null) return h(BeesApp, { ...this.props, key: this.state.attempt });
         return h("div", { className: "bees-app bees-loading", role: "alert" },
           h("div", { className: "bees-stack" },
-            h("div", { className: "bees-mark" }, "B"),
+            h("img", { className: "bees-mark", src: brandMark, alt: "" }),
             h("strong", null, "Bees hit a problem"),
             h("div", { className: "bees-muted" }, this.state.error),
             h("div", { className: "bees-card-actions" },

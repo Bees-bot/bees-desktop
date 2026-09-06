@@ -88,7 +88,7 @@ function SystemInstructionsSettings({ preferences, instructions }) {
 export function AccountSignInButtons({ disabled = false, onStart }) {
   return h("div", { className: "bees-account-auth" },
     h(Button, { disabled,
-      onClick: () => onStart("google_start", { provider: "google" }) }, "Sign up/in with Google"),
+      onClick: () => onStart("social_start", { provider: "google" }) }, "Sign up/in with Google"),
     h(Button, { disabled,
       onClick: () => onStart("social_start", { provider: "github" }) }, "Sign up/in with GitHub"),
     h(Button, { disabled, onClick: async () => {
@@ -109,14 +109,14 @@ export function AccountsPage({ reload }) {
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
-      const before = new Map((data?.accounts ?? []).map(({ userId, enabled }) => [userId, enabled]));
+      const before = new Map((data?.accounts ?? []).map(({ userId, updatedAt }) => [userId, updatedAt]));
       const { url } = await collaboration(action, values);
       await openExternal(url);
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         const next = await collaboration();
-        if ((next.accounts ?? []).some(({ userId, enabled }) =>
-          !before.has(userId) || before.get(userId) === false && enabled)) {
+        if ((next.accounts ?? []).some(({ userId, updatedAt }) =>
+          before.get(userId) !== updatedAt)) {
           setData(next); setError(""); await reload(); return;
         }
       }

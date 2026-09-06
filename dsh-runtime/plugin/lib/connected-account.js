@@ -227,12 +227,6 @@ export class ConnectedAccount {
     return this.authenticate("/api/auth/sign-up/email", { name, email, password });
   }
 
-  signInWithGoogle(idToken, nonce) {
-    return this.authenticate("/api/auth/sign-in/social", {
-      provider: "google", idToken: { token: idToken, nonce }
-    });
-  }
-
   /** A background sync is a poor reason to sign someone out. A revoked token fails every
    *  time and still gets here; one 401 during a deploy or a token rotation should not. */
   async rejectSync(account) {
@@ -489,7 +483,8 @@ export class ConnectedAccount {
   }
 
   async summary() {
-    let accounts = this.accounts().map(({ userId, email, name, enabled }) => ({ userId, email, name, enabled }));
+    let accounts = this.accounts().map(({ userId, email, name, enabled, updatedAt }) =>
+      ({ userId, email, name, enabled, updatedAt }));
     const auth = await this.authConfig();
     if (!accounts.length) return {
       account: null, accounts: [], connections: [], organizations: [], invitations: [], auth
@@ -497,7 +492,8 @@ export class ConnectedAccount {
     let invitations = [];
     try {
       await this.sync();
-      accounts = this.accounts().map(({ userId, email, name, enabled }) => ({ userId, email, name, enabled }));
+      accounts = this.accounts().map(({ userId, email, name, enabled, updatedAt }) =>
+        ({ userId, email, name, enabled, updatedAt }));
       for (const account of accounts.filter(({ enabled }) => enabled)) {
         const result = await this.request("/api/me/organization-invitations", {
           accountUserId: account.userId

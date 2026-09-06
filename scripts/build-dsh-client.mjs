@@ -11,7 +11,7 @@ await build({
   bundle: true,
   format: "iife",
   platform: "browser",
-  loader: { ".css": "text" },
+  loader: { ".css": "text", ".png": "dataurl" },
   plugins: [{
     name: "dsh-react-singleton",
     setup(build) {
