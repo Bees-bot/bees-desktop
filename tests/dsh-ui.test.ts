@@ -134,7 +134,8 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('flex-direction: row !important');
     expect(client).toContain('overflow-x: auto !important');
     expect(client).toContain('gap: 12px !important');
-    expect(client).toContain('.bees-column { flex: 0 0 300px !important; background: var(--dsw-specific-sidebar-fill) !important;');
+    expect(client).toContain('.bees-column{flex:1 0 240px;');
+    expect(client).toContain('.bees-column { background: var(--dsw-specific-sidebar-fill) !important;');
     expect(client).toContain('.bees-cockpit-board { display: flex !important;');
     expect(client.match(/sizeToContent: true/g)).toHaveLength(4);
     expect(client).toContain('.bees-work-item-grid .bees-convo-history,');
