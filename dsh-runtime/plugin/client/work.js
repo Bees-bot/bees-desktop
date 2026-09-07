@@ -411,7 +411,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
-      : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
+      : h("div", { style: { height: "100%", display: "flex", flexDirection: "column" } },
         run ? h("iframe", {
           src: `/bees-api/harness?executionId=${run.id}`,
           style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
