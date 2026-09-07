@@ -1200,8 +1200,14 @@ export const workItemStatus = (item) => isScheduleDefinition(item)
 
 export function runTitle(data, run) {
   return data.items.find(({ id }) => id === run.workItemId)?.title ??
-    (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
+    (run.mode === "planning" && run.purpose ? `Plan outcome: ${planLabel(run.purpose)}` : "Agent run");
 }
+
+/** A plan's purpose is the whole prompt someone typed: many lines, reference markup, sometimes an
+ *  API key pasted in a curl. A row label is one short line, so take one short line. */
+const planLabel = (purpose) => clip(String(purpose)
+  .replace(/([$@])\[([^\]\n]{1,160})\]\(bees:[^)\s]+\)/gu, "$1$2")
+  .split("\n")[0].replace(/\s+/g, " ").trim(), 80);
 
 /** Cut on characters, not code units, or a slice can land inside an emoji and render as a box. */
 export const clip = (text, limit) => [...String(text ?? "")].slice(0, limit).join("");
