@@ -697,6 +697,8 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     try {
       await pending.answer({ answers: questions.map((item, itemIndex) => {
         const answer = nextDrafts[itemIndex];
+        // A skip used to send an empty selection, which reads as no reply at all, so the agent asked again.
+        if (answer.skipped) return { id: item.id, selected: [], custom: "Skipped: the owner chose not to answer this. Continue without it." };
         return { id: item.id, selected: answer.selected, ...(answer.custom.trim() ? { custom: answer.custom.trim() } : {}) };
       }) });
       onAnswered(wait.key);
