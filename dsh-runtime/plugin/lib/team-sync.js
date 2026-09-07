@@ -382,6 +382,9 @@ function applyRecurring(database, record) {
 function applyItem(database, record) {
   if (!newer(database, "work_items", record.recordId, record.version)) return;
   const p = record.payload;
+  // A new row starts unparented because the parent may arrive later in this batch; the pass in
+  // applyTeamRecords links it once the parent is confirmed. An update must leave an existing
+  // link alone, or any later metadata change would orphan a child that was already correct.
   // Older clients omit settings. Do not let their metadata updates erase a goal's restrictions.
   const priorSettings = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
     .get(record.recordId)?.settings;
@@ -394,7 +397,7 @@ function applyItem(database, record) {
        output_location_id, recurring_work_id, account_user_id, archived_at, deleted_at, created_at, updated_at, run_settings_json)
     VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, stage_id = excluded.stage_id,
-      parent_id = NULL, kind = excluded.kind, title = excluded.title, description = excluded.description,
+      kind = excluded.kind, title = excluded.title, description = excluded.description,
       owner = excluded.owner, agent_assignment_id = excluded.agent_assignment_id,
       agent_ids_json = excluded.agent_ids_json,
       priority = excluded.priority, runtime_phase = excluded.runtime_phase,
