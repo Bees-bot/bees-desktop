@@ -458,9 +458,15 @@ export class ProcessRuntime {
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
-    if (type === "cancel") await handle.cancel();
-    else await handle.signal(type);
-    const phase = type === "pause" ? "paused" : type === "cancel" ? "cancelled" : "running";
+    if (type === "cancel") {
+      // Temporal only accepts the request here; the activity keeps running until it checks the
+      // signal. Writing "cancelled" now would claim the work stopped while an agent is still
+      // acting in the person's name, so the workflow's own project() records it when it really has.
+      await handle.cancel();
+      return item;
+    }
+    await handle.signal(type);
+    const phase = type === "pause" ? "paused" : "running";
     this.database.prepare(`
       UPDATE work_items SET runtime_phase = ?, runtime_error = NULL, updated_at = ? WHERE id = ?
     `).run(phase, new Date().toISOString(), workItemId);

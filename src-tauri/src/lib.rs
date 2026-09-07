@@ -362,15 +362,21 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     if let Some(current) = managed.as_mut() {
         if current.runtime_root == runtime && current.child.alive()? && current.temporal.alive()? {
             let base_url = format!("http://127.0.0.1:{}", current.port);
-            wait_ready(
+            // A sidecar whose process is alive but has stopped answering has to be replaced.
+            // Returning the error here left it in state, so every retry waited on the same dead
+            // process again and a fresh one was never started until the app was quit.
+            if wait_ready(
                 &mut current.child,
                 &format!("{base_url}/healthz"),
                 &state_dir(app)?.join("runtime.log"),
-            )?;
-            return Ok(DshRuntimeInfo {
-                base_url,
-                token: current.token.clone(),
-            });
+            )
+            .is_ok()
+            {
+                return Ok(DshRuntimeInfo {
+                    base_url,
+                    token: current.token.clone(),
+                });
+            }
         }
         *managed = None;
     }
