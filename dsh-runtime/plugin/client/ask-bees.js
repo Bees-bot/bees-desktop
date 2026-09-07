@@ -57,7 +57,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
         : h("p", { className: "bees-muted" }, "Bees is choosing an existing process and checking for any missing setup. The proposed work appears here for you to apply."),
       h(Button, { onClick: () => setPlanning("") }, "Back to the form"));
 
-  return h("div", { className: "bees-ask-setup", style: { maxWidth: 640, margin: "0 auto", padding: "16px 0" } },
+  return h("div", { className: "bees-ask-setup" },
     h("div", { hidden: Boolean(manage) },
       h(Button, { onClick: onBack, disabled: busy }, "← Back to Home"),
       h("header", { className: "bees-ask-heading", style: { marginTop: 16, marginBottom: 24 } },

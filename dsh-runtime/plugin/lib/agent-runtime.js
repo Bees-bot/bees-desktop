@@ -48,6 +48,9 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
 - Never create Approve, Reject, Continue, or Stop choices with ask_user_question.
+- Ask for everything you are missing in one call, one entry per item, not a fresh question after each answer.
+- A skipped preference is not a blocker: take the widest safe default, keep every limit the person did set, say what you assumed, and never ask it again. Never fail a stage over a missing preference. Information or a sign-in the work genuinely cannot proceed without is not a preference.
+- A skip grants nothing. It does not widen what the task already authorised, and it is never the approval for an action that needs one.
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";

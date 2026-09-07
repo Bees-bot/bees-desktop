@@ -2,7 +2,7 @@ import { h, useEffect, useState } from "./runtime.js";
 import { Button } from "./shared.js";
 import { AgentModelSelect } from "./agents.js";
 
-export const SAMPLE_BRIEF = `Project: launch a neighborhood repair café in four weeks.
+const SAMPLE_BRIEF = `Project: launch a neighborhood repair café in four weeks.
 Budget: $600. Venue: library meeting room, free on Saturdays.
 People: Maya coordinates volunteers, Jules handles publicity, Sam manages supplies.
 We have five volunteers, but only two have confirmed availability.
@@ -10,7 +10,7 @@ Bring small household items; exclude mains electrical repairs until a qualified 
 Need a booking form, safety checklist, supply list, and an announcement.
 Open questions: insurance requirements, opening hours, and how many bookings we can safely accept.`;
 
-export const STARTER_TASKS = [
+const STARTER_TASKS = [
   { id: "plan", title: "Turn notes into an action plan", prompt: "Create a practical launch plan from the brief. Include milestones, owners, budget, risks, and decisions that need my input." },
   { id: "review", title: "Find risks and missing decisions", prompt: "Review the brief for gaps and risks. Prioritize the five most important issues and propose concrete next actions." },
   { id: "brief", title: "Write a one-page project brief", prompt: "Turn the brief into a clear one-page project summary with the goal, constraints, responsibilities, and next steps." }

@@ -411,7 +411,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
-      : h("div", { style: { height: "100%", minHeight: "500px", display: "flex", flexDirection: "column" } },
+      : h("div", { style: { height: "100%", display: "flex", flexDirection: "column" } },
         run ? h("iframe", {
           src: `/bees-api/harness?executionId=${run.id}`,
           style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
@@ -697,6 +697,8 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     try {
       await pending.answer({ answers: questions.map((item, itemIndex) => {
         const answer = nextDrafts[itemIndex];
+        // an empty selection reads as no reply, so the agent asks the same thing again; name the skip instead
+        if (answer.skipped) return { id: item.id, selected: [], custom: "Skipped." };
         return { id: item.id, selected: answer.selected, ...(answer.custom.trim() ? { custom: answer.custom.trim() } : {}) };
       }) });
       onAnswered(wait.key);
@@ -793,8 +795,7 @@ export const pendingInteractionFor = (waiting, sessionId, handled) => {
   return pending && !handled.has(pending.key) ? pending : undefined;
 };
 
-const interactionName = (kind) => kind === "approval" ? "Approval"
-  : kind === "work-review" ? "Work review" : kind === "plan-review" ? "Plan review" : "Question";
+const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "work-review" ? "Work review" : "Question";
 
 function NeedsYouControls({ item, act, onDone }) {
   const [busy, setBusy] = useState("");
