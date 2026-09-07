@@ -13,7 +13,7 @@ describe("DSH Agent Teams discussions", () => {
     expect(stages.map(({ name }) => name)).toEqual(["Work", "Review", "Done"]);
     const worker = database.prepare("SELECT id FROM agent_assignments WHERE system_role = 'worker'").get()!;
     const reviewer = database.prepare("SELECT id FROM agent_assignments WHERE system_role = 'reviewer'").get()!;
-    expect(database.prepare("SELECT count(*) AS n FROM agent_assignments").get()!.n).toBe(2);
+    expect(database.prepare("SELECT count(*) AS n FROM agent_assignments").get()!.n).toBe(6);
     const route = () => database.prepare("SELECT * FROM stage_routes WHERE stage_id = ?").get(String(stages[0]!.id))!;
     expect(JSON.parse(String(route().agent_ids_json))).toEqual([worker.id, reviewer.id]);
 
@@ -83,7 +83,7 @@ describe("DSH Agent Teams discussions", () => {
     const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
     const stageId = String(database.connection.prepare("SELECT id FROM stages WHERE name = 'Work' LIMIT 1").get()!.id);
     const agents = database.connection.prepare(`
-      SELECT id FROM agent_assignments WHERE workspace_id = ? ORDER BY system_role
+      SELECT id FROM agent_assignments WHERE workspace_id = ? AND system_role IS NOT NULL ORDER BY system_role
     `).all(workspaceId).map(({ id }) => String(id));
     database.connection.prepare("UPDATE stages SET driver = 'discussion' WHERE id = ?").run(stageId);
     database.connection.prepare(`
@@ -198,7 +198,7 @@ describe("DSH Agent Teams discussions", () => {
     expect(team).toContain("request.agentOptions ? { agentOptions: request.agentOptions }");
   });
 
-  it("keeps Agent Team controls while blocking one-shot delegation", async () => {
+  it("keeps Agent Team controls and exposes tracked delegation", async () => {
     const database = new NodeDatabase();
     const runtime: any = new AgentRuntime({
       on: () => () => undefined,
@@ -225,7 +225,7 @@ describe("DSH Agent Teams discussions", () => {
     expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "subagent_fork"]));
     for (const teamTool of ["send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent"])
       expect(restrictions.flat()).not.toContain(teamTool);
-    expect(tools.map(({ name }) => name)).not.toContain("bees_delegate_work");
+    expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
   });
 
   it("seats native DSH peers and refuses a conclusion until each one pitches", async () => {
