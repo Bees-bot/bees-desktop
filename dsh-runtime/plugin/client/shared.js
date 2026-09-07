@@ -844,6 +844,26 @@ export const css = `
 .bees-work-files>p{margin:0}
 .bees-work-files>.bees-resource-list{grid-template-columns:minmax(0,1fr)}
 .bees-output-directory{display:grid;gap:20px;min-width:0}
+.bees-output-path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;white-space:normal;overflow-wrap:anywhere;word-break:break-all;user-select:all;color:var(--dsw-alias-label-secondary);padding:5px 8px;margin:4px 0 8px 0;background:var(--dsw-alias-bg-base);border-radius:6px;border:1px solid var(--dsw-alias-border-l1)}
+.bees-file-row{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border-radius:6px;transition:background .15s}
+.bees-file-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.bees-file-row.active{background:#f2b84b22}
+.bees-file-row.active .bees-directory-file{background:transparent}
+.bees-file-row.active .bees-file-action-btn{background:transparent;border-color:transparent}
+.bees-file-row-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.bees-file-action-btn{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;font-size:11px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
+.bees-file-action-btn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--bees-accent,#f2b84b)}
+.bees-file-action-btn svg{width:12px;height:12px}
+.bees-open-explorer{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;font-size:11px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;flex-shrink:0}
+.bees-open-explorer:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--bees-accent,#f2b84b)}
+.bees-open-explorer svg{width:13px;height:13px}
+.bees-location-summary-with-action{display:flex!important;align-items:center;justify-content:space-between;gap:8px;width:100%}
+.bees-location-summary-label{display:inline-flex;align-items:center;gap:7px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bees-location-action-wrap{display:inline-flex;align-items:center;flex-shrink:0;margin-left:auto}
+.bees-location-file-row{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}
+.bees-inline-preview{margin:6px 0 10px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);overflow:hidden}
+.bees-file-preview-inline{max-height:450px;display:flex;flex-direction:column}
+.bees-file-preview-inline .bees-file-preview-body{max-height:380px;overflow:auto;padding:12px}
 .bees-output-run{min-width:0}
 .bees-output-run-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
 .bees-output-run-head>h3{margin:0;font-size:12px;font-weight:600;overflow-wrap:anywhere}
@@ -861,7 +881,7 @@ export const css = `
 .bees-work-files>div>h3{font-size:13px;margin:8px 0}
 .bees-directory-file{display:block;width:100%;padding:7px 8px;border:0;border-radius:6px;text-align:left;color:inherit;background:transparent;font:inherit;overflow-wrap:anywhere;cursor:pointer}
 .bees-directory-file:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.bees-directory-file.active{background:#f2b84b22;box-shadow:inset 2px 0 #f2b84b}
+.bees-directory-file.active{background:#f2b84b22}
 .bees-file-preview{display:flex;flex-direction:column;overflow:hidden}
 .bees-file-preview-head{flex-shrink:0;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .bees-file-preview-head>svg{flex-shrink:0;color:var(--dsw-alias-label-secondary)}

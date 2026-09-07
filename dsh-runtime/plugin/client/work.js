@@ -403,9 +403,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         ) : null,
 
         h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
-          outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId })
+          outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId, act })
       ) : activeTab === "files" ? h(React.Fragment, null,
-        h(WorkFiles, { key: item.id, runs: itemRuns, filesRef })
+        h(WorkFiles, { key: item.id, runs: itemRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
