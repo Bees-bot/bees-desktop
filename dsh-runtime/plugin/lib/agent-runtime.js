@@ -1369,15 +1369,20 @@ export class AgentRuntime {
     }
     const submissionId = randomUUID();
     const at = new Date().toISOString();
-    this.database.prepare(`
-      INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run(payload.idempotencyKey, executionId, submissionId, at);
     const activeStatus = recovery && ["waiting_for_input", "waiting_for_approval"].includes(previousStatus)
       ? previousStatus : "running";
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-      .run(activeStatus, at, executionId);
-    this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+    // One unit: a crash between the delivery and the queue delete used to leave a delivery row with
+    // no outcome and no queue row, and the next admit returned that row instead of starting a
+    // session. The run then sat at running for ever with nothing able to clear it.
+    transaction(this.database, () => {
+      this.database.prepare(`
+        INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(payload.idempotencyKey, executionId, submissionId, at);
+      this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
+        .run(activeStatus, at, executionId);
+      this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+    });
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,

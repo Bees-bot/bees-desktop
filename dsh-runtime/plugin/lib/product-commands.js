@@ -452,6 +452,13 @@ export async function executeProductCommand(action, input) {
         throw new Error("Recurring work requires an automatic process");
       const name = required(input.name, "Recurring work name").slice(0, 120);
       const schedule = recurringSchedule(input);
+      // apply_proposal commits each change on its own and can be re-applied after a later one
+      // fails, so without this a retry mints a second live schedule firing the same work twice.
+      const existing = this.database.prepare(`
+        SELECT id, source_work_item_id AS sourceWorkItemId FROM recurring_work
+        WHERE workspace_id = ? AND name = ? AND status = 'active'
+      `).get(item.workspaceId, name);
+      if (existing) return { ...existing, reused: true };
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
       const temporalScheduleId = `bees/recurring/${id}`;

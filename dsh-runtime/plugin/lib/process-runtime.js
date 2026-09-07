@@ -485,7 +485,12 @@ export class ProcessRuntime {
     `).get(workItemId)) throw new Error("Pause recurring work before archiving its work item");
     // Archiving hides the whole tree, so delegated work still in flight has to stop with it.
     // Cancelling only the root left a child running behind a screen nobody could see.
-    if (!restore) for (const id of this.cancellableTree(workItemId)) await this.signal(id, "cancel");
+    // One child whose cancel fails must not abort the archival: the rest of the tree would stay
+    // running behind a screen nobody can see, which is the thing cancelling here exists to prevent.
+    if (!restore) for (const id of this.cancellableTree(workItemId)) {
+      try { await this.signal(id, "cancel"); }
+      catch (error) { this.logger.warn?.(`bees: could not cancel ${id} while archiving: ${message(error)}`); }
+    }
     const at = new Date().toISOString();
     this.database.prepare(`
       WITH RECURSIVE tree(id) AS (
