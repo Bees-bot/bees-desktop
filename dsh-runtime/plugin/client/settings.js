@@ -3,7 +3,7 @@ import {
   React, SubscriptionSettings, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, openExternal, request,
+  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, openExternal, request, useSubmit,
   THEME_PRESETS, usePreference
 } from "./shared.js";
 import { SystemDefaultSettings } from "./agents.js";
@@ -195,7 +195,7 @@ function OrganizationsSettings({ reload, openOrganization }) {
       },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.organizationName),
           h("div", { className: "bees-muted" },
-            `${invitation.accountEmail} · ${invitation.role} · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
+            [invitation.accountEmail, invitation.role, invitation.expiresAt ? `expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "no expiry date"].join(" · "))),
         h(Button, { className: "primary", disabled: busy,
           onClick: () => accept(invitation) }, "Accept")))
         : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
@@ -288,15 +288,14 @@ function OrganizationSettings({
     }
     return () => { active = false; };
   }, [organization?.id, organization?.connected, organization?.role, connectionId, route]);
-  const invite = async (event) => {
-    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
+  const [inviting, invite] = useSubmit(async (event) => {
+    const formElement = event.currentTarget; const form = new FormData(formElement);
     try { setPeople(await collaboration("invite_organization_member", {
       organizationId: organization.id, connectionId,
       email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); formElement.reset(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
-  const registerSso = async (event) => {
-    event.preventDefault();
+  });
+  const [registeringSso, registerSso] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     try {
       setSso(await collaboration("register_organization_sso", {
@@ -314,7 +313,7 @@ function OrganizationSettings({
       }));
       setError(""); event.currentTarget.reset();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
+  });
   const removeSso = async (providerId) => {
     if (!await confirmAction(`Remove enterprise sign-in provider “${providerId}”?`)) return;
     try {
@@ -437,10 +436,10 @@ function OrganizationSettings({
         h("form", { className: "bees-form-row", onSubmit: invite },
           h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
           h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-          h("button", { className: "bees-btn primary" }, "Send invitation")),
+          h("button", { className: "bees-btn primary", disabled: inviting }, inviting ? "Sending…" : "Send invitation")),
         ...(people.invitations.length ? people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
           h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.email),
-            h("div", { className: "bees-muted" }, `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}`)),
+            h("div", { className: "bees-muted" }, invitation.expiresAt ? `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "Pending")),
           h("span", { className: "bees-badge" }, invitation.role)))
           : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
       failure);
@@ -482,7 +481,7 @@ function OrganizationSettings({
           : h(React.Fragment, null,
             h("label", null, "IdP sign-in URL", h("input", { className: "bees-input", name: "entryPoint", type: "url", required: true })),
             h("label", null, "IdP signing certificate", h("textarea", { className: "bees-input", name: "cert", rows: 6, required: true }))),
-        h(Button, { type: "submit", className: "primary" }, "Add identity provider"))),
+        h(Button, { type: "submit", className: "primary", disabled: registeringSso }, registeringSso ? "Adding…" : "Add identity provider"))),
     failure);
 }
 
@@ -537,12 +536,12 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
   if (!people) return h("div", { className: "bees-stack" },
     h(Empty, null, error || "Loading team members…"), dangerZone);
-  const add = async (event) => {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+  const [adding, add] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
     try { setPeople(await collaboration("add_team_member", { teamId: team.id, connectionId,
       userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
+  });
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, `${team.name} members`),
       ...people.members.map((member) => h("div", { className: "bees-row", key: member.id },
@@ -554,7 +553,7 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
         h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId" },
           ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
         h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-        h("button", { className: "bees-btn primary" }, "Add member")) : h(Empty, null, "Every active organization member is already on this team")),
+        h("button", { className: "bees-btn primary", disabled: adding }, adding ? "Adding…" : "Add member")) : h(Empty, null, "Every active organization member is already on this team")),
     dangerZone,
     failure);
 }

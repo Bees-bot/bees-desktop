@@ -1190,6 +1190,13 @@ const changeLine = (change) => {
 
 export function ProposalCard({ proposal, onApply, onDismiss }) {
   const references = proposal.changes.find((change) => change.references?.length)?.references ?? [];
+  // Applying builds real work. Without this a second click while the first was in flight made two.
+  const [busy, setBusy] = useState("");
+  const once = (label, run) => async () => {
+    if (busy) return;
+    setBusy(label);
+    try { await run(); } finally { setBusy(""); }
+  };
   return h("article", { className: "bees-dashboard-proposal" },
     h("strong", null, proposal.title),
     proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
@@ -1199,8 +1206,9 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
       h("ul", null, ...references.map((reference) => h("li", { key: `${reference.kind}:${reference.id}` },
         `${reference.label} · ${reference.kind.replaceAll("-", " ")}`)))) : null,
     h("div", { className: "bees-card-actions" },
-      h(Button, { className: "primary", onClick: onApply }, "Apply"),
-      h(Button, { onClick: onDismiss }, "Dismiss")));
+      h(Button, { className: "primary", disabled: Boolean(busy), onClick: once("apply", onApply) },
+        busy === "apply" ? "Applying…" : "Apply"),
+      h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
