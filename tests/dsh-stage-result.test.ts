@@ -224,12 +224,24 @@ describe("DSH stage results", () => {
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
       mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
-      workItemId: "parent", grants: [], workspaceId: workspace.id, discussionMembers: [],
+      workItemId: "parent", grants: [], workspaceId: workspace.id, discussionMembers: [{ name: "participant-1", description: "CTO" }],
     }, "run", "/tmp");
+    let peerStatus = "running";
+    runtime.ctx.agentTeams = { listMembers: () => [{ id: "cto-seat", name: "participant-1", status: peerStatus }] };
+    const lead = { agent: { session: { id: "session", header: {}, snapshotEvents: () => [{
+      type: "team/message/queued", data: { message: { senderId: "cto-seat", targetId: "session" } }
+    }] } } };
+    const delegate = tools.find(({ name }) => name === "bees_delegate_work");
+    await expect(delegate.execute({ items_json: '[{"title":"Write first"}]' }, lead)).rejects.toThrow("still working");
+    expect(create).not.toHaveBeenCalled();
+    peerStatus = "idle";
+    await expect(delegate.execute({ items_json: '[{"title":"Write first"}]' }, {
+      agent: { session: { header: { parentSession: "session" } } }
+    })).rejects.toThrow("Only the lead");
 
     const result = await tools.find(({ name }) => name === "bees_delegate_work").execute({
       items_json: JSON.stringify([{ title: "Write first" }]),
-    }, { agent: { session: { id: "session" } } });
+    }, lead);
 
     expect(create).toHaveBeenCalledWith({
       parentId: "parent", items: [{ title: "Write first" }],

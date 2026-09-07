@@ -25,8 +25,8 @@ async function setup() {
   const product = new BeesProduct(database, runtime, stages, root, { capabilities });
   const { id: workspaceId, team_id: teamId } = database.prepare("SELECT id, team_id FROM workspaces LIMIT 1").get() as { id: string; team_id: string };
   const resolve = (text: string) => resolveReferences(database, workspaceId, text);
-  expect(() => resolve("$ceo do the work")).toThrow("unavailable");
-  const agent = await product.command({ action: "add_agent_assignment", workspaceId, presetId: "standard", name: "CEO" });
+  expect(() => resolve("$missing-agent do the work")).toThrow("unavailable");
+  const agent = database.prepare("SELECT id FROM agent_assignments WHERE workspace_id = ? AND name = 'CEO'").get(workspaceId) as { id: string };
   const researcher = await product.command({ action: "add_agent_assignment", workspaceId, presetId: "standard", name: "Field Researcher" });
   database.prepare("UPDATE users SET name = 'Vinay'").run();
   const work = await product.command({ action: "create_goal", workspaceId, title: "Pricing Proposal", description: "Charge 25 per seat." });

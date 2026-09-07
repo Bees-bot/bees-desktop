@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { EXECUTIVE_AGENTS } from "./executive-agents.js";
 
 export const DEFAULT_WORKSPACE_NAME = "Default workspace";
 
@@ -200,6 +201,16 @@ export function activeAgentRuns(database, agentId) {
 }
 
 function ensureAgentDefaults(database, workspaceId, at = iso()) {
+  for (const agent of EXECUTIVE_AGENTS) {
+    // Stable identities preserve edits (including renames and disabling) on restart and sync.
+    database.prepare(`INSERT OR IGNORE INTO agent_assignments
+      (id, workspace_id, preset_id, name, description, instructions, capabilities_json, created_at, updated_at)
+      SELECT ?, ?, 'standard', ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (
+        SELECT 1 FROM agent_assignments WHERE workspace_id = ? AND name = ? COLLATE NOCASE
+      )`).run(stableUuid(`${workspaceId}:executive:${agent.name}`), workspaceId,
+        agent.name, agent.description, agent.instructions, JSON.stringify(agent.capabilities), at, at,
+        workspaceId, agent.name);
+  }
   if (!defaultAssignment(database, workspaceId, "worker")) {
     const existing = database.prepare(`
       SELECT id FROM agent_assignments WHERE workspace_id = ? AND name = 'Bees work agent' LIMIT 1
