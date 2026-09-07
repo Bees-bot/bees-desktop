@@ -56,6 +56,8 @@ export async function processWorkflow(input) {
     phase: "running",
     attempt: 1,
     reviewCycle: 0,
+    // attempt keeps climbing so every session id stays unique; this one is what maxAttempts means
+    revisions: 0,
     executionId: null,
     error: null
   };
@@ -139,10 +141,12 @@ export async function processWorkflow(input) {
       if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
+        state.revisions = 0;
         index += 1;
         continue;
       }
       if (purpose === "reviewer" && result.outcome === "pass") {
+        state.revisions = 0;
         index += 1;
         continue;
       }
@@ -153,8 +157,9 @@ export async function processWorkflow(input) {
         // With no worker stage behind it there is nothing to revise, so a human has to look.
         if (worker < 0) { await waitForRetry(feedback || "Review asked for a revision with no worker stage before it"); continue; }
         index = worker;
-        if (state.attempt >= input.maxAttempts) await waitForRetry(feedback || "Review requested another revision");
-        else state.attempt += 1;
+        state.revisions += 1;
+        state.attempt += 1;
+        if (state.revisions >= input.maxAttempts) await waitForRetry(feedback || "Review requested another revision");
         continue;
       }
       await waitForRetry(`The ${stage.name} agent returned an invalid outcome`);

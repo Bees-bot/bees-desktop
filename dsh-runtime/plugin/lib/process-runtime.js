@@ -14,6 +14,9 @@ export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
 
 const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
+/** How many times startup may resume the same interrupted wait before a person decides. */
+const AUTO_RESUME_LIMIT = 3;
+
 export class ProcessRuntime {
   constructor(database, options = {}) {
     this.database = database;
@@ -368,11 +371,20 @@ export class ProcessRuntime {
         )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
     `).all();
+    // A heartbeat timeout usually means the app died mid-wait, so resuming it is right. But a stage
+    // that really does hang every time never increments its attempt, so without a ceiling this
+    // re-ran it on every single launch, spending the agent's time again with nothing said.
     const interruptedWaits = this.database.prepare(`
       SELECT w.id FROM work_items w
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
         AND w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
+        AND w.runtime_attempt < ${AUTO_RESUME_LIMIT}
     `).all();
+    // Counting the resume here is what stops it repeating: the workflow deliberately does not
+    // charge an attempt for an interrupted wait, so nothing else would ever move this number.
+    for (const { id } of interruptedWaits) {
+      this.database.prepare("UPDATE work_items SET runtime_attempt = runtime_attempt + 1 WHERE id = ?").run(id);
+    }
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
     for (const settled of await Promise.allSettled([
