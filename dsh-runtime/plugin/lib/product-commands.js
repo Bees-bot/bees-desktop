@@ -1028,7 +1028,13 @@ export async function executeProductCommand(action, input) {
           if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
         }
       } catch (error) {
-        this.database.prepare("UPDATE bees_proposals SET status = 'pending', updated_at = ? WHERE id = ?").run(at, proposalId);
+        // The proposal goes back to pending so it can be applied again, which means its secrets
+        // have to stay for the changes that have not run yet. The ones that did run already put
+        // their secrets in the credential store, so a second plaintext copy here is pure exposure.
+        const remaining = list.map((change, index) =>
+          results[index] === undefined ? change : { ...change, secrets: undefined });
+        this.database.prepare("UPDATE bees_proposals SET status = 'pending', changes_json = ?, updated_at = ? WHERE id = ?")
+          .run(JSON.stringify(remaining), at, proposalId);
         throw error;
       }
       this.database.prepare("UPDATE bees_proposals SET changes_json = ? WHERE id = ?")
