@@ -10,9 +10,9 @@ const DEFAULT_WIDGETS = [
 
 const DEFAULT_WORK_ITEM_WIDGETS = [
   { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-  { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
-  { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
-  { kind: "details", x: 6, y: 6, w: 6, h: 8 }
+  { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
+  { kind: "conversation", x: 0, y: 5, w: 6, h: 8 },
+  { kind: "details", x: 6, y: 5, w: 6, h: 8 }
 ];
 
 const number = (value, fallback, min, max) => {
@@ -29,7 +29,7 @@ function normalizeWidget(value) {
     x: Math.min(number(value.x, 0, 0, COLUMNS - 1), COLUMNS - w),
     y: number(value.y, 0, 0, 1000),
     w,
-    h: number(value.h, 4, 2, 20)
+    h: number(value.h, 4, kind === "run-status" ? 1 : 2, 20)
   };
 }
 

@@ -328,6 +328,15 @@ export const css = `
   overflow: auto !important;
 }
 
+.bees-flex-grid.editing .bees-flex-widget-drag-surface { cursor: grab; }
+
+/* Let GridStack measure the status content instead of the allocated row height. */
+.bees-work-item-grid [gs-id="run-status"] .bees-flex-widget-body { flex: none !important; }
+.bees-run-status-widget { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 58px; padding: 8px 12px; box-sizing: border-box; }
+.bees-run-status-summary { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.bees-run-status-summary .bees-detail-badge { flex-shrink: 0; }
+.bees-run-status-widget .bees-tab-actions { flex: 0 1 auto; margin-left: auto; align-self: center !important; }
+
 /* Kanban Board Top Widget */
 .bees-cockpit-board.bees-routing-board { min-height: 0 !important; flex: none; }
 .bees-cockpit-board { display: flex !important; flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important; gap: 12px !important; align-items: stretch !important; padding: 12px 14px !important; background: transparent !important; height: auto !important; min-height: 100% !important; }
