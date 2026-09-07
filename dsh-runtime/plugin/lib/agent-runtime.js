@@ -21,7 +21,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team for a discussion stage, use its team tools for discussion and follow-up instead.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest set of changes that lets Bees carry out the requested outcome. Inspect the existing resources in the brief before proposing anything new.
@@ -929,7 +929,7 @@ export class AgentRuntime {
         });
       }
     }));
-    if (data.mode === "work" && data.workItemId && !data.discussionMembers?.length)
+    if (data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
         description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same process lifecycle and works in this run's shared workspace while the caller waits.",
@@ -937,7 +937,7 @@ export class AgentRuntime {
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: "JSON array containing exactly one object shaped {title:string,description?:string}."
+            description: "JSON array containing exactly one object shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Include output paths and acceptance criteria in description. After a discussion, wait for all participants to report and become idle before delegating."
           }
         },
         output: {
@@ -950,6 +950,8 @@ export class AgentRuntime {
           render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
         },
         execute: async (args, exec) => {
+          if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead work agent can delegate tracked work");
+          this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
           let items;
           try { items = JSON.parse(args.items_json); }

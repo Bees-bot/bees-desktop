@@ -236,12 +236,8 @@ describe("Bees DSH product plugin", () => {
       const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
       const initial = await product.snapshot();
       const workspaceId = initial.workspaces[0].id;
-      const ceo = await product.command({
-        action: "add_agent_assignment", workspaceId, presetId: "standard", name: "CEO"
-      });
-      const cmo = await product.command({
-        action: "add_agent_assignment", workspaceId, presetId: "standard", name: "CMO"
-      });
+      const ceo = initial.assignments.find((agent: any) => agent.name === "CEO")!;
+      const cmo = initial.assignments.find((agent: any) => agent.name === "CMO")!;
       const cso = await product.command({
         action: "add_agent_assignment", workspaceId, presetId: "standard", name: "CSO"
       });
