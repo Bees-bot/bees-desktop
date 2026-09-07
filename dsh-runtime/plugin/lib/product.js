@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import {
   agentCapabilities, assignment as findAssignment, currentIdentity, initializeProductDatabase, iso, itemContext, mcpGrantFor, message,
@@ -429,13 +429,17 @@ export class BeesProduct {
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE workspace_id IN (SELECT value FROM json_each(?))
       ORDER BY updated_at DESC LIMIT 200
-    `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => ({
-      ...run, resolvedAgentIds: JSON.parse(resolvedAgentIds || "[]"),
-      pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
-      outputs: outputFiles(runDirectory),
-      files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
-        ? previewFiles(runDirectory) : []
-    })) : [];
+    `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => {
+      const outputsDir = resolve(runDirectory, "outputs");
+      return {
+        ...run, resolvedAgentIds: JSON.parse(resolvedAgentIds || "[]"),
+        pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
+        outputs: outputFiles(runDirectory),
+        outputsPath: existsSync(outputsDir) ? outputsDir : null,
+        files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
+          ? previewFiles(runDirectory) : []
+      };
+    }) : [];
     const proposals = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, dsh_session_id AS sessionId, title, summary,
              changes_json AS changes, status, created_at AS createdAt

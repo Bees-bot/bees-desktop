@@ -1,7 +1,7 @@
 import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
 import { showAgentBrowser } from "./agent-browser.js";
-import { mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   agentCapabilities, agentIds as normalizeAgentIds, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
@@ -1116,6 +1116,34 @@ export async function executeProductCommand(action, input) {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
       await showAgentBrowser();
+      return { opened: true };
+    }
+    if (action === "open_in_explorer") {
+      const targetPath = required(input.path, "Path");
+      if (!targetPath.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(targetPath))
+        throw new Error("Only absolute paths can be opened");
+      if (!existsSync(targetPath))
+        throw new Error("The path does not exist on this device");
+      const stat = lstatSync(targetPath);
+      const isFile = stat.isFile();
+      const { execFile } = await import("node:child_process");
+      const platform = process.platform;
+      let command;
+      let args;
+      if (platform === "darwin") {
+        command = "open";
+        args = isFile ? ["-R", targetPath] : [targetPath];
+      } else if (platform === "win32") {
+        command = "explorer";
+        args = isFile ? [`/select,${targetPath}`] : [targetPath];
+      } else {
+        command = "xdg-open";
+        const { dirname } = await import("node:path");
+        args = [isFile ? dirname(targetPath) : targetPath];
+      }
+      execFile(command, args, (error) => {
+        if (error) console.error("open_in_explorer:", error.message);
+      });
       return { opened: true };
     }
     if (action === "stop_run") {

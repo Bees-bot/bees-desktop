@@ -112,7 +112,7 @@ it("shows missing destinations and empty runs without configuration controls", (
   expect(preview).toContain('<dialog class="bees-file-dialog" aria-label="Full-screen file preview">');
 });
 
-it("opens files in the editor pane and returns to the explorer on close", () => {
+it("expands files inline below and collapses on toggle or close", () => {
   let viewer: any = null;
   const runs = [{ id: "run", status: "completed", updatedAt: 0, outputs: ["report.md"] }];
   const filesRef = { current: null };
@@ -121,15 +121,16 @@ it("opens files in the editor pane and returns to the explorer on close", () => 
   } : {});
   try {
     const initial = WorkFiles({ runs, filesRef });
-    const explorer = initial.props.children[0];
+    const explorer = initial.props.children;
     expect(explorer.ref).toBe(filesRef);
     const directory = explorer.props.children.props.children[1];
     directory.props.onOpen({ executionId: "run", path: "outputs/report.md" });
+    expect(viewer).toEqual({ executionId: "run", path: "outputs/report.md" });
     const opened = WorkFiles({ runs, filesRef });
-    expect(opened.props.className).toContain("bees-editor-open");
-    expect(opened.props.children[1].props.target.path).toBe("outputs/report.md");
-    opened.props.children[1].props.onClose();
-    expect(WorkFiles({ runs, filesRef }).props.className).not.toContain("bees-editor-open");
+    const openedDir = opened.props.children.props.children.props.children[1];
+    expect(openedDir.props.viewer).toEqual({ executionId: "run", path: "outputs/report.md" });
+    directory.props.onOpen(null);
+    expect(viewer).toBeNull();
   } finally {
     configureRuntime((id: string) => id === "react" ? React : {});
   }

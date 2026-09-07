@@ -1,7 +1,7 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard } from "./shared.js";
-import { addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
+import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup } from "./ask-bees.js";
 
@@ -143,10 +143,11 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
     }, root.current);
     if (!grid) return undefined;
     const save = () => {
-      const layout = grid.save(false);
+      const layout = saveGridLayout(grid);
       if (Array.isArray(layout)) onLayoutRef.current(layout);
     };
-    grid.on("dragstop resizestop", save);
+    // The stop event precedes GridStack's responsive-layout cache update.
+    grid.on("dragstop resizestop", () => queueMicrotask(save));
     gridRef.current = grid;
     return () => { gridRef.current = null; grid.offAll().destroy(false); };
   }, [dashboard.id, widgetKey]);

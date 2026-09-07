@@ -1,7 +1,7 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { Button, HelpTooltip } from "./shared.js";
-import { applyFixedLayout, fixedLayoutFrom } from "./dashboard-model.js";
+import { applyFixedLayout, fixedLayoutFrom, saveGridLayout } from "./dashboard-model.js";
 
 const EMPTY_PAGE_LAYOUTS = Object.freeze({});
 
@@ -21,15 +21,16 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
       animate: true,
       disableDrag: !editing,
       disableResize: !(editing || resizeAlways),
-      draggable: { handle: ".bees-flex-widget-handle" },
+      draggable: { handle: ".bees-flex-widget-handle, .bees-flex-widget-drag-surface", cancel: "a" },
       resizable: { handles: "e,se,s,sw,w" }
     }, root.current);
     if (!grid) return undefined;
     const save = () => {
-      const value = grid.save(false);
+      const value = saveGridLayout(grid);
       if (Array.isArray(value)) onLayoutRef.current(value);
     };
-    grid.on("dragstop resizestop", save);
+    // The stop event precedes GridStack's responsive-layout cache update.
+    grid.on("dragstop resizestop", () => queueMicrotask(save));
     gridRef.current = grid;
     return () => { gridRef.current = null; grid.offAll().destroy(false); };
   }, []);
@@ -57,13 +58,12 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-y": widget.y,
         "gs-w": widget.w,
         "gs-h": widget.h,
-        "gs-size-to-content": panel.sizeToContent || undefined,
         "gs-min-w": panel.minW ?? 3,
         "gs-min-h": panel.minH ?? 2
-      }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless && !editing ? "bees-flex-widget-borderless" : ""}` },
-        (!panel.hideHeader || editing) ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: panel.helpText, examples: panel.helpExamples }),
+      }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless ? "bees-flex-widget-borderless" : ""}` },
+        !panel.hideHeader ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: panel.helpText, examples: panel.helpExamples }),
           panel.actions ? h("div", { className: "bees-flex-widget-actions", onPointerDown: (event) => event.stopPropagation() }, panel.actions) : null) : null,
-        h("div", { className: "bees-flex-widget-body" }, panel.content)));
+        h("div", { className: `bees-flex-widget-body${panel.hideHeader ? " bees-flex-widget-drag-surface" : ""}` }, panel.content)));
     })
   );
 }

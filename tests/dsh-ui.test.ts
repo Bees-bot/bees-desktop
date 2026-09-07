@@ -114,7 +114,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('role: "tablist"');
     expect(client).toContain('role: "tabpanel"');
     expect(client).toContain('className: "bees-tab-actions"');
-    expect(client).toContain('"run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12');
+    expect(client).toContain('"run-status": { label: "Status & controls", hideHeader: true, minW: 12');
     const tabContents = client.slice(client.indexOf('const details = h('), client.indexOf('return h(FlexibleGrid,'));
     expect(tabContents).not.toContain('className: "bees-action-ribbon"');
     expect(tabContents).not.toContain('"Files & folders"');
@@ -127,9 +127,9 @@ describe("Bees work cockpit UI", () => {
     expect(client.match(/h\(UserMessage,/g)).toHaveLength(2);
   });
 
-  it("lets the Kanban grow with the page instead of scrolling inside its widget", () => {
-    expect(client).toContain('"gs-size-to-content": panel.sizeToContent || undefined');
-    expect(client).toContain('borderless: true, sizeToContent: true');
+  it("keeps work widgets at their chosen dimensions with scrollable content", () => {
+    expect(client).not.toContain('"gs-size-to-content"');
+    expect(client).toContain('borderless: true, minW: 6');
     expect(client).not.toContain('.bees-flex-widget-body>.bees-cockpit-board{height:100%');
     expect(client).toContain('flex-direction: row !important');
     expect(client).toContain('overflow-x: auto !important');
@@ -137,7 +137,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('.bees-cockpit-board .bees-column {');
     expect(client).toContain('flex: 1 1 260px !important');
     expect(client).toContain('.bees-cockpit-board { display: flex !important;');
-    expect(client.match(/sizeToContent: true/g)).toHaveLength(4);
+    expect(client).not.toContain("sizeToContent: true");
     expect(client).toContain('.bees-work-item-grid .bees-convo-history,');
     expect(client).toContain('return h("div", { style: { display: "flex", flexDirection: "column" } },');
   });

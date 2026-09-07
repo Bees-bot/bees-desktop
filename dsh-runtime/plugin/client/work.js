@@ -352,8 +352,16 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         }),
         h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")
       ));
-  const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status", style: { display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 8px", gap: "6px", height: "100%", overflow: "hidden" } },
-      h("div", { className: "bees-tab-actions", style: { margin: 0, padding: 0, justifyContent: "flex-end", flexShrink: 0 } },
+  const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
+      h("div", { className: "bees-run-status-summary" },
+        h("span", { className: `bees-detail-badge ${item.runtimePhase}`, style: { margin: 0 } }, item.runtimePhase?.replaceAll("_", " ") || "pending"),
+        item.runtimeError ? h("span", { style: { color: "#f87171", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: item.runtimeError }, item.runtimeError)
+          : historyError ? h("span", { style: { color: "#f2b84b", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: historyError }, `Warning: ${historyError}`)
+          : activeChildren ? h("span", { className: "bees-muted", style: { fontSize: "11px" } }, `${activeChildren} delegated active`)
+          : item.parentId ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, "in ", data.items.find(i => i.id === item.parentId)?.title)
+          : latestResult ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, `Agent update: ${OUTCOME_LABELS[latestResult.resultOutcome] || "finished"}`) : null
+      ),
+      h("div", { className: "bees-tab-actions" },
         run && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
         run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
         run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
@@ -364,14 +372,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
           : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
           item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
-      ),
-      h("div", { style: { display: "flex", alignItems: "center", gap: "8px", overflow: "hidden", whiteSpace: "nowrap" } },
-        h("span", { className: `bees-detail-badge ${item.runtimePhase}`, style: { margin: 0 } }, item.runtimePhase?.replaceAll("_", " ") || "pending"),
-        item.runtimeError ? h("span", { style: { color: "#f87171", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: item.runtimeError }, item.runtimeError) 
-          : historyError ? h("span", { style: { color: "#f2b84b", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis" }, title: historyError }, `Warning: ${historyError}`)
-          : activeChildren ? h("span", { className: "bees-muted", style: { fontSize: "11px" } }, `${activeChildren} delegated active`)
-          : item.parentId ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, "in ", data.items.find(i => i.id === item.parentId)?.title) 
-          : latestResult ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, `Agent update: ${OUTCOME_LABELS[latestResult.resultOutcome] || "finished"}`) : null
       )
     );
 
@@ -403,9 +403,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         ) : null,
 
         h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
-          outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId })
+          outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId, act })
       ) : activeTab === "files" ? h(React.Fragment, null,
-        h(WorkFiles, { key: item.id, runs: itemRuns, filesRef })
+        h(WorkFiles, { key: item.id, runs: itemRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
@@ -425,10 +425,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     layout, editing, onLayout,
     className: "bees-work-item-grid",
     panels: {
-      kanban: { label: "Kanban", hideHeader: true, borderless: true, sizeToContent: true, minW: 6, minH: 2, content: board },
-      "run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12, minH: 1, content: controls },
-      conversation: { label: "Conversation", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: conversation },
-      details: { label: "Details", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: details }
+      kanban: { label: "Kanban", hideHeader: true, borderless: true, minW: 6, minH: 2, content: board },
+      "run-status": { label: "Status & controls", hideHeader: true, minW: 12, minH: 1, content: controls },
+      conversation: { label: "Conversation", hideHeader: true, minW: 3, minH: 4, content: conversation },
+      details: { label: "Details", hideHeader: true, minW: 3, minH: 4, content: details }
     }
   });
 }

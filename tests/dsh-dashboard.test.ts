@@ -1,6 +1,8 @@
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The DSH browser client is intentionally plain JavaScript.
-import { addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkItemLayout, dashboardsFrom, fixedLayoutFrom, workItemLayoutFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
+import { saveGridLayout, addDashboardWidget, applyDashboardLayout, applyFixedLayout, applyWorkItemLayout, dashboardsFrom, fixedLayoutFrom, workItemLayoutFrom } from "../dsh-runtime/plugin/client/dashboard-model.js";
+import { GridStackEngine } from "../dsh-runtime/node_modules/gridstack/dist/gridstack-engine.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
 
 describe("personal dashboards", () => {
@@ -65,17 +67,17 @@ describe("personal dashboards", () => {
   it("provides and sanitizes the fixed work-item layout", () => {
     expect(workItemLayoutFrom(undefined)).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
-      { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
-      { kind: "details", x: 6, y: 6, w: 6, h: 8 }
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
+      { kind: "conversation", x: 0, y: 5, w: 6, h: 8 },
+      { kind: "details", x: 6, y: 5, w: 6, h: 8 }
     ]);
     expect(workItemLayoutFrom([
       { kind: "details", x: 50, y: -1, w: 50, h: 1 },
       { kind: "unknown", x: 0, y: 0, w: 2, h: 2 }
     ])).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
-      { kind: "conversation", x: 0, y: 6, w: 6, h: 8 },
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
+      { kind: "conversation", x: 0, y: 5, w: 6, h: 8 },
       { kind: "details", x: 0, y: 0, w: 12, h: 2 }
     ]);
   });
@@ -86,14 +88,49 @@ describe("personal dashboards", () => {
       { id: "details", x: 7, y: 4, w: 5, h: 8 }
     ])).toEqual([
       { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
-      { kind: "run-status", x: 0, y: 4, w: 12, h: 2 },
-      { kind: "conversation", x: 0, y: 6, w: 7, h: 8 },
-      { kind: "details", x: 7, y: 6, w: 5, h: 8 }
+      { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
+      { kind: "conversation", x: 0, y: 5, w: 7, h: 8 },
+      { kind: "details", x: 7, y: 5, w: 5, h: 8 }
     ]);
-    expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle" }');
+    expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle, .bees-flex-widget-drag-surface", cancel: "a" }');
     expect(client).toContain("if (!element.gridstackNode) grid.makeWidget(element)");
     expect(client).toContain('preferences.set("workItemLayout"');
     expect(client).toContain('editing ? "Done" : "Edit layout"');
+  });
+
+  it("keeps headerless widget content identical while editing with a background drag handle", () => {
+    const source = client.slice(client.indexOf("export function FlexibleGrid("), client.indexOf("export function GridStackPage("));
+    const render = runInNewContext(source.replace("export function", "function") + "; FlexibleGrid", {
+      h: (tag: string, props: any, ...children: any[]) => ({ tag, props, children }),
+      useRef: (current: any) => ({ current }), useEffect: () => {}, HelpTooltip: () => {}
+    });
+    const props = {
+      layout: [{ kind: "board", x: 0, y: 0, w: 12, h: 4 }, { kind: "named", x: 0, y: 4, w: 12, h: 4 }],
+      panels: { board: { label: "Board", hideHeader: true, borderless: true, content: "Board content" },
+        named: { label: "Visible title", content: "Named content" } }, onLayout: () => {}
+    };
+    const editing = render({ ...props, editing: true });
+    expect(editing.children).toEqual(render({ ...props, editing: false }).children);
+    const board = editing.children[0].children[0];
+    expect(board.children[0]).toBeNull();
+    expect(board.children[1].props.className).toContain("bees-flex-widget-drag-surface");
+    expect(editing.children[1].children[0].children[0].tag).toBe("header");
+  });
+
+  it("round-trips real GridStack minimum dimensions without changing the saved layout", () => {
+    const engine = new GridStackEngine({ column: 12 });
+    const layout = [
+      { kind: "kanban", x: 0, y: 0, w: 12, h: 2, minW: 6, minH: 2 },
+      { kind: "run-status", x: 0, y: 2, w: 12, h: 1, minW: 12, minH: 1 },
+      { kind: "conversation", x: 0, y: 3, w: 7, h: 6, minW: 3, minH: 4 },
+      { kind: "details", x: 7, y: 3, w: 5, h: 4, minW: 3, minH: 4 }
+    ];
+    layout.forEach(({ kind, ...position }) => engine.addNode({ id: kind, ...position }));
+    const saved = saveGridLayout({ save: (_content: boolean, _options: boolean, callback: any) => engine.save(false, callback) });
+    const restored = workItemLayoutFrom(applyWorkItemLayout(saved));
+    expect(restored).toEqual(layout.map(({ minW, minH, ...widget }) => widget));
+    const grid = client.slice(client.indexOf("export function FlexibleGrid("), client.indexOf("export function GridStackPage("));
+    expect(grid).not.toContain("gs-size-to-content");
   });
 
   it("inserts status below a saved Kanban and preserves the migrated layout on reload", () => {
@@ -103,10 +140,18 @@ describe("personal dashboards", () => {
       { kind: "details", x: 7, y: 6, w: 5, h: 8 }, null
     ]);
     expect(migrated.find(({ kind }: any) => kind === "run-status"))
-      .toEqual({ kind: "run-status", x: 0, y: 6, w: 12, h: 2 });
+      .toEqual({ kind: "run-status", x: 0, y: 6, w: 12, h: 1 });
     expect(migrated.filter(({ kind }: any) => ["conversation", "details"].includes(kind))
-      .map(({ y }: any) => y)).toEqual([8, 8]);
+      .map(({ y }: any) => y)).toEqual([7, 7]);
     expect(workItemLayoutFrom(migrated)).toEqual(migrated);
+  });
+
+  it("preserves a compact status row when saving and reloading", () => {
+    const layout = workItemLayoutFrom(undefined);
+    const saved = applyWorkItemLayout(layout.map(({ kind, ...position }: any) => ({ id: kind, ...position })));
+    expect(saved).toEqual(layout);
+    expect(workItemLayoutFrom(saved)).toEqual(layout);
+    expect(saved.find(({ kind }: any) => kind === "run-status")?.h).toBe(1);
   });
 
   it("sanitizes reusable fixed page layouts", () => {
