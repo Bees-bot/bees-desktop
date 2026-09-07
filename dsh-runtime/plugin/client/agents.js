@@ -256,7 +256,7 @@ export function AgentEditForm({ ctx, data, servers, selected, act, onCancel, onS
     
     h("div", { className: "bees-form-row", style: { alignItems: "center" } },
       h("label", null, "Capabilities, comma separated",
-        h("input", { className: "bees-input", name: "capabilities", defaultValue: selected.capabilities.join(", "), placeholder: "research, writing" }),
+        h("input", { className: "bees-input", name: "capabilities", defaultValue: (selected.capabilities ?? []).join(", "), placeholder: "research, writing" }),
         h("span", { className: "bees-muted" }, "Optional labels for process routing.")),
       h("label", null, h("span", null, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), " Available for routing"))
     ),
@@ -280,7 +280,7 @@ export function AgentsPage({ ctx, data, servers = [], workspaceIds, workspaceId,
   if (selected) return h(AgentEditForm, { ctx, data, servers, selected, act,
     onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") });
   const agents = h("div", null,
-      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
+      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
   const presets = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),

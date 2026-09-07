@@ -217,7 +217,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => { setProcessDraft(null); setCreating("template"); } }, "New template")),
       ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, template.name),
-          h("div", { className: "bees-muted" }, [template.description, template.stages.join(" → ")].filter(Boolean).join(" · "))),
+          h("div", { className: "bees-muted" }, [template.description, (template.stages ?? []).join(" → ")].filter(Boolean).join(" · "))),
         h(Button, { className: "primary", disabled: template.workspaceId !== workspaceId,
           onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
         h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&

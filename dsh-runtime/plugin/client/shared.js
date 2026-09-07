@@ -1178,12 +1178,22 @@ const CHANGE_LINES = {
   create_recurring_work: (c) => `Schedule ${c.name}, ${c.frequency}`
 };
 
+/** These changes are a model's json. An action we do not know, or a known one missing a field,
+ *  must not take the whole page down with it, so an unreadable line falls back to its action. */
+const changeLine = (change) => {
+  try {
+    return CHANGE_LINES[change.action]?.(change) ?? String(change.action ?? "change").replaceAll("_", " ");
+  } catch {
+    return String(change.action ?? "change").replaceAll("_", " ");
+  }
+};
+
 export function ProposalCard({ proposal, onApply, onDismiss }) {
   const references = proposal.changes.find((change) => change.references?.length)?.references ?? [];
   return h("article", { className: "bees-dashboard-proposal" },
     h("strong", null, proposal.title),
     proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
-    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, CHANGE_LINES[change.action](change)))),
+    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, changeLine(change)))),
     references.length ? h("div", { className: "bees-muted" },
       h("strong", null, "Referenced resources"),
       h("ul", null, ...references.map((reference) => h("li", { key: `${reference.kind}:${reference.id}` },

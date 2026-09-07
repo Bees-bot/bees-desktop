@@ -372,7 +372,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       id: row.id, label: runTitle(viewData, row), open: () => openRun(row.id)
     }));
     if (targetRoute === "artifacts") return viewData.runs.filter((row) =>
-      row.workspaceId === parts.workspaceId && row.outputs.length)
+      row.workspaceId === parts.workspaceId && row.outputs?.length)
       .map((row) => ({ id: row.id,
         label: viewData.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
     if (targetRoute === "team-settings") {
@@ -566,7 +566,8 @@ function CreateOrganizationPage({ reload, setScope, navigate, createLocal, onboa
     let active = true;
     collaboration().then((value) => {
       if (active) setData(value);
-    }).catch(console.error);
+    // without this the first-run screen sits on "Loading accounts…" for ever and says nothing
+    }, (reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { active = false; };
   }, []);
 
