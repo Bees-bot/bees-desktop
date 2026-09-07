@@ -261,12 +261,15 @@ fn open_log(app: &tauri::AppHandle) -> Result<(fs::File, PathBuf), String> {
     Ok((file, path))
 }
 
-fn wait_ready(child: &mut Sidecar, url: &str, log: &Path) -> Result<(), String> {
+/// `attempts` are 200ms apart. A cold start needs the long wait; re-checking a sidecar we
+/// already started does not, and that check happens under the manager lock that quitting
+/// needs, so a slow answer there used to make Quit look hung for a minute.
+fn wait_ready(child: &mut Sidecar, url: &str, log: &Path, attempts: u32) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(500))
         .build()
         .map_err(|error| error.to_string())?;
-    for _ in 0..300 {
+    for _ in 0..attempts {
         if let Some(status) = child
             .child()
             .try_wait()
@@ -369,6 +372,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
                 &mut current.child,
                 &format!("{base_url}/healthz"),
                 &state_dir(app)?.join("runtime.log"),
+                10,
             )
             .is_ok()
             {
@@ -474,7 +478,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
             .spawn()
             .map_err(|error| format!("DeepSeek Harness could not start: {error}"))?,
     );
-    wait_ready(&mut child, &format!("{base_url}/healthz"), &log_path)?;
+    wait_ready(&mut child, &format!("{base_url}/healthz"), &log_path, 300)?;
     *managed = Some(ManagedDsh {
         child,
         temporal,
@@ -488,17 +492,25 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     })
 }
 
-/// False once the harness sidecar is gone, or once there is nothing left to watch.
-fn dsh_alive(app: &tauri::AppHandle) -> bool {
-    let Some(state) = app.try_state::<DshManager>() else {
-        return false;
-    };
-    let Ok(mut managed) = state.0.lock() else {
-        return false;
-    };
-    managed
-        .as_mut()
-        .is_some_and(|dsh| dsh.child.alive().unwrap_or(false))
+/// The health endpoint of a live sidecar, or None once it is gone. The port is copied out under
+/// the lock so the request that follows never holds it.
+fn dsh_healthz(app: &tauri::AppHandle) -> Option<String> {
+    let state = app.try_state::<DshManager>()?;
+    let mut managed = state.0.lock().ok()?;
+    let dsh = managed.as_mut()?;
+    dsh.child
+        .alive()
+        .unwrap_or(false)
+        .then(|| format!("http://127.0.0.1:{}/healthz", dsh.port))
+}
+
+fn healthz_answers(url: &str) -> bool {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .build()
+        .ok()
+        .and_then(|client| client.get(url).send().ok())
+        .is_some_and(|response| response.status().is_success())
 }
 
 /// The webview ends up on the harness's own URL, so a sidecar that dies leaves the window
@@ -510,7 +522,15 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
         return;
     }
     thread::spawn(move || {
-        while dsh_alive(&app) {
+        // Watching the process alone was not enough: a harness that is running but has stopped
+        // answering leaves the window on a dead page with no way back except quitting the app.
+        // Three misses rather than one, so a busy moment does not throw the person off their work.
+        let mut misses = 0;
+        while let Some(url) = dsh_healthz(&app) {
+            misses = if healthz_answers(&url) { 0 } else { misses + 1 };
+            if misses >= 3 {
+                break;
+            }
             thread::sleep(Duration::from_secs(2));
         }
         let _ = window.navigate(home);

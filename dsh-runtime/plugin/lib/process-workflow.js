@@ -42,12 +42,16 @@ function failureMessage(error) {
   return message;
 }
 
+/** Fifteen seconds apart, so forty of them is ten minutes without a free agent. */
+const CAPACITY_WAIT_LIMIT = 40;
+
 export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
   deprecatePatch("bees-durable-human-waits-v1");
   let candidateExecutionId = null;
+  let capacityWaits = 0;
   let feedback = "";
   const state = {
     workItemId: input.workItemId,
@@ -129,11 +133,20 @@ export async function processWorkflow(input) {
       }
 
       if (result.outcome === "waiting") {
+        // Capacity that never frees up used to hold a run here every fifteen seconds for ever,
+        // with nobody told. After ten minutes it becomes a failure a person can see and retry.
+        capacityWaits += 1;
+        if (capacityWaits >= CAPACITY_WAIT_LIMIT) {
+          capacityWaits = 0;
+          await waitForRetry(result.summary || "No agent capacity became free");
+          continue;
+        }
         await project("waiting", result.summary || "Waiting for agent capacity");
         await sleep("15 seconds");
         state.error = null;
         continue;
       }
+      capacityWaits = 0;
       if (purpose !== "reviewer" && result.outcome === "blocked") {
         await waitForRetry(result.summary || `${stage.name} is blocked`);
         continue;
