@@ -1,97 +1,113 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button, ProposalCard, useSnapshot } from "./shared.js";
-import { EMPTY_INTERACTIONS, pendingInteractionFor, QuestionPanel } from "./work.js";
-import { AgentModelSelect, McpAccess } from "./agents.js";
-import { McpPage } from "./skills.js";
-import { SettingsPage } from "./settings.js";
+import { Button } from "./shared.js";
+import { AgentCreateForm, AgentEditForm } from "./agents.js";
+import { ProcessRoutingBoard } from "./processes.js";
+import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, onBack, onStarted,
-  capabilities, modelSettings, preferences, reload, active = true }) {
+  capabilities, active = true }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [manage, setManage] = useState("");
-  const [catalogRevision, setCatalogRevision] = useState(0);
-  // The planner run's session; its proposal shows up here when it lands.
-  const [planning, setPlanning] = useState("");
-  const [handled, setHandled] = useState(() => new Set());
-  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
+  const [processId, setProcessId] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [creatingStageId, setCreatingStageId] = useState("");
+  const [inputLocationIds, setInputLocationIds] = useState([]);
+  const [outputLocationId, setOutputLocationId] = useState("");
+  const [showAllMcps, setShowAllMcps] = useState(false);
+  const [showAllSkills, setShowAllSkills] = useState(false);
   const heading = useRef(null);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
   const team = data.teams.find(({ id }) => id === teamId);
-  const enabledServers = (capabilities.data?.servers ?? []).filter((server) => server.enabled);
-  const proposal = data.proposals.find((row) => row.sessionId === planning && row.status === "pending");
-  const question = pendingInteractionFor(waiting, planning, handled);
+  const allowed = ["admin", "member"].includes(team?.role);
+  const processes = data.processes.filter((row) => row.workspaceId === workspaceId && !row.archivedAt);
+  const process = processes.find(({ id }) => id === processId) ?? processes.find(({ kind }) => kind === "goals");
+  const stages = data.stages.filter((row) => row.processId === process?.id);
+  const agents = data.assignments.filter((row) => row.workspaceId === workspaceId);
+  const selectedAgent = agents.find(({ id }) => id === selectedAgentId);
+  const creatingStage = stages.find(({ id }) => id === creatingStageId);
+  const servers = (capabilities.data?.servers ?? []).filter((server) => server.enabled);
+  const skills = capabilities.data?.skills ?? [];
+  const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
+  const agentInputs = [...new Set(stages.filter((stage) => !["manual", "terminal"].includes(stage.driver)).flatMap((stage) =>
+    stage.agentIds?.length ? stage.agentIds : agents.filter((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker")).map(({ id }) => id)))]
+    .flatMap((id) => inheritedInputs(data, null, id));
 
-  useEffect(() => { if (active && !manage) heading.current?.focus(); }, [active, manage]);
+  useEffect(() => { if (active) heading.current?.focus(); }, [active]);
 
   const submit = async (event) => {
     event.preventDefault();
-    if (busy || !outcome.trim()) return;
-    const form = new FormData(event.currentTarget);
-    const mcpAccess = String(form.get("mcpAccess") ?? "all");
-    const mcpServers = form.getAll("mcpServers").map(String);
-    if (mcpAccess === "listed" && !mcpServers.length) { setError("Choose at least one tool connection, or choose None."); return; }
+    if (busy || !allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
     setBusy(true); setError("");
-    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(),
-      model: String(form.get("model") ?? ""), reasoningEffort: String(form.get("reasoningEffort") ?? ""), mcpAccess, mcpServers });
-    setBusy(false);
-    if (result?.sessionId) setPlanning(result.sessionId);
+    try {
+      const result = await act({ action: process.kind === "goals" ? "create_goal" : "create_item",
+        workspaceId, processId: process.id, title: outcome.trim().split("\n")[0], description: outcome.trim(),
+        inputLocationIds, outputLocationId });
+      if (result?.id) onStarted(result.id);
+      else setError("Could not start this work. Please try again.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
   };
-  const apply = async () => {
-    const result = await act({ action: "apply_proposal", proposalId: proposal.id });
-    if (!result) return;
-    const started = proposal.changes.findIndex(({ action }) => action === "create_item" || action === "create_goal");
-    const id = result.results[started]?.id;
-    if (id) onStarted(id); else onBack();
-  };
-  const dismiss = async () => { if (await act({ action: "reject_proposal", proposalId: proposal.id })) setPlanning(""); };
-  const closeManager = () => { setManage(""); setCatalogRevision((value) => value + 1); void reload(); };
-
-  const plan = proposal
-    ? h(ProposalCard, { proposal, onApply: apply, onDismiss: dismiss })
-    : h("section", { className: "bees-box" },
-      h("h2", null, question ? "Bees has a question" : "Bees is planning"),
-      question
-        ? h(QuestionPanel, { key: question.key, wait: question, act, executionId: planning,
-          onAnswered: (key) => setHandled((current) => new Set(current).add(key)) })
-        : h("p", { className: "bees-muted" }, "Bees is choosing an existing process and checking for any missing setup. The proposed work appears here for you to apply."),
-      h(Button, { onClick: () => setPlanning("") }, "Back to the form"));
 
   return h("div", { className: "bees-ask-setup" },
-    h("div", { hidden: Boolean(manage) },
+    h("div", null,
       h(Button, { onClick: onBack, disabled: busy }, "← Back to Home"),
-      h("header", { className: "bees-ask-heading", style: { marginTop: 16, marginBottom: 24 } },
+      h("header", { className: "bees-ask-heading" },
         h("span", { className: "bees-muted" }, `ASK BEES · ${team?.name ?? "Choose a team"}`),
-        h("h1", { ref: heading, tabIndex: -1, style: { fontSize: "2rem", marginBottom: 8 } }, "What should Bees build?"),
-        h("p", { className: "bees-muted" }, "Bees uses Goals or an existing process, and proposes any missing setup. You review the changes before work starts.")),
-      planning ? plan : h("form", { onSubmit: submit, style: { display: "flex", flexDirection: "column", gap: "24px" } },
-        h("fieldset", { disabled: busy || !["admin", "member"].includes(team?.role), style: { display: "flex", flexDirection: "column", gap: "24px", padding: 0, border: "none", margin: 0 } },
-          h("section", { className: "bees-box bees-form" },
-            h("label", { style: { fontSize: "1.1rem", fontWeight: 600, display: "block", marginBottom: 8 } }, "What would you like Bees to do?"),
+        h("h1", { ref: heading, tabIndex: -1 }, "Configure advanced"),
+        h("p", { className: "bees-muted" }, "Choose a process template, agents, and files for this work.")),
+      h("fieldset", { disabled: busy || !allowed, className: "bees-stack", style: { padding: 0, border: "none", margin: 0, minWidth: 0 } },
+        h("form", { id: "bees-ask-run", className: "bees-box bees-form", onSubmit: submit },
+          h("label", null, "What would you like Bees to do?",
             h("textarea", { className: "bees-textarea", name: "outcome", required: true, value: outcome, rows: 4,
-              "aria-describedby": "bees-ask-references",
-              onChange: (event) => onOutcome(event.target.value),
-              placeholder: "e.g., Every morning, read three news sites and brief me on the topics I pick" }),
-            h("p", { className: "bees-muted", style: { marginTop: 8 } }, "Include the sources, keys or links it needs, when it should run, and what a good result looks like."),
-            h("p", { id: "bees-ask-references", className: "bees-muted" }, "Reference an existing agent with $agent-name, or use $human:name, $work:title, $template:name, $file:filename, and $process:name. Files must be in a mapped team location. Put file paths with spaces in quotes.")),
-          h("section", { className: "bees-box bees-form" },
-            h("h2", null, "AI Model"),
-            h("p", { className: "bees-muted" }, "A selected model plans and runs this work. System Default uses your configured models."),
-            h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel, refreshKey: catalogRevision }),
-            h("div", { style: { marginTop: "12px" } }, h(Button, { onClick: () => setManage("models") }, "Connect another model provider"))),
-          h("section", { className: "bees-box bees-form" },
-            h("h2", null, "Tools & Connections (MCP)"),
-            h("p", { className: "bees-muted" }, "Connected apps that planning and the resulting work may use, within each agent’s tool access."),
-            h(McpAccess, { servers: enabledServers, access: "all", label: "Tools for this work" }),
-            h("div", { style: { marginTop: "12px" } }, h(Button, { onClick: () => setManage("tools") }, "Manage connected tools"))),
-          error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
-          h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } },
-            h("button", { type: "submit", className: "bees-btn primary", style: { padding: "8px 24px", fontSize: "1.1rem" }, disabled: busy || !outcome.trim() },
-              busy ? "Starting…" : "Plan it"))))),
-    manage ? h("div", { className: "bees-stack", style: { maxWidth: 640, margin: "0 auto", padding: "16px 0" } },
-      h(Button, { onClick: closeManager }, "← Back to Ask Bees"),
-      h("p", { className: "bees-callout" }, "Your text is preserved. Connections added here are available across Bees; choose which ones this work may use when you return."),
-      manage === "tools" ? h(McpPage, { ctx, capabilities })
-        : h(SettingsPage, { ctx, data, route: "personal-ai", teamId, modelSettings, preferences, reload })) : null
-  );
+              "aria-describedby": "bees-ask-references", onChange: (event) => onOutcome(event.target.value),
+              placeholder: "e.g., Research CRM options and draft a comparison report" })),
+          h("p", { id: "bees-ask-references", className: "bees-muted" }, "Reference an existing agent with $agent-name, or use $human:name, $work:title, $template:name, $file:filename, and $process:name. Files must be in a mapped team location. Put file paths with spaces in quotes."),
+          h("label", null, "Process template",
+            h("select", { className: "bees-select", name: "processId", required: true, value: process?.id ?? "",
+              onChange: (event) => { setProcessId(event.target.value); setSelectedAgentId(""); setCreatingStageId(""); } },
+              !process ? h("option", { value: "" }, "Choose a process template") : null,
+              ...processes.map((row) => h("option", { key: row.id, value: row.id }, row.kind === "goals" ? `${row.name ?? "Goals"} (default)` : row.name))))),
+        h("section", { className: "bees-box bees-form" },
+          h("h2", null, "Agents for each stage"),
+          h("p", { className: "bees-muted" }, "Stage assignments save to the selected process template. Configure an agent to choose its model, MCP connections, and skill preset; agent changes apply wherever it runs."),
+          h(ProcessRoutingBoard, { stages, agents, act,
+            onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
+            onCreateAgent: (id) => { setSelectedAgentId(""); setCreatingStageId(id); } })),
+        creatingStage ? h(AgentCreateForm, { key: creatingStage.id, ctx, data, servers, workspaceId, act, inline: true, processId: process?.id,
+          onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
+            const saved = await act({ action: "set_stage_route", stageId: creatingStage.id,
+              agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
+            setCreatingStageId(""); setSelectedAgentId(id);
+            if (!saved) setError("Agent created, but its stage assignment could not be saved. Assign it from the stage above.");
+          } }) : selectedAgent ? h(AgentEditForm, { key: selectedAgent.id, ctx, data, servers, selected: selectedAgent, act, processId: process?.id,
+            cancelLabel: "Close agent settings", onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null,
+        h("section", { className: "bees-box bees-form", "aria-labelledby": "bees-ask-mcp" },
+          h("h2", { id: "bees-ask-mcp" }, `MCP connections (${servers.length})`),
+          ...(servers.length ? servers.slice(0, showAllMcps ? undefined : 3).map((server) =>
+            h("div", { className: "bees-row", key: server.id },
+              h("div", { className: "bees-row-main" }, h("strong", null, server.label)),
+              h("span", { className: "bees-badge" }, server.status ?? "Connected")))
+            : [h("p", { className: "bees-muted", key: "empty" }, "No MCP connections yet.")]),
+          servers.length > 3 ? h(Button, { onClick: () => setShowAllMcps((value) => !value),
+            "aria-expanded": showAllMcps }, showAllMcps ? "Show less" : "See more") : null),
+        h("section", { className: "bees-box bees-form", "aria-labelledby": "bees-ask-skills" },
+          h("h2", { id: "bees-ask-skills" }, "Skills"),
+          ...(skills.length ? skills.slice(0, showAllSkills ? undefined : 3).map((skill) =>
+            h("div", { className: "bees-row", key: skill.name },
+              h("div", { className: "bees-row-main" }, h("strong", null, skill.name),
+                skill.description ? h("span", { className: "bees-muted" }, skill.description) : null)))
+            : [h("p", { className: "bees-muted", key: "empty" }, "No skills installed yet.")]),
+          skills.length > 3 ? h(Button, { onClick: () => setShowAllSkills((value) => !value),
+            "aria-expanded": showAllSkills }, showAllSkills ? "Show less" : "See more") : null),
+        h("section", { className: "bees-box bees-form" },
+          h("h2", null, "Input files & folders"),
+          h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
+            outputId: outputLocationId, onOutputId: setOutputLocationId,
+            inherited: [...inheritedInputs(data, process?.id), ...agentInputs],
+            defaultOutputId: process?.outputLocationId, defaultOutputName: defaultOutput?.name })),
+        error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
+        h("div", { className: "bees-detail-actions" },
+          h("button", { type: "submit", form: "bees-ask-run", className: "bees-btn primary",
+            disabled: busy || !process || !outcome.trim() || Boolean(selectedAgent || creatingStage) }, busy ? "Starting…" : "Run process")),
+        selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before starting.") : null)));
 }

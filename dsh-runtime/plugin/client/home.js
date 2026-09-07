@@ -5,10 +5,20 @@ import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFro
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup } from "./ask-bees.js";
 
-function OutcomeWidget({ workspaceId, outcome, setOutcome, configureGoal }) {
-  const submit = () => {
-    if (!workspaceId || !outcome.trim()) return;
-    configureGoal();
+export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
+  const allowed = ["admin", "member"].includes(role);
+  const submit = async () => {
+    if (busy || !allowed || !workspaceId || !outcome.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const result = await act({ action: "create_goal", workspaceId, title: outcome.trim().split("\n")[0], description: outcome.trim() });
+      if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+      else setError("Could not start this work. Please try again.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
   };
   return h("form", {
     className: "bees-composer bees-dashboard-composer",
@@ -17,7 +27,7 @@ function OutcomeWidget({ workspaceId, outcome, setOutcome, configureGoal }) {
     h("textarea", {
       className: "bees-composer-input",
       placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a team first",
-      disabled: !workspaceId,
+      disabled: busy || !workspaceId || !allowed,
       "aria-label": "What would you like Bees to do?",
       value: outcome,
       onInput: (event) => setOutcome(event.target.value),
@@ -27,9 +37,12 @@ function OutcomeWidget({ workspaceId, outcome, setOutcome, configureGoal }) {
         }
       }
     }),
-    h("div", { className: "bees-composer-foot" },
-      h("span", { className: "bees-composer-hint" }, "Next: review model, tools & folders · ⌘ / Ctrl + Enter"),
-      h("button", { className: "bees-btn primary", disabled: !workspaceId || !outcome.trim() }, "Ask Bees"))
+    error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
+    h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
+      h("span", { className: "bees-composer-hint" }, "Goals with default agents · ⌘ / Ctrl + Enter"),
+      h("div", { className: "bees-detail-actions" },
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
+        h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
   );
 }
 
@@ -243,8 +256,8 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
 
   return h("div", null,
     setup ? h("div", { hidden: setup !== "review" }, h(AskBeesSetup, {
-      ctx, data, workspaceId, outcome, onOutcome: setOutcome, act, capabilities, modelSettings, preferences, reload,
-      active: setup === "review", onBack: () => setSetup("closed"), onStarted: openWorkItem
+      key: workspaceId, ctx, data, workspaceId, outcome, onOutcome: setOutcome, act, capabilities, reload,
+      active: setup === "review", onBack: () => setSetup("closed"), onStarted: (id) => { setSetup(""); setOutcome(""); openWorkItem(id); }
     })) : null,
     h("div", { className: "bees-dashboard", hidden: setup === "review" },
     h(ProposalsWidget, { data, workspaceIds: [workspaceId], act }),

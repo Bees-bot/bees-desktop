@@ -19,6 +19,7 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
   const ids = stage.agentIds ?? [];
   const [nextId, setNextId] = useState("");
   useEffect(() => { if (ids.includes(nextId)) setNextId(""); }, [JSON.stringify(ids)]);
+  const fallback = !ids.length && agents.find((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker"));
   const selected = ids.map((id) => agents.find((agent) => agent.id === id)).filter(Boolean);
   const available = agents.filter((agent) => agent.enabled && !ids.includes(agent.id));
   const save = (agentIds) => act({
@@ -31,6 +32,10 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
     return save(reordered);
   };
   return h("div", { className: "bees-form", style: { marginTop: "8px" } },
+    fallback ? h("div", { className: "bees-row" },
+      h("div", { className: "bees-row-main" }, h("strong", null, fallback.name),
+        h("span", { className: "bees-muted" }, "Default agent")),
+      h(Button, { onClick: () => onOpenAgent(fallback.id) }, "Configure")) : null,
     ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
       h("div", { className: "bees-row-main" },
         h("strong", null, agent.name),
@@ -50,6 +55,20 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
     h(Button, { onClick: onCreateAgent }, "+ Create new agent"),
     ids.length > 1 ? h("p", { className: "bees-muted" }, "All assigned agents discuss; the first agent leads and submits the result.") : null
   );
+}
+
+export function ProcessRoutingBoard({ stages, agents, act, onOpenAgent, onCreateAgent }) {
+  return h("div", { className: "bees-cockpit-board bees-routing-board" }, ...stages.map((stage) =>
+    h("section", { className: "bees-column", key: stage.id },
+      h("header", { className: "bees-column-head" }, stage.name),
+      h("div", { className: "bees-cards" },
+        ["manual", "terminal"].includes(stage.driver)
+          ? h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } },
+            h("span", { className: "bees-badge" }, stage.driver === "terminal" ? "Terminal" : "Human"),
+            h("p", { className: "bees-muted", style: { marginTop: "8px" } },
+              stage.driver === "terminal" ? "Work completes here." : "A person moves work through this stage."))
+          : h(StageAgentRoute, { stage, agents, act, onOpenAgent,
+            onCreateAgent: () => onCreateAgent(stage.id) })))));
 }
 
 function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
@@ -139,27 +158,11 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
       const selectedAgent = processAgents.find(({ id }) => id === selectedAgentId);
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
       
-      const routingBoard = h("div", { className: "bees-cockpit-board bees-routing-board" }, ...processStages.map((stage) => {
-          let card;
-          if (["manual", "terminal"].includes(stage.driver)) {
-            card = h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } },
-              h("span", { className: "bees-badge" }, stage.driver === "terminal" ? "Terminal" : "Human"),
-              h("p", { className: "bees-muted", style: { marginTop: "8px" } },
-                stage.driver === "terminal" ? "Work completes here." : "A person moves work through this stage."));
-          } else {
-            card = null;
-          }
-
-          const controls = ["manual", "terminal"].includes(stage.driver) ? null : h(StageAgentRoute, {
-            stage, agents: processAgents, act,
-            onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
-            onCreateAgent: () => { setSelectedAgentId(""); setCreatingStageId(stage.id); }
-          });
-
-          return h("section", { className: "bees-column", key: stage.id },
-            h("header", { className: "bees-column-head" }, stage.name),
-            h("div", { className: "bees-cards" }, card, controls));
-        }));
+      const routingBoard = h(ProcessRoutingBoard, {
+        stages: processStages, agents: processAgents, act,
+        onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
+        onCreateAgent: (id) => { setSelectedAgentId(""); setCreatingStageId(id); }
+      });
 
       const agentForm = creatingStage ? h("div", null,
           
