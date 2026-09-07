@@ -1,7 +1,7 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { Button, HelpTooltip } from "./shared.js";
-import { applyFixedLayout, fixedLayoutFrom } from "./dashboard-model.js";
+import { applyFixedLayout, fixedLayoutFrom, saveGridLayout } from "./dashboard-model.js";
 
 const EMPTY_PAGE_LAYOUTS = Object.freeze({});
 
@@ -26,10 +26,11 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
     }, root.current);
     if (!grid) return undefined;
     const save = () => {
-      const value = grid.save(false);
+      const value = saveGridLayout(grid);
       if (Array.isArray(value)) onLayoutRef.current(value);
     };
-    grid.on("dragstop resizestop", save);
+    // The stop event precedes GridStack's responsive-layout cache update.
+    grid.on("dragstop resizestop", () => queueMicrotask(save));
     gridRef.current = grid;
     return () => { gridRef.current = null; grid.offAll().destroy(false); };
   }, []);
@@ -57,7 +58,6 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-y": widget.y,
         "gs-w": widget.w,
         "gs-h": widget.h,
-        "gs-size-to-content": panel.sizeToContent || undefined,
         "gs-min-w": panel.minW ?? 3,
         "gs-min-h": panel.minH ?? 2
       }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless ? "bees-flex-widget-borderless" : ""}` },

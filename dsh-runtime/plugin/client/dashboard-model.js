@@ -115,3 +115,9 @@ export function workItemLayoutFrom(value) {
 export const applyWorkItemLayout = (layout) => workItemLayoutFrom(
   (Array.isArray(layout) ? layout : []).map((widget) => ({ ...widget, kind: widget?.id }))
 );
+
+// GridStack omits dimensions equal to its minimums; our persisted layout needs explicit values.
+export const saveGridLayout = (grid) => grid.save(false, false, (_node, widget) => {
+  widget.w ??= widget.minW ?? 1;
+  widget.h ??= widget.minH ?? 1;
+});

@@ -425,10 +425,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     layout, editing, onLayout,
     className: "bees-work-item-grid",
     panels: {
-      kanban: { label: "Kanban", hideHeader: true, borderless: true, sizeToContent: true, minW: 6, minH: 2, content: board },
-      "run-status": { label: "Status & controls", hideHeader: true, sizeToContent: true, minW: 12, minH: 1, content: controls },
-      conversation: { label: "Conversation", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: conversation },
-      details: { label: "Details", hideHeader: true, sizeToContent: true, minW: 3, minH: 4, content: details }
+      kanban: { label: "Kanban", hideHeader: true, borderless: true, minW: 6, minH: 2, content: board },
+      "run-status": { label: "Status & controls", hideHeader: true, minW: 12, minH: 1, content: controls },
+      conversation: { label: "Conversation", hideHeader: true, minW: 3, minH: 4, content: conversation },
+      details: { label: "Details", hideHeader: true, minW: 3, minH: 4, content: details }
     }
   });
 }
