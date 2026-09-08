@@ -256,8 +256,8 @@ describe("DSH Agent Teams discussions", () => {
     }));
     expect(() => runtime.assertDiscussionReady(agent, members)).toThrow("has not pitched in yet");
     events.push({
-      type: "team/message/queued",
-      data: { message: { senderId: "peer", targetId: "lead" } },
+      type: "agent/inbox/spliced",
+      data: { inserted: [{ source: { kind: "subagent-settled", senderSessionId: "peer" } }] },
     });
     expect(() => runtime.assertDiscussionReady(agent, members)).not.toThrow();
   });

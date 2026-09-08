@@ -115,7 +115,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
   );
 }
 
-export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
+export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
@@ -166,7 +166,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
 
       const agentForm = creatingStage ? h("div", null,
           
-          h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true, processId: process.id,
+          h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId: process.workspaceId, act, dialog: true, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await act({ action: "set_stage_route", stageId: creatingStage.id,
                 agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
@@ -174,7 +174,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
             } }))
         : selectedAgent ? h("div", null,
           
-          h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close", processId: process.id,
+          h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected: selectedAgent, act, dialog: true, processId: process.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
       const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },

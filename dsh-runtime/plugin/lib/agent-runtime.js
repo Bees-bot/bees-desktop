@@ -781,9 +781,13 @@ export class AgentRuntime {
     }
     const events = agent.session.snapshotEvents();
     for (const member of expected) {
-      const reported = events.some((event) => event.type === "team/message/queued" &&
-        String(event.data.message.senderId) === String(member.id) &&
-        String(event.data.message.targetId) === leadId);
+      const reported = events.some((event) =>
+        (event.type === "team/message/queued" &&
+          String(event.data.message.senderId) === String(member.id) &&
+          String(event.data.message.targetId) === leadId) ||
+        (event.type === "agent/inbox/spliced" && event.data.inserted?.some((message) =>
+          message.source?.kind === "subagent-settled" &&
+          String(message.source.senderSessionId) === String(member.id))));
       if (!reported) throw new Error(`${member.description || member.name} has not pitched in yet; ask them to report before submitting`);
     }
   }
