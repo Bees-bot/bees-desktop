@@ -7,9 +7,9 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
-    // `runsProcesses` is measured, not guessed: a model earns it by making tool calls that
-    // llama.cpp still parses after a tool result is in the history. Everything else is chat only,
-    // and the description says why so nobody points a process at one and gets a silent no-op.
+    // `runsProcesses` means a model keeps making tool calls llama.cpp can still parse once a tool
+    // result is in the history. Only Qwen3 4B has been run that far; the rest say what stops them.
+    // The point is that nobody aims a process at a chat-only model and gets a silent no-op.
     const LOCAL_MODELS = [
       {
         id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
