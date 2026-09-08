@@ -486,6 +486,13 @@ export class AgentRuntime {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
+    ctx.tools?.guard?.((exec) => {
+      if (exec.name !== "ask_user_question") return;
+      const parentSession = exec.agent?.session.header.parentSession;
+      if (!parentSession) return;
+      if (database.prepare("SELECT 1 FROM execution_links WHERE current_session_id = ?").get(String(parentSession)))
+        return "Discussion participants cannot ask the human. Send questions or assumptions to lead, then finish your review.";
+    });
   }
 
   setProposalStore(store) {
