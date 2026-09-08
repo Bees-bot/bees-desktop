@@ -188,7 +188,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
  * The review screen for one catalog entry. Nothing installs until the publisher, the reach, and the
  * inputs have all been shown once, because installing runs someone else's program on this machine.
  */
-function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
+export function CatalogReview({ ctx, entry, onCancel, onInstall }) {
   const [directory, setDirectory] = useState("");
   const [secrets, setSecrets] = useState({});
   const [inputs, setInputs] = useState({});
@@ -201,7 +201,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
     if (path) setDirectory(path);
   };
   return h("section", { className: "bees-box" },
-    h(PageHead, { setPageHeader },
+    h("div", { className: "bees-page-head" },
       h(Button, { onClick: onCancel }, "← Catalog"),
       h("div", null, h("h2", null, `Add ${entry.label}`),
         h("div", { className: "bees-muted" }, entry.summary))),

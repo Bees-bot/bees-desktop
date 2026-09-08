@@ -11,6 +11,8 @@ import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { AskBeesSetup, workFromOutcome } from "../dsh-runtime/plugin/client/ask-bees.js";
 // @ts-expect-error Client modules are plain JavaScript.
+import { McpAccess } from "../dsh-runtime/plugin/client/agents.js";
+// @ts-expect-error Client modules are plain JavaScript.
 import { OutcomeWidget } from "../dsh-runtime/plugin/client/home.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
@@ -71,6 +73,27 @@ it("shows the selected process, its stage agents, and folders without repeating 
     outcome: "Research CRM options", setOutcome: () => {}, configureGoal: () => {}, act: () => {}, openWorkItem: () => {} }));
   expect(home).toContain("Run using defaults");
   expect(home).toContain("Configure advanced");
+});
+
+it("keeps MCP access compact unless selected servers need configuring", () => {
+  const servers = [
+    { id: "news-id", serverName: "news", label: "News", enabled: true, toolCount: 1 },
+    { id: "drive-id", serverName: "drive", label: "Drive", enabled: false, toolCount: 0 }
+  ];
+  const tools = [{ name: "mcp__news__search", serverName: "news" }];
+  const catalog = [{ id: "memory", serverName: "memory", label: "Memory", summary: "Shared memory", publisher: "MCP", installedAs: "" }];
+  const render = (props: any) => renderToStaticMarkup(React.createElement(McpAccess, { servers, tools, catalog, ...props }));
+
+  expect(render({ access: "all" })).toContain("1 MCP connected");
+  expect(render({ access: "none" })).toContain('data-mcp-mode="none"');
+  const selected = render({ access: "listed", chosen: ["news-id"] });
+  expect(selected).toContain("Search MCPs or tools");
+  expect(selected).toContain("bees-mcp-card added");
+  expect(selected).toContain("search");
+  expect(selected).toContain("Enable");
+  expect(selected).toContain("Memory");
+  expect(selected).toContain("Catalog");
+  expect(selected).toContain('name="mcpServers"');
 });
 
 const roots: string[] = [];

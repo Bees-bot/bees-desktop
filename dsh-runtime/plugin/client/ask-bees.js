@@ -28,7 +28,9 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const agents = data.assignments.filter((row) => row.workspaceId === workspaceId);
   const selectedAgent = agents.find(({ id }) => id === selectedAgentId);
   const creatingStage = stages.find(({ id }) => id === creatingStageId);
-  const servers = (capabilities.data?.servers ?? []).filter((server) => server.enabled);
+  const servers = capabilities.data?.servers ?? [];
+  const tools = capabilities.data?.tools ?? [];
+  const catalog = capabilities.data?.catalog ?? [];
   const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
   const agentInputs = [...new Set(stages.filter((stage) => !["manual", "terminal"].includes(stage.driver)).flatMap((stage) =>
     stage.agentIds?.length ? stage.agentIds : agents.filter((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker")).map(({ id }) => id)))]
@@ -69,14 +71,14 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
           h(ProcessRoutingBoard, { stages, agents, act,
             onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
             onCreateAgent: (id) => { setSelectedAgentId(""); setCreatingStageId(id); } })) : null,
-        creatingStage ? h(AgentCreateForm, { key: creatingStage.id, ctx, data, servers, workspaceId, act, inline: true, processId: process?.id,
+        creatingStage ? h(AgentCreateForm, { key: creatingStage.id, ctx, data, servers, tools, catalog, onServerAction: capabilities.act, workspaceId, act, dialog: true, processId: process?.id,
           onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
             const saved = await act({ action: "set_stage_route", stageId: creatingStage.id,
               agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
             setCreatingStageId(""); setSelectedAgentId(id);
             if (!saved) setError("Agent created, but its stage assignment could not be saved. Assign it from the stage above.");
-          } }) : selectedAgent ? h(AgentEditForm, { key: selectedAgent.id, ctx, data, servers, selected: selectedAgent, act, processId: process?.id,
-            cancelLabel: "Close agent settings", onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null,
+          } }) : selectedAgent ? h(AgentEditForm, { key: selectedAgent.id, ctx, data, servers, tools, catalog, onServerAction: capabilities.act, selected: selectedAgent, act, dialog: true, processId: process?.id,
+            onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null,
         h("section", { className: "bees-box bees-form" },
           h("span", { className: "bees-ask-step" }, "3 · Files"),
           h("h2", null, "Input files & folders"),
