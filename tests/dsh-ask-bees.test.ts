@@ -9,14 +9,16 @@ import { NodeDatabase } from "./node-database.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
-import { AskBeesSetup } from "../dsh-runtime/plugin/client/ask-bees.js";
+import { AskBeesSetup, workFromOutcome } from "../dsh-runtime/plugin/client/ask-bees.js";
+// @ts-expect-error Client modules are plain JavaScript.
+import { OutcomeWidget } from "../dsh-runtime/plugin/client/home.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 configureRuntime((id: string) => id === "react" ? React : {});
 
-it("shows the planner form without starting anything", () => {
+it("shows Goals, stage agents, connections and folders without starting anything", () => {
   const data = {
     teams: [{ id: "team", name: "Research", role: "admin" }], workspaces: [{ id: "workspace", teamId: "team" }],
     processes: [{ id: "goals", workspaceId: "workspace", kind: "goals" }],
@@ -31,20 +33,42 @@ it("shows the planner form without starting anything", () => {
   };
   let started = false;
   const render = (snapshot: any) => renderToStaticMarkup(React.createElement(AskBeesSetup, {
-    ctx: { uiSession: {} }, data: snapshot, workspaceId: "workspace", outcome: "Research CRM options", capabilities: { data: { servers: [] } },
+    ctx: { uiSession: {} }, data: snapshot, workspaceId: "workspace", outcome: "Research CRM options", capabilities: { data: {
+      servers: [
+        { id: "news", label: "News MCP", enabled: true, status: "connected" },
+        { id: "drive", label: "Drive MCP", enabled: true, status: "connected" },
+        { id: "browser", label: "Browser MCP", enabled: true, status: "connected" },
+        { id: "mail", label: "Mail MCP", enabled: true, status: "connected" }
+      ],
+      skills: [
+        { name: "Source research", description: "Find reliable sources" },
+        { name: "Writing" }, { name: "Review" }, { name: "Planning" }
+      ]
+    } },
     onOutcome: () => {}, onBack: () => {}, act: () => { started = true; }
   }));
   const markup = render(data);
-  expect(markup).toContain("What should Bees build?");
-  expect(markup).toContain("Plan it");
-  expect(markup).toContain("provider/default");
-  expect(markup).toContain("No MCP servers are connected yet");
-  expect(markup).toContain("Manage connected tools");
-  expect(markup).toContain("Connect another model provider");
-  expect(markup).toContain("Bees uses Goals or an existing process");
-  expect(markup).toContain("Tools for this work");
+  expect(markup).toContain("Configure advanced");
+  expect(markup).toContain("Run process");
+  expect(markup).toContain("Process template");
+  expect(markup).toContain("bees-routing-board");
+  expect(markup).toContain("Worker");
+  expect(markup).toContain("Reviewer");
+  expect(markup).toContain("Default agent");
+  expect(markup).toContain("MCP connections");
+  expect(markup).toContain("News MCP");
+  expect(markup).toContain("Source research");
+  expect(markup).not.toContain("Tools from MCP servers");
+  expect(markup).toContain("Brief/project");
+  expect(markup).toContain("Output folder");
+  expect(markup).not.toContain("AI Model");
+  expect(markup).not.toContain('name="model"');
   expect(started).toBe(false);
   expect(render({ ...data, teams: [{ ...data.teams[0], role: "viewer" }] })).toMatch(/<fieldset[^>]*disabled=""[^>]*>/);
+  const home = renderToStaticMarkup(React.createElement(OutcomeWidget, { data, workspaceId: "workspace",
+    outcome: "Research CRM options", setOutcome: () => {}, configureGoal: () => {}, act: () => {}, openWorkItem: () => {} }));
+  expect(home).toContain("Run using defaults");
+  expect(home).toContain("Configure advanced");
 });
 
 const roots: string[] = [];
@@ -216,4 +240,12 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   for (const id of [applied.results[0].id, applied.results[1].sourceWorkItemId]) {
     expect(JSON.parse(database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(id)!.settings as string)).toEqual(settings);
   }
+});
+
+it("builds default and custom-process work from the same outcome", () => {
+  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace" }))
+    .toEqual({ action: "create_goal", workspaceId: "workspace", title: "Research options", description: "Research options\nCompare pricing" });
+  expect(workFromOutcome("Research options", { processId: "process" }, { inputLocationIds: ["brief"], outputLocationId: "results" }))
+    .toEqual({ action: "create_item", processId: "process", title: "Research options", description: "Research options",
+      inputLocationIds: ["brief"], outputLocationId: "results" });
 });
