@@ -597,7 +597,8 @@ export async function executeProductCommand(action, input) {
       const outputLocationId = locationIds(this.database, workspace.id,
         input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
       const id = insertProcess(this.database, workspace.id, input.name,
-        input.description ?? template?.description, stages);
+        input.description ?? template?.description, stages,
+        "standard", undefined, undefined, input.accountUserId || null);
       this.database.prepare("UPDATE processes SET output_location_id = ? WHERE id = ?").run(outputLocationId, id);
       replaceLocations(this.database, "process_locations", "process_id", id, inputLocationIds);
       return { id };

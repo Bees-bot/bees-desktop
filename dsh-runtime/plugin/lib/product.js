@@ -298,7 +298,8 @@ export class BeesProduct {
     const workspaceIds = workspaces.map(({ id }) => id);
     const processes = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description, kind,
-             output_location_id AS outputLocationId FROM processes
+             output_location_id AS outputLocationId,
+             account_user_id AS accountUserId FROM processes
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
     `).all(JSON.stringify(workspaceIds)) : [];
     const templates = workspaceIds.length ? this.database.prepare(`
