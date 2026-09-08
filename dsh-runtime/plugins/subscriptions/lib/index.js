@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path";
 import { spawn } from "node:child_process";
 import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 
 export const name = "bees-subscriptions";
 export const inject = ["webServer", "credentials", "llm"];
@@ -16,6 +17,10 @@ const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
 const CLAUDE_MODELS_REF = "BEES_CLAUDE_CODE_MODELS";
 const DEFAULT_CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"];
+// Signing in to Codex used to leave it with no models at all, so it never reached the picker and
+// the only way through was typing a model id by hand. pi-ai already ships the catalog.
+const DEFAULT_CODEX_MODELS = Object.values(OPENAI_CODEX_MODELS)
+  .map(({ id, name, contextWindow, maxTokens }) => ({ id, name, contextWindow, maxTokens }));
 const CLAUDE_REASONING = { efforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
   id, name: `${id[0].toUpperCase()}${id.slice(1)}`
 })) };
@@ -375,7 +380,8 @@ export async function apply(ctx) {
         const models = await configuredClaudeModels(ctx);
         let version = "";
         if (path) version = await claudeVersion(path).catch(() => "Unavailable");
-        return json(res, 200, { codex, claude: { configured: Boolean(path), enabled, path, version, models } });
+        return json(res, 200, { codex, codexModels: DEFAULT_CODEX_MODELS,
+          claude: { configured: Boolean(path), enabled, path, version, models } });
       }
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       const input = await requestBody(req);
