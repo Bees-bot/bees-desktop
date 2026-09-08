@@ -452,6 +452,13 @@ export async function executeProductCommand(action, input) {
         throw new Error("Recurring work requires an automatic process");
       const name = required(input.name, "Recurring work name").slice(0, 120);
       const schedule = recurringSchedule(input);
+      // apply_proposal commits each change on its own and can be re-applied after a later one
+      // fails, so without this a retry mints a second live schedule firing the same work twice.
+      const existing = this.database.prepare(`
+        SELECT id, source_work_item_id AS sourceWorkItemId FROM recurring_work
+        WHERE workspace_id = ? AND name = ? AND status = 'active'
+      `).get(item.workspaceId, name);
+      if (existing) return { ...existing, reused: true };
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
       const temporalScheduleId = `bees/recurring/${id}`;
@@ -1021,7 +1028,13 @@ export async function executeProductCommand(action, input) {
           if (kind) made[kind].set(String(change.name ?? change.title).toLocaleLowerCase(), result.id);
         }
       } catch (error) {
-        this.database.prepare("UPDATE bees_proposals SET status = 'pending', updated_at = ? WHERE id = ?").run(at, proposalId);
+        // The proposal goes back to pending so it can be applied again, which means its secrets
+        // have to stay for the changes that have not run yet. The ones that did run already put
+        // their secrets in the credential store, so a second plaintext copy here is pure exposure.
+        const remaining = list.map((change, index) =>
+          results[index] === undefined ? change : { ...change, secrets: undefined });
+        this.database.prepare("UPDATE bees_proposals SET status = 'pending', changes_json = ?, updated_at = ? WHERE id = ?")
+          .run(JSON.stringify(remaining), at, proposalId);
         throw error;
       }
       this.database.prepare("UPDATE bees_proposals SET changes_json = ? WHERE id = ?")

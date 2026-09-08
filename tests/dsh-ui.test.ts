@@ -234,7 +234,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('placeholder: "Search by task name"');
     expect(client).toContain('"Filter by status"');
     expect(client).toContain('"Filter by type"');
-    expect(client).toContain('`Plan outcome: ${run.purpose}`');
+    expect(client).toContain('`Plan outcome: ${planLabel(run.purpose)}`');
   });
 
   it("documents scheduling behavior for end users", () => {

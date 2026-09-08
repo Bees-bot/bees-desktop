@@ -46,6 +46,8 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
 
 function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
   const [showAllTemplates, setShowAllTemplates] = useState(false);
+  // creating a process is a real write, so a double click must not make two
+  const [starting, setStarting] = useState("");
   const processes = data.processes.filter((row) => row.workspaceId === workspaceId && row.kind === "standard");
   const templates = (data.templates ?? []).filter((row) => row.workspaceId === workspaceId);
   const cards = [...templates.map((row) => ({ ...row, isTemplate: true })), ...processes.map((row) => ({ ...row, isTemplate: false }))];
@@ -54,13 +56,18 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
   return h("div", { className: "bees-home-templates" },
     ...visibleCards.map((card) => h("button", {
       className: "bees-template-card",
+      disabled: Boolean(starting),
       onClick: async () => {
-        if (card.isTemplate) {
-          const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
-          if (p?.id) openWorkItem(null, p.id);
-        } else {
-          openWorkItem(null, card.id);
-        }
+        if (starting) return;
+        setStarting(card.id);
+        try {
+          if (card.isTemplate) {
+            const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
+            if (p?.id) openWorkItem(null, p.id);
+          } else {
+            openWorkItem(null, card.id);
+          }
+        } finally { setStarting(""); }
       },
       key: card.id
     },

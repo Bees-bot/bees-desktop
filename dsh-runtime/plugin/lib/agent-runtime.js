@@ -36,9 +36,9 @@ Keep setup capabilities: propose a missing MCP connection when the outcome requi
 
 A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
 
-MCP servers come from the catalog only, by install_mcp_server with one of these catalogId values: ${CATALOG_IDS}. An API with no server of its own goes through catalogId "openapi-bridge" with inputs {curl: the exact request the person gave} and secrets {API_HEADERS: its auth header}, which turns every endpoint into a tool. Never propose add_mcp_server with a package you have not seen. When no catalog entry fits, leave the key in the item's description and the agent calls the API over HTTP.
+MCP servers come from the catalog only, by install_mcp_server with one of these catalogId values: ${CATALOG_IDS}. An API with no server of its own goes through catalogId "openapi-bridge" with inputs {curl: the exact request the person gave} and secrets {API_HEADERS: its auth header}, which turns every endpoint into a tool. Never propose add_mcp_server with a package you have not seen. A credential always goes in an MCP server's secrets, where the credential store holds it. Never put a key, token or auth header in a work item, a goal or a stage: that column is plain text, it is indexed for search, it is shown on screen and it is read back into the prompt on every later run.
 
-A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves goes in that agent's instructions, never in a stage. A credential the person gave belongs in the MCP server's secrets or the item's description, never in a request for the person to sign in.
+A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves goes in that agent's instructions, never in a stage. A credential the person gave belongs in the MCP server's secrets, never in a work item and never in a request for the person to sign in.
 
 You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
@@ -233,6 +233,23 @@ function isInternalPromptMessage(message) {
     (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt");
 }
 
+const CURL_AUTH_HEADER = /(-H\s+['"])([^'":]*(?:auth|token|key|secret)[^'":]*:\s*)[^'"]+/gi;
+
+/** bees_control installs MCP servers with real API keys in its arguments, and a run's history is
+ *  shown on screen. Keep the shape so the call still reads, drop the values. */
+function redactSecrets(value) {
+  // openapi-bridge is built from a pasted curl, so the credential is inside a string, not a field
+  if (typeof value === "string") return value.replace(CURL_AUTH_HEADER, "$1$2hidden");
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) =>
+    /secret|token|password|api[_-]?key|authorization/i.test(key)
+      ? [key, typeof inner === "object" && inner !== null
+          ? Object.fromEntries(Object.keys(inner).map((name) => [name, "hidden"]))
+          : "hidden"]
+      : [key, redactSecrets(inner)]));
+}
+
 function eventsToConversation(events, settlements) {
   const messages = [];
   const calls = new Map();
@@ -262,7 +279,7 @@ function eventsToConversation(events, settlements) {
       });
     } else if (event.type === "tool/call") {
       let input;
-      try { input = JSON.parse(event.data.arguments); } catch { input = event.data.arguments; }
+      try { input = redactSecrets(JSON.parse(event.data.arguments)); } catch { input = event.data.arguments; }
       const part = {
         type: "tool",
         toolName: event.data.name,
@@ -1369,15 +1386,20 @@ export class AgentRuntime {
     }
     const submissionId = randomUUID();
     const at = new Date().toISOString();
-    this.database.prepare(`
-      INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run(payload.idempotencyKey, executionId, submissionId, at);
     const activeStatus = recovery && ["waiting_for_input", "waiting_for_approval"].includes(previousStatus)
       ? previousStatus : "running";
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-      .run(activeStatus, at, executionId);
-    this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+    // One unit: a crash between the delivery and the queue delete used to leave a delivery row with
+    // no outcome and no queue row, and the next admit returned that row instead of starting a
+    // session. The run then sat at running for ever with nothing able to clear it.
+    transaction(this.database, () => {
+      this.database.prepare(`
+        INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(payload.idempotencyKey, executionId, submissionId, at);
+      this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
+        .run(activeStatus, at, executionId);
+      this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+    });
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,

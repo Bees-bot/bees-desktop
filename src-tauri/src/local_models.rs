@@ -805,7 +805,7 @@ pub fn cancel_local_model_download(app: AppHandle, model_id: String) -> Result<(
 #[tauri::command]
 pub async fn delete_local_model(app: AppHandle, spec: ModelSpec) -> Result<(), String> {
     cancel_local_model_download(app.clone(), spec.id.clone())?;
-    stop_local_model(app.clone(), spec.id.clone())?;
+    stop_local_model(app.clone(), spec.id.clone()).await?;
     tauri::async_runtime::spawn_blocking(move || {
         if spec.local_path.is_some() {
             return Ok(());
@@ -1104,19 +1104,28 @@ impl LocalModelManager {
     }
 }
 
+// spawn_blocking: Sidecar::drop can sleep up to a second waiting for a stubborn llama-server, and
+// every other command that drops one already keeps that off the command thread. This one did not,
+// so stopping a model froze the UI for as long as the process took to die.
 #[tauri::command]
-pub fn stop_local_model(app: AppHandle, model_id: String) -> Result<(), String> {
+pub async fn stop_local_model(app: AppHandle, model_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || stop_local_model_blocking(&app, &model_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn stop_local_model_blocking(app: &AppHandle, model_id: &str) -> Result<(), String> {
     let manager = app.state::<LocalModelManager>();
     if let Some(cancelled) = manager
         .starts
         .lock()
         .map_err(|error| error.to_string())?
-        .get(&model_id)
+        .get(model_id)
     {
         cancelled.store(true, Ordering::Relaxed);
     }
     let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
-    let current = runtimes.by_id.remove(&model_id);
+    let current = runtimes.by_id.remove(model_id);
     repair_active_runtime(&mut runtimes);
     drop(runtimes);
     drop(current);

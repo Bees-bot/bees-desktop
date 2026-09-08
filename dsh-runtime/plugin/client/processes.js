@@ -220,7 +220,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => { setProcessDraft(null); setCreating("template"); } }, "New template")),
       ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, template.name),
-          h("div", { className: "bees-muted" }, [template.description, template.stages.join(" → ")].filter(Boolean).join(" · "))),
+          h("div", { className: "bees-muted" }, [template.description, (template.stages ?? []).join(" → ")].filter(Boolean).join(" · "))),
         h(Button, { className: "primary", disabled: template.workspaceId !== workspaceId,
           onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
         h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&
@@ -237,7 +237,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
   const processList = h("div", null,
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
-      return h("div", { className: "bees-row", style: { cursor: "pointer" }, key: process.id, onClick: () => setProcessId(process.id) },
+      return h("button", { type: "button", className: "bees-row", style: { cursor: "pointer", width: "100%", textAlign: "left", font: "inherit", color: "inherit", background: "transparent", border: 0 }, key: process.id, onClick: () => setProcessId(process.id) },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))));
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h(GridStackPage, {

@@ -42,12 +42,16 @@ function failureMessage(error) {
   return message;
 }
 
+/** Fifteen seconds apart, so forty of them is ten minutes without a free agent. */
+const CAPACITY_WAIT_LIMIT = 40;
+
 export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
   deprecatePatch("bees-durable-human-waits-v1");
   let candidateExecutionId = null;
+  let capacityWaits = 0;
   let feedback = "";
   const state = {
     workItemId: input.workItemId,
@@ -56,6 +60,8 @@ export async function processWorkflow(input) {
     phase: "running",
     attempt: 1,
     reviewCycle: 0,
+    // attempt keeps climbing so every session id stays unique; this one is what maxAttempts means
+    revisions: 0,
     executionId: null,
     error: null
   };
@@ -127,11 +133,20 @@ export async function processWorkflow(input) {
       }
 
       if (result.outcome === "waiting") {
+        // Capacity that never frees up used to hold a run here every fifteen seconds for ever,
+        // with nobody told. After ten minutes it becomes a failure a person can see and retry.
+        capacityWaits += 1;
+        if (capacityWaits >= CAPACITY_WAIT_LIMIT) {
+          capacityWaits = 0;
+          await waitForRetry(result.summary || "No agent capacity became free");
+          continue;
+        }
         await project("waiting", result.summary || "Waiting for agent capacity");
         await sleep("15 seconds");
         state.error = null;
         continue;
       }
+      capacityWaits = 0;
       if (purpose !== "reviewer" && result.outcome === "blocked") {
         await waitForRetry(result.summary || `${stage.name} is blocked`);
         continue;
@@ -139,10 +154,12 @@ export async function processWorkflow(input) {
       if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
+        state.revisions = 0;
         index += 1;
         continue;
       }
       if (purpose === "reviewer" && result.outcome === "pass") {
+        state.revisions = 0;
         index += 1;
         continue;
       }
@@ -153,8 +170,9 @@ export async function processWorkflow(input) {
         // With no worker stage behind it there is nothing to revise, so a human has to look.
         if (worker < 0) { await waitForRetry(feedback || "Review asked for a revision with no worker stage before it"); continue; }
         index = worker;
-        if (state.attempt >= input.maxAttempts) await waitForRetry(feedback || "Review requested another revision");
-        else state.attempt += 1;
+        state.revisions += 1;
+        state.attempt += 1;
+        if (state.revisions >= input.maxAttempts) await waitForRetry(feedback || "Review requested another revision");
         continue;
       }
       await waitForRetry(`The ${stage.name} agent returned an invalid outcome`);

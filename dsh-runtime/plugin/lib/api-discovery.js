@@ -69,9 +69,15 @@ function specFromLinks(origin, links, title) {
   }, null, 2);
 }
 
+/** Loopback, link-local and the private ranges. A bridge is built from an address a model proposed,
+ *  so without this it could be pointed at something only this machine can reach. */
+const PRIVATE_HOST = /^(?:localhost|\[?::1\]?|0\.0\.0\.0|10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/i;
+
 export async function discoverApi(address, reader = read) {
   const url = new URL(address);
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http or https address");
+  if (PRIVATE_HOST.test(url.hostname) || url.hostname.endsWith(".local"))
+    throw new Error("That address is on this machine or a private network, so it cannot be an API connection");
   const origin = url.origin;
   const host = url.hostname.replace(/^www\./, "");
 

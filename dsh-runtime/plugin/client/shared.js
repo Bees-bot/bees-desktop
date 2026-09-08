@@ -1180,19 +1180,37 @@ const CHANGE_LINES = {
   create_recurring_work: (c) => `Schedule ${c.name}, ${c.frequency}`
 };
 
+/** These changes are a model's json. An action we do not know, or a known one missing a field,
+ *  must not take the whole page down with it, so an unreadable line falls back to its action. */
+const changeLine = (change) => {
+  try {
+    return CHANGE_LINES[change.action]?.(change) ?? String(change.action ?? "change").replaceAll("_", " ");
+  } catch {
+    return String(change.action ?? "change").replaceAll("_", " ");
+  }
+};
+
 export function ProposalCard({ proposal, onApply, onDismiss }) {
   const references = proposal.changes.find((change) => change.references?.length)?.references ?? [];
+  // Applying builds real work. Without this a second click while the first was in flight made two.
+  const [busy, setBusy] = useState("");
+  const once = (label, run) => async () => {
+    if (busy) return;
+    setBusy(label);
+    try { await run(); } finally { setBusy(""); }
+  };
   return h("article", { className: "bees-dashboard-proposal" },
     h("strong", null, proposal.title),
     proposal.summary ? h("p", { className: "bees-muted" }, proposal.summary) : null,
-    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, CHANGE_LINES[change.action](change)))),
+    h("ul", { className: "bees-proposal-changes" }, ...proposal.changes.map((change, index) => h("li", { key: index }, changeLine(change)))),
     references.length ? h("div", { className: "bees-muted" },
       h("strong", null, "Referenced resources"),
       h("ul", null, ...references.map((reference) => h("li", { key: `${reference.kind}:${reference.id}` },
         `${reference.label} · ${reference.kind.replaceAll("-", " ")}`)))) : null,
     h("div", { className: "bees-card-actions" },
-      h(Button, { className: "primary", onClick: onApply }, "Apply"),
-      h(Button, { onClick: onDismiss }, "Dismiss")));
+      h(Button, { className: "primary", disabled: Boolean(busy), onClick: once("apply", onApply) },
+        busy === "apply" ? "Applying…" : "Apply"),
+      h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
@@ -1202,8 +1220,14 @@ export const workItemStatus = (item) => isScheduleDefinition(item)
 
 export function runTitle(data, run) {
   return data.items.find(({ id }) => id === run.workItemId)?.title ??
-    (run.mode === "planning" && run.purpose ? `Plan outcome: ${run.purpose}` : "Agent run");
+    (run.mode === "planning" && run.purpose ? `Plan outcome: ${planLabel(run.purpose)}` : "Agent run");
 }
+
+/** A plan's purpose is the whole prompt someone typed: many lines, reference markup, sometimes an
+ *  API key pasted in a curl. A row label is one short line, so take one short line. */
+const planLabel = (purpose) => clip(String(purpose)
+  .replace(/([$@])\[([^\]\n]{1,160})\]\(bees:[^)\s]+\)/gu, "$1$2")
+  .split("\n")[0].replace(/\s+/g, " ").trim(), 80);
 
 /** Cut on characters, not code units, or a slice can land inside an emoji and render as a box. */
 export const clip = (text, limit) => [...String(text ?? "")].slice(0, limit).join("");

@@ -195,7 +195,7 @@ function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
   const [busy, setBusy] = useState(false);
   const blank = (bag) => ({ name, optional }) => !optional && !String(bag[name] ?? "").trim();
   const ready = !busy && (!entry.requiresDirectory || directory)
-    && !entry.secrets.some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
+    && !(entry.secrets ?? []).some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
   const pick = async () => {
     const path = await ctx.uiWorkspace.pickDirectory();
     if (path) setDirectory(path);
@@ -234,14 +234,14 @@ function CatalogReview({ ctx, entry, onCancel, onInstall, setPageHeader }) {
         onChange: (event) => setInputs({ ...inputs, [field.name]: event.target.value })
       }),
       field.help ? h("span", { className: "bees-muted" }, field.help) : null)),
-    ...entry.secrets.map((secret) => h("label", { className: "bees-form", key: secret.name },
+    ...(entry.secrets ?? []).map((secret) => h("label", { className: "bees-form", key: secret.name },
       h("span", null, secret.label),
       h("input", {
         className: "bees-input", type: "password", autoComplete: "off", value: secrets[secret.name] ?? "",
         onChange: (event) => setSecrets({ ...secrets, [secret.name]: event.target.value })
       }),
       secret.help ? h("span", { className: "bees-muted" }, secret.help) : null)),
-    entry.secrets.length ? h("p", { className: "bees-muted" },
+    entry.secrets?.length ? h("p", { className: "bees-muted" },
       "Secrets are kept in your local credential store, not in the Bees database.") : null,
     h("div", { className: "bees-detail-actions" },
       h(Button, {
