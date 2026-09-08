@@ -199,6 +199,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const [composerText, setComposerText] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
   const liveRevision = useBeesChangeRevision();
   const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
@@ -304,11 +305,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..." : "Agent is working...")
         : null
       ),
+      sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
       h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
           event.preventDefault();
           const text = composerText.trim();
           if (!text || isAgentBusy) return;
           isScrolledUpRef.current = false;
+          setSendError("");
           const sessionBinding = activeBinding;
           // If there is no active binding but the user is trying to send a message, we continue the conversation with the backend action
           if (!sessionBinding) {
@@ -318,7 +321,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
                  await act({ action: "continue_run", executionId: run.id, text });
                  setComposerText("");
                } catch (err) {
-                 console.error("Failed to continue run:", err);
+                 setSendError(err instanceof Error ? err.message : String(err));
                } finally {
                  setSending(false);
                  setRefreshCount(c => c + 1);
@@ -332,7 +335,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
             await sessionBinding.session.prompt([{ type: "text", text }], "queue");
             setComposerText("");
           } catch (err) {
-            console.error("Failed to send message:", err);
+            setSendError(err instanceof Error ? err.message : String(err));
           } finally {
             setSending(false);
             setRefreshCount(c => c + 1);
@@ -960,7 +963,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const statuses = [...new Set(items.map(workItemStatus))].sort();
   const types = [...new Set(items.map(({ kind }) => kind))].sort();
   const needle = query.trim().toLocaleLowerCase();
-  const rows = items.filter((item) => (!needle || item.title.toLocaleLowerCase().includes(needle)) &&
+  const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
     (status === "all" || workItemStatus(item) === status) && (type === "all" || item.kind === type));
   const renderRows = (records, empty) => records.length ? records.map((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);

@@ -14,6 +14,9 @@ export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
 
 const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
+/** How many times startup may resume the same interrupted wait before a person decides. */
+const AUTO_RESUME_LIMIT = 3;
+
 export class ProcessRuntime {
   constructor(database, options = {}) {
     this.database = database;
@@ -368,11 +371,20 @@ export class ProcessRuntime {
         )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
     `).all();
+    // A heartbeat timeout usually means the app died mid-wait, so resuming it is right. But a stage
+    // that really does hang every time never increments its attempt, so without a ceiling this
+    // re-ran it on every single launch, spending the agent's time again with nothing said.
     const interruptedWaits = this.database.prepare(`
       SELECT w.id FROM work_items w
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
         AND w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
+        AND w.runtime_attempt < ${AUTO_RESUME_LIMIT}
     `).all();
+    // Counting the resume here is what stops it repeating: the workflow deliberately does not
+    // charge an attempt for an interrupted wait, so nothing else would ever move this number.
+    for (const { id } of interruptedWaits) {
+      this.database.prepare("UPDATE work_items SET runtime_attempt = runtime_attempt + 1 WHERE id = ?").run(id);
+    }
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
     for (const settled of await Promise.allSettled([
@@ -458,9 +470,15 @@ export class ProcessRuntime {
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
-    if (type === "cancel") await handle.cancel();
-    else await handle.signal(type);
-    const phase = type === "pause" ? "paused" : type === "cancel" ? "cancelled" : "running";
+    if (type === "cancel") {
+      // Temporal only accepts the request here; the activity keeps running until it checks the
+      // signal. Writing "cancelled" now would claim the work stopped while an agent is still
+      // acting in the person's name, so the workflow's own project() records it when it really has.
+      await handle.cancel();
+      return item;
+    }
+    await handle.signal(type);
+    const phase = type === "pause" ? "paused" : "running";
     this.database.prepare(`
       UPDATE work_items SET runtime_phase = ?, runtime_error = NULL, updated_at = ? WHERE id = ?
     `).run(phase, new Date().toISOString(), workItemId);
@@ -485,7 +503,12 @@ export class ProcessRuntime {
     `).get(workItemId)) throw new Error("Pause recurring work before archiving its work item");
     // Archiving hides the whole tree, so delegated work still in flight has to stop with it.
     // Cancelling only the root left a child running behind a screen nobody could see.
-    if (!restore) for (const id of this.cancellableTree(workItemId)) await this.signal(id, "cancel");
+    // One child whose cancel fails must not abort the archival: the rest of the tree would stay
+    // running behind a screen nobody can see, which is the thing cancelling here exists to prevent.
+    if (!restore) for (const id of this.cancellableTree(workItemId)) {
+      try { await this.signal(id, "cancel"); }
+      catch (error) { this.logger.warn?.(`bees: could not cancel ${id} while archiving: ${message(error)}`); }
+    }
     const at = new Date().toISOString();
     this.database.prepare(`
       WITH RECURSIVE tree(id) AS (

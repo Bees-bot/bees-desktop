@@ -11,7 +11,7 @@ export function conversationMessages(history, runs, assignments, children = []) 
   const messages = new Map();
   for (const message of history?.messages ?? []) {
     if (message.role === "context") continue;
-    const text = message.parts.filter((part) => part.text).map((part) => part.text).join("\n\n");
+    const text = (message.parts ?? []).filter((part) => part.text).map((part) => part.text).join("\n\n");
     if (!text.trim()) continue;
     const id = `message:${history.executionId}:${message.id}`;
     messages.set(id, { id, role: message.role, text, label: agentName(currentRun),

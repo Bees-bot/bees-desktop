@@ -1,6 +1,6 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button, HelpTooltip } from "./shared.js";
+import { Button, confirmAction, HelpTooltip } from "./shared.js";
 import { applyFixedLayout, fixedLayoutFrom, saveGridLayout } from "./dashboard-model.js";
 
 const EMPTY_PAGE_LAYOUTS = Object.freeze({});
@@ -79,7 +79,11 @@ export function GridStackPage({ layoutId, defaults, panels, preference, preferen
   useEffect(() => {
     setPageActions(h("div", { className: "bees-page-actions" },
       pageActions,
-      editing ? h(Button, { onClick: () => preferences.set("pageLayouts", { ...layouts, [layoutId]: [] }) }, "Reset") : null,
+      editing ? h(Button, { onClick: async () => {
+        if (await confirmAction("Reset this layout back to the default arrangement?")) {
+          await preferences.set("pageLayouts", { ...layouts, [layoutId]: [] });
+        }
+      } }, "Reset") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")));
     return () => setPageActions(null);
   }, [editing, layoutId, layouts, preferences, setPageActions, pageActions]);

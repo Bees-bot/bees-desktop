@@ -366,7 +366,9 @@ function FileContents({ target, onClose, inline }) {
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
             file.truncated ? h("div", { className: "bees-muted" }, `Showing the first part of a ${formatSize(file.size)} file.`) : null,
-            file.format === "markdown" ? h(MarkdownText, { text: file.content })
+            // a run's outputs are often a screenshot or a pdf, and those come back with no content
+            file.content == null ? h("p", { className: "bees-muted" }, `No preview for this ${formatSize(file.size)} file.`)
+              : file.format === "markdown" ? h(MarkdownText, { text: file.content })
               : file.content.length > HIGHLIGHT_LIMIT ? h("pre", null, file.content)
               : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));
   const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),

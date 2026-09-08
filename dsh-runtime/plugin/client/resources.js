@@ -129,26 +129,26 @@ export function ActivityPage({ data, route, workspaceIds, setRoute, openWorkItem
     run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
       h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
       h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
-    run.outputs.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
+    run.outputs?.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
     history?.error ? h(Empty, null, history.error) : history ? h("div", { className: "bees-transcript" },
       ...(history.messages?.length ? history.messages.map((message) => {
         if (message.role === "error") {
           return h("div", { className: "bees-message bees-error-msg", key: message.id, style: { color: "#cf5b5b", display: "flex", gap: "8px", alignItems: "flex-start", padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
             h("span", { style: { fontSize: "14px", marginTop: "2px" } }, "●"),
-            h("div", null, h("strong", null, "This turn failed "), h("span", null, message.parts.map(p => p.text).join(" ")))
+            h("div", null, h("strong", null, "This turn failed "), h("span", null, (message.parts ?? []).map(p => p.text).join(" ")))
           );
         }
         if (message.role === "context") {
           return h("div", { className: "bees-message bees-context-msg", key: message.id, style: { color: "var(--dsw-alias-label-secondary)", display: "flex", gap: "8px", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
             h("span", { style: { fontSize: "16px" } }, "☑"),
-            h("span", null, message.parts.map(p => p.text).join(" "))
+            h("span", null, (message.parts ?? []).map(p => p.text).join(" "))
           );
         }
         return h("div", { className: "bees-message", key: message.id, style: { padding: "12px 0", borderBottom: "1px solid var(--dsw-alias-border-l1)" } },
           h("div", { style: { marginBottom: "6px" } },
             h("strong", { className: `bees-status`, style: { background: "var(--dsw-alias-border-l1)", padding: "2px 6px", borderRadius: "4px" } }, message.role)
           ),
-          h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, message.parts.map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? "")))
+          h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, (message.parts ?? []).map((part, index) => h("div", { key: index }, part.type === "tool" ? `${part.toolName}: ${part.state}` : part.text ?? "")))
         );
       }) : [h(Empty, { key: "empty" }, "No transcript messages yet")]),
       ...(history.events?.length ? [
@@ -171,7 +171,7 @@ export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnecti
   const [searchError, setSearchError] = useState("");
   const [viewer, setViewer] = useState(null);
   if (route === "artifacts") {
-    const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs.length);
+    const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs?.length);
     if (!rows.length) return h(Empty, null, "No run artifacts yet");
     return h("div", { className: "bees-stack" }, ...rows.map((run) => h("div", { className: "bees-row", key: run.id },
       h("div", { className: "bees-row-main" },
