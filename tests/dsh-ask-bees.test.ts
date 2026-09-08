@@ -18,7 +18,7 @@ const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 configureRuntime((id: string) => id === "react" ? React : {});
 
-it("shows Goals, stage agents, connections and folders without starting anything", () => {
+it("shows the selected process, its stage agents, and folders without repeating advanced inputs", () => {
   const data = {
     teams: [{ id: "team", name: "Research", role: "admin" }], workspaces: [{ id: "workspace", teamId: "team" }],
     processes: [{ id: "goals", workspaceId: "workspace", kind: "goals" }],
@@ -50,14 +50,16 @@ it("shows Goals, stage agents, connections and folders without starting anything
   const markup = render(data);
   expect(markup).toContain("Configure advanced");
   expect(markup).toContain("Run process");
-  expect(markup).toContain("Process template");
+  expect(markup).toContain("1 · Process");
+  expect(markup).toContain("2 · Stage agents");
   expect(markup).toContain("bees-routing-board");
   expect(markup).toContain("Worker");
   expect(markup).toContain("Reviewer");
   expect(markup).toContain("Default agent");
-  expect(markup).toContain("MCP connections");
-  expect(markup).toContain("News MCP");
-  expect(markup).toContain("Source research");
+  expect(markup).not.toContain("What would you like Bees to do?");
+  expect(markup).not.toContain("MCP connections");
+  expect(markup).not.toContain("News MCP");
+  expect(markup).not.toContain("Source research");
   expect(markup).not.toContain("Tools from MCP servers");
   expect(markup).toContain("Brief/project");
   expect(markup).toContain("Output folder");
