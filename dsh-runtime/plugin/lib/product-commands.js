@@ -615,6 +615,8 @@ export async function executeProductCommand(action, input) {
     if (action === "copy_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
       const process = processContext(this.database, processId, ["admin", "member"]);
+      if (this.agents?.apps?.ownsProcess(processId))
+        throw new Error("App processes cannot be copied without their permission boundary. Install the package through Apps instead.");
       const workspaceId = process.workspaceId;
       const name = required(input.name, "New process name");
 
