@@ -8,6 +8,7 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
+import { mountAppTools } from "./app-tools.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
@@ -788,10 +789,12 @@ export class AgentRuntime {
   }
 
   async setup(agentCtx, data, executionId, workspace) {
+    const installedApp = data.workItemId ? this.apps?.context(data.workItemId) : null;
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
-    await this.startBrowserIfGranted(data, agentCtx);
+    if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
+    if (installedApp) mountAppTools(agentCtx, this.apps, installedApp, data);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
@@ -800,11 +803,11 @@ export class AgentRuntime {
         systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
         String(data.instructions ?? ""),
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
-        "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
-        ...this.connectedTools(), ...this.boundFolders()
+        installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
+        ...(installedApp ? [] : [...this.connectedTools(), ...this.boundFolders()])
       ].filter(Boolean).join("\n\n"), complete: true
     });
-    agentCtx.tools.register(defineTool({
+    if (!installedApp) agentCtx.tools.register(defineTool({
       name: "bees_search_knowledge",
       description: "Search work items and files in this Bees team. Results are read-only excerpts and are automatically scoped to the current run. Use bees_read_knowledge with any result id when the full source is needed.",
       parameters: {
@@ -824,7 +827,7 @@ export class AgentRuntime {
         return { results_json: JSON.stringify(results) };
       }
     }));
-    agentCtx.tools.register(defineTool({
+    if (!installedApp) agentCtx.tools.register(defineTool({
       name: "bees_read_knowledge",
       description: "Read one work item or file returned by bees_search_knowledge, including freshness and authority metadata for files. Modified dates indicate freshness, not authority; prefer an explicit authority/status marker and surface unresolved conflicts. The result must belong to this Bees team.",
       parameters: {
@@ -876,7 +879,7 @@ export class AgentRuntime {
         return { outcome: "rejected", feedback };
       }
     }));
-    if (data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
+    if (!installedApp && data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
       description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. "
         + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
@@ -915,7 +918,7 @@ export class AgentRuntime {
         return { result_json: JSON.stringify(result ?? null) };
       }
     }));
-    if (data.mode === "planning") agentCtx.tools.register(defineTool({
+    if (!installedApp && data.mode === "planning") agentCtx.tools.register(defineTool({
       name: "bees_propose_changes",
       description: "Submit a reviewable Bees proposal. This stores a preview only; the user must apply it in Bees.",
       parameters: {
@@ -949,7 +952,7 @@ export class AgentRuntime {
         });
       }
     }));
-    if (data.mode === "work" && data.workItemId)
+    if (!installedApp && data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
         description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same process lifecycle and works in this run's shared workspace while the caller waits.",
@@ -994,7 +997,7 @@ export class AgentRuntime {
           }
         }
       }));
-    if (data.capabilities?.includes("start-work")) agentCtx.tools.register(defineTool({
+    if (!installedApp && data.capabilities?.includes("start-work")) agentCtx.tools.register(defineTool({
       name: "bees_start_work",
       description: "Create a Bees work item in this team and start its process when automatic. Use this after an MCP event or message clearly warrants tracked work; do not create duplicates.",
       parameters: {
@@ -1095,7 +1098,7 @@ export class AgentRuntime {
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
     `).all(currentIdentity(this.database).deviceId, JSON.stringify(grantIds()), data.workspaceId);
-    const grants = granted();
+    const grants = installedApp ? [] : granted();
     if (grants.length) {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
@@ -1103,7 +1106,7 @@ export class AgentRuntime {
         text: `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`
       });
     }
-    if (data.mode === "work") agentCtx.tools.register(defineTool({
+    if (!installedApp && data.mode === "work") agentCtx.tools.register(defineTool({
         name: "bees_publish_outputs",
         description: "Copy the finished files under outputs/ to one granted company folder. This always asks the user for approval before writing outside the run workspace.",
         parameters: {

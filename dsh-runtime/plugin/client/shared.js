@@ -4,6 +4,7 @@ import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon,
 
 export const NAVIGATION = [
   { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
+  { id: "apps", label: "Apps", icon: WorkIcon, defaultChild: "apps", children: [] },
   { id: "work", label: "Process Runs", icon: WorkIcon, defaultChild: "all-work", children: [
     ["all-work", "All process runs"], ["schedules", "Schedules"]
   ] },

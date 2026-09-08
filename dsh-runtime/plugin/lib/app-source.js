@@ -1,0 +1,41 @@
+import { lookup } from "node:dns/promises";
+import { get } from "node:https";
+
+export function publicIPv4(address) {
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b, c] = parts;
+  return !(a === 0 || a === 10 || a === 127 || a >= 224 || a === 169 && b === 254 ||
+    a === 172 && b >= 16 && b <= 31 || a === 192 && (b === 168 || b === 0 || b === 88 && c === 99 || b === 0 && c === 2) ||
+    a === 100 && b >= 64 && b <= 127 || a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) || a === 203 && b === 0 && c === 113);
+}
+
+// Resolve once and pin that address at TLS connection time. No redirects, cookies or auth.
+// IPv4-only deliberately: unavailable IPv4 fails closed instead of weakening SSRF checks.
+export async function readPublicSource(source, query, signal) {
+  signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
+  const url = new URL(source.url);
+  url.searchParams.set(source.queryParam, query);
+  signal.throwIfAborted();
+  const addresses = await lookup(url.hostname, { all: true, family: 4 });
+  signal.throwIfAborted();
+  if (!addresses.length || addresses.some(({ address }) => !publicIPv4(address))) throw new Error("Source did not resolve to public IPv4 addresses");
+  return new Promise((resolve, reject) => {
+    const req = get(url, { signal, headers: { accept: "application/json, text/plain", "user-agent": "Bees-Apps/0.1" },
+      lookup: (_host, options, done) => options.all ? done(null, [addresses[0]]) : done(null, addresses[0].address, 4)
+    }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error(`Source returned HTTP ${res.statusCode}; redirects are not followed`)); return; }
+      let bytes = 0;
+      const chunks = [];
+      res.on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 512_000) { req.destroy(new Error("Source response exceeds 512 KB")); return; }
+        chunks.push(chunk);
+      });
+      res.on("error", reject);
+      res.on("end", () => resolve({ url: url.href, observedAt: new Date().toISOString(), content: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.setTimeout(10_000, () => req.destroy(new Error("Source timed out")));
+    req.on("error", reject);
+  });
+}

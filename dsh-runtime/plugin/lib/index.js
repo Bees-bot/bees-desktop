@@ -9,6 +9,7 @@ import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
 import { userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
+import { AppPlatform } from "./app-platform.js";
 
 export const name = "bees";
 export const inject = [
@@ -192,6 +193,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   });
   // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
   agents.command = (input) => product.command(input);
+  const apps = new AppPlatform(product);
+  agents.apps = apps;
   await product.initialize();
   await capabilities.initialize();
   await product.recoverRuns();
@@ -362,6 +365,18 @@ export async function apply(ctx, _config = {}, internals = {}) {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? ""));
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
+  register(ctx, { kind: "exact", path: "/bees-api/apps", handler: async (req, res) => {
+    try {
+      if (req.method === "GET") {
+        const url = new URL(req.url, "http://127.0.0.1");
+        return reply(res, 200, apps.snapshot(url.searchParams.get("workspaceId")));
+      }
+      if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+      const result = await apps.command(await body(req));
+      notify({ type: "apps-changed" });
+      reply(res, 200, result);
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
