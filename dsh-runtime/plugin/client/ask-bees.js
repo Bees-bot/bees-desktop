@@ -1,12 +1,17 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button } from "./shared.js";
+import { Button, useSubmit } from "./shared.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
+export function workFromOutcome(outcome, target, resources = {}) {
+  const description = outcome.trim();
+  return { action: target.processId ? "create_item" : "create_goal", ...target,
+    title: description.split("\n")[0], description, ...resources };
+}
+
 export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, onBack, onStarted,
-  capabilities, active = true }) {
-  const [busy, setBusy] = useState(false);
+  capabilities }) {
   const [error, setError] = useState("");
   const [processId, setProcessId] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -32,21 +37,18 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
     stage.agentIds?.length ? stage.agentIds : agents.filter((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker")).map(({ id }) => id)))]
     .flatMap((id) => inheritedInputs(data, null, id));
 
-  useEffect(() => { if (active) heading.current?.focus(); }, [active]);
+  useEffect(() => heading.current?.focus(), []);
 
-  const submit = async (event) => {
-    event.preventDefault();
-    if (busy || !allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
-    setBusy(true); setError("");
+  const [busy, submit] = useSubmit(async () => {
+    if (!allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
+    setError("");
     try {
-      const result = await act({ action: process.kind === "goals" ? "create_goal" : "create_item",
-        workspaceId, processId: process.id, title: outcome.trim().split("\n")[0], description: outcome.trim(),
-        inputLocationIds, outputLocationId });
+      const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
+      const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
       if (result?.id) onStarted(result.id);
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
+  });
 
   return h("div", { className: "bees-ask-setup" },
     h("div", null,

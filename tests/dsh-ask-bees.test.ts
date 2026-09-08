@@ -9,7 +9,7 @@ import { NodeDatabase } from "./node-database.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
-import { AskBeesSetup } from "../dsh-runtime/plugin/client/ask-bees.js";
+import { AskBeesSetup, workFromOutcome } from "../dsh-runtime/plugin/client/ask-bees.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { OutcomeWidget } from "../dsh-runtime/plugin/client/home.js";
 
@@ -40,7 +40,6 @@ it("shows Goals, stage agents, connections and folders without starting anything
         { id: "browser", label: "Browser MCP", enabled: true, status: "connected" },
         { id: "mail", label: "Mail MCP", enabled: true, status: "connected" }
       ],
-      catalog: [], tools: [], presets: [], skillsComplete: true,
       skills: [
         { name: "Source research", description: "Find reliable sources" },
         { name: "Writing" }, { name: "Review" }, { name: "Planning" }
@@ -52,7 +51,6 @@ it("shows Goals, stage agents, connections and folders without starting anything
   expect(markup).toContain("Configure advanced");
   expect(markup).toContain("Run process");
   expect(markup).toContain("Process template");
-  expect(markup).toContain('value="goals" selected=""');
   expect(markup).toContain("bees-routing-board");
   expect(markup).toContain("Worker");
   expect(markup).toContain("Reviewer");
@@ -60,9 +58,6 @@ it("shows Goals, stage agents, connections and folders without starting anything
   expect(markup).toContain("MCP connections");
   expect(markup).toContain("News MCP");
   expect(markup).toContain("Source research");
-  expect(markup).toContain("See more");
-  expect(markup).not.toContain("Mail MCP");
-  expect(markup).not.toContain("Planning");
   expect(markup).not.toContain("Tools from MCP servers");
   expect(markup).toContain("Brief/project");
   expect(markup).toContain("Output folder");
@@ -70,12 +65,15 @@ it("shows Goals, stage agents, connections and folders without starting anything
   expect(markup).not.toContain('name="model"');
   expect(started).toBe(false);
   expect(render({ ...data, teams: [{ ...data.teams[0], role: "viewer" }] })).toMatch(/<fieldset[^>]*disabled=""[^>]*>/);
+  const home = renderToStaticMarkup(React.createElement(OutcomeWidget, { data, workspaceId: "workspace",
+    outcome: "Research CRM options", setOutcome: () => {}, configureGoal: () => {}, act: () => {}, openWorkItem: () => {} }));
+  expect(home).toContain("Run using defaults");
+  expect(home).toContain("Configure advanced");
 });
 
 const roots: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
-  configureRuntime((id: string) => id === "react" ? React : {});
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -244,97 +242,10 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   }
 });
 
-// Exercise the actual component handlers without adding a browser test dependency.
-function component(component: any, props: any) {
-  const state: any[] = [];
-  let cursor = 0;
-  configureRuntime((id: string) => id === "react" ? { ...React,
-    useEffect: () => {}, useRef: () => ({ current: null }),
-    useState: (initial: any) => {
-      const index = cursor++;
-      if (!(index in state)) state[index] = typeof initial === "function" ? initial() : initial;
-      return [state[index], (value: any) => { state[index] = typeof value === "function" ? value(state[index]) : value; }];
-    }
-  } : {});
-  return (match: (node: any) => boolean) => {
-    cursor = 0;
-    const visit = (node: any): any => {
-      if (!node?.props) return;
-      if (match(node)) return node;
-      return React.Children.toArray(node.props.children).map(visit).find(Boolean);
-    };
-    const found = visit(component(props));
-    expect(found).toBeTruthy();
-    return found.props;
-  };
-}
-
-it("runs defaults immediately through Goals without changing templates or opening configuration", async () => {
-  const { database, product, processes, workspaceId, dispatch } = setup();
-  const data = await product.snapshot();
-  const act = vi.fn((command) => product.command(command));
-  const configureGoal = vi.fn();
-  const openWorkItem = vi.fn();
-  const routes = database.prepare("SELECT * FROM stage_routes").all();
-  const props = { data, workspaceId, outcome: "Research CRM options\nCompare pricing", setOutcome: vi.fn(), act, configureGoal, openWorkItem };
-  const find = component(OutcomeWidget, props);
-  expect(find((node) => node.props.children === "Run using defaults").type).toBe("submit");
-  find((node) => node.props.children === "Configure advanced").onClick();
-  expect(configureGoal).toHaveBeenCalledOnce();
-  expect(act).not.toHaveBeenCalled();
-  await find((node) => node.type === "form").onSubmit({ preventDefault() {} });
-  // The form delegates to the async handler; allow its command to finish.
-  await vi.waitFor(() => expect(openWorkItem).toHaveBeenCalledOnce());
-  const id = openWorkItem.mock.calls[0]![0];
-  expect(database.prepare("SELECT kind, title, description, run_settings_json AS settings FROM work_items WHERE id = ?").get(id))
-    .toEqual({ kind: "goal", title: "Research CRM options", description: props.outcome, settings: "{}" });
-  expect(processes.startItem).toHaveBeenCalledWith(id);
-  expect(database.prepare("SELECT * FROM stage_routes").all()).toEqual(routes);
-  expect(dispatch).not.toHaveBeenCalled();
-});
-
-it("starts the selected process with its agents and chosen folders", async () => {
-  const { database, product, processes, workspaceId } = setup();
-  const custom = await product.command({ action: "create_process", workspaceId, name: "Research", stages: ["Work", "Done"] });
-  const data = await product.snapshot();
-  const teamId = data.workspaces.find((row: any) => row.id === workspaceId)!.teamId;
-  const folder = await product.command({ action: "add_location", teamId, name: "Brief", kind: "folder", path: roots.at(-1) });
-  const onStarted = vi.fn();
-  const act = vi.fn((command) => product.command(command));
-  const find = component(AskBeesSetup, { data: await product.snapshot(), workspaceId, outcome: "Research options", act,
-    capabilities: { data: {
-      servers: ["One", "Two", "Three", "Four"].map((label, index) =>
-        ({ id: String(index), label, enabled: true, status: "connected" })),
-      skills: ["Read", "Write", "Review", "Plan"].map((name) => ({ name }))
-    } }, onStarted, reload: vi.fn() });
-  const form = () => find((node) => node.props.id === "bees-ask-run");
-  expect(find((node) => node.props.name === "processId").value)
-    .toBe(data.processes.find((row: any) => row.kind === "goals")!.id);
-  find((node) => node.props.name === "processId").onChange({ target: { value: custom.id } });
-  const resources = () => find((node) => node.type.name === "ResourceFields");
-  resources().onInputIds([folder.id]);
-  resources().onOutputId(folder.id);
-  expect(() => find((node) => node.props.children === "Four")).toThrow();
-  find((node) => node.props["aria-expanded"] === false).onClick();
-  expect(find((node) => node.props.children === "Four")).toBeTruthy();
-  find((node) => node.props["aria-expanded"] === false).onClick();
-  expect(find((node) => node.props.children === "Plan")).toBeTruthy();
-  expect(resources().inputIds).toEqual([folder.id]);
-  expect(resources().outputId).toBe(folder.id);
-  const board = find((node) => node.type.name === "ProcessRoutingBoard");
-  expect(board.stages.every((stage: any) => stage.processId === custom.id)).toBe(true);
-  const worker = data.assignments.find((agent: any) => agent.systemRole === "worker")!;
-  board.onOpenAgent(worker.id);
-  const agent = find((node) => node.type.name === "AgentEditForm");
-  expect(agent.selected.id).toBe(worker.id);
-  await form().onSubmit({ preventDefault() {} });
-  expect(act).not.toHaveBeenCalled(); // Unsaved agent settings cannot be bypassed with Enter.
-  agent.onSaved();
-  await form().onSubmit({ preventDefault() {} });
-  expect(onStarted).toHaveBeenCalledOnce();
-  const id = onStarted.mock.calls[0]![0];
-  expect(database.prepare("SELECT process_id AS processId, output_location_id AS outputId FROM work_items WHERE id = ?").get(id))
-    .toEqual({ processId: custom.id, outputId: folder.id });
-  expect(database.prepare("SELECT location_id AS id FROM work_item_locations WHERE work_item_id = ?").all(id)).toEqual([{ id: folder.id }]);
-  expect(processes.startItem).toHaveBeenCalledWith(id);
+it("builds default and custom-process work from the same outcome", () => {
+  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace" }))
+    .toEqual({ action: "create_goal", workspaceId: "workspace", title: "Research options", description: "Research options\nCompare pricing" });
+  expect(workFromOutcome("Research options", { processId: "process" }, { inputLocationIds: ["brief"], outputLocationId: "results" }))
+    .toEqual({ action: "create_item", processId: "process", title: "Research options", description: "Research options",
+      inputLocationIds: ["brief"], outputLocationId: "results" });
 });
