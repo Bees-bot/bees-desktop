@@ -457,6 +457,10 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     inherit_environment(&mut command, &RUNTIME_ENVIRONMENT);
     command
         .current_dir(&workspace)
+        // Node stops reading at 16 KiB of headers and answers 431, which the webview shows as a
+        // blank window. Loopback callers are our own webview, so the header is ours to trust and
+        // the size of it is never a reason to refuse the app its own interface.
+        .arg("--max-http-header-size=65536")
         .arg(entry)
         .args(["--profile", "bees", "--host", "127.0.0.1", "--port"])
         .arg(port.to_string())

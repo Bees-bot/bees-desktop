@@ -220,9 +220,12 @@ describe("Bees DSH public contract", () => {
       const auth = await request(server, routes, "/bees-auth?token=contract-token");
       expect(auth.status).toBe(302);
       const cookie = auth.headers["set-cookie"]?.split(";")[0];
-      expect(cookie).toBe("bees_dsh_45123=contract-token");
+      expect(cookie).toBe("bees_dsh=contract-token");
+      // The token is the boundary, not the cookie name. A cookie an earlier launch left behind
+      // carries that launch's token, so it is turned away and the browser goes back through
+      // /bees-auth for a current one.
       expect((await request(server, routes, "/bees-api/snapshot", {
-        headers: { cookie: "bees_dsh_45124=contract-token" }
+        headers: { cookie: "bees_dsh=token-from-an-earlier-launch" }
       })).status).toBe(401);
       const headers = { cookie: String(cookie), "content-type": "application/json" };
       const events = await request(server, routes, "/bees-api/events", { headers });

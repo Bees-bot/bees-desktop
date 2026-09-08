@@ -91,16 +91,17 @@ function equalSecret(left, right) {
   return offered.length === expected.length && offered.length > 0 && timingSafeEqual(offered, expected);
 }
 
-function cookieName(req) {
-  return `bees_dsh_${req.socket.localPort}`;
-}
+// Cookies are not scoped by port, so naming this per port left one dead cookie on 127.0.0.1 for
+// every launch the app ever made. They all get sent, and once the header outgrew the server's
+// limit every request came back 431 and the window went blank. One name, overwritten each launch.
+const COOKIE_NAME = "bees_dsh";
 
 function tokenFrom(req) {
   const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, "");
   if (bearer) return bearer;
   const cookie = String(req.headers.cookie ?? "").split(";")
     .map((part) => part.trim().split("="))
-    .find(([name]) => name === cookieName(req))?.[1];
+    .find(([name]) => name === COOKIE_NAME)?.[1];
   return cookie ? decodeURIComponent(cookie) : "";
 }
 
@@ -257,7 +258,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     const base = `http://127.0.0.1:${req.socket.localPort}`;
     res.writeHead(302, {
       location: ctx.connection?.authenticatedUrl?.(base) ?? `${base}/`,
-      "set-cookie": `${cookieName(req)}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
+      "set-cookie": `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
       "cache-control": "no-store"
     });
     res.end();
