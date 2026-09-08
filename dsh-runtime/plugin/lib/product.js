@@ -40,6 +40,12 @@ function textPreview(path, logical) {
   return { name: basename(path), path: logical, format, content, size, truncated: size > PREVIEW_BYTES };
 }
 
+/** The brief grows with the team, and a long description costs the same as useful context. */
+const brief = (text) => {
+  const line = String(text ?? "").replace(/\s+/g, " ").trim();
+  return line.length > 200 ? `${line.slice(0, 197)}...` : line;
+};
+
 export class BeesProduct {
   constructor(database, agents, processes, defaultWorkspace, services = {}) {
     this.database = database;
@@ -599,6 +605,7 @@ export class BeesProduct {
       SELECT id, name, description, kind FROM processes WHERE workspace_id = ? AND archived_at IS NULL ORDER BY name
     `).all(workspaceId).map((process) => ({
       ...process,
+      description: brief(process.description),
       stages: this.database.prepare(`
         SELECT s.name, s.driver, s.requires_human_approval AS requiresHumanApproval,
           r.agent_ids_json AS agentIds FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
@@ -608,12 +615,16 @@ export class BeesProduct {
     const agents = this.database.prepare(`
       SELECT id, name, description, preset_id AS presetId, model, system_role AS systemRole,
         mcp_access AS mcpAccess FROM agent_assignments WHERE workspace_id = ? AND enabled = 1 ORDER BY name
-    `).all(workspaceId);
+    `).all(workspaceId).map((agent) => ({ ...agent, description: brief(agent.description) }));
     const servers = this.database.prepare(`
       SELECT server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
     `).all();
     const presets = await this.capabilities?.presetTools?.() ?? [];
-    const skills = presets.map(({ id, skills, broken }) => ({ presetId: id, skills, unavailable: Boolean(broken) }));
+    // Presets share skills, so listing them per preset repeated the same five skills eleven times.
+    // The planner picks a skill by name and what it is for; the rest of each record is noise.
+    const skills = [...new Map(presets.filter(({ broken }) => !broken)
+      .flatMap(({ skills: list }) => list ?? [])
+      .map((skill) => [skill.name, { name: skill.name, description: brief(skill.description) }])).values()];
     // Only folders named in the outcome belong in its brief; unrelated folders invite accidental attachments.
     const references = typedReferences(outcome);
     const prose = references.reduce((text, reference) => text.replaceAll(referenceText(reference), ""), String(outcome));

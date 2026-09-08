@@ -1558,7 +1558,10 @@ export class AgentRuntime {
       pendingInteraction: null,
       idempotencyKey: `settled:${submissionId}`
     });
-    this.audit(`run-${result.outcome}`, executionId, sessionId, { submissionId });
+    // The reason is already on the delivery row; dropping it here left the audit trail saying a
+    // run failed and nothing about why, when the answer was "the model provider is out of quota".
+    this.audit(`run-${result.outcome}`, executionId, sessionId,
+      result.error ? { submissionId, error: result.error.message, code: result.error.code } : { submissionId });
     const live = this.live.get(executionId);
     live?.approvalAbort.abort();
     this.live.delete(executionId);
