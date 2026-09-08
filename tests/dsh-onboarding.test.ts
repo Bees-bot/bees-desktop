@@ -61,7 +61,9 @@ describe("Getting started", () => {
       aiReady: false, aiStatus: "Not tested", busy: false, go: vi.fn(), start: vi.fn(), navigate: vi.fn() };
     const html = renderToStaticMarkup(React.createElement(GettingStarted, props));
     expect(html).toContain("✓ Complete");
-    expect(html).toContain("2 of 4");
+    expect(html).toContain("Step 2");
+    // "4 of 4" beside a sibling reading Complete looked like the last step was already done.
+    expect(html).not.toContain("of 4");
     expect(html).toContain("Create your first result");
     expect(html).toMatch(/disabled="">Create my first result/);
     const resumed = renderToStaticMarkup(React.createElement(GettingStarted, { ...props,

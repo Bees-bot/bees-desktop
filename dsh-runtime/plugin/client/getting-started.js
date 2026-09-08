@@ -61,7 +61,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
       ...titles.map((title, index) => h("button", { type: "button", key: title,
         className: `bees-box ${step === index ? "active" : ""}`, "aria-current": step === index ? "step" : undefined,
         onClick: () => update({ step: index, active: true }) },
-        h("span", { className: "bees-badge" }, done[index] ? "✓ Complete" : `${index + 1} of 4`), h("strong", null, title)))),
+        // "4 of 4" next to a sibling reading "Complete" looks like the last step is finished.
+        h("span", { className: "bees-badge" }, done[index] ? "✓ Complete" : `Step ${index + 1}`),
+        h("strong", null, title)))),
     h("section", { className: "bees-box bees-stack" }, h("h2", null, titles[step]),
       step === 0 ? h("div", { className: "bees-stack" },
         h("p", null, parts.team ? `You can start in ${parts.organization?.name || "your organization"} · ${parts.team.name}, or create a new workspace.` : "Give your organization a name. We’ll create a Default team for your first task."),
