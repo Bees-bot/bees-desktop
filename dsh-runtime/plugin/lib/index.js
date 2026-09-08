@@ -59,7 +59,6 @@ const BeesUiSettings = z.object({
   dashboards: z.array(DashboardPreference).default([]),
   workItemLayout: z.array(DashboardWidget).default([]),
   pageLayouts: z.dict(z.array(DashboardWidget)).default({}),
-  localModelWantedId: z.string().default(""),
   localModelWantedIds: z.array(z.string()).default([]),
   removedLocalModelIds: z.array(z.string()).default([]),
   themePreset: z.string().default("forest"),
