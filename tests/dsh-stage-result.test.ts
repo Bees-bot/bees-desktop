@@ -213,7 +213,16 @@ describe("DSH stage results", () => {
       VALUES ('run', ?, 'parent', 'bees-run', 'session', 'uid', '/tmp/work', '{}', 'running',
         '2026-01-01', '2026-01-01')
     `).run(workspace.id);
-    const create = vi.fn(async () => [{ id: "peer" }]);
+    // The real store writes the child row, and collecting reads peers back from it rather than
+    // from whatever the delegating turn happened to hold, so a recovered run still finds them.
+    const create = vi.fn(async () => {
+      database.connection.prepare(`
+        INSERT INTO work_items
+          (id, process_id, stage_id, parent_id, kind, title, runtime_phase, created_at, updated_at)
+        VALUES ('peer', ?, ?, 'parent', 'goal', 'Write first', 'running', '2026-01-02', '2026-01-02')
+      `).run(stage.processId, stage.stageId);
+      return [{ id: "peer" }];
+    });
     runtime.setSubitemStore({ create, cancel: vi.fn(async () => undefined) });
     runtime.waitForPeers = vi.fn(async () => [{
       id: "peer", title: "Write first", status: "completed", settledAt: "2026-01-02",
@@ -246,7 +255,17 @@ describe("DSH stage results", () => {
     expect(create).toHaveBeenCalledWith({
       parentId: "parent", items: [{ title: "Write first" }],
     });
+    // Delegating starts the peer and returns, so the lead can start the rest before reading any
+    // of them. Settlement belongs to the collect that follows.
     expect(result).toMatchObject({ count: 1, ids: "peer" });
+    expect(database.connection.prepare(`
+      SELECT event_type AS type FROM dsh_audit_events
+      WHERE execution_id = 'run' AND event_type LIKE 'peer-work-%' ORDER BY created_at, rowid
+    `).all()).toEqual([{ type: "peer-work-delegated" }]);
+
+    const collected = await tools.find(({ name }) => name === "bees_collect_peers").execute({}, lead);
+    expect(collected).toMatchObject({ count: 1 });
+    expect(JSON.parse(collected.results_json)[0]).toMatchObject({ id: "peer", status: "completed" });
     expect(database.connection.prepare(`
       SELECT event_type AS type FROM dsh_audit_events
       WHERE execution_id = 'run' AND event_type LIKE 'peer-work-%' ORDER BY created_at, rowid

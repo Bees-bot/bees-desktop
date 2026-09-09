@@ -22,7 +22,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Tasks that do not depend on each other go in one call and run at the same time; only work that needs an earlier peer's result goes in a later call. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work, which starts peers without waiting, followed by one bees_collect_peers once everything that can run has been started. Start every independent task before reading any result; a peer you start and then immediately wait for is the slow way to do the same work. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest set of changes that lets Bees carry out the requested outcome. Inspect the existing resources in the brief before proposing anything new.
@@ -179,6 +179,7 @@ const MAX_DELEGATION_DEPTH = 1;
 // Peers delegated together run at once and share the caller's workspace. Four keeps a fan-out
 // useful without a lead spawning a swarm that competes for the same model and the same files.
 const MAX_PARALLEL_PEERS = 4;
+const PEER_SETTLED = ["completed", "failed", "cancelled"];
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const STAGE_RESULT_COLUMNS = `
@@ -958,19 +959,18 @@ export class AgentRuntime {
     if (!installedApp && data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
-        description: "Delegate self-contained tasks to independent peer agents. Each peer is a normal visible child work item with the same process lifecycle. Peers in one call run at the same time and the caller waits for all of them, so send tasks that do not depend on each other together rather than one call at a time.",
+        description: `Start self-contained tasks on independent peer agents, up to ${MAX_PARALLEL_PEERS} per call. This returns as soon as they are running; it does not wait. Peers work while you carry on, so start everything that can start before you read any of it, then call bees_collect_peers once for all of them. Each peer is a normal visible child work item with the same process lifecycle.`,
         timeoutMs: 2_147_483_647,
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work as separate calls, in order. After a discussion, wait for all participants to report and become idle before delegating.`
+            description: `JSON array of up to ${MAX_PARALLEL_PEERS} tasks, each shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Put output paths and acceptance criteria in description, and give every peer its own output paths, because they share this run's workspace and otherwise overwrite each other. After a discussion, wait for all participants to report and become idle before delegating.`
           }
         },
         output: {
           schema: {
             type: "object", additionalProperties: false, properties: {
-              count: { type: "integer", required: true }, ids: { type: "string", required: true },
-              results_json: { type: "string", required: true }
+              count: { type: "integer", required: true }, ids: { type: "string", required: true }
             }
           },
           render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
@@ -992,10 +992,31 @@ export class AgentRuntime {
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
           this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
+          return { count: ids.length, ids: ids.join(",") };
+        }
+      }));
+    if (!installedApp && data.mode === "work" && data.workItemId)
+      agentCtx.tools.register(defineTool({
+        name: "bees_collect_peers",
+        description: "Wait for the peers delegated so far and read what they produced. Every peer still running is waited on together, so delegating three and collecting once costs the slowest of the three, not the sum. A stage cannot finish while a peer is still running.",
+        timeoutMs: 2_147_483_647,
+        parameters: {},
+        output: {
+          schema: {
+            type: "object", additionalProperties: false, properties: {
+              count: { type: "integer", required: true }, results_json: { type: "string", required: true }
+            }
+          },
+          render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+        },
+        execute: async (_args, exec) => {
+          const ids = this.peers(data.workItemId).map(({ id }) => id);
+          if (!ids.length) throw new Error("No peer work has been delegated in this run");
+          const sessionId = String(exec.agent?.session.id ?? "");
           try {
             const results = await this.waitForPeers(ids, exec.signal);
             this.audit("peer-work-settled", executionId, sessionId, { workItemId: data.workItemId, results });
-            return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
+            return { count: ids.length, results_json: JSON.stringify(results) };
           } catch (error) {
             await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
             throw error;
@@ -1072,6 +1093,11 @@ export class AgentRuntime {
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
+        // Delegating no longer blocks, so a lead can reach the end of its turn with peers still
+        // working. Their output is part of this stage, and abandoning them leaves work running
+        // that nobody reads.
+        if (data.workItemId && this.peers(data.workItemId).some(({ phase }) => !PEER_SETTLED.includes(phase)))
+          throw new Error("Peer work from this run is still going; call bees_collect_peers and use what it returns");
         if (["candidate", "pass"].includes(args.outcome) && data.requiresHumanApproval &&
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
@@ -1149,6 +1175,15 @@ export class AgentRuntime {
       }));
   }
 
+  /** Every peer this run delegated, oldest first. Read back from the row a peer is, so a run that
+   *  was recovered still finds the ones an earlier turn started. */
+  peers(workItemId) {
+    return this.database.prepare(`
+      SELECT id, runtime_phase AS phase FROM work_items
+      WHERE parent_id = ? AND deleted_at IS NULL ORDER BY created_at
+    `).all(workItemId);
+  }
+
   peerDepth(workItemId) {
     return this.database.prepare(`
       WITH RECURSIVE up(id, parent) AS (
@@ -1179,7 +1214,7 @@ export class AgentRuntime {
         unsubscribe();
         throw new Error("Delegated work disappeared");
       }
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) {
+      if (rows.every(({ status }) => PEER_SETTLED.includes(status))) {
         unsubscribe();
         return rows.map((row) => ({
           id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
