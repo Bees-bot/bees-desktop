@@ -240,7 +240,7 @@ describe("team coordination projection", () => {
     addTeam(teammate, organizationId, teamId, teammateWorkspaceId);
 
     author.connection.prepare(`
-      INSERT INTO processes VALUES (?, ?, 'Weekly report', '', 'standard', NULL, NULL, ?, ?)
+      INSERT INTO processes (id, workspace_id, name, kind, created_at, updated_at) VALUES (?, ?, 'Weekly report', 'standard', ?, ?)
     `).run(processId, authorWorkspaceId, at, at);
     author.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Draft', 0, 'agent', 0, 0, NULL)")
       .run(draftStageId, processId);

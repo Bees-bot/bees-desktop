@@ -302,7 +302,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       },
         ...convoItems,
         workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
-        : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
+        : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, browser: data.agentBrowser })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
         : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..."
           : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...")
@@ -667,13 +667,13 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
         onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
 }
 
-export function QuestionPanel({ wait, onAnswered, act, executionId }) {
+export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
   const pending = wait;
   const questions = pending.questions ?? [];
-  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId });
+  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser });
 }
 
-function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId }) {
+function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser }) {
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => questions.map(() => ({ selected: [], custom: "", skipped: false })));
   const [busy, setBusy] = useState(false);
@@ -755,9 +755,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     h("div", { className: "bees-answer-actions" },
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
-      // a question is the only time someone has to reach the agent's browser, so the way in lives
-      // on the question rather than on whichever panel happens to be wrapping it
-      act && executionId ? h(Button, {
+      browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
         onClick: () => act({ action: "open_agent_browser", executionId })
       }, "Open browser") : null,
@@ -836,7 +834,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(NeedsYouControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
-      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.agentBrowser })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),

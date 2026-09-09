@@ -133,6 +133,8 @@ export function startAgentBrowser() {
   return starting;
 }
 
+export const agentBrowserRunning = () => running();
+
 /** Put the window on screen so a person can sign in to the tab the agent is reading. */
 export async function showAgentBrowser() {
   await startAgentBrowser();
