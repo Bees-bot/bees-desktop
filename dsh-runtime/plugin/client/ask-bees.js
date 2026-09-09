@@ -6,7 +6,10 @@ import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 export function workFromOutcome(outcome, target, resources = {}) {
   const description = outcome.trim();
-  return { action: target.processId ? "create_item" : "create_goal", ...target,
+  // A named process means the person already chose how the work runs. Without one, Bees plans it:
+  // the planner decides whether this is one goal or a process with its own agents and schedule.
+  if (!target.processId) return { action: "ask_bees", ...target, outcome: description };
+  return { action: "create_item", ...target,
     title: description.split("\n")[0], description, ...resources };
 }
 
@@ -46,6 +49,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
       const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
       const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
       if (result?.id) onStarted(result.id);
+      else if (result?.executionId) onBack();
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
