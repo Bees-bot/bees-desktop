@@ -610,6 +610,9 @@ export function initializeProductDatabase(database) {
       relative_path TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (process_id, location_id, relative_path)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS app_process_owners (process_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS app_agent_owners (agent_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS bees_app_sync_versions (connection_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS agent_locations (
       agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id) ON DELETE CASCADE,
       location_id TEXT NOT NULL REFERENCES team_locations(id),

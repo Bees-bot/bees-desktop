@@ -4,6 +4,28 @@ Bees is a local-first desktop application for coordinating AI-assisted work. Sta
 
 ## Development
 
+### Dynamic app directory
+
+Apps loads a hosted catalog on opening and on Refresh. Users inspect the name,
+description, publisher, access and sources, then Install, finish setup and Open.
+Packages stay in `bees-apps`; no JSON upload or user GitHub credentials are needed.
+Installed versions are pinned. Updates require a separate approval and preserve
+results; schedules and active work must be stopped first. An offline catalog is
+browse-only, while existing local installs keep working.
+
+The proposed catalog URL is `https://bees-bot.github.io/bees-apps/catalog.json`.
+It must be published separately; this change does not enable hosting. Override
+it with `BEES_APP_CATALOG_URL` at launch for another credential-free HTTPS host.
+Only a future package schema/runtime capability needs a desktop upgrade.
+
+Local apps use SQLite. Connected apps use the selected account and revisioned
+server storage for configuration, source receipts, records, drafts, decisions
+and shared limits. They need the matching Bees Server update and connectivity;
+failed writes never become offline approvals. The existing desktop runtime
+executes/schedules the work. No cloud worker, sending connector or paid service
+is enabled by installation. See `bees-apps/README.md` for catalog publishing and
+the current 16 MB shared-state limit.
+
 Requirements: Node.js 22.19+, npm 10+, Rust 1.84+, and a native desktop toolchain.
 
 ```sh

@@ -10,6 +10,7 @@ import { ProcessRuntime } from "./process-runtime.js";
 import { userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 import { AppPlatform } from "./app-platform.js";
+import { AppCatalog } from './app-catalog.js';
 
 export const name = "bees";
 export const inject = [
@@ -193,7 +194,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   });
   // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
   agents.command = (input) => product.command(input);
-  const apps = new AppPlatform(product);
+  const catalog = new AppCatalog(database);
+  const apps = new AppPlatform(product, undefined, { connected, catalog });
   agents.apps = apps;
   await product.initialize();
   await capabilities.initialize();
@@ -375,13 +377,18 @@ export async function apply(ctx, _config = {}, internals = {}) {
     try {
       if (req.method === "GET") {
         const url = new URL(req.url, "http://127.0.0.1");
-        return reply(res, 200, apps.snapshot(url.searchParams.get("workspaceId")));
+        return reply(res, 200, await apps.view(url.searchParams.get("workspaceId"), url.searchParams.get('connectionId') ?? ''));
       }
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const result = await apps.command(await body(req));
       notify({ type: "apps-changed" });
       reply(res, 200, result);
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
+  register(ctx, { kind: 'exact', path: '/bees-api/app-catalog', handler: async (req, res) => {
+    if (req.method !== 'GET') return reply(res, 405, { error: 'method not allowed' });
+    try { reply(res, 200, await catalog.list()); }
+    catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
