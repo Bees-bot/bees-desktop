@@ -13,6 +13,12 @@ function toolLine(part) {
   return `${part.toolName}${target ? ` · ${String(target).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
 }
 
+// Seat traffic arrives wrapped in its own plumbing: an envelope with a uuid, and a note when a
+// background seat stops. Show the critique under the seat's name and drop the note.
+const TEAM_ENVELOPE = /^Team message [\w-]+ from ([^:\n]+):\s*/;
+const SUBAGENT_NOTE = /^Background subagent [0-9a-f-]+ finished/;
+const seatName = (name) => /^participant-\d+$/.test(name.trim()) ? "Plan reviewer" : name.trim();
+
 export function conversationMessages(history, runs, assignments, children = []) {
   const agentName = (run) => assignments.find(({ id }) => id === run?.resolvedAgentId)?.name || "Agent";
   const currentRun = runs.find(({ id }) => id === history?.executionId);
@@ -20,11 +26,14 @@ export function conversationMessages(history, runs, assignments, children = []) 
   for (const message of history?.messages ?? []) {
     if (message.role === "context") continue;
     const tool = (message.parts ?? []).find((part) => part.type === "tool");
-    const text = tool ? toolLine(tool)
+    const raw = tool ? toolLine(tool)
       : (message.parts ?? []).filter((part) => part.text).map((part) => part.text).join("\n\n");
-    if (!text.trim()) continue;
+    if (!raw.trim() || SUBAGENT_NOTE.test(raw)) continue;
+    const seat = TEAM_ENVELOPE.exec(raw);
+    const text = seat ? raw.slice(seat[0].length) : raw;
     const id = `message:${history.executionId}:${message.id}`;
-    messages.set(id, { id, role: tool ? "tool" : message.role, text, label: agentName(currentRun),
+    messages.set(id, { id, role: seat ? "assistant" : tool ? "tool" : message.role, text,
+      label: seat ? seatName(seat[1]) : agentName(currentRun),
       timestamp: timestamp(message.metadata?.timestamp) });
   }
   for (const run of runs) {
