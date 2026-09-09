@@ -80,6 +80,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
         ? {
             agentId: stage.agentId ?? null,
             agentIds: json(stage.agentIds),
+            agentPoolId: null, // Older coordination servers require the retired pool field.
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
           }

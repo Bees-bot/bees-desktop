@@ -174,6 +174,9 @@ describe("team coordination projection", () => {
       expect(Object.keys(payload as object).filter((key) => !acceptedPayloadKeys[recordType]?.includes(key)))
         .toEqual([]);
     }
+    expect(records.find(({ recordId }) => recordId === processId)!.payload.stages[0].route)
+      .toEqual({ agentId, agentIds: [agentId, peerAgentId], agentPoolId: null,
+        requiredCapabilities: [], updatedAt: at });
     expect(JSON.stringify(records)).not.toContain("/secret/company");
     applyTeamRecords(target.connection, organizationId, records);
 
