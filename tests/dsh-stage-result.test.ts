@@ -54,6 +54,7 @@ describe("DSH stage results", () => {
         mcpAccess: "all", mcpServers: [],
         stagePurpose: "worker",
         requiresHumanApproval: true,
+        instructions: "Delegate sequentially and inspect each returned result.",
         workItemId: "item",
         grants: [],
         workspaceId: workspace.id,
@@ -84,6 +85,11 @@ describe("DSH stage results", () => {
       })
     });
     expect(prompts.join("\n")).toContain("A request for a subagent means tracked peer delegation");
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain("even when saved agent instructions give a different default");
+    expect(prompt.indexOf("Delegation scheduling:")).toBeGreaterThan(prompt.indexOf("Delegate sequentially"));
+    expect(prompt).toContain("items_json array of one bees_delegate_work call");
+    expect(prompt).toContain("When sequential execution is requested or a task depends on an earlier result, delegate one at a time");
     expect(prompts.join("\n")).toContain("Use ask_user_question only to obtain missing information");
     expect(prompts.join("\n")).toContain("approval after each entry, step, or child task");
     expect(prompts.join("\n")).toContain("Never create Approve, Reject, Continue, or Stop choices with ask_user_question");
