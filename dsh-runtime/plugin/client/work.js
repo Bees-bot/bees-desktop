@@ -968,8 +968,17 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const renderRows = (records, empty) => records.length ? records.map((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
     const stage = data.stages.find(({ id }) => id === item.stageId);
+    const initiator = item.accountUserId
+      ? (data.connections?.find((c) => c.accountUserId === item.accountUserId)?.accountName ?? item.accountUserId)
+      : null;
+    const subtitle = [
+      item.kind === "run" ? "scheduled run" : item.kind,
+      process?.name ?? "Process",
+      stage?.name ?? "Stage",
+      initiator ? `by ${initiator}` : null
+    ].filter(Boolean).join(" · ");
     return h("button", { type: "button", className: "bees-row bees-work-item-row", key: item.id, onClick: () => setWorkItemId(item.id) },
-      h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, `${item.kind === "run" ? "scheduled run" : item.kind} · ${process?.name ?? "Process"} · ${stage?.name ?? "Stage"}`)),
+      h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, subtitle)),
       h("span", { className: `bees-status bees-${workItemStatus(item)}` }, workItemStatus(item)));
   }) : h(Empty, null, empty);
   return h("div", null,

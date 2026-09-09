@@ -7,6 +7,24 @@ import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/li
 import { NodeDatabase } from "./node-database.js";
 
 describe("DSH Agent Teams discussions", () => {
+  it("keeps discussion participants from blocking a run on human input", () => {
+    const database = new NodeDatabase();
+    const guards: Array<(exec: any) => string | undefined> = [];
+    new AgentRuntime({ on: () => () => undefined, tools: { guard: (guard: any) => guards.push(guard) } }, database.connection);
+    const workspace = database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get() as { id: string };
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('run', ?, 'lead', 'lead-session', 'uid', '/tmp/work', '{}', 'running', 'now', 'now')
+    `).run(workspace.id);
+
+    const guard = guards[0]!;
+    expect(guard({ name: "ask_user_question", agent: { session: { header: { parentSession: "lead-session" } } } }))
+      .toContain("Send questions or assumptions to lead");
+    expect(guard({ name: "ask_user_question", agent: { session: { header: {} } } })).toBeUndefined();
+  });
+
   it("adds the two default agents to Work without changing stages or custom routes", () => {
     const database = new NodeDatabase().connection;
     const stages = database.prepare("SELECT * FROM stages ORDER BY position").all();
@@ -258,8 +276,8 @@ describe("DSH Agent Teams discussions", () => {
     }));
     expect(() => runtime.assertDiscussionReady(agent, members)).toThrow("has not pitched in yet");
     events.push({
-      type: "team/message/queued",
-      data: { message: { senderId: "peer", targetId: "lead" } },
+      type: "agent/inbox/spliced",
+      data: { inserted: [{ source: { kind: "subagent-settled", senderSessionId: "peer" } }] },
     });
     expect(() => runtime.assertDiscussionReady(agent, members)).not.toThrow();
   });

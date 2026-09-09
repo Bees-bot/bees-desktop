@@ -1,6 +1,6 @@
 const COLUMNS = 12;
 
-const DEFAULT_WIDGETS = [
+export const DEFAULT_WIDGETS = [
   { kind: "metrics", x: 0, y: 0, w: 12, h: 3 },
   { kind: "outcome", x: 0, y: 3, w: 8, h: 5 },
   { kind: "quick-actions", x: 8, y: 3, w: 4, h: 5 },
