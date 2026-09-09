@@ -6,8 +6,8 @@ export interface TeamSyncRecord {
   payload: Record<string, any>;
 }
 
-export function teamRecords(database: any, organizationId: string, connectionId?: string): TeamSyncRecord[];
-export function applyTeamRecords(database: any, organizationId: string, records: TeamSyncRecord[]): void;
+export function teamRecords(database: any, organizationId: string, connectionId?: string, includeAppDefinitions?: boolean): TeamSyncRecord[];
+export function applyTeamRecords(database: any, organizationId: string, records: TeamSyncRecord[], authoritativeApps?: boolean): void;
 export function syncTeamRecords(
   database: any,
   request: (path: string, options?: Record<string, any>) => Promise<any>,

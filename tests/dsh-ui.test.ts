@@ -300,7 +300,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('NAVIGATION.filter(({ id }) => id !== "settings")');
     expect(client).toContain('const [expandedMenus, setExpandedMenus] = useState(() => new Set());');
     expect(client).toContain('"aria-expanded": item.children && item.children.length > 0 ? menuExpanded : null');
-    expect(client).toContain('onClick: () => navigate("personal-ai")');
+    expect(client).toContain('onClick: () => navigate("appearance")');
     expect(client).not.toContain('key: `top-settings:${child}`');
     expect(client).not.toContain('aria-label": "Bees navigation"');
     expect(client).toContain('className: "bees-settings-layout"');

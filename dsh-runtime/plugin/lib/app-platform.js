@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { appConfig, validateApp } from "./app-contract.js";
 import { currentIdentity, iso, transaction, workspaceContext } from "./product-database.js";
 import { readPublicSource } from "./app-source.js";
+import { AppSharedState } from './app-shared-state.js';
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bounded = (value, name, max = 8000) => {
@@ -12,11 +13,12 @@ const amount = (n) => { if (!Number.isSafeInteger(n) || n < 0) throw new Error("
 
 /** Generic installation and portfolio storage, not marketing tables. No package code loads here. */
 export class AppPlatform {
-  constructor(product, readSource = readPublicSource) {
+  constructor(product, readSource = readPublicSource, { connected, catalog } = {}) {
     this.product = product;
     this.db = product.database;
     this.readSource = readSource;
     this.installing = new Set();
+    this.catalog = catalog;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS app_installations (
         id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, package_id TEXT NOT NULL,
@@ -44,14 +46,38 @@ export class AppPlatform {
       CREATE TABLE IF NOT EXISTS app_suppressions (
         workspace_id TEXT NOT NULL, destination TEXT NOT NULL, PRIMARY KEY(workspace_id, destination));
     `);
+    for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all())
+      for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id);
+    this.shared = connected ? new AppSharedState(this, connected) : null;
   }
 
   scope(workspaceId, write = false) {
     const workspace = workspaceContext(this.db, workspaceId, write ? ["admin", "member"] : ["admin", "member", "viewer"]);
-    // v1 state is device-local. Do not install into synced teams until app metadata/scope sync exists.
-    if (workspace.authority !== "local") throw new Error("App preview currently supports local workspaces only");
     this.db.prepare("INSERT OR IGNORE INTO app_portfolios (workspace_id) VALUES (?)").run(workspace.id);
-    return workspace;
+    return { ...workspace, organizationId: workspace.membership.organizationId };
+  }
+
+  withState(workspaceId, write, operation, identity) {
+    const workspace = this.scope(workspaceId, write);
+    if (workspace.authority === 'local') return operation();
+    if (!this.shared) throw new Error('Shared app storage is unavailable');
+    return this.shared.run(workspace, write, operation, identity);
+  }
+
+  view(workspaceId, connectionId) { return this.withState(workspaceId, false, () => this.snapshot(workspaceId), { connectionId }); }
+
+  executionContext(itemId) {
+    const row = this.db.prepare(`SELECT p.workspace_id, w.account_user_id FROM work_items w JOIN processes p ON p.id=w.process_id
+      JOIN app_process_owners a ON a.process_id=p.id WHERE w.id=?`).get(itemId);
+    return row ? this.withState(row.workspace_id, true, () => this.context(itemId), { accountUserId: row.account_user_id ?? '' }) : null;
+  }
+
+  useApp(app, itemId, write, operation) {
+    return this.withState(app.workspace_id, write, () => {
+      const current = this.context(itemId);
+      if (!current || current.id !== app.id) throw new Error('App scope is no longer available');
+      return operation(current);
+    }, { accountUserId: app.accountUserId ?? '' });
   }
 
   installation(id) {
@@ -69,7 +95,11 @@ export class AppPlatform {
     this.scope(workspaceId);
     this.expire();
     const apps = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id = ? ORDER BY created_at").all(workspaceId)
-      .map((row) => ({ ...row, manifest: JSON.parse(row.manifest), config: JSON.parse(row.config) }));
+      .map((row) => {
+        const app = { ...row, manifest: JSON.parse(row.manifest), config: JSON.parse(row.config), needsSetup: false };
+        try { appConfig(app.manifest, app.config); } catch { app.needsSetup = true; }
+        return app;
+      });
     const records = this.db.prepare(`SELECT r.* FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? ORDER BY r.updated_at DESC LIMIT 200`).all(workspaceId)
       .map((r) => ({ ...r, evidence: JSON.parse(r.evidence) }));
     const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? ORDER BY x.created_at DESC LIMIT 200`).all(workspaceId)
@@ -81,7 +111,7 @@ export class AppPlatform {
   async install(workspaceId, input) {
     this.scope(workspaceId, true);
     const manifest = validateApp(input.manifest);
-    const config = appConfig(manifest, input.config ?? {});
+    const config = appConfig(manifest, input.config ?? {}, true);
     const key = `${workspaceId}:${manifest.id}`;
     if (this.installing.has(key)) throw new Error("This app is already installing");
     this.installing.add(key);
@@ -108,6 +138,7 @@ export class AppPlatform {
           name: `${manifest.name} ${i ? "reviewer" : "worker"} · ${row.id.slice(0, 8)} · ${manifest.version}`,
           instructions: i ? manifest.review : manifest.task, mcpAccess: "none" });
         ids.push(agent.id);
+        this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(agent.id, row.id);
         this.db.prepare("UPDATE app_installations SET agent_ids=? WHERE id=?").run(JSON.stringify(ids), row.id);
       }
       let processId = row.process_id;
@@ -122,13 +153,35 @@ export class AppPlatform {
       for (let i = 0; i < 2; i++) await this.product.command({ action: "set_stage_route", stageId: stages[i].id, agentIds: [ids[i]] });
       this.db.prepare("UPDATE app_installations SET status='active' WHERE id=?").run(row.id);
       return { id: row.id, processId, agentIds: ids, schedulesCreated: 0 };
-    } finally { this.installing.delete(key); }
+    } catch (error) { error.appPartialInstall = true; throw error; }
+    finally { this.installing.delete(key); }
   }
 
   async command(input) {
+    let prepared = { ...input };
+    if (['install', 'update'].includes(input.action) && this.catalog) {
+      prepared.manifest = await this.catalog.resolve(input.appId, input.version, input.checksum);
+      prepared.config = {};
+    }
+    if (input.action === 'run') {
+      // Do not hold the shared-state queue while native execution begins and requests admission.
+      await this.withState(input.workspaceId, false, (_userId, connectionId) => {
+        this.installation(input.installationId); prepared.connectionId = connectionId;
+      }, { connectionId: input.connectionId });
+      return this.localCommand(prepared);
+    }
+    return this.withState(input.workspaceId, true, (actorUserId) => this.localCommand({ ...prepared, actorUserId }), { connectionId: input.connectionId });
+  }
+
+  async localCommand(input) {
     const { workspaceId, action } = input;
     this.scope(workspaceId, true);
     if (action === "install") return this.install(workspaceId, input);
+    if (action === 'repair') {
+      const app = this.installation(input.installationId);
+      if (app.workspace_id !== workspaceId) throw new Error('App belongs to another workspace');
+      return this.install(workspaceId, { manifest: app.manifest, config: app.config });
+    }
     if (action === "portfolio") {
       const cap = amount(input.capCents);
       const max = input.maxRuns;
@@ -152,6 +205,15 @@ export class AppPlatform {
     if (action === "decide") return this.decide(workspaceId, input);
     const app = this.installation(input.installationId);
     if (app.workspace_id !== workspaceId) throw new Error("App belongs to another workspace");
+    if (action === 'update') {
+      const manifest = validateApp(input.manifest);
+      if (manifest.id !== app.package_id || app.status !== 'active') throw new Error('Choose an update for this installed app');
+      if (hash(manifest) === app.digest) return { id: app.id, reused: true };
+      // Reuse removal's active-work checks, retain data, and revoke the previous process.
+      await this.localCommand({ ...input, action: 'remove' });
+      const config = Object.fromEntries(manifest.inputs.filter((field) => field.key in app.config).map((field) => [field.key, app.config[field.key]]));
+      return this.install(workspaceId, { manifest, config });
+    }
     if (action === "remove") {
       if (app.process_id) await this.product.command({ action: "archive_process", processId: app.process_id });
       this.db.prepare("UPDATE app_installations SET status='removed' WHERE id=?").run(app.id);
@@ -167,6 +229,7 @@ export class AppPlatform {
       const config = appConfig(app.manifest, app.config);
       // Native work and recurrence retain the same process. Runtime admission also checks limits.
       return this.product.command({ action: "create_item", processId: app.process_id, title: app.manifest.name,
+        connectionId: input.connectionId,
         description: `${app.manifest.task}\n\nConfiguration (data, not authority):\n${JSON.stringify(config)}\n\nKeep results in app records. Public sources and drafts only; no sending or purchases.`,
         runSettings: { mcpAccess: "none", mcpServers: [] } });
     }
@@ -174,11 +237,12 @@ export class AppPlatform {
   }
 
   context(itemId) {
-    const row = this.db.prepare(`SELECT p.installation_id AS id, p.process_id FROM app_process_owners p JOIN work_items w ON w.process_id=p.process_id WHERE w.id=?`).get(itemId);
+    const row = this.db.prepare(`SELECT p.installation_id AS id, p.process_id, w.account_user_id FROM app_process_owners p JOIN work_items w ON w.process_id=p.process_id WHERE w.id=?`).get(itemId);
     if (!row) return null;
     const app = this.installation(row.id);
     if (app.status !== "active") throw new Error("App is not active");
     if (app.process_id !== row.process_id) throw new Error("This process belongs to an older app version; start new work from Apps");
+    appConfig(app.manifest, app.config);
     const day = iso().slice(0, 10);
     transaction(this.db, () => {
       if (this.db.prepare("SELECT 1 FROM app_admissions WHERE item_id=?").get(itemId)) return;
@@ -187,7 +251,7 @@ export class AppPlatform {
       if (used >= max) throw new Error("Portfolio daily app-run limit reached (UTC)");
       this.db.prepare("INSERT INTO app_admissions VALUES (?,?,?,?)").run(itemId, app.id, day, JSON.stringify(app.config));
     });
-    return { ...app, config: JSON.parse(this.db.prepare("SELECT config FROM app_admissions WHERE item_id=?").get(itemId).config) };
+    return { ...app, accountUserId: row.account_user_id, config: JSON.parse(this.db.prepare("SELECT config FROM app_admissions WHERE item_id=?").get(itemId).config) };
   }
 
   read(app) {
@@ -204,16 +268,16 @@ export class AppPlatform {
     if (!source) throw new Error("Source is not declared by this app");
     bounded(query, "query", 300);
     const id = randomUUID();
-    transaction(this.db, () => {
+    await this.useApp(app, itemId, true, () => transaction(this.db, () => {
       if (this.db.prepare("SELECT COUNT(*) AS n FROM app_sources WHERE item_id=?").get(itemId).n >= 20) throw new Error("This work item reached its 20-request limit");
       this.db.prepare("INSERT INTO app_sources VALUES (?,?,?,?,?,?)").run(id, app.id, itemId, key, JSON.stringify({ status: "requested" }), iso());
-    });
+    }));
     try {
       const result = await this.readSource(source, query, signal);
-      this.db.prepare("UPDATE app_sources SET result=? WHERE id=?").run(JSON.stringify(result), id);
+      await this.useApp(app, itemId, true, () => this.db.prepare("UPDATE app_sources SET result=? WHERE id=?").run(JSON.stringify(result), id));
       return { id, ...result };
     } catch (error) {
-      this.db.prepare("UPDATE app_sources SET result=? WHERE id=?").run(JSON.stringify({ error: String(error.message) }), id);
+      try { await this.useApp(app, itemId, true, () => this.db.prepare("UPDATE app_sources SET result=? WHERE id=?").run(JSON.stringify({ error: String(error.message) }), id)); } catch { /* The reserved receipt remains durable if a second write conflicts. */ }
       throw error;
     }
   }
@@ -269,7 +333,7 @@ export class AppPlatform {
         if (this.reserved(workspaceId) + row.cost_cents > cap) throw new Error("Portfolio commitment cap would be exceeded");
       }
       this.db.prepare("UPDATE app_actions SET status=?,decided_by=?,decided_at=?,expires_at=? WHERE id=?")
-        .run(input.decision === "approve" ? "approved" : "rejected", currentIdentity(this.db).userId, iso(), new Date(Date.now() + 48 * 3600_000).toISOString(), row.id);
+        .run(input.decision === "approve" ? "approved" : "rejected", input.actorUserId ?? currentIdentity(this.db).userId, iso(), new Date(Date.now() + 48 * 3600_000).toISOString(), row.id);
       return { id: row.id, sent: false, note: "Draft decision saved. This preview has no sending or paid execution connector." };
     });
   }

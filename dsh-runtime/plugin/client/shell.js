@@ -472,7 +472,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       } })
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
-    : route === "apps" ? h(AppsPage, { key: parts.workspaceId, workspaceId: parts.workspaceId, openWorkItem })
+    : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
@@ -515,7 +515,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("button", { type: "button",
             className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings"].includes(route) ? "active" : ""}`,
             title: "Global and organization settings", "aria-label": "Global and organization settings",
-            onClick: () => navigate("personal-ai") }, h(SettingsIcon)))),
+            onClick: () => navigate("appearance") }, h(SettingsIcon)))),
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
         onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
