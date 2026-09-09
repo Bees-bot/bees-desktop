@@ -9,13 +9,14 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
+  const [planned, setPlanned] = useState(false);
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
-    setError("");
+    setError(""); setPlanned(false);
     try {
       const result = await act(workFromOutcome(outcome, { workspaceId, plan: true }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
-      else if (result?.executionId) setOutcome("");
+      else if (result?.executionId) { setOutcome(""); setPlanned(true); }
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
@@ -38,7 +39,8 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Bees plans it · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" },
+        planned ? "Bees is planning this. It appears in Needs your attention." : "Bees plans it · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
