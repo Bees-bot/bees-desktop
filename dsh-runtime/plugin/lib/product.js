@@ -724,6 +724,7 @@ export class BeesProduct {
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
         if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
+        if (String(change.directory ?? "").startsWith(this.defaultWorkspace + sep)) throw new Error(`${entry.label} needs directory: a folder the person named, not a Bees run folder`);
         const given = change.inputs ?? {};
         for (const field of entry.inputs)
           // A pasted curl command carries the base URL, so the bridge takes one or the other.
