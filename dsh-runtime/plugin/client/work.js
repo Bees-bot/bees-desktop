@@ -416,7 +416,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
       : h("div", { style: { height: "100%", display: "flex", flexDirection: "column" } },
         run ? h("iframe", {
-          src: `/bees-api/harness?executionId=${run.id}`,
+          src: `/?session=${encodeURIComponent(run.sessionId ?? run.id)}`,
           style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
           title: "Runtime traces"
         }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
