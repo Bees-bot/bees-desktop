@@ -161,7 +161,8 @@ function timezoneOf(value) {
 }
 
 export function recurringSchedule(input) {
-  const frequency = String(input.frequency ?? "daily");
+  if (!input.frequency && input.cronExpression && input.everyMinutes) throw new Error("Give cronExpression or everyMinutes, not both");
+  const frequency = String(input.frequency ?? (input.cronExpression ? "advanced" : input.everyMinutes ? "hourly" : "daily"));
   if (frequency === "hourly") {
     const everyMinutes = Number(input.everyMinutes ?? 60);
     if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 525_600)
@@ -177,12 +178,12 @@ export function recurringSchedule(input) {
       throw new Error("Advanced schedules need a 5, 6, or 7 field cron expression");
     return { kind: "cron", timezone, value: { expression } };
   }
-  if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency is invalid");
+  if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency must be hourly, daily, weekly, monthly or advanced");
   const hour = Number(input.hour);
   const minute = Number(input.minute ?? 0);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23 ||
       !Number.isInteger(minute) || minute < 0 || minute > 59)
-    throw new Error("Schedule time is invalid");
+    throw new Error(`${frequency} schedules take hour 0-23 and minute 0-59; there is no scheduleTime field, cron goes in cronExpression with frequency advanced`);
   const value = { frequency, hour, minute };
   if (frequency === "weekly") {
     const dayOfWeek = String(input.dayOfWeek ?? "MONDAY").toUpperCase();
