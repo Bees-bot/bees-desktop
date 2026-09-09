@@ -132,6 +132,7 @@ function ProcessPlanner({ data, workspaceId, act }) {
   });
   const run = runId ? data.runs.find(({ id }) => id === runId) : null;
   const planning = run && ["queued", "running"].includes(run.status);
+  const asking = run?.status === "waiting_for_input";
   const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
   return h("div", { className: "bees-stack" },
     h("form", { className: "bees-composer", onSubmit: submit },
@@ -143,8 +144,9 @@ function ProcessPlanner({ data, workspaceId, act }) {
       }),
       error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
       h("div", { className: "bees-composer-foot" },
-        h("span", { className: "bees-composer-hint" }, planning
-          ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
+        h("span", { className: "bees-composer-hint" }, asking
+          ? "Bees needs an answer before it can finish this plan. It is waiting under Needs your attention on Home."
+          : planning ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
           : "Bees proposes the stages, agents and schedule. Approve it and the process is yours to run whenever you need it."),
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || planning || !workspaceId || !outcome.trim() },
           busy || planning ? "Planning…" : "Build this process"))),
