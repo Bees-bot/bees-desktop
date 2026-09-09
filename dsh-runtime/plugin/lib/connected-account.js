@@ -348,6 +348,9 @@ export class ConnectedAccount {
           ON CONFLICT(organization_id, account_user_id) DO UPDATE SET
             role = excluded.role, updated_at = excluded.updated_at
         `).run(connectionId, organization.id, account.userId, organization.role ?? "member", at, at);
+        const knownTeams = new Set(this.database.prepare(
+          "SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?"
+        ).all(connectionId).map(({ teamId }) => teamId));
         this.database.prepare("DELETE FROM bees_connection_teams WHERE connection_id = ?").run(connectionId);
         for (const { team, members } of teams) {
           this.database.prepare(`
@@ -370,6 +373,11 @@ export class ConnectedAccount {
             "UPDATE workspaces SET authority = 'connected' WHERE team_id = ? AND status = 'active'"
           ).run(team.id);
         }
+        // Joining a team hands you records the server sequenced before this connection's cursor,
+        // and a forward-only pull would never look back at them. Re-read from the start instead.
+        if (teams.some(({ team }) => !knownTeams.has(team.id))) this.database.prepare(
+          "DELETE FROM bees_connection_sync_cursors WHERE connection_id = ?"
+        ).run(connectionId);
       }
       this.database.prepare(`
         DELETE FROM teams WHERE personal = 0
@@ -417,7 +425,12 @@ export class ConnectedAccount {
             this.database, request, connection.organizationId, connection.id
           ));
         } catch (error) {
-          this.logger.warn?.(`bees: team sync unavailable for ${connection.email}: ${error instanceof Error ? error.message : error}`);
+          // A 4xx is the server refusing what we sent; retrying sends the same thing forever, so
+          // it has to read as a fault, not as the network being briefly unavailable.
+          const detail = error instanceof Error ? error.message : error;
+          const rejected = error?.status >= 400 && error?.status < 500;
+          if (rejected) this.logger.error?.(`bees: the server rejected team sync for ${connection.email}: ${detail}`);
+          else this.logger.warn?.(`bees: team sync unavailable for ${connection.email}: ${detail}`);
         }
       }
       return results;
