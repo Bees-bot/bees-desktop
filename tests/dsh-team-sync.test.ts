@@ -20,7 +20,6 @@ const acceptedPayloadKeys: Record<string, string[]> = {
   agent: ["teamId", "name", "description", "instructions", "presetId", "model", "reasoningEffort",
     "systemRole", "capabilities", "enabled", "maxConcurrency", "mcpAccess", "mcpServers",
     "inputLocations", "createdAt", "updatedAt"],
-  agent_pool: ["teamId", "name", "description", "members", "archivedAt", "createdAt", "updatedAt"],
   team_process: ["teamId", "name", "description", "kind", "outputLocationId", "inputLocations",
     "stages", "archivedAt", "createdAt", "updatedAt"],
   process_template: ["teamId", "name", "description", "stages", "archivedAt", "createdAt", "updatedAt"],
@@ -117,9 +116,9 @@ describe("team coordination projection", () => {
       .run(targetStageId, targetProcessId);
     target.connection.prepare(`
       INSERT INTO stage_routes
-        (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+        (stage_id, agent_assignment_id, required_capabilities_json,
          created_at, updated_at, agent_ids_json)
-      VALUES (?, ?, NULL, '[]', ?, ?, json_array(?))
+      VALUES (?, ?, '[]', ?, ?, json_array(?))
     `).run(targetStageId, targetAgentId, at, at, targetAgentId);
     source.connection.prepare("INSERT INTO agent_locations VALUES (?, ?, '')").run(agentId, locationId);
     source.connection.prepare(`
@@ -139,9 +138,9 @@ describe("team coordination projection", () => {
       .run(doneStageId, processId);
     source.connection.prepare(`
       INSERT INTO stage_routes
-        (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+        (stage_id, agent_assignment_id, required_capabilities_json,
          created_at, updated_at, agent_ids_json)
-      VALUES (?, ?, NULL, '[]', ?, ?, ?)
+      VALUES (?, ?, '[]', ?, ?, ?)
     `).run(workStageId, agentId, at, at, JSON.stringify([agentId, peerAgentId]));
     source.connection.prepare("INSERT INTO process_locations VALUES (?, ?, '')").run(processId, locationId);
     source.connection.prepare("INSERT INTO process_templates VALUES (?, ?, 'Brief template', '', ?, NULL, ?, ?)")
@@ -175,7 +174,6 @@ describe("team coordination projection", () => {
       expect(Object.keys(payload as object).filter((key) => !acceptedPayloadKeys[recordType]?.includes(key)))
         .toEqual([]);
     }
-    expect(records.map(({ recordType }) => recordType).includes("agent_pool")).toBe(false);
     expect(JSON.stringify(records)).not.toContain("/secret/company");
     applyTeamRecords(target.connection, organizationId, records);
 

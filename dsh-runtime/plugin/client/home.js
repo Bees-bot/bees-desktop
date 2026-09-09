@@ -1,7 +1,7 @@
-import { GridStack } from "gridstack";
-import { h, useEffect, useRef, useState } from "./runtime.js";
+import { h, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
-import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
+import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
+import { FlexibleGrid } from "./flexible-grid.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
@@ -141,69 +141,23 @@ const WIDGETS = [
 const widgetByKind = new Map(WIDGETS.map((widget) => [widget.kind, widget]));
 
 function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) {
-  const root = useRef(null);
-  const gridRef = useRef(null);
-  // The grid outlives the render that set it up, so the save has to read the current handler.
-  const onLayoutRef = useRef(onLayout);
-  onLayoutRef.current = onLayout;
-  const widgetKey = dashboard.widgets.map(({ kind }) => kind).join("|");
-  const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
-  useEffect(() => {
-    const grid = GridStack.init({
-      column: 12,
-      // Six columns fought the twelve-column positions we re-render, so widgets landed on top of
-      // each other; below 700 the single column is a real stack and cannot collide.
-      columnOpts: { breakpoints: [{ w: 700, c: 1 }] },
-      cellHeight: 72,
-      margin: 6,
-      animate: true,
-      disableDrag: !editing,
-      disableResize: !editing,
-      draggable: { handle: ".bees-dashboard-widget-handle" },
-      resizable: { handles: "e,se,s,sw,w" }
-    }, root.current);
-    if (!grid) return undefined;
-    const save = () => {
-      const layout = saveGridLayout(grid);
-      if (Array.isArray(layout)) onLayoutRef.current(layout);
-    };
-    // The stop event precedes GridStack's responsive-layout cache update.
-    grid.on("dragstop resizestop", () => queueMicrotask(save));
-    gridRef.current = grid;
-    return () => { gridRef.current = null; grid.offAll().destroy(false); };
-  }, [dashboard.id, widgetKey]);
-  useEffect(() => {
-    gridRef.current?.enableMove(editing);
-    gridRef.current?.enableResize(editing);
-  }, [editing]);
-  useEffect(() => {
-    gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })));
-  }, [layoutKey]);
-
-  return h("div", { className: `grid-stack bees-dashboard-grid ${editing ? "editing" : ""}`, ref: root },
-    ...dashboard.widgets.map((widget) => {
-      const definition = widgetByKind.get(widget.kind);
-      const Component = definition?.component;
-      return h("section", {
-        className: "grid-stack-item",
-        key: widget.kind,
-        "gs-id": widget.kind,
-        "gs-x": widget.x,
-        "gs-y": widget.y,
-        "gs-w": widget.w,
-        "gs-h": widget.h
-      }, h("div", { className: "grid-stack-item-content bees-dashboard-widget" },
-        h("header", { className: "bees-dashboard-widget-handle" },
-          h("strong", null, definition?.label ?? widget.kind), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: definition?.helpText, examples: definition?.helpExamples }),
-          editing ? h("button", {
-            type: "button", className: "bees-dashboard-remove", title: `Remove ${definition?.label ?? widget.kind}`,
-            "aria-label": `Remove ${definition?.label ?? widget.kind}`,
-            onPointerDown: (event) => event.stopPropagation(), onClick: () => onRemove(widget.kind)
-          }, "×") : null),
-        h("div", { className: "bees-dashboard-widget-body" },
-          Component ? h(Component, { ...widgetProps, definition }) : h(Empty, null, "This widget is no longer available."))));
-    })
-  );
+  const panels = Object.fromEntries(dashboard.widgets.map((widget) => {
+    const definition = widgetByKind.get(widget.kind);
+    const label = definition?.label ?? widget.kind;
+    return [widget.kind, {
+      label, helpText: definition?.helpText, helpExamples: definition?.helpExamples,
+      actions: editing ? h("button", {
+        type: "button", className: "bees-dashboard-remove", title: `Remove ${label}`, "aria-label": `Remove ${label}`,
+        onClick: () => onRemove(widget.kind)
+      }, "×") : null,
+      content: definition?.component
+        ? h(definition.component, { ...widgetProps, definition })
+        : h(Empty, null, "This widget is no longer available.")
+    }];
+  }));
+  return h(FlexibleGrid, {
+    key: dashboard.id, className: "bees-dashboard-grid", layout: dashboard.widgets, editing, onLayout, panels
+  });
 }
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;

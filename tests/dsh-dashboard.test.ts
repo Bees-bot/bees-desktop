@@ -51,10 +51,11 @@ describe("personal dashboards", () => {
     expect(clientBundle).toContain("GridStack");
     expect(client).toContain('preferences.set("dashboards"');
     expect(client).toContain('preferences.set("activeDashboardId"');
-    expect(client).toContain('draggable: { handle: ".bees-dashboard-widget-handle" }');
-    expect(client).toContain('columnOpts: { breakpoints: [{ w: 700, c: 1 }] }');
-    expect(client).toContain('const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h })');
-    expect(client).toContain('gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })))');
+    expect(client).toContain('draggable: { handle: ".bees-flex-widget-handle, .bees-flex-widget-drag-surface", cancel: "a" }');
+    expect(client).toContain('columnOpts: { breakpoints: [{ w: 780, c: 1 }] }');
+    expect(client).toContain('const layoutKey = visibleLayout.map(({ kind, x, y, w, h })');
+    expect(client).toContain('grid.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })))');
+    expect(client).toContain('h(FlexibleGrid, {');
     expect(client).toContain('className: "bees-nav-dashboards"');
     expect(client).toContain('widgets: dashboard.widgets.map((widget) => ({ ...widget }))');
     expect(client).toContain('className: `bees-nav-link bees-dashboard-link');

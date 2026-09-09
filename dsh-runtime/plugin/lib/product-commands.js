@@ -695,9 +695,9 @@ export async function executeProductCommand(action, input) {
           const mappedAgentIds = routeAgentIds(route).map((id) => oldToNewAgentId[id] || id);
           this.database.prepare(`
             INSERT INTO stage_routes
-              (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+              (stage_id, agent_assignment_id, required_capabilities_json,
                created_at, updated_at, agent_ids_json)
-            VALUES (?, ?, NULL, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
           `).run(newStageId, mappedAgentIds[0] ?? null, route.required_capabilities_json,
             at, at, JSON.stringify(mappedAgentIds));
         }
@@ -800,7 +800,6 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      if (input.targetType === "pool") throw new Error("Agent pools are no longer supported; assign agents directly");
       const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
         : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
@@ -813,10 +812,9 @@ export async function executeProductCommand(action, input) {
       }
       this.database.prepare(`
         INSERT INTO stage_routes
-          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at, agent_ids_json)
-        VALUES (?, ?, NULL, ?, ?, ?, ?)
+          (stage_id, agent_assignment_id, required_capabilities_json, created_at, updated_at, agent_ids_json)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(stage_id) DO UPDATE SET agent_assignment_id = excluded.agent_assignment_id,
-          agent_pool_id = NULL,
           required_capabilities_json = excluded.required_capabilities_json,
           agent_ids_json = excluded.agent_ids_json,
           updated_at = excluded.updated_at
