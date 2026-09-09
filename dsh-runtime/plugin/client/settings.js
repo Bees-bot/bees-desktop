@@ -295,6 +295,34 @@ function OrganizationSettings({
       email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); formElement.reset(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const [updatingMemberId, setUpdatingMemberId] = useState("");
+  const [updatingInvitationId, setUpdatingInvitationId] = useState("");
+  const changeMemberRole = async (userId, role) => {
+    setUpdatingMemberId(userId);
+    try {
+      setPeople(await collaboration("set_organization_member_role", {
+        organizationId: organization.id, connectionId, userId, role
+      }));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUpdatingMemberId("");
+    }
+  };
+  const changeInvitationRole = async (invitationId, role) => {
+    setUpdatingInvitationId(invitationId);
+    try {
+      setPeople(await collaboration("set_organization_invitation_role", {
+        organizationId: organization.id, connectionId, invitationId, role
+      }));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUpdatingInvitationId("");
+    }
+  };
   const [registeringSso, registerSso] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     try {
@@ -424,7 +452,18 @@ function OrganizationSettings({
       h("section", { className: "bees-box" }, h("h3", null, `${organization.name} members`),
         ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id },
           h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.email || member.userId),
-            h("div", { className: "bees-muted" }, member.status)), h("span", { className: "bees-badge" }, member.role)))
+            h("div", { className: "bees-muted" }, member.status)),
+          member.role === "owner"
+            ? h("span", { className: "bees-badge" }, member.role)
+            : h("select", {
+                className: "bees-select",
+                value: member.role,
+                disabled: updatingMemberId === member.userId,
+                "aria-label": `Role for ${member.email || member.userId}`,
+                onChange: (event) => void changeMemberRole(member.userId, event.target.value)
+              },
+              h("option", { value: "member" }, "Member"),
+              h("option", { value: "admin" }, "Admin"))))
           : [h(Empty, { key: "empty" }, "No organization members")])),
       failure);
   }
@@ -440,7 +479,15 @@ function OrganizationSettings({
         ...(people.invitations.length ? people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
           h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.email),
             h("div", { className: "bees-muted" }, invitation.expiresAt ? `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "Pending")),
-          h("span", { className: "bees-badge" }, invitation.role)))
+          h("select", {
+            className: "bees-select",
+            value: invitation.role,
+            disabled: updatingInvitationId === invitation.id,
+            "aria-label": `Role for invitation ${invitation.email}`,
+            onChange: (event) => void changeInvitationRole(invitation.id, event.target.value)
+          },
+          h("option", { value: "member" }, "Member"),
+          h("option", { value: "admin" }, "Admin"))))
           : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
       failure);
   }
