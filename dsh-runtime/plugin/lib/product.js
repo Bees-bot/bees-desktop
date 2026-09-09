@@ -830,18 +830,21 @@ export class BeesProduct {
         if (!agent?.enabled) throw new Error("Delegated agent must be enabled and belong to this team");
       }
       const existing = this.database.prepare(`
-        SELECT id, agent_assignment_id AS agentAssignmentId FROM work_items WHERE parent_id = ? AND title = ?
+        SELECT id, agent_assignment_id AS agentAssignmentId, runtime_phase AS phase FROM work_items WHERE parent_id = ? AND title = ?
           AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
       `).get(parent.id, title);
       if (existing && existing.agentAssignmentId !== agentId)
         throw new Error("This delegated title already belongs to another agent; use a distinct title");
       return { title, description: String(item?.description ?? ""), agentId, existing };
     });
-    return Promise.all(peers.map(({ title, description, agentId, existing }) => existing ?? this.command({
-      action: "create_item", processId: parent.processId, parentId: parent.id,
-      title, description,
-      agentAssignmentId: agentId, accountUserId: parent.accountUserId
-    })));
+    return Promise.all(peers.map(async ({ title, description, agentId, existing }) => {
+      if (existing?.phase === "failed") await this.processes.signal(existing.id, "retry");
+      return existing ?? this.command({
+        action: "create_item", processId: parent.processId, parentId: parent.id,
+        title, description,
+        agentAssignmentId: agentId, accountUserId: parent.accountUserId
+      });
+    }));
   }
 
   async command(input) {
