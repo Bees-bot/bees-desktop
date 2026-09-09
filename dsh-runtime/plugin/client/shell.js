@@ -515,7 +515,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("button", { type: "button",
             className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings"].includes(route) ? "active" : ""}`,
             title: "Global and organization settings", "aria-label": "Global and organization settings",
-            onClick: () => navigate("personal-ai") }, h(SettingsIcon)))),
+            onClick: () => navigate("appearance") }, h(SettingsIcon)))),
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
         onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },

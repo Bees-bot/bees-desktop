@@ -10,41 +10,20 @@ import { SystemDefaultSettings } from "./agents.js";
 
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
   const preference = usePreference(preferences);
-  const isOnboarding = preference.onboarding?.active;
-  const [activeTab, setActiveTab] = useState(isOnboarding ? (preference.onboardingAiFocus ?? "") : (preference.onboardingAiFocus || "subscriptions"));
-  const focus = activeTab;
-
+  const focus = preference.onboarding?.active ? preference.onboardingAiFocus : "";
   return h("div", { className: "bees-stack" },
-    isOnboarding ? h("section", { className: "bees-callout" },
+    focus ? h("section", { className: "bees-callout" },
       h("h2", null, "Choose how Bees thinks"),
-      h("p", null, "Connect or start a model below, save it as your system default, then return to setup to test it. You can continue setup during a download.")
-    ) : null,
-    
-    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }),
-
-    h("section", { className: "bees-box" },
-      h("h3", null, "Connect a provider"),
-      h("p", { className: "bees-muted" }, "Set up API keys or download local models."),
-      h("div", { className: "bees-card-actions", style: { marginTop: "12px" } },
-        ...[["subscriptions", "Codex or Claude"], ["other", "Other APIs"], ["local", "On this computer"], ["", "Show all"]].map(([id, label]) =>
-          h(Button, { 
-            key: id || "all", 
-            className: focus === id ? "primary" : "", 
-            onClick: () => {
-              setActiveTab(id);
-              if (isOnboarding) void preferences.set("onboardingAiFocus", id);
-            }
-          }, label)
-        )
-      )
-    ),
-
+      h("p", null, "Connect or start a model below, save it as your system default, then return to setup to test it. You can continue setup during a download."),
+      h("div", { className: "bees-card-actions" },
+        ...[["local", "On this computer"], ["subscriptions", "Codex or Claude"], ["other", "Other providers"], ["", "Show all"]].map(([id, label]) =>
+          h(Button, { key: id, className: focus === id ? "primary" : "", onClick: () => preferences.set("onboardingAiFocus", id) }, label)))) : null,
     (!focus || focus === "subscriptions") ? h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }) : null,
     (!focus || focus === "other") ? h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
     (!focus || focus === "local") ? h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }) : null,
     (!focus || focus === "other") ? h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }) : null,
-    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null
-  );
+    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }));
 }
 
 function AppearanceSettings({ ctx, preferences }) {
@@ -444,7 +423,19 @@ function OrganizationSettings({
     dangerZone,
     failure);
 
-
+  if (route === "organization-workspace") {
+    const organizationTeams = teams.filter((team) => team.organizationId === organization.id);
+    return h("div", { className: "bees-stack" },
+      h("section", { className: "bees-box" }, h("h3", null, "Team workspaces"),
+        h("p", { className: "bees-muted" },
+          "Current Bees gives every team one working area. Files and knowledge sources are managed from that team's navigation."),
+        ...(organizationTeams.length ? organizationTeams.map((team) => {
+          const workspace = workspaces.find((row) => row.teamId === team.id);
+          return h("div", { className: "bees-row", key: team.id },
+            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, team.name),
+              h("div", { className: "bees-muted" }, workspace?.name || "No active workspace")));
+        }) : [h(Empty, { key: "empty" }, "This organization has no teams yet")])));
+  }
 
   if (!organization.connected) return message(
     route === "organization-members" ? "Private organizations do not have shared members."
@@ -474,6 +465,12 @@ function OrganizationSettings({
               h("option", { value: "member" }, "Member"),
               h("option", { value: "admin" }, "Admin"))))
           : [h(Empty, { key: "empty" }, "No organization members")])),
+      failure);
+  }
+
+  if (route === "organization-invitations") {
+    if (!people) return h(Empty, null, error || "Loading organization invitations…");
+    return h("div", { className: "bees-stack" },
       h("section", { className: "bees-box" }, h("h3", null, "Invite organization member"),
         h("form", { className: "bees-form-row", onSubmit: invite },
           h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
@@ -609,9 +606,9 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
 }
 
 const GLOBAL_SETTINGS = [
-  ["personal-ai", "AI connections"],
   ["appearance", "Appearance"],
   ["system-instructions", "System instructions"],
+  ["personal-ai", "AI connections"],
   ["organizations", "Organizations"],
   ["connections", "Connections"]
 ];
@@ -619,12 +616,13 @@ const GLOBAL_SETTINGS = [
 const ORGANIZATION_SETTINGS = [
   ["organization-settings", "General"],
   ["organization-members", "Members"],
+  ["organization-invitations", "Invitations"],
   ["organization-ai", "Connect AI"],
+  ["organization-workspace", "Workspace"],
   ["organization-authentication", "Authentication"]
 ];
 
 function SettingsLayout({ route, navigate, organization, children }) {
-  const isMember = organization?.role === "member";
   return h("div", { className: "bees-settings-layout" },
     h("aside", { className: "bees-settings-menu" },
       h("div", { className: "bees-settings-menu-label" }, "Global"),
@@ -632,9 +630,8 @@ function SettingsLayout({ route, navigate, organization, children }) {
         className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
         onClick: () => navigate(id) }, label)),
       organization ? h(React.Fragment, null,
-        h("hr", { className: "bees-settings-menu-divider", style: { margin: "16px 0", border: "none", borderTop: "1px solid var(--bees-border)" } }),
         h("div", { className: "bees-settings-menu-label", title: organization.name }, organization.name),
-        ...ORGANIZATION_SETTINGS.filter(([id]) => !isMember || id === "organization-settings").map(([id, label]) => h("button", { type: "button", key: id,
+        ...ORGANIZATION_SETTINGS.map(([id, label]) => h("button", { type: "button", key: id,
           className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
           onClick: () => navigate(id) }, label))) : null),
     h("section", { className: "bees-settings-content" }, children));

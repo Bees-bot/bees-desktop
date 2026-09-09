@@ -34,7 +34,7 @@ it("loads organization invitations without waiting for SSO settings", async () =
     return Response.json({ memberships: [], invitations: [] });
   }));
   const page = SettingsPage({
-    route: "organization-members", organizationId: "org", connectionId: "owner-connection",
+    route: "organization-invitations", organizationId: "org", connectionId: "owner-connection",
     data: { organizations: [{ id: "org", name: "Shared org", connected: true }], teams: [],
       connections: [{ id: "owner-connection", role: "owner" }] }
   });
