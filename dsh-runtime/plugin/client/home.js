@@ -151,7 +151,9 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
   useEffect(() => {
     const grid = GridStack.init({
       column: 12,
-      columnOpts: { breakpoints: [{ w: 700, c: 1 }, { w: 1000, c: 6 }] },
+      // Six columns fought the twelve-column positions we re-render, so widgets landed on top of
+      // each other; below 700 the single column is a real stack and cannot collide.
+      columnOpts: { breakpoints: [{ w: 700, c: 1 }] },
       cellHeight: 72,
       margin: 6,
       animate: true,

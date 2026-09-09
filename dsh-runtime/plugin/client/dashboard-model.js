@@ -33,6 +33,19 @@ function normalizeWidget(value) {
   };
 }
 
+/** A saved layout can carry boxes that sit on top of each other; GridStack paints them overlapping
+ *  rather than moving them, so a widget ends up half hidden under its neighbour. */
+function withoutOverlap(widgets) {
+  const placed = new Map();
+  for (const widget of [...widgets].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    let y = widget.y;
+    while ([...placed.values()].some((other) => other.x < widget.x + widget.w && widget.x < other.x + other.w
+      && other.y < y + widget.h && y < other.y + other.h)) y += 1;
+    placed.set(widget.kind, { ...widget, y });
+  }
+  return widgets.map((widget) => placed.get(widget.kind));
+}
+
 const defaultDashboard = () => ({
   id: "home",
   name: "Home",
@@ -57,7 +70,7 @@ export function dashboardsFrom(value) {
     dashboards.push({
       id,
       name: String(candidate.name ?? "Untitled dashboard").trim().slice(0, 80) || "Untitled dashboard",
-      widgets
+      widgets: withoutOverlap(widgets)
     });
   }
   if (!dashboardIds.has("home")) dashboards.unshift(defaultDashboard());

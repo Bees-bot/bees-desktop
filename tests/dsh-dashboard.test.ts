@@ -52,7 +52,7 @@ describe("personal dashboards", () => {
     expect(client).toContain('preferences.set("dashboards"');
     expect(client).toContain('preferences.set("activeDashboardId"');
     expect(client).toContain('draggable: { handle: ".bees-dashboard-widget-handle" }');
-    expect(client).toContain('columnOpts: { breakpoints: [{ w: 700, c: 1 }, { w: 1000, c: 6 }] }');
+    expect(client).toContain('columnOpts: { breakpoints: [{ w: 700, c: 1 }] }');
     expect(client).toContain('const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h })');
     expect(client).toContain('gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })))');
     expect(client).toContain('className: "bees-nav-dashboards"');
