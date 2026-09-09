@@ -143,9 +143,6 @@ export function AttachedResourceFields({ owner, references, ...props }) {
 }
 
 // Viewing work never changes its inputs or output destination.
-// Viewing work never changes its inputs or output destination.
-// Viewing work never changes its inputs or output destination.
-// Viewing work never changes its inputs or output destination.
 export function WorkLocations({ data, references, inherited = [], outputId, defaultOutputId, act }) {
   const [viewer, setViewer] = useState(null);
   const inputs = new Map();

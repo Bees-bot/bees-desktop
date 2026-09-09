@@ -348,6 +348,11 @@ export function insertDefaultWorkspace(database, teamId, {
   return { id, dshWorkspaceId };
 }
 
+export function assertMcpAccess(access) {
+  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  return access;
+}
+
 export function initializeProductDatabase(database) {
   const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
@@ -883,7 +888,7 @@ export function normalizeRunSettings(value = {}) {
     settings.reasoningEffort = optionalReasoningEffort(value.reasoningEffort);
   } else if (value.reasoningEffort) throw new Error("Choose a model before setting reasoning effort");
   if (Object.hasOwn(value, "mcpAccess")) {
-    if (!["all", "none", "listed"].includes(value.mcpAccess)) throw new Error("Choose all, none, or listed MCP servers");
+    assertMcpAccess(value.mcpAccess);
     if (value.mcpServers !== undefined && (!Array.isArray(value.mcpServers) || value.mcpServers.length > 128 ||
         value.mcpServers.some((id) => typeof id !== "string" || !id || id.length > 128)))
       throw new Error("Choose valid MCP server identifiers");

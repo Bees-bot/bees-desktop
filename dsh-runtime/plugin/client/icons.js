@@ -52,5 +52,3 @@ export const SettingsIcon = () => h(Icon, { circle: { cx: "12", cy: "12", r: "3"
 export const BookIcon = () => h(Icon, { d: ["M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"] });
 export const AccountIcon = () => h(Icon, { circle: { cx: "12", cy: "8", r: "4" }, d: "M4 22a8 8 0 0 1 16 0" });
 export const FolderOpenIcon = () => h(Icon, { d: ["M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", "M15 3h6v6"], polyline: "10 14 21 3", size: 16 });
-export const CopyIcon = () => h(Icon, { rect: { width: "13", height: "13", x: "9", y: "9", rx: "2", ry: "2" }, d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1", size: 14 });
-export const CheckIcon = () => h(Icon, { polyline: "20 6 9 17 4 12", size: 14 });
