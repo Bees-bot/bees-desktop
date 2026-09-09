@@ -1,6 +1,9 @@
 import { normalizeRunSettings, stableUuid, transaction } from "./product-database.js";
 
-const TYPES = ["team_location", "agent", "agent_pool", "team_process", "recurring_work", "team_work_item"];
+const TYPES = [
+  "team_location", "agent", "agent_pool", "team_process", "process_template",
+  "recurring_work", "team_work_item"
+];
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
 
 const json = (value, fallback = []) => {
@@ -91,6 +94,17 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
       updatedAt: timestamp(row.updatedAt)
     }));
   }
+
+  for (const row of database.prepare(`
+    SELECT pt.id, w.team_id AS teamId, pt.name, pt.description, pt.stages_json AS stages,
+           pt.archived_at AS archivedAt, pt.created_at AS createdAt, pt.updated_at AS updatedAt
+    FROM process_templates pt JOIN workspaces w ON w.id = pt.workspace_id
+    JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
+  `).all(organizationId)) records.push(record("process_template", row, {
+    teamId: row.teamId, name: row.name, description: row.description, stages: json(row.stages),
+    archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
+    updatedAt: timestamp(row.updatedAt)
+  }));
 
   for (const row of database.prepare(`
     SELECT r.id, w.team_id AS teamId, r.process_id AS processId,
@@ -371,6 +385,19 @@ function applyProcess(database, record, authoritativeApps = false) {
   replaceLocations(database, "process_locations", "process_id", record.recordId, p.inputLocations);
 }
 
+function applyTemplate(database, record) {
+  if (!newer(database, "process_templates", record.recordId, record.version)) return;
+  const p = record.payload;
+  const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
+  database.prepare(`
+    INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+      stages_json = excluded.stages_json, archived_at = excluded.archived_at,
+      updated_at = excluded.updated_at
+  `).run(record.recordId, workspaceId, p.name, p.description, JSON.stringify(p.stages),
+    p.archivedAt, p.createdAt, p.updatedAt);
+}
+
 function applyRecurring(database, record) {
   if (!newer(database, "recurring_work", record.recordId, record.version)) return;
   const p = record.payload;
@@ -425,9 +452,13 @@ function applyItem(database, record) {
 }
 
 export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
-  const applicable = records.filter(({ recordType, payload }) => ORDER.has(recordType) && database.prepare(`
-    SELECT 1 FROM teams WHERE id = ? AND organization_id = ? AND status = 'active'
-  `).get(payload.teamId, organizationId)).sort(
+  // A deleted team publishes tombstones carrying only a teamId. Only work items have a local
+  // delete path; feeding the rest to their apply functions throws and takes the whole batch down.
+  const applicable = records.filter(({ recordType, deleted, payload }) => ORDER.has(recordType)
+    && (!deleted || recordType === "team_work_item")
+    && database.prepare(`
+      SELECT 1 FROM teams WHERE id = ? AND organization_id = ? AND status = 'active'
+    `).get(payload.teamId, organizationId)).sort(
     (left, right) => ORDER.get(left.recordType) - ORDER.get(right.recordType)
   );
   transaction(database, () => {
@@ -436,6 +467,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "agent") applyAgent(database, entry, authoritativeApps);
       else if (entry.recordType === "agent_pool") applyPool(database, entry);
       else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
+      else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
       else if (entry.recordType === "team_work_item") applyItem(database, entry);
     }

@@ -11,6 +11,8 @@ import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { AskBeesSetup, workFromOutcome } from "../dsh-runtime/plugin/client/ask-bees.js";
 // @ts-expect-error Client modules are plain JavaScript.
+import { McpAccess } from "../dsh-runtime/plugin/client/agents.js";
+// @ts-expect-error Client modules are plain JavaScript.
 import { OutcomeWidget } from "../dsh-runtime/plugin/client/home.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
@@ -18,7 +20,7 @@ const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 configureRuntime((id: string) => id === "react" ? React : {});
 
-it("shows Goals, stage agents, connections and folders without starting anything", () => {
+it("shows the selected process, its stage agents, and folders without repeating advanced inputs", () => {
   const data = {
     teams: [{ id: "team", name: "Research", role: "admin" }], workspaces: [{ id: "workspace", teamId: "team" }],
     processes: [{ id: "goals", workspaceId: "workspace", kind: "goals" }],
@@ -50,14 +52,16 @@ it("shows Goals, stage agents, connections and folders without starting anything
   const markup = render(data);
   expect(markup).toContain("Configure advanced");
   expect(markup).toContain("Run process");
-  expect(markup).toContain("Process template");
+  expect(markup).toContain("1 · Process");
+  expect(markup).toContain("2 · Stage agents");
   expect(markup).toContain("bees-routing-board");
   expect(markup).toContain("Worker");
   expect(markup).toContain("Reviewer");
   expect(markup).toContain("Default agent");
-  expect(markup).toContain("MCP connections");
-  expect(markup).toContain("News MCP");
-  expect(markup).toContain("Source research");
+  expect(markup).not.toContain("What would you like Bees to do?");
+  expect(markup).not.toContain("MCP connections");
+  expect(markup).not.toContain("News MCP");
+  expect(markup).not.toContain("Source research");
   expect(markup).not.toContain("Tools from MCP servers");
   expect(markup).toContain("Brief/project");
   expect(markup).toContain("Output folder");
@@ -69,6 +73,27 @@ it("shows Goals, stage agents, connections and folders without starting anything
     outcome: "Research CRM options", setOutcome: () => {}, configureGoal: () => {}, act: () => {}, openWorkItem: () => {} }));
   expect(home).toContain("Run using defaults");
   expect(home).toContain("Configure advanced");
+});
+
+it("keeps MCP access compact unless selected servers need configuring", () => {
+  const servers = [
+    { id: "news-id", serverName: "news", label: "News", enabled: true, toolCount: 1 },
+    { id: "drive-id", serverName: "drive", label: "Drive", enabled: false, toolCount: 0 }
+  ];
+  const tools = [{ name: "mcp__news__search", serverName: "news" }];
+  const catalog = [{ id: "memory", serverName: "memory", label: "Memory", summary: "Shared memory", publisher: "MCP", installedAs: "" }];
+  const render = (props: any) => renderToStaticMarkup(React.createElement(McpAccess, { servers, tools, catalog, ...props }));
+
+  expect(render({ access: "all" })).toContain("1 MCP connected");
+  expect(render({ access: "none" })).toContain('data-mcp-mode="none"');
+  const selected = render({ access: "listed", chosen: ["news-id"] });
+  expect(selected).toContain("Search MCPs or tools");
+  expect(selected).toContain("bees-mcp-card added");
+  expect(selected).toContain("search");
+  expect(selected).toContain("Enable");
+  expect(selected).toContain("Memory");
+  expect(selected).toContain("Catalog");
+  expect(selected).toContain('name="mcpServers"');
 });
 
 const roots: string[] = [];
@@ -130,7 +155,7 @@ it("briefs Ask with existing resources in its workspace and keeps new setup revi
   expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [privateAgent.id] }])).toThrow("active in this workspace");
 
   const proposal = propose([
-    { action: "add_agent_assignment", name: "Editor", instructions: "Check the copy" },
+    { action: "add_agent_assignment", name: "Editor", instructions: "Read the draft in outputs/, fix wording and facts, write the edited copy back to outputs/ and ask the owner when a claim cannot be sourced" },
     { action: "create_process", name: "Publishing", stages: [{ name: "Edit", driver: "agent", requiresHumanApproval: true }, "Done"] },
     { action: "set_stage_route", process: "Publishing", stage: "Edit", agents: ["Editor"] },
     { action: "install_skill", repo: "example/skills", directory: "editor" }
@@ -224,7 +249,7 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   expect(restrictions).toContain("mcp__other__read");
   expect(restrictions).not.toContain("mcp__news__read");
   expect(prompts.join("\n")).toContain("Otherwise use create_goal");
-  expect(prompts.join("\n")).toContain("Only propose create_process when the person explicitly asks");
+  expect(prompts.join("\n")).toContain("Only propose create_process when the person asks for something that runs again");
   expect(tools.map(({ name }) => name)).not.toContain("bees_control");
   const proposal = await tools.find(({ name }) => name === "bees_propose_changes").execute({
     proposal_title: "Morning brief", proposal_summary: "Use Goals daily",
@@ -242,9 +267,11 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   }
 });
 
-it("builds default and custom-process work from the same outcome", () => {
-  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace" }))
-    .toEqual({ action: "create_goal", workspaceId: "workspace", title: "Research options", description: "Research options\nCompare pricing" });
+it("plans on defaults, and builds work directly when the person configured it", () => {
+  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace", plan: true }))
+    .toEqual({ action: "ask_bees", workspaceId: "workspace", outcome: "Research options\nCompare pricing" });
+  expect(workFromOutcome("Research options", { workspaceId: "workspace" }))
+    .toEqual({ action: "create_goal", workspaceId: "workspace", title: "Research options", description: "Research options" });
   expect(workFromOutcome("Research options", { processId: "process" }, { inputLocationIds: ["brief"], outputLocationId: "results" }))
     .toEqual({ action: "create_item", processId: "process", title: "Research options", description: "Research options",
       inputLocationIds: ["brief"], outputLocationId: "results" });

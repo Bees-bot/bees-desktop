@@ -34,12 +34,12 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
   return h("div", { className: "bees-form", style: { marginTop: "8px" } },
     fallback ? h("div", { className: "bees-row" },
       h("div", { className: "bees-row-main" }, h("strong", null, fallback.name),
-        h("span", { className: "bees-muted" }, "Default agent")),
+        h("span", { className: "bees-muted" }, " · Default agent")),
       h(Button, { onClick: () => onOpenAgent(fallback.id) }, "Configure")) : null,
     ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
       h("div", { className: "bees-row-main" },
         h("strong", null, agent.name),
-        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? "Discussion lead" : "Assigned agent") : "Participant")),
+        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Discussion lead" : " · Assigned agent") : " · Participant")),
       h(Button, { onClick: () => onOpenAgent(agent.id) }, "Configure"),
       h(Button, { disabled: index === 0, onClick: () => move(index, -1), title: "Move earlier" }, "↑"),
       h(Button, { disabled: index === ids.length - 1, onClick: () => move(index, 1), title: "Move later" }, "↓"),
@@ -115,7 +115,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
   );
 }
 
-export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
+export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
@@ -166,7 +166,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
 
       const agentForm = creatingStage ? h("div", null,
           
-          h(AgentCreateForm, { ctx, data, servers, workspaceId: process.workspaceId, act, inline: true, processId: process.id,
+          h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId: process.workspaceId, act, dialog: true, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await act({ action: "set_stage_route", stageId: creatingStage.id,
                 agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
@@ -174,7 +174,7 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
             } }))
         : selectedAgent ? h("div", null,
           
-          h(AgentEditForm, { ctx, data, servers, selected: selectedAgent, act, cancelLabel: "Close", processId: process.id,
+          h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected: selectedAgent, act, dialog: true, processId: process.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
       const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },
@@ -237,8 +237,12 @@ export function ProcessesPage({ ctx, data, servers = [], route, workspaceIds, wo
   const processList = h("div", null,
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
+      const creator = process.accountUserId
+        ? (data.connections?.find((c) => c.accountUserId === process.accountUserId)?.accountName ?? process.accountUserId)
+        : null;
+      const subtitle = [process.description, stages.map(({ name }) => name).join(" → "), creator ? `by ${creator}` : null].filter(Boolean).join(" · ");
       return h("button", { type: "button", className: "bees-row", style: { cursor: "pointer", width: "100%", textAlign: "left", font: "inherit", color: "inherit", background: "transparent", border: 0 }, key: process.id, onClick: () => setProcessId(process.id) },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, [process.description, stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))));
+        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, subtitle)));
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,

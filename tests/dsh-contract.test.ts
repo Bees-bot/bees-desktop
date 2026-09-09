@@ -219,7 +219,7 @@ describe("Bees DSH public contract", () => {
       expect((await request(server, routes, "/bees-api/snapshot")).status).toBe(401);
       const auth = await request(server, routes, "/bees-auth?token=contract-token");
       expect(auth.status).toBe(302);
-      const cookie = auth.headers["set-cookie"]?.split(";")[0];
+      const cookie = [auth.headers["set-cookie"]].flat()[0]?.split(";")[0];
       expect(cookie).toBe("bees_dsh=contract-token");
       // The token is the boundary, not the cookie name. A cookie an earlier launch left behind
       // carries that launch's token, so it is turned away and the browser goes back through
@@ -282,7 +282,7 @@ describe("Bees DSH public contract", () => {
       harness = testContext(server, routes, workspaces, sessions);
       await apply(harness.ctx, {}, { temporalClient: harness.temporalClient });
       const secondAuth = await request(server, routes, "/bees-auth?token=contract-token");
-      const secondCookie = secondAuth.headers["set-cookie"]?.split(";")[0];
+      const secondCookie = [secondAuth.headers["set-cookie"]].flat()[0]?.split(";")[0];
       const restarted = (await request(server, routes, "/bees-api/snapshot", {
         headers: { cookie: String(secondCookie) }
       })).json() as any;
@@ -481,8 +481,10 @@ describe("Bees DSH public contract", () => {
       const bundle = readdirSync(new URL("../dsh-runtime/vendor/dsh-v0.1.2-rc.1", import.meta.url));
       expect(bundle).toContain(`deepseek-ai-dsh-${release}.tgz`);
       expect(bundle).toContain(`deepseek-ai-dsh-experimental-agent-team-${release}.tgz`);
-      expect(readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8"))
-        .toContain('manifest.version !== "0.1.2-rc.1"');
+      const installer = readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8");
+      expect(installer).toContain('manifest.version !== "0.1.2-rc.1"');
+      expect(installer).toContain("const retiredResponses = new Map()");
+      expect(installer).toContain("?? retiredResponses.get(resourceUrl)");
       for (const [name, version] of Object.entries(pluginPackage.peerDependencies))
         if (name.startsWith("@deepseek-ai/dsh-")) expect(version).toBe(release);
     } finally {

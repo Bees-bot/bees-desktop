@@ -62,6 +62,7 @@ describe("personal dashboards", () => {
     expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
     expect(client).toContain('kind: "quick-actions"');
     expect(client).toContain('kind: "knowledge-sources"');
+    expect(client).toContain('onClick: resetDashboard');
   });
 
   it("provides and sanitizes the fixed work-item layout", () => {

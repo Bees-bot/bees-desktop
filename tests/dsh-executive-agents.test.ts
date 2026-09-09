@@ -44,7 +44,8 @@ describe("executive team", () => {
       const lead = execute.mock.calls.at(-1)![1];
       expect(lead.initialData.discussionMembers).toHaveLength(2);
       expect(lead.body).toContain(cto.id);
-      expect(lead.body).toContain("assign substantial independent work");
+      expect(lead.body).toContain("only for substantial independent work");
+      expect(lead.body).toContain("Do small, tightly coupled work yourself");
       expect(lead.initialData.discussionMembers[0].prompt).toContain("do not implement");
       const input = { parentId: goal.id, items: [{ title: "Build page", description: "Write and test outputs/index.html", agentAssignmentId: cto.id }] };
       const [child] = await product.createSubitems(input);
