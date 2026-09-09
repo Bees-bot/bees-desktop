@@ -11,7 +11,7 @@ import { SystemDefaultSettings } from "./agents.js";
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
   const preference = usePreference(preferences);
   const isOnboarding = preference.onboarding?.active;
-  const [activeTab, setActiveTab] = useState(isOnboarding ? (preference.onboardingAiFocus ?? "") : (preference.onboardingAiFocus || "subscriptions"));
+  const [activeTab, setActiveTab] = useState(isOnboarding ? (preference.onboardingAiFocus ?? "") : "");
   const focus = activeTab;
 
   return h("div", { className: "bees-stack" },
