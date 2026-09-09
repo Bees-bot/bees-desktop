@@ -10,6 +10,8 @@ import { SystemDefaultSettings } from "./agents.js";
 
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
   const preference = usePreference(preferences);
+  const isOnboarding = preference.onboarding?.active;
+  const [activeTab, setActiveTab] = useState(isOnboarding ? (preference.onboardingAiFocus ?? "") : "");
   const focus = preference.onboarding?.active ? preference.onboardingAiFocus : "";
   return h("div", { className: "bees-stack" },
     focus ? h("section", { className: "bees-callout" },
