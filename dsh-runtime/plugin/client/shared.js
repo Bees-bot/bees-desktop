@@ -149,7 +149,7 @@ export const css = `
 .bees-widget-tooltip li { margin-bottom: 4px; }
 
 .bees-app [hidden]{display:none!important}
-.bees-ask-setup{max-width:640px;margin:0 auto;padding:16px 0;min-width:0}
+.bees-ask-setup{max-width:none;margin:0;padding:16px 0;min-width:0}
 .bees-ask-heading{padding:24px 0 20px}.bees-ask-heading h1{font-size:28px;margin:6px 0 10px}.bees-ask-heading h1:focus{outline:none}
 @media(max-width:760px){.bees-ask-heading h1{font-size:24px}}
 .bees-flex-widget-borderless .bees-column {
@@ -906,6 +906,7 @@ export const css = `
 .bees-row .bees-btn{flex:0 0 auto}
 .bees-row .bees-select.bees-grow{flex:1 1 140px}
 .bees-column,.bees-box,.bees-work-item-row,.bees-flex-widget,.bees-row-main{min-width:0;overflow-wrap:break-word}
+.bees-row-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
 .bees-content,.bees-flex-widget-body{min-width:0}
 .bees-content pre,.bees-flex-widget pre{max-width:100%;overflow:auto}
 .bees-form>*{min-width:0}
