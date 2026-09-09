@@ -31,7 +31,8 @@ window.__ModuleLoader__.load({
     function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
-      const [status, setStatus] = useState({ codex: false, claude: { configured: false, enabled: false, models: [] } });
+      const [status, setStatus] = useState({ codex: false, codexModels: [],
+        claude: { configured: false, enabled: false, models: [] } });
       const [busy, setBusy] = useState("");
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
@@ -51,7 +52,8 @@ window.__ModuleLoader__.load({
         }
         finally { setBusy(""); }
       };
-      const codexModels = config.providers?.["openai-codex"]?.models ?? ui.codexModels ?? [];
+      const codexModels = config.providers?.["openai-codex"]?.models ?? ui.codexModels
+        ?? status.codexModels ?? [];
       const codexProfile = (models = codexModels) => {
         const profile = { displayName: "Codex (ChatGPT subscription)", apiKeyEnv: CODEX_ACCESS_REF };
         if (models.length) profile.models = models;

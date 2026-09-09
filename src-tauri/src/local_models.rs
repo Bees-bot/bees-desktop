@@ -955,7 +955,11 @@ fn start_local_model_blocking_inner(
         .args(["--host", "127.0.0.1", "--port"])
         .arg(port.to_string())
         .args(["--alias", "active", "--ctx-size"])
-        .arg(context.to_string());
+        .arg(context.to_string())
+        // llama.cpp defaults to four slots sharing one unified KV cache, so two agents running at
+        // once overrun a context sized for one and the second dies on "Context size has been
+        // exceeded". One slot gives each request the whole context and queues the rest.
+        .args(["--parallel", "1"]);
     // Gemma's embedded Jinja template is strict and raises "Conversation roles must alternate" on a
     // system role or non-alternating turns, which the OpenAI-style messages DSH sends trip; its
     // built-in llama.cpp template merges system into the first user turn. Models that carry a usable

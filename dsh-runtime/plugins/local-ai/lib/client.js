@@ -7,9 +7,14 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
+    // `runsProcesses` means a model keeps making tool calls llama.cpp can still parse once a tool
+    // result is in the history. Only Qwen3 4B has been run that far; the rest say what stops them.
+    // The point is that nobody aims a process at a chat-only model and gets a silent no-op.
     const LOCAL_MODELS = [
       {
         id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
+        description: "Runs processes and agents. Pick this one unless you have a reason not to.",
+        runsProcesses: true,
         fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
         bytes: 2497281120,
@@ -17,6 +22,9 @@ window.__ModuleLoader__.load({
       },
       {
         id: "nanbeige-4-2-3b-q6-k", name: "Nanbeige 4.2 3B (Q6_K)",
+        description: "Chat only. It answers well, but it changes tool-call format part way through a "
+          + "run, so agents stop doing anything without saying why.",
+        runsProcesses: false,
         fileName: "Nanbeige4.2-3B-Q6_K.gguf",
         url: "https://huggingface.co/owao/Nanbeige4.2-3B-GGUF/resolve/main/Nanbeige4.2-3B-Q6_K.gguf?download=true",
         bytes: 3424947040,
@@ -24,6 +32,8 @@ window.__ModuleLoader__.load({
       },
       {
         id: "gemma-4-e2b-it-qat-q4-0", name: "Gemma 4 E2B (Q4_0)",
+        description: "Chat only. Its own prompt template rejects the messages Bees sends.",
+        runsProcesses: false,
         fileName: "gemma-4-E2B_q4_0-it.gguf",
         url: "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/gemma-4-E2B_q4_0-it.gguf?download=true",
         bytes: 3349516256,
@@ -31,6 +41,9 @@ window.__ModuleLoader__.load({
       },
       {
         id: "qwen3-0-6b-q8-0", name: "Qwen3 0.6B (Q8_0)",
+        description: "Chat only, and small enough to feel it. Too little room to hold a process "
+          + "together across steps.",
+        runsProcesses: false,
         fileName: "Qwen3-0.6B-Q8_0.gguf",
         url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true",
         bytes: 639446688,
@@ -44,7 +57,7 @@ window.__ModuleLoader__.load({
       const running = models.find((model) => statuses[model.id]?.running);
       if (running) return running;
       if (!hardware || hardware.totalMemory < 8 * 1024 ** 3) return null;
-      const candidates = models.filter((model) => model.id !== "qwen3-0-6b-q8-0" && model.bytes > 0 &&
+      const candidates = models.filter((model) => model.runsProcesses && model.bytes > 0 &&
         model.bytes + 2 * 1024 ** 3 <= Math.min(hardware.totalMemory * 0.6, hardware.availableMemory));
       return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
         ?? candidates.find((model) => model.id === DEFAULT_LOCAL_MODEL.id &&
@@ -55,6 +68,7 @@ window.__ModuleLoader__.load({
     const css = `
       .bees-local-model-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}
       .bees-local-model-table table{width:100%;min-width:680px;border-collapse:collapse}.bees-local-model-table th,.bees-local-model-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-local-model-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-local-model-table tbody tr:last-child td{border-bottom:0}.bees-local-model-table th:nth-last-child(-n+3),.bees-local-model-table td:nth-last-child(-n+3){width:1%;text-align:center;white-space:nowrap}
+      .bees-local-model-note{margin-top:4px;max-width:52ch;text-wrap:pretty}
       .bees-local-model-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-local-model-name{display:flex;align-items:center;gap:7px;font-weight:700}.bees-local-model-status{min-width:130px}.bees-local-model-progress{display:block;width:125px;height:5px;margin-top:5px;accent-color:#f2b84b}.bees-local-server-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}.bees-local-server-models .bees-badge{gap:4px;text-transform:none}.bees-local-server-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-local-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-local-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-local-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-local-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-local-toggle input:checked:after{left:16px;background:#151515}.bees-local-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-local-delete{padding:5px 8px}
     `;
 
@@ -65,10 +79,8 @@ window.__ModuleLoader__.load({
     }
 
     const settingValue = (scope) => scope.getSnapshot().value ?? {};
-    const wantedModelIds = (config) => [...new Set([
-      ...(Array.isArray(config.localModelWantedIds) ? config.localModelWantedIds : []),
-      ...(config.localModelWantedId ? [config.localModelWantedId] : [])
-    ])];
+    const wantedModelIds = (config) =>
+      Array.isArray(config.localModelWantedIds) ? [...new Set(config.localModelWantedIds)] : [];
 
     function invokeLocal(command, args = {}) {
       const invoke = window.__TAURI__?.core?.invoke;
@@ -116,7 +128,6 @@ window.__ModuleLoader__.load({
       const current = settingValue(preferences);
       const ids = update(wantedModelIds(current));
       await preferences.set("localModelWantedIds", ids);
-      await preferences.set("localModelWantedId", ids.at(-1) ?? "");
     }
 
     async function activateLocalModel(model, models, modelSettings, preferences) {
@@ -306,7 +317,8 @@ window.__ModuleLoader__.load({
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
                   model.id === DEFAULT_LOCAL_MODEL.id ? h("span", { className: "bees-badge" }, "Default") : null),
-                h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`)),
+                h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`),
+                model.description ? h("div", { className: "bees-muted bees-local-model-note" }, model.description) : null),
               h("td", { className: "bees-local-model-status" },
                 h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, label),
                 downloading && !cancelling ? h("progress", { className: "bees-local-model-progress", max: total, value: downloaded }) : null),
