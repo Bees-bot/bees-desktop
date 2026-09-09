@@ -509,6 +509,13 @@ export class AgentRuntime {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
+    ctx.tools?.guard?.((exec) => {
+      if (exec.name !== "ask_user_question") return;
+      const parentSession = exec.agent?.session.header.parentSession;
+      if (!parentSession) return;
+      if (database.prepare("SELECT 1 FROM execution_links WHERE current_session_id = ?").get(String(parentSession)))
+        return "Discussion participants cannot ask the human. Send questions or assumptions to lead, then finish your review.";
+    });
   }
 
   setProposalStore(store) {
@@ -804,9 +811,13 @@ export class AgentRuntime {
     }
     const events = agent.session.snapshotEvents();
     for (const member of expected) {
-      const reported = events.some((event) => event.type === "team/message/queued" &&
-        String(event.data.message.senderId) === String(member.id) &&
-        String(event.data.message.targetId) === leadId);
+      const reported = events.some((event) =>
+        (event.type === "team/message/queued" &&
+          String(event.data.message.senderId) === String(member.id) &&
+          String(event.data.message.targetId) === leadId) ||
+        (event.type === "agent/inbox/spliced" && event.data.inserted?.some((message) =>
+          message.source?.kind === "subagent-settled" &&
+          String(message.source.senderSessionId) === String(member.id))));
       if (!reported) throw new Error(`${member.description || member.name} has not pitched in yet; ask them to report before submitting`);
     }
   }

@@ -91,7 +91,17 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("dsh-runtime");
-    let runtime = if packaged.is_dir() { packaged } else { source };
+    let runtime = if cfg!(debug_assertions) {
+        if source.is_dir() {
+            source
+        } else {
+            packaged
+        }
+    } else if packaged.is_dir() {
+        packaged
+    } else {
+        source
+    };
     let entry = runtime
         .join("node_modules")
         .join("@deepseek-ai")
@@ -528,6 +538,21 @@ fn healthz_answers(url: &str) -> bool {
         .is_some_and(|response| response.status().is_success())
 }
 
+fn is_dsh_auth_cookie(name: &str) -> bool {
+    name.starts_with("bees_dsh_") || name.starts_with("dsh-auth-")
+}
+
+fn clear_dsh_auth_cookies(window: &tauri::WebviewWindow) -> Result<(), String> {
+    for cookie in window.cookies().map_err(|error| error.to_string())? {
+        if is_dsh_auth_cookie(cookie.name()) {
+            window
+                .delete_cookie(cookie)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 /// The webview ends up on the harness's own URL, so a sidecar that dies leaves the window
 /// stranded on a dead page. Put it back on the start screen, which asks for the runtime again.
 fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::Url) {
@@ -571,6 +596,7 @@ async fn ensure_dsh_runtime(
     let url: tauri::Url = format!("{}/bees-auth?token={}", runtime.base_url, runtime.token)
         .parse()
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
+    clear_dsh_auth_cookies(&window)?;
     window
         .navigate(url)
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
@@ -748,7 +774,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::validated_external_url;
+    use super::{is_dsh_auth_cookie, validated_external_url};
+
+    #[test]
+    fn identifies_loopback_auth_cookies() {
+        assert!(is_dsh_auth_cookie("bees_dsh_45123"));
+        assert!(is_dsh_auth_cookie("dsh-auth-abc"));
+        assert!(!is_dsh_auth_cookie("unrelated"));
+    }
 
     #[test]
     fn external_links_must_be_secure_websites() {

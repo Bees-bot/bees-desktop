@@ -1,7 +1,7 @@
 import { GridStack } from "gridstack";
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
-import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFrom } from "./dashboard-model.js";
+import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
@@ -247,6 +247,10 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     const name = await ask("Dashboard name", dashboard.name);
     if (name) saveDashboard({ ...dashboard, name });
   };
+  const resetDashboard = async () => {
+    if (!await confirmAction("Reset this layout back to the default arrangement?")) return;
+    saveDashboard({ ...dashboard, widgets: DEFAULT_WIDGETS.map((widget) => ({ ...widget })) });
+  };
   const deleteDashboard = async () => {
     if (dashboard.id === "home" || !(await confirmAction(`Delete “${dashboard.name}”?`))) return;
     await preferences.set("dashboards", dashboards.filter(({ id }) => id !== dashboard.id));
@@ -273,6 +277,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
             : h("div", { className: "bees-muted" }, "Every widget is already on this dashboard."))
       ) : null,
       editing ? h(Button, { onClick: renameDashboard }, "Rename") : null,
+      editing ? h(Button, { onClick: resetDashboard, title: "Reset layout" }, "Reset") : null,
       editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit")));
     return () => setPageActions(null);

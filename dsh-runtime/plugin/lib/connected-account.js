@@ -609,6 +609,22 @@ export class ConnectedAccount {
     return this.organizationPeople(organizationId, connectionId);
   }
 
+  async setOrganizationMemberRole(organizationId, userId, role, connectionId) {
+    await this.request(
+      `/api/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(userId)}/role`,
+      { method: "POST", connectionId, body: { role } }
+    );
+    return this.organizationPeople(organizationId, connectionId);
+  }
+
+  async setOrganizationInvitationRole(organizationId, invitationId, role, connectionId) {
+    await this.request(
+      `/api/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitationId)}/role`,
+      { method: "POST", connectionId, body: { role } }
+    );
+    return this.organizationPeople(organizationId, connectionId);
+  }
+
   async teamPeople(teamId, connectionId) {
     const team = this.database.prepare(
       "SELECT organization_id AS organizationId FROM teams WHERE id = ?"
@@ -712,6 +728,14 @@ export class ConnectedAccount {
       case "invite_organization_member":
         return this.inviteOrganizationMember(
           input.organizationId, input.email, input.role, input.connectionId
+        );
+      case "set_organization_member_role":
+        return this.setOrganizationMemberRole(
+          input.organizationId, input.userId, input.role, input.connectionId
+        );
+      case "set_organization_invitation_role":
+        return this.setOrganizationInvitationRole(
+          input.organizationId, input.invitationId, input.role, input.connectionId
         );
       case "team_people": return this.teamPeople(input.teamId, input.connectionId);
       case "add_team_member":

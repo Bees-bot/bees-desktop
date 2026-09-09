@@ -111,7 +111,7 @@ describe("team coordination projection", () => {
       VALUES (?, ?, 'standard', 'Bees work agent', '', 'Local default', NULL, NULL, 'worker',
         '[]', 1, 1, 'none', '[]', ?, ?)
     `).run(targetAgentId, targetWorkspaceId, at, at);
-    target.connection.prepare("INSERT INTO processes VALUES (?, ?, 'Local', '', 'standard', NULL, NULL, ?, ?)")
+    target.connection.prepare("INSERT INTO processes VALUES (?, ?, 'Local', '', 'standard', NULL, NULL, NULL, ?, ?)")
       .run(targetProcessId, targetWorkspaceId, at, at);
     target.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Work', 0, 'agent', 0, 0, NULL)")
       .run(targetStageId, targetProcessId);
@@ -131,7 +131,7 @@ describe("team coordination projection", () => {
         '["research"]', 1, 1, 'none', '[]', ?, ?)
     `).run(peerAgentId, workspaceId, at, at);
     source.connection.prepare(`
-      INSERT INTO processes VALUES (?, ?, 'Daily brief', '', 'standard', ?, NULL, ?, ?)
+      INSERT INTO processes VALUES (?, ?, 'Daily brief', '', 'standard', ?, NULL, NULL, ?, ?)
     `).run(processId, workspaceId, locationId, at, at);
     source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Research', 0, 'agent', 0, 0, NULL)")
       .run(workStageId, processId);

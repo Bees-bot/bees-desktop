@@ -481,8 +481,10 @@ describe("Bees DSH public contract", () => {
       const bundle = readdirSync(new URL("../dsh-runtime/vendor/dsh-v0.1.2-rc.1", import.meta.url));
       expect(bundle).toContain(`deepseek-ai-dsh-${release}.tgz`);
       expect(bundle).toContain(`deepseek-ai-dsh-experimental-agent-team-${release}.tgz`);
-      expect(readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8"))
-        .toContain('manifest.version !== "0.1.2-rc.1"');
+      const installer = readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8");
+      expect(installer).toContain('manifest.version !== "0.1.2-rc.1"');
+      expect(installer).toContain("const retiredResponses = new Map()");
+      expect(installer).toContain("?? retiredResponses.get(resourceUrl)");
       for (const [name, version] of Object.entries(pluginPackage.peerDependencies))
         if (name.startsWith("@deepseek-ai/dsh-")) expect(version).toBe(release);
     } finally {

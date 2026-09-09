@@ -261,12 +261,12 @@ function ensureGoalDiscussion(database, workspaceId, at = iso()) {
 }
 
 export function insertProcess(
-  database, workspaceId, name, description, stages, kind = "standard", id = randomUUID(), at = iso()
+  database, workspaceId, name, description, stages, kind = "standard", id = randomUUID(), at = iso(), accountUserId = null
 ) {
   database.prepare(`
-    INSERT INTO processes (id, workspace_id, name, description, kind, archived_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
-  `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, at, at);
+    INSERT INTO processes (id, workspace_id, name, description, kind, output_location_id, account_user_id, archived_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+  `).run(id, workspaceId, required(name, "Name"), String(description ?? ""), kind, accountUserId || null, at, at);
   const insert = database.prepare(`
     INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
@@ -494,6 +494,7 @@ export function initializeProductDatabase(database) {
       name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
       kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'goals')),
       output_location_id TEXT REFERENCES team_locations(id),
+      account_user_id TEXT,
       archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS process_templates (
@@ -661,6 +662,9 @@ export function initializeProductDatabase(database) {
   const processColumns = new Set(database.prepare("PRAGMA table_info(processes)").all().map(({ name }) => name));
   if (!processColumns.has("output_location_id")) database.exec(
     "ALTER TABLE processes ADD COLUMN output_location_id TEXT REFERENCES team_locations(id)"
+  );
+  if (!processColumns.has("account_user_id")) database.exec(
+    "ALTER TABLE processes ADD COLUMN account_user_id TEXT"
   );
   const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
   if (!itemColumns.has("agent_ids_json")) database.exec(
