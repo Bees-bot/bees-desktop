@@ -11,9 +11,10 @@ export function mountAppTools(agentCtx, platform, app, data) {
     output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } },
       render: (_args, value) => [{ type: "text", text: value.result }] },
     execute: async (args, exec) => {
-      const current = platform.context(data.workItemId);
-      if (!current || current.id !== app.id) throw new Error("App scope is no longer available");
-      return { result: JSON.stringify(await run(current, args, exec)) };
+      const result = name === 'bees_app_source'
+        ? await run(app, args, exec)
+        : await platform.useApp(app, data.workItemId, name !== 'bees_app_read', (current) => run(current, args, exec));
+      return { result: JSON.stringify(result) };
     }
   }));
   const string = { type: "string", required: true };

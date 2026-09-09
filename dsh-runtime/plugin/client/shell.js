@@ -467,7 +467,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       } })
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
-    : route === "apps" ? h(AppsPage, { key: parts.workspaceId, workspaceId: parts.workspaceId, openWorkItem })
+    : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })

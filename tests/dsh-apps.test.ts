@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import { randomUUID } from 'node:crypto';
+import { applyTeamRecords, teamRecords } from '../dsh-runtime/plugin/lib/team-sync.js';
 import { afterEach, expect, it, vi } from "vitest";
 import { BeesProduct } from "../dsh-runtime/plugin/lib/product.js";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
@@ -25,7 +27,7 @@ const manifest = {
 };
 const databases: any[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
-function setup() {
+function setup(connected?: any) {
   const db = new NodeDatabase().connection;
   databases.push(db);
   const runtime: any = new AgentRuntime({ on: () => () => undefined, tools: { schemas: () => [] },
@@ -33,13 +35,89 @@ function setup() {
   const processes = { isAutomatic: () => true, startItem: vi.fn(async () => ({ status: "started" })) };
   const product = new BeesProduct(db, runtime, processes, "/tmp/bees-app-tests");
   const fetcher = vi.fn(async () => ({ url: "https://example.com/feed?q=help", observedAt: "2026-09-08T00:00:00Z", content: "Public request for help" }));
-  const apps = new AppPlatform(product, fetcher);
+  const apps = new AppPlatform(product, fetcher, { connected });
   runtime.apps = apps;
   const workspaceId = (db.prepare("SELECT id FROM workspaces LIMIT 1").get() as any).id;
   const install = (m = manifest, scope = workspaceId) => apps.install(scope, { manifest: m, config: { topic: "Useful research" } });
   const run = (id: string) => apps.command({ action: "run", installationId: id, workspaceId });
   return { db, apps, runtime, product, processes, fetcher, workspaceId, install, run };
 }
+
+it('installs before configuration but cannot run until required setup is saved; updates retain data and revoke old processes', async () => {
+  const s = setup();
+  const first = await s.apps.command({ action: 'install', workspaceId: s.workspaceId, manifest });
+  expect(s.apps.snapshot(s.workspaceId).apps[0].needsSetup).toBe(true);
+  await expect(s.run(first.id)).rejects.toThrow('Topic');
+  await s.apps.command({ action: 'configure', workspaceId: s.workspaceId, installationId: first.id, config: { topic: 'Configured' } });
+  const work = await s.run(first.id); const app = s.apps.context(work.id);
+  s.apps.record(app, work.id, { key: 'kept', kind: 'finding', title: 'Test', body: 'Keep me' });
+  const update = () => s.apps.command({ action: 'update', workspaceId: s.workspaceId, installationId: first.id, manifest: { ...manifest, version: '0.2.0' } });
+  await expect(update()).rejects.toThrow('active work');
+  s.db.prepare("UPDATE work_items SET runtime_phase='completed' WHERE id=?").run(work.id);
+  const updated = await update(); expect(updated.id).toBe(first.id); expect(updated.processId).not.toBe(first.processId);
+  expect(s.apps.snapshot(s.workspaceId).records).toHaveLength(1);
+  expect(s.apps.installation(first.id).config.topic).toBe('Configured');
+  expect(() => s.apps.context(work.id)).toThrow('older app version');
+});
+
+it('shares installations, records and approvals between distinct devices and rejects conflicting writes', async () => {
+  let state: any = null; let revision = 0; let offline = false; let rejectWrites = false;
+  const transport = (userId: string) => ({ appConnection: () => ({ id: 'test-connection' }), request: async (_path: string, input: any) => {
+    if (offline) throw new Error('Disconnected');
+    if (input.method === 'GET') return structuredClone({ state, revision, userId });
+    if (rejectWrites) throw new Error('Server rejected write');
+    if (input.body.revision !== revision) throw new Error('App state changed on another device');
+    state = structuredClone(input.body.state); revision++; return { revision, userId };
+  } });
+  const a = setup(transport('human-a')); const b = setup(transport('human-b'));
+  const org = randomUUID(); const team = randomUUID();
+  const connect = (s: ReturnType<typeof setup>) => {
+    const at = new Date().toISOString(); const ws = randomUUID();
+    const user = (s.db.prepare('SELECT id FROM users LIMIT 1').get() as any).id;
+    s.db.prepare("INSERT INTO organizations VALUES (?, 'Shared test', 0, ?, 'active', ?, ?)").run(org, user, at, at);
+    s.db.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)").run(user, org, at);
+    s.db.prepare("INSERT INTO teams VALUES (?, ?, 'Shared test', 0, ?, 'active', ?, ?)").run(team, org, user, at, at);
+    s.db.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)").run(user, team, at);
+    s.db.prepare("INSERT INTO workspaces VALUES (?, ?, NULL, 'Shared', 'connected', 'device', 'active', ?, ?)").run(ws, team, at, at);
+    s.db.prepare("INSERT INTO bees_accounts VALUES (?, 'test@example.com', 'Test', ?, ?, 1)").run(user, at, at);
+    s.db.prepare("INSERT INTO bees_connections VALUES ('test-connection', ?, ?, 'owner', ?, ?)").run(org, user, at, at);
+    s.db.prepare("INSERT INTO bees_connection_teams VALUES ('test-connection', ?, 'admin', ?, ?)").run(team, at, at);
+    return ws;
+  };
+  const wa = connect(a); const wb = connect(b);
+  const install = await a.apps.command({ action: 'install', workspaceId: wa, manifest, config: { topic: 'Test' } });
+  const mirrored = await b.apps.view(wb);
+  expect(mirrored.apps[0]).toMatchObject({ id: install.id, workspace_id: wb, process_id: install.processId });
+  expect(b.apps.ownsProcess(install.processId)).toBe(true);
+  expect(teamRecords(a.db, org).filter((r) => ['agent', 'team_process'].includes(r.recordType))).toHaveLength(0);
+  expect(JSON.stringify(state)).not.toContain(wa); expect(JSON.stringify(state)).not.toContain(wb);
+  const work = await a.apps.command({ action: 'run', workspaceId: wa, installationId: install.id });
+  applyTeamRecords(b.db, org, teamRecords(a.db, org));
+  const app = await a.apps.executionContext(work.id);
+  await a.apps.useApp(app, work.id, true, (current: any) => a.apps.record(current, work.id, { key: 'one', kind: 'finding', title: 'Test result', body: 'Synthetic test' }));
+  expect((await b.apps.view(wb)).records[0].title).toBe('Test result');
+  await a.apps.command({ action: 'portfolio', workspaceId: wa, goal: 'Shared', capCents: 100, maxRuns: 1 });
+  const drafts: any[] = [];
+  for (const suffix of ['a', 'b']) drafts.push(await a.apps.useApp(app, work.id, true, (current: any) => a.apps.draft(current, work.id, {
+    destination: `https://example.com/${suffix}`, account: 'test', content: 'Synthetic draft', rationale: 'Test', costCents: 60
+  })));
+  const actions = (await a.apps.view(wa)).actions;
+  const decision = (s: any, ws: string, id: string) => s.apps.command({ action: 'decide', workspaceId: ws, actionId: id,
+    digest: actions.find((d: any) => d.id === id).digest, decision: 'approve' });
+  const decisions = await Promise.allSettled([decision(a, wa, drafts[0].id), decision(b, wb, drafts[1].id)]);
+  expect(decisions.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  const shared = await b.apps.view(wb); expect(shared.reservedCents).toBe(60);
+  expect(shared.actions.find((d: any) => d.status === 'approved').decided_by).toMatch(/^human-/);
+  const next = await b.apps.command({ action: 'run', workspaceId: wb, installationId: install.id });
+  await expect(b.apps.executionContext(next.id)).rejects.toThrow('daily app-run limit');
+  b.db.prepare("UPDATE work_items SET runtime_phase='completed'").run(); rejectWrites = true;
+  await expect(b.apps.command({ action: 'remove', workspaceId: wb, installationId: install.id })).rejects.toThrow('Server rejected');
+  expect(b.apps.installation(install.id).status).toBe('active');
+  expect(b.db.prepare('SELECT archived_at FROM processes WHERE id=?').get(install.processId)).toEqual({ archived_at: null });
+  offline = true;
+  await expect(b.apps.view(wb)).rejects.toThrow('Shared apps unavailable');
+  expect(b.apps.snapshot(b.workspaceId).apps).toHaveLength(0); // Unrelated local workspace still works.
+});
 
 it("validates the declarative boundary and rejects executable hooks, secrets and unknown fields", () => {
   expect(validateApp(manifest)).toEqual(manifest);
@@ -222,7 +300,9 @@ it("renders a small empty UI without starting any work", () => {
   const React = require("react"); const { renderToStaticMarkup } = require("react-dom/server");
   configureRuntime((id: string) => id === "react" ? React : {});
   const markup = renderToStaticMarkup(React.createElement(AppsPage, { workspaceId: "local", openWorkItem: () => {} }));
-  expect(markup).toContain("Install an app package");
+  expect(markup).toContain("App directory");
+  expect(markup).not.toContain('type="file"');
+  expect(markup).not.toContain('Local workspaces only');
   expect(markup).toContain("no sending or paid execution");
   expect(markup).not.toContain("ACCOUNT-001");
 });
