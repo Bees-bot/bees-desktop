@@ -233,10 +233,15 @@ function messageParts(content) {
   }) : [];
 }
 
-function isInternalPromptMessage(message) {
+// The stage brief Bees writes arrives as an ordinary user message, so the run screen printed the
+// whole machine instruction to the person who only asked for the outcome.
+const STAGE_BRIEF = /^(Complete only the |Independently review the candidate |Resume this )/;
+function internalPromptLabel(message) {
   const source = message?.source;
-  return source?.kind === "skill-catalog" ||
-    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt");
+  if (source?.kind === "skill-catalog" ||
+    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt"))
+    return `Context injection · ${source.plugin || source.kind}`;
+  return STAGE_BRIEF.test(textBlocks(message?.content)[0] ?? "") ? "Bees stage brief" : null;
 }
 
 const CURL_AUTH_HEADER = /(-H\s+['"])([^'":]*(?:auth|token|key|secret)[^'":]*:\s*)[^'"]+/gi;
@@ -261,11 +266,11 @@ function eventsToConversation(events, settlements) {
   const calls = new Map();
   for (const event of events) {
     if (event.type === "user/message") {
-      if (isInternalPromptMessage(event.data)) {
+      const label = internalPromptLabel(event.data);
+      if (label) {
         messages.push({
-          id: event.data.id,
-          role: "context",
-          parts: [{ type: "context", text: `Context injection · ${event.data.source?.plugin || event.data.source?.kind}` }],
+          id: event.data.id, role: "context",
+          parts: [{ type: "context", text: label }],
           metadata: { timestamp: event.time }
         });
         continue;
