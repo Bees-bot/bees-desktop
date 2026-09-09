@@ -1,10 +1,10 @@
 import { h, useEffect, useState, React } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
+import { ask, Button, confirmAction, Empty, ProposalCard, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 
-const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
+const PROCESSES_LAYOUT = [{ kind: "planner", x: 0, y: 0, w: 12, h: 4 }, { kind: "processes", x: 0, y: 4, w: 12, h: 8 }];
 const TEMPLATES_LAYOUT = [
   { kind: "about", x: 0, y: 0, w: 12, h: 2 },
   { kind: "templates", x: 0, y: 2, w: 12, h: 10 }
@@ -113,6 +113,44 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
+}
+
+
+/** Describe the work once and Bees builds the process, its agents and its schedule to run it again. */
+function ProcessPlanner({ data, workspaceId, act }) {
+  const [outcome, setOutcome] = useState("");
+  const [error, setError] = useState("");
+  const [runId, setRunId] = useState("");
+  const [busy, submit] = useSubmit(async () => {
+    if (!workspaceId || !outcome.trim()) return;
+    setError("");
+    try {
+      const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim() });
+      if (result?.executionId) setRunId(result.executionId);
+      else setError("Bees could not start planning this. Please try again.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  });
+  const run = runId ? data.runs.find(({ id }) => id === runId) : null;
+  const planning = run && ["queued", "running"].includes(run.status);
+  const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
+  return h("div", { className: "bees-stack" },
+    h("form", { className: "bees-composer", onSubmit: submit },
+      h("textarea", {
+        className: "bees-composer-input", value: outcome, disabled: busy || planning || !workspaceId,
+        "aria-label": "What should this process do?",
+        placeholder: workspaceId ? "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each" : "Choose a team first",
+        onInput: (event) => setOutcome(event.target.value)
+      }),
+      error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
+      h("div", { className: "bees-composer-foot" },
+        h("span", { className: "bees-composer-hint" }, planning
+          ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
+          : "Bees proposes the stages, agents and schedule. Approve it and the process is yours to run whenever you need it."),
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || planning || !workspaceId || !outcome.trim() },
+          busy || planning ? "Planning…" : "Build this process"))),
+    ...proposals.map((proposal) => h(ProposalCard, { key: proposal.id, proposal,
+      onApply: async () => { await act({ action: "apply_proposal", proposalId: proposal.id }); setOutcome(""); setRunId(""); },
+      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
 }
 
 export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
@@ -246,7 +284,10 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
-    panels: { processes: { label: "Process Templates", actions: h(Button, { className: "primary", disabled: !workspaceId,
-      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template"), minW: 6, minH: 4, content: processList } }
+    panels: {
+      planner: { label: "Build a process with Bees", minW: 6, minH: 3, content: h(ProcessPlanner, { data, workspaceId, act }) },
+      processes: { label: "Process Templates", actions: h(Button, { className: "primary", disabled: !workspaceId,
+        onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template"), minW: 6, minH: 4, content: processList }
+    }
   });
 }

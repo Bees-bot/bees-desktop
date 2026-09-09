@@ -4,9 +4,8 @@ import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
-export function workFromOutcome(outcome, { plan, ...target }, resources = {}) {
+export function workFromOutcome(outcome, target, resources = {}) {
   const description = outcome.trim();
-  if (plan) return { action: "ask_bees", ...target, outcome: description };
   return { action: target.processId ? "create_item" : "create_goal", ...target,
     title: description.split("\n")[0], description, ...resources };
 }
