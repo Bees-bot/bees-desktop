@@ -26,7 +26,11 @@ export function onboardingProgress(data, teamId, state, aiReady) {
 }
 
 export function starterDescription(prompt, filesChoice) {
-  return `${prompt.trim()}\n\n${(filesChoice === "sample" || !filesChoice) ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
+  const text = prompt.trim();
+  // The sample brief is there for the starter tasks, which say "from the brief". Gluing it onto
+  // someone's own first prompt hands the run two unrelated jobs.
+  const sample = filesChoice === "sample" || (!filesChoice && STARTER_TASKS.some((task) => task.prompt === text));
+  return `${text}\n\n${sample ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
 }
 
 export function planningAgents(data, workspaceId) {
