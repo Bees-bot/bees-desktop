@@ -209,13 +209,13 @@ export function recurringSchedule(input) {
     throw new Error(`${frequency} schedules take hour 0-23 and minute 0-59; there is no scheduleTime field, cron goes in cronExpression with frequency advanced`);
   const value = { frequency, hour, minute };
   if (frequency === "weekly") {
-    const dayOfWeek = required(input.dayOfWeek, "Schedule weekday").toUpperCase();
+    const dayOfWeek = required(input.dayOfWeek, "Schedule weekday, and a schedule change resends the whole schedule").toUpperCase();
     if (!new Set(["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]).has(dayOfWeek))
       throw new Error("Schedule weekday is invalid");
     value.dayOfWeek = dayOfWeek;
   }
   if (frequency === "monthly") {
-    const dayOfMonth = Number(required(input.dayOfMonth, "Schedule day of month"));
+    const dayOfMonth = Number(required(input.dayOfMonth, "Schedule day of month, and a schedule change resends the whole schedule"));
     if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)
       throw new Error("Schedule day must be between 1 and 31");
     value.dayOfMonth = dayOfMonth;
@@ -800,6 +800,7 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
+      if (input.targetType && input.targetType !== "agent") throw new Error("A stage routes to agents; name them in agentIds");
       const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
         : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
@@ -886,7 +887,8 @@ export async function executeProductCommand(action, input) {
       const policy = checkMcpServers(this.database, mcpPolicy(input, {
         access: assignment.mcpAccess ?? "all", servers: JSON.parse(assignment.mcpServers || "[]")
       }));
-      if (input.viaAgent) assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
+      if (input.viaAgent && Object.hasOwn(input, "mcpAccess"))
+        assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,

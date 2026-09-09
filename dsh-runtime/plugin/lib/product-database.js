@@ -173,9 +173,8 @@ export function optionalModelRoute(value) {
 }
 
 export function agentCapabilities(agent) {
-  try { return capabilities(Array.isArray(agent?.capabilities)
-    ? agent.capabilities : JSON.parse(agent?.capabilities || "[]")); }
-  catch { return []; }
+  return capabilities(Array.isArray(agent?.capabilities)
+    ? agent.capabilities : JSON.parse(agent?.capabilities || "[]"));
 }
 
 export function assignment(database, id, workspaceId) {
@@ -706,14 +705,32 @@ export function initializeProductDatabase(database) {
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
   `);
-  if (version < 18) database.exec(`
-    UPDATE stage_routes SET agent_ids_json = json_array(agent_assignment_id) WHERE agent_assignment_id IS NOT NULL;
-    UPDATE work_items SET agent_ids_json = json_array(agent_assignment_id)
-    WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
-    UPDATE agent_dispatches SET agent_ids_json = json_array(agent_assignment_id)
-    WHERE agent_ids_json = '[]';
-    PRAGMA user_version = 18;
-  `);
+  if (version < 18) {
+    // A stage that named a pool has to keep its roster before version 23 drops the pool tables.
+    if (database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'agent_pool_members'").get())
+      for (const route of database.prepare(`
+        SELECT r.stage_id AS stageId, r.agent_pool_id AS poolId, s.driver
+        FROM stage_routes r JOIN stages s ON s.id = r.stage_id
+        WHERE r.agent_assignment_id IS NULL AND r.agent_pool_id IS NOT NULL
+      `).all()) {
+        const members = database.prepare(`
+          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1 ORDER BY m.priority, a.id LIMIT 8
+        `).all(route.poolId).map(({ id }) => id);
+        const ids = route.driver === "discussion" ? members : members.slice(0, 1);
+        database.prepare("UPDATE stage_routes SET agent_assignment_id = ?, agent_ids_json = ? WHERE stage_id = ?")
+          .run(ids[0] ?? null, JSON.stringify(ids), route.stageId);
+      }
+    database.exec(`
+      UPDATE stage_routes SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
+      UPDATE work_items SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
+      UPDATE agent_dispatches SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_ids_json = '[]';
+      PRAGMA user_version = 18;
+    `);
+  }
   // An installed browser server still carries the arguments that shared one profile across runs.
   if (version < 19) database.exec(`
     UPDATE mcp_servers
@@ -735,8 +752,9 @@ export function initializeProductDatabase(database) {
   });
   // Agent pools are gone: a stage names its agents directly, so the column, the tables and the
   // dispatch target they supported go with them.
-  if (version < 23) database.exec(`
-    PRAGMA foreign_keys = OFF;
+  if (version < 23) {
+    database.exec("PRAGMA foreign_keys = OFF");
+    transaction(database, () => database.exec(`
     CREATE TABLE stage_routes_next (
       stage_id TEXT PRIMARY KEY REFERENCES stages(id) ON DELETE CASCADE,
       agent_assignment_id TEXT REFERENCES agent_assignments(id) ON DELETE RESTRICT,
@@ -773,8 +791,9 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS agent_pool_members;
     DROP TABLE IF EXISTS agent_pools;
     PRAGMA user_version = 23;
-    PRAGMA foreign_keys = ON;
-  `);
+  `));
+    database.exec("PRAGMA foreign_keys = ON");
+  }
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

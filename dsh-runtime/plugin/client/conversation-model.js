@@ -15,7 +15,7 @@ const TOOL_NAMES = {
   bees_delegate_work: "Handed work to a peer", bees_submit_stage_result: "Submitted this stage",
   bees_request_work_review: "Asked you to approve", bees_publish_outputs: "Published the deliverables"
 };
-const readableTool = (name) => TOOL_NAMES[name] ?? (name.startsWith("mcp__")
+const readableTool = (name = "") => (Object.hasOwn(TOOL_NAMES, name) ? TOOL_NAMES[name] : name.startsWith("mcp__")
   ? name.split("__").slice(1).join(" · ").replace(/[-_]/g, " ")
   : name.replace(/[-_]/g, " "));
 function toolLine(part) {

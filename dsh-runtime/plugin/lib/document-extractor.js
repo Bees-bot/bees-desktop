@@ -11,11 +11,11 @@ const MAX_SOURCE_BYTES = 20_000_000;
 const MAX_KNOWLEDGE_BYTES = 1_000_000;
 const EXTRACTION_TIMEOUT = 60_000;
 
-function stable(value) {
+export function stable(value) {
   return createHash("sha256").update(String(value)).digest("hex");
 }
 
-function json(value) {
+export function json(value) {
   try { return JSON.parse(value); } catch { return null; }
 }
 

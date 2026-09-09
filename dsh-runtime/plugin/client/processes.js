@@ -4,7 +4,7 @@ import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 
-const PROCESSES_LAYOUT = [{ kind: "planner", x: 0, y: 0, w: 12, h: 4 }, { kind: "processes", x: 0, y: 4, w: 12, h: 8 }];
+const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
 const TEMPLATES_LAYOUT = [
   { kind: "about", x: 0, y: 0, w: 12, h: 2 },
   { kind: "templates", x: 0, y: 2, w: 12, h: 10 }
@@ -117,22 +117,23 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
 
 
 /** Describe the work once and Bees builds the process, its agents and its schedule to run it again. */
-function ProcessPlanner({ data, workspaceId, act }) {
-  const [outcome, setOutcome] = useState("");
+function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan }) {
+  const { outcome = "", runId = "" } = plan;
+  const setOutcome = (value) => setPlan({ outcome: value, runId: "" });
   const [error, setError] = useState("");
-  const [runId, setRunId] = useState("");
   const [busy, submit] = useSubmit(async () => {
     if (!workspaceId || !outcome.trim()) return;
     setError("");
     try {
       const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim() });
-      if (result?.executionId) setRunId(result.executionId);
+      if (result?.executionId) setPlan({ outcome, runId: result.executionId });
       else setError("Bees could not start planning this. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
   const run = runId ? data.runs.find(({ id }) => id === runId) : null;
   const planning = run && ["queued", "running"].includes(run.status);
-  const asking = run?.status === "waiting_for_input";
+  const asking = run && ["waiting_for_input", "waiting_for_approval"].includes(run.status);
+  const stopped = run && ["failed", "cancelled"].includes(run.status);
   const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
   return h("div", { className: "bees-stack" },
     h("form", { className: "bees-composer", onSubmit: submit },
@@ -144,20 +145,27 @@ function ProcessPlanner({ data, workspaceId, act }) {
       }),
       error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
       h("div", { className: "bees-composer-foot" },
-        h("span", { className: "bees-composer-hint" }, asking
+        h("span", { className: "bees-composer-hint" }, stopped
+          ? "That planning run stopped before it proposed anything. Try again, or say more about what you need."
+          : asking
           ? "Bees needs an answer before it can finish this plan. It is waiting under Needs your attention on Home."
           : planning ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
           : "Bees proposes the stages, agents and schedule. Approve it and the process is yours to run whenever you need it."),
-        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || planning || !workspaceId || !outcome.trim() },
-          busy || planning ? "Planning…" : "Build this process"))),
+        h("div", { className: "bees-detail-actions" },
+          h(Button, { disabled: busy || planning, onClick: onClose }, "Cancel"),
+          h("button", { type: "submit", className: "bees-btn primary",
+            disabled: busy || planning || asking || !workspaceId || !outcome.trim() },
+            busy || planning ? "Planning…" : asking ? "Waiting for you" : "Build this process")))),
     ...proposals.map((proposal) => h(ProposalCard, { key: proposal.id, proposal,
-      onApply: async () => { await act({ action: "apply_proposal", proposalId: proposal.id }); setOutcome(""); setRunId(""); },
+      onApply: async () => { await act({ action: "apply_proposal", proposalId: proposal.id }); setPlan({}); },
       onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
 }
 
 export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");
+  const [planning, setPlanning] = useState(false);
+  const [plan, setPlan] = useState({});
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
     ctx, data, kind: creating, draft: processDraft, workspaceId, teamId, act,
@@ -287,9 +295,17 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
     panels: {
-      planner: { label: "Build a process with Bees", minW: 6, minH: 3, content: h(ProcessPlanner, { data, workspaceId, act }) },
-      processes: { label: "Process Templates", actions: h(Button, { className: "primary", disabled: !workspaceId,
-        onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template"), minW: 6, minH: 4, content: processList }
+      processes: {
+        label: "Process Templates",
+        actions: h(React.Fragment, null,
+          h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
+          h(Button, { className: "primary", disabled: !workspaceId,
+            onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")),
+        minW: 6, minH: 4,
+        content: h("div", { className: "bees-stack" },
+          planning ? h(ProcessPlanner, { data, workspaceId, act, plan, setPlan, onClose: () => setPlanning(false) }) : null,
+          processList)
+      }
     }
   });
 }

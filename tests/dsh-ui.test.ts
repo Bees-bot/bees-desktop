@@ -341,7 +341,7 @@ describe("Bees work cockpit UI", () => {
   it("puts creation actions in widget headers and uses ordered stage participants", () => {
     expect(client).toContain('panel.actions ? h("div", { className: "bees-flex-widget-actions"');
     expect(client).toContain('agents: { label: "Agents", actions: h(Button');
-    expect(client).toContain('processes: { label: "Process Templates", actions: h(Button');
+    expect(client).toContain('h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees")');
     expect(client).toContain('"Add participant"');
     expect(client).toContain('" · Discussion lead"');
   });
