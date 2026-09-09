@@ -211,8 +211,8 @@ export class BeesProduct {
       ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. ${goalPlanning ? GOALS_DISCUSSION_PROTOCOL : "They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported."}`
       : "";
     const delegationProtocol = discussion
-      ? "Use the seated DSH Agent Team to agree on the approach. Once all participants have reported and are idle, execute the requested outcome. Use bees_delegate_work with agentAssignmentId to assign substantial independent work, including to an agent who participated in discussion. Delegate sequentially, inspect returned deliverables, and complete the combined result. Do not ask discussion seats to implement the same assignments. If the request is advice only, finish with the requested advice."
-      : "Do small, tightly coupled work yourself. Unless delegation is itself an explicit requirement, use bees_delegate_work only for a large separate piece a peer can own end to end; a tool call, lookup, or single-file edit is not enough. When the goal explicitly requires a delegation count, only the parent delegates and waits for each peer before launching the next. A delegated peer is a visible child work item and works in this same workspace, so continue from its changes already in outputs/ when it finishes.";
+      ? "Use the seated DSH Agent Team to agree on the approach. Once all participants have reported and are idle, execute the requested outcome. Use bees_delegate_work with agentAssignmentId to assign substantial independent work, including to an agent who participated in discussion. Honor the requested delegation count and execution order, inspect returned deliverables, and complete the combined result. Do not ask discussion seats to implement the same assignments. If the request is advice only, finish with the requested advice."
+      : "Do small, tightly coupled work yourself. Unless delegation is itself an explicit requirement, use bees_delegate_work only for a large separate piece a peer can own end to end; a tool call, lookup, or single-file edit is not enough. When the goal explicitly requires a delegation count, only the parent delegates. Honor the requested delegation count and execution order. A delegated peer is a visible child work item and works in this same workspace, so continue from its changes already in outputs/ when it finishes.";
     const roster = this.database.prepare(`SELECT id AS agentAssignmentId, name, description
       FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
         AND (system_role IS NULL OR system_role != 'reviewer') ORDER BY name`).all(item.workspaceId);
@@ -809,28 +809,32 @@ export class BeesProduct {
 
   async createSubitems({ parentId, items }) {
     const parent = itemContext(this.database, parentId, ["admin", "member"]);
-    if (!Array.isArray(items) || items.length !== 1)
-      throw new Error("A run can delegate exactly one work item at a time");
-    const item = items[0];
-    const title = required(item?.title, "Delegated work title");
-    const agentId = item?.agentAssignmentId == null ? parent.agentAssignmentId
-      : required(item.agentAssignmentId, "Delegated agent");
-    if (agentId) {
-      const agent = findAssignment(this.database, agentId, parent.workspaceId);
-      if (!agent?.enabled) throw new Error("Delegated agent must be enabled and belong to this team");
-    }
-    const existing = this.database.prepare(`
-      SELECT id, agent_assignment_id AS agentAssignmentId FROM work_items WHERE parent_id = ? AND title = ?
-        AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
-    `).get(parent.id, title);
-    if (existing && existing.agentAssignmentId !== agentId)
-      throw new Error("This delegated title already belongs to another agent; use a distinct title");
-    const child = existing ?? await this.command({
-      action: "create_item", processId: parent.processId, parentId: parent.id,
-      title, description: String(item?.description ?? ""),
-      agentAssignmentId: agentId, accountUserId: parent.accountUserId
+    if (!Array.isArray(items) || !items.length)
+      throw new Error("A run must delegate at least one work item");
+    const titles = new Set();
+    const peers = items.map((item) => {
+      const title = required(item?.title, "Delegated work title");
+      if (titles.has(title)) throw new Error("Delegated work items must have distinct titles");
+      titles.add(title);
+      const agentId = item?.agentAssignmentId == null ? parent.agentAssignmentId
+        : required(item.agentAssignmentId, "Delegated agent");
+      if (agentId) {
+        const agent = findAssignment(this.database, agentId, parent.workspaceId);
+        if (!agent?.enabled) throw new Error("Delegated agent must be enabled and belong to this team");
+      }
+      const existing = this.database.prepare(`
+        SELECT id, agent_assignment_id AS agentAssignmentId FROM work_items WHERE parent_id = ? AND title = ?
+          AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
+      `).get(parent.id, title);
+      if (existing && existing.agentAssignmentId !== agentId)
+        throw new Error("This delegated title already belongs to another agent; use a distinct title");
+      return { title, description: String(item?.description ?? ""), agentId, existing };
     });
-    return [child];
+    return Promise.all(peers.map(({ title, description, agentId, existing }) => existing ?? this.command({
+      action: "create_item", processId: parent.processId, parentId: parent.id,
+      title, description,
+      agentAssignmentId: agentId, accountUserId: parent.accountUserId
+    })));
   }
 
   async command(input) {

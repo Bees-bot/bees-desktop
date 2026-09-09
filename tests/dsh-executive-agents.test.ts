@@ -11,6 +11,10 @@ describe("executive team", () => {
     const db = new NodeDatabase().connection;
     const executives = () => db.prepare("SELECT * FROM agent_assignments WHERE system_role IS NULL ORDER BY name").all();
     expect(executives().map((row) => row.name)).toEqual(["CEO", "CMO", "CRO", "CTO"]);
+    for (const agent of executives()) {
+      expect(agent.instructions).toContain("send parallel assignments together");
+      expect(agent.instructions).not.toContain("Delegate sequentially");
+    }
     db.exec("UPDATE agent_assignments SET name = 'Engineering', instructions = 'My rules', enabled = 0 WHERE name = 'CTO'");
     const customized = executives();
     initializeProductDatabase(db);
@@ -63,5 +67,53 @@ describe("executive team", () => {
       db.prepare("UPDATE agent_assignments SET enabled = 0 WHERE id = ?").run(cto.id);
       await expect(product.createSubitems({ parentId: goal.id, items: [{ title: "Disabled", agentAssignmentId: cto.id }] })).rejects.toThrow("enabled");
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("starts independent delegated peers together and reuses them on retry", async () => {
+    const db = new NodeDatabase().connection;
+    const startItem = vi.fn(async (_id: string) => ({}));
+    const runtime = new AgentRuntime({ on: () => () => undefined }, db);
+    const product = new BeesProduct(db, runtime, { startItem }, tmpdir());
+    const initial = await product.snapshot();
+    const workspaceId = initial.workspaces[0].id;
+    const cto = initial.assignments.find((agent: any) => agent.name === "CTO")!;
+    const cmo = initial.assignments.find((agent: any) => agent.name === "CMO")!;
+    const goal = await product.command({ action: "create_goal", workspaceId, title: "Parallel launch" });
+    const input = { parentId: goal.id, items: [
+      { title: "Build page", description: "Write outputs/index.html", agentAssignmentId: cto.id },
+      { title: "Write copy", description: "Write outputs/copy.md", agentAssignmentId: cmo.id }
+    ] };
+    startItem.mockClear();
+    let releaseFirst: () => void = () => undefined;
+    startItem.mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = () => resolve({}); }));
+    startItem.mockImplementationOnce(async () => { releaseFirst(); return {}; });
+
+    const children = await product.createSubitems(input);
+
+    expect(startItem.mock.calls.map(([id]) => id)).toEqual(children.map(({ id }) => id));
+    expect(db.prepare("SELECT title, agent_assignment_id AS agentId FROM work_items WHERE parent_id = ? ORDER BY title").all(goal.id)).toEqual([
+      { title: "Build page", agentId: cto.id }, { title: "Write copy", agentId: cmo.id }
+    ]);
+    expect((await product.createSubitems(input)).map(({ id }) => id)).toEqual(children.map(({ id }) => id));
+    expect(startItem).toHaveBeenCalledTimes(2);
+  }, 1_000);
+
+  it("validates the entire delegated batch before starting any peer", async () => {
+    const db = new NodeDatabase().connection;
+    const startItem = vi.fn(async () => ({}));
+    const runtime = new AgentRuntime({ on: () => () => undefined }, db);
+    const product = new BeesProduct(db, runtime, { startItem }, tmpdir());
+    const initial = await product.snapshot();
+    const goal = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id, title: "Parallel launch" });
+    startItem.mockClear();
+
+    await expect(product.createSubitems({ parentId: goal.id, items: [
+      { title: "Valid" }, { title: "Invalid", agentAssignmentId: "foreign-or-missing" }
+    ] })).rejects.toThrow("belong to this team");
+    await expect(product.createSubitems({ parentId: goal.id, items: [
+      { title: "Duplicate" }, { title: "Duplicate" }
+    ] })).rejects.toThrow("distinct titles");
+    expect(startItem).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT id FROM work_items WHERE parent_id = ?").all(goal.id)).toEqual([]);
   });
 });
