@@ -683,6 +683,8 @@ export class BeesProduct {
       if (change.action === "add_agent_assignment") {
         const name = required(change.name, "Agent name");
         proposedAgents.add(name.toLocaleLowerCase());
+        if (change.mcpAccess === "none" || change.mcpAccess === "listed" && !(change.mcpServers ?? []).length)
+          throw new Error(`${name} would have no tool at all; list the servers its work needs, or all`);
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
             throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
