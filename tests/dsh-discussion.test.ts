@@ -189,6 +189,8 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Goal: Choose the API architecture");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Wait until list_agents shows all of them");
       expect(payload.body).toContain("This is a DSH Agent Teams discussion");
+      expect(payload.body).toContain("Honor the requested delegation count and execution order");
+      expect(payload.body).not.toContain("Delegate sequentially");
       expect(payload.body).not.toContain("use bees_delegate_work only for a large separate piece");
       expect(payload.initialData.instructions).not.toContain("bees_delegate_work");
       expect(payload.body).toContain("cannot finish until the human approves");

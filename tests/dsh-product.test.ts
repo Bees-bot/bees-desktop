@@ -547,6 +547,8 @@ describe("Bees DSH product plugin", () => {
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
     expect(stageRuns.at(-1)[1].body).toContain("use bees_delegate_work only for a large separate piece");
+    expect(stageRuns.at(-1)[1].body).toContain("Honor the requested delegation count and execution order");
+    expect(stageRuns.at(-1)[1].body).not.toContain("waits for each peer before launching the next");
     expect(stageRuns.at(-1)[1].body).toContain(`Available input snapshots:\n- Work: inputs/Work-${location.id.slice(0, 8)}`);
     database.connection.prepare(`
       INSERT INTO execution_links

@@ -467,6 +467,10 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     inherit_environment(&mut command, &RUNTIME_ENVIRONMENT);
     command
         .current_dir(&workspace)
+        // Node stops reading at 16 KiB of headers and answers 431, which the webview shows as a
+        // blank window. Loopback callers are our own webview, so the header is ours to trust and
+        // the size of it is never a reason to refuse the app its own interface.
+        .arg("--max-http-header-size=65536")
         .arg(entry)
         .args(["--profile", "bees", "--host", "127.0.0.1", "--port"])
         .arg(port.to_string())
@@ -550,9 +554,13 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
         // Watching the process alone was not enough: a harness that is running but has stopped
         // answering leaves the window on a dead page with no way back except quitting the app.
         // Three misses rather than one, so a busy moment does not throw the person off their work.
+        // Not being able to read the sidecar's state is not the same as the sidecar being gone,
+        // and it used to leave the loop on the first try and send the window back to the start
+        // screen while the harness was serving perfectly well. Both checks get the same patience.
         let mut misses = 0;
-        while let Some(url) = dsh_healthz(&app) {
-            misses = if healthz_answers(&url) { 0 } else { misses + 1 };
+        loop {
+            let healthy = dsh_healthz(&app).is_some_and(|url| healthz_answers(&url));
+            misses = if healthy { 0 } else { misses + 1 };
             if misses >= 3 {
                 break;
             }

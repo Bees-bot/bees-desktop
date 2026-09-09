@@ -22,14 +22,16 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+
+const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest set of changes that lets Bees carry out the requested outcome. Inspect the existing resources in the brief before proposing anything new.
 
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals already has two agents planning together in Work, followed by independent Review and Done; keep those stages and routes. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
 
-Only propose create_process when the person explicitly asks to create a reusable workflow. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role or an explicit request for a new agent. Give a new agent presetId "standard", a name, and instructions defining its role and boundaries, including that it asks the owner for anything missing rather than stopping. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
+Only propose create_process when the person explicitly asks to create a reusable workflow. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role or an explicit request for a new agent. Give a new agent presetId "standard", a name, and instructions defining its role and boundaries, including that it asks the owner for anything missing rather than stopping. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
@@ -176,6 +178,9 @@ const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
 const MAX_DELEGATION_DEPTH = 1;
+// Peers delegated together run at once and share the caller's workspace. Four keeps a fan-out
+// useful without a lead spawning a swarm that competes for the same model and the same files.
+const MAX_PARALLEL_PEERS = 4;
 
 /** A model that ends its turn without submitting is having a bad turn, not failing the stage. */
 const STAGE_RESULT_COLUMNS = `
@@ -813,6 +818,7 @@ export class AgentRuntime {
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
         systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
         String(data.instructions ?? ""),
+        !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
         ...(installedApp ? [] : [...this.connectedTools(), ...this.boundFolders()])
@@ -966,12 +972,12 @@ export class AgentRuntime {
     if (!installedApp && data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
-        description: "Delegate one self-contained task to an independent peer agent. The peer is a normal visible child work item with the same process lifecycle and works in this run's shared workspace while the caller waits.",
+        description: "Delegate self-contained tasks to independent peer agents. Each peer is a normal visible child work item with the same process lifecycle. Peers in one call run at the same time and the caller waits for all of them. Group parallel assignments in one call; use separate calls when the user requests sequential execution or work depends on an earlier result.",
         timeoutMs: 2_147_483_647,
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: "JSON array containing exactly one object shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Include output paths and acceptance criteria in description. After a discussion, wait for all participants to report and become idle before delegating."
+            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, wait for all participants to report and become idle before delegating.`
           }
         },
         output: {
@@ -990,8 +996,10 @@ export class AgentRuntime {
           let items;
           try { items = JSON.parse(args.items_json); }
           catch { throw new Error("items_json must be valid JSON"); }
-          if (!Array.isArray(items) || items.length !== 1)
-            throw new Error("items_json must contain exactly one delegated work item");
+          if (!Array.isArray(items) || !items.length)
+            throw new Error("items_json must contain at least one delegated work item");
+          if (items.length > MAX_PARALLEL_PEERS)
+            throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
@@ -1569,7 +1577,10 @@ export class AgentRuntime {
       pendingInteraction: null,
       idempotencyKey: `settled:${submissionId}`
     });
-    this.audit(`run-${result.outcome}`, executionId, sessionId, { submissionId });
+    // The reason is already on the delivery row; dropping it here left the audit trail saying a
+    // run failed and nothing about why, when the answer was "the model provider is out of quota".
+    this.audit(`run-${result.outcome}`, executionId, sessionId,
+      result.error ? { submissionId, error: result.error.message, code: result.error.code } : { submissionId });
     const live = this.live.get(executionId);
     live?.approvalAbort.abort();
     this.live.delete(executionId);
