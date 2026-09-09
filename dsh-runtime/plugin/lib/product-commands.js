@@ -4,7 +4,7 @@ import { showAgentBrowser } from "./agent-browser.js";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
-  agentCapabilities, agentIds as normalizeAgentIds, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
+  agentCapabilities, agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
   parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext
@@ -44,10 +44,17 @@ export function assertAgentHasTools({ mcpAccess, mcpServers, name }) {
     throw new Error(`${name || "That agent"} would have no tool at all; list the servers its work needs, or all`);
 }
 
+/** A role description is not an instruction. An agent earns its place by naming the material it
+ *  reads, what it leaves behind, and when it stops or asks; without that it repeats the prompt. */
+export function assertUsableInstructions({ name, instructions, description }) {
+  const text = String(instructions ?? "").trim();
+  if (text.length < 80 || text === String(description ?? "").trim())
+    throw new Error(`${name || "That agent"} needs instructions of its own: what it reads, what it writes, and when it asks the owner or stops`);
+}
+
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
   if (!Object.hasOwn(input, "mcpAccess")) return current;
-  const access = String(input.mcpAccess ?? "all");
-  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  const access = assertMcpAccess(String(input.mcpAccess ?? "all"));
   const servers = access === "listed"
     ? [...new Set((Array.isArray(input.mcpServers) ? input.mcpServers : []).map(String).filter(Boolean))]
     : [];
@@ -177,7 +184,8 @@ function timezoneOf(value) {
 
 export function recurringSchedule(input) {
   if (!input.frequency && input.cronExpression && input.everyMinutes) throw new Error("Give cronExpression or everyMinutes, not both");
-  const frequency = String(input.frequency ?? (input.cronExpression ? "advanced" : input.everyMinutes ? "hourly" : "daily"));
+  const frequency = String(input.frequency ?? (input.cronExpression ? "advanced" : input.everyMinutes ? "hourly"
+    : required(input.frequency, "Schedule frequency")));
   if (frequency === "hourly") {
     const everyMinutes = Number(input.everyMinutes ?? 60);
     if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 525_600)
@@ -201,13 +209,13 @@ export function recurringSchedule(input) {
     throw new Error(`${frequency} schedules take hour 0-23 and minute 0-59; there is no scheduleTime field, cron goes in cronExpression with frequency advanced`);
   const value = { frequency, hour, minute };
   if (frequency === "weekly") {
-    const dayOfWeek = String(input.dayOfWeek ?? "MONDAY").toUpperCase();
+    const dayOfWeek = required(input.dayOfWeek, "Schedule weekday, and a schedule change resends the whole schedule").toUpperCase();
     if (!new Set(["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]).has(dayOfWeek))
       throw new Error("Schedule weekday is invalid");
     value.dayOfWeek = dayOfWeek;
   }
   if (frequency === "monthly") {
-    const dayOfMonth = Number(input.dayOfMonth ?? 1);
+    const dayOfMonth = Number(required(input.dayOfMonth, "Schedule day of month, and a schedule change resends the whole schedule"));
     if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)
       throw new Error("Schedule day must be between 1 and 31");
     value.dayOfMonth = dayOfMonth;
@@ -448,7 +456,7 @@ export async function executeProductCommand(action, input) {
         UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?, agent_ids_json = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
       `).run(title, description, input.owner ? String(input.owner) : null,
-        selectedAgentIds[0] ?? null, JSON.stringify(selectedAgentIds), priorityOf(input.priority), parentId, at, item.id);
+        selectedAgentIds[0] ?? null, JSON.stringify(selectedAgentIds), priorityOf(input.priority ?? item.priority), parentId, at, item.id);
       for (const location of referenceInputs(this.database, item.workspaceId, [...titleReferences.references, ...descriptionReferences.references]))
         this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(item.id, location.id, location.relativePath);
       return {};
@@ -687,9 +695,9 @@ export async function executeProductCommand(action, input) {
           const mappedAgentIds = routeAgentIds(route).map((id) => oldToNewAgentId[id] || id);
           this.database.prepare(`
             INSERT INTO stage_routes
-              (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+              (stage_id, agent_assignment_id, required_capabilities_json,
                created_at, updated_at, agent_ids_json)
-            VALUES (?, ?, NULL, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
           `).run(newStageId, mappedAgentIds[0] ?? null, route.required_capabilities_json,
             at, at, JSON.stringify(mappedAgentIds));
         }
@@ -782,15 +790,17 @@ export async function executeProductCommand(action, input) {
     if (action === "set_stage_route") return transaction(this.database, () => {
       const stageId = required(input.stageId, "Stage");
       const stage = this.database.prepare(`
-        SELECT s.id, s.process_id AS processId, s.driver, p.workspace_id AS workspaceId
+        SELECT s.id, s.process_id AS processId, s.driver, p.kind, p.workspace_id AS workspaceId
         FROM stages s JOIN processes p ON p.id = s.process_id
         WHERE s.id = ? AND s.archived_at IS NULL
       `).get(stageId);
       if (!stage) throw new Error("Stage not found");
+      // Rerouting Goals from inside a run is how a run would replace the reviewer that judges it.
+      if (input.viaAgent && stage.kind === "goals") throw new Error("A run cannot reroute the Goals process");
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      if (input.targetType === "pool") throw new Error("Agent pools are no longer supported; assign agents directly");
+      if (input.targetType && input.targetType !== "agent") throw new Error("A stage routes to agents; name them in agentIds");
       const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
         : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
@@ -803,10 +813,9 @@ export async function executeProductCommand(action, input) {
       }
       this.database.prepare(`
         INSERT INTO stage_routes
-          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json, created_at, updated_at, agent_ids_json)
-        VALUES (?, ?, NULL, ?, ?, ?, ?)
+          (stage_id, agent_assignment_id, required_capabilities_json, created_at, updated_at, agent_ids_json)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(stage_id) DO UPDATE SET agent_assignment_id = excluded.agent_assignment_id,
-          agent_pool_id = NULL,
           required_capabilities_json = excluded.required_capabilities_json,
           agent_ids_json = excluded.agent_ids_json,
           updated_at = excluded.updated_at
@@ -823,6 +832,10 @@ export async function executeProductCommand(action, input) {
         if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The agent preset is unavailable");
       }
       const policy = checkMcpServers(this.database, mcpPolicy(input));
+      if (input.viaAgent) {
+        assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: input.name });
+        assertUsableInstructions(input);
+      }
       return transaction(this.database, () => {
         const id = randomUUID();
         const inputLocationIds = locationIds(this.database, workspace.id, input.inputLocationIds);
@@ -874,6 +887,8 @@ export async function executeProductCommand(action, input) {
       const policy = checkMcpServers(this.database, mcpPolicy(input, {
         access: assignment.mcpAccess ?? "all", servers: JSON.parse(assignment.mcpServers || "[]")
       }));
+      if (input.viaAgent && Object.hasOwn(input, "mcpAccess"))
+        assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
@@ -1131,12 +1146,13 @@ export async function executeProductCommand(action, input) {
       });
       const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
       const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
-      const grants = [outputLocation(this.database, item.id)].filter(Boolean);
+      const reviewing = stagePurpose === "reviewer";
+      const grants = reviewing ? [] : [outputLocation(this.database, item.id)].filter(Boolean);
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `Complete this work item.\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
+        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
         initialData: {
-          version: 1, mode: "work", executionId, workItemId: item.id,
+          version: 1, mode: reviewing ? "review" : "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
           purpose: item.title, model: input.model || assignment?.model || null,
           reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,

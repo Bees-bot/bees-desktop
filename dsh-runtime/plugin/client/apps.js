@@ -53,6 +53,7 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
   return h("div", { className: "bees-stack", style: { maxWidth: 880, margin: "0 auto" } },
     h("header", null, h("h1", null, "Apps"), h("p", { className: "bees-muted" }, "Small apps. One place for results and decisions.")),
     h("p", { className: "bees-muted" }, "Install apps in the selected workspace. These apps prepare research and drafts; no sending or paid execution. Model-provider charges are separate."),
+    h("p", { className: "bees-callout" }, "Preview · Local workspaces only. Research and drafts; no sending or paid execution. Model-provider charges are separate and not capped here."),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     !workspaceId ? h("p", null, "Choose a workspace to install apps.") : null,
     h("section", { className: "bees-box bees-stack" },

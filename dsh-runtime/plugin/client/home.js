@@ -1,39 +1,23 @@
-import { GridStack } from "gridstack";
-import { h, useEffect, useRef, useState } from "./runtime.js";
+import { h, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
-import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
+import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
+import { FlexibleGrid } from "./flexible-grid.js";
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
-export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, openNeedsYou }) {
+export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
-  const [planId, setPlanId] = useState("");
-  const [mode, setMode] = useState("");
-  const [busy, submit] = useSubmit(async (event, plan = false) => {
+  const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
-    setError(""); setPlanId(""); setMode(plan ? "plan" : "run");
+    setError("");
     try {
-      const result = await act(workFromOutcome(outcome, { workspaceId, plan }));
+      const result = await act(workFromOutcome(outcome, { workspaceId }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
-      else if (result?.executionId) setPlanId(result.executionId);
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  const plan = planId ? data.runs.find((row) => row.id === planId) : null;
-  const ready = plan && plan.status !== "queued" && plan.status !== "running";
-  // Planning answers with a run, not a work item, so the composer stands in for it until the plan
-  // is ready: clearing the box on submit read as the click having done nothing.
-  if (plan) return h("div", { className: "bees-stack" },
-    h("strong", null, ready ? "Your plan is ready" : "Bees is planning this"),
-    h("p", { className: "bees-muted" }, ready
-      ? "Open it to see the process, agents and schedule Bees proposes, and approve or change it."
-      : "Working out the process, agents, tools and schedule for this. It takes about a minute."),
-    h("blockquote", { className: "bees-muted", style: { margin: 0, whiteSpace: "pre-wrap" } }, outcome),
-    h("div", { className: "bees-card-actions" },
-      ready ? h(Button, { className: "bees-btn-primary", onClick: () => { setOutcome(""); setPlanId(""); openNeedsYou?.(); } }, "Open the plan") : null,
-      h(Button, { onClick: () => setPlanId("") }, ready ? "Ask for something else" : "Write another")));
   return h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
@@ -53,12 +37,10 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Run using defaults starts a Goal now with the team's agents · Plan and do works out the process, agents and tools first, then runs it once you approve · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, "Runs as a goal with the team's agents · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
-          busy && mode === "run" ? "Starting…" : "Run using defaults"),
-        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: (event) => void submit(event, true) },
-          busy && mode === "plan" ? "Planning…" : "Plan and do"),
+          busy ? "Starting…" : "Run using defaults"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
   );
 }
@@ -159,67 +141,23 @@ const WIDGETS = [
 const widgetByKind = new Map(WIDGETS.map((widget) => [widget.kind, widget]));
 
 function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) {
-  const root = useRef(null);
-  const gridRef = useRef(null);
-  // The grid outlives the render that set it up, so the save has to read the current handler.
-  const onLayoutRef = useRef(onLayout);
-  onLayoutRef.current = onLayout;
-  const widgetKey = dashboard.widgets.map(({ kind }) => kind).join("|");
-  const layoutKey = dashboard.widgets.map(({ kind, x, y, w, h }) => `${kind}:${x}:${y}:${w}:${h}`).join("|");
-  useEffect(() => {
-    const grid = GridStack.init({
-      column: 12,
-      columnOpts: { breakpoints: [{ w: 700, c: 1 }, { w: 1000, c: 6 }] },
-      cellHeight: 72,
-      margin: 6,
-      animate: true,
-      disableDrag: !editing,
-      disableResize: !editing,
-      draggable: { handle: ".bees-dashboard-widget-handle" },
-      resizable: { handles: "e,se,s,sw,w" }
-    }, root.current);
-    if (!grid) return undefined;
-    const save = () => {
-      const layout = saveGridLayout(grid);
-      if (Array.isArray(layout)) onLayoutRef.current(layout);
-    };
-    // The stop event precedes GridStack's responsive-layout cache update.
-    grid.on("dragstop resizestop", () => queueMicrotask(save));
-    gridRef.current = grid;
-    return () => { gridRef.current = null; grid.offAll().destroy(false); };
-  }, [dashboard.id, widgetKey]);
-  useEffect(() => {
-    gridRef.current?.enableMove(editing);
-    gridRef.current?.enableResize(editing);
-  }, [editing]);
-  useEffect(() => {
-    gridRef.current?.load(dashboard.widgets.map(({ kind, ...position }) => ({ id: kind, ...position })));
-  }, [layoutKey]);
-
-  return h("div", { className: `grid-stack bees-dashboard-grid ${editing ? "editing" : ""}`, ref: root },
-    ...dashboard.widgets.map((widget) => {
-      const definition = widgetByKind.get(widget.kind);
-      const Component = definition?.component;
-      return h("section", {
-        className: "grid-stack-item",
-        key: widget.kind,
-        "gs-id": widget.kind,
-        "gs-x": widget.x,
-        "gs-y": widget.y,
-        "gs-w": widget.w,
-        "gs-h": widget.h
-      }, h("div", { className: "grid-stack-item-content bees-dashboard-widget" },
-        h("header", { className: "bees-dashboard-widget-handle" },
-          h("strong", null, definition?.label ?? widget.kind), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: definition?.helpText, examples: definition?.helpExamples }),
-          editing ? h("button", {
-            type: "button", className: "bees-dashboard-remove", title: `Remove ${definition?.label ?? widget.kind}`,
-            "aria-label": `Remove ${definition?.label ?? widget.kind}`,
-            onPointerDown: (event) => event.stopPropagation(), onClick: () => onRemove(widget.kind)
-          }, "×") : null),
-        h("div", { className: "bees-dashboard-widget-body" },
-          Component ? h(Component, { ...widgetProps, definition }) : h(Empty, null, "This widget is no longer available."))));
-    })
-  );
+  const panels = Object.fromEntries(dashboard.widgets.map((widget) => {
+    const definition = widgetByKind.get(widget.kind);
+    const label = definition?.label ?? widget.kind;
+    return [widget.kind, {
+      label, helpText: definition?.helpText, helpExamples: definition?.helpExamples,
+      actions: editing ? h("button", {
+        type: "button", className: "bees-dashboard-remove", title: `Remove ${label}`, "aria-label": `Remove ${label}`,
+        onClick: () => onRemove(widget.kind)
+      }, "×") : null,
+      content: definition?.component
+        ? h(definition.component, { ...widgetProps, definition })
+        : h(Empty, null, "This widget is no longer available.")
+    }];
+  }));
+  return h(FlexibleGrid, {
+    key: dashboard.id, className: "bees-dashboard-grid", layout: dashboard.widgets, editing, onLayout, panels
+  });
 }
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;

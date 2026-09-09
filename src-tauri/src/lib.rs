@@ -213,32 +213,6 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn reset_dsh_rc1_state(home: &Path) -> Result<(), String> {
-    let marker = home.join(".bees-dsh-0.1.2-rc.1");
-    if marker.exists() {
-        return Ok(());
-    }
-    let sessions = home.join("sessions");
-    if sessions.exists() {
-        fs::remove_dir_all(sessions).map_err(|error| error.to_string())?;
-    }
-    for name in [
-        "sessions.sqlite",
-        "sessions.sqlite-shm",
-        "sessions.sqlite-wal",
-        "session-query.sqlite",
-        "session-query.sqlite-shm",
-        "session-query.sqlite-wal",
-    ] {
-        let path = home.join(name);
-        if path.exists() {
-            fs::remove_file(path).map_err(|error| error.to_string())?;
-        }
-    }
-    fs::create_dir_all(home).map_err(|error| error.to_string())?;
-    fs::write(marker, b"dsh-v0.1.2-rc.1\n").map_err(|error| error.to_string())
-}
-
 /// Every plugin Bees ships. The launch check and the profile links both read this, so a new
 /// plugin cannot be staged without also being verified and linked.
 const BEES_PLUGINS: [&str; 5] = [
@@ -413,7 +387,6 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     let home = app_data.join("dsh");
     let workspace = app_data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
-    reset_dsh_rc1_state(&home)?;
     prepare_profile(&runtime, &home)?;
 
     let port = stable_loopback_port(app)?;

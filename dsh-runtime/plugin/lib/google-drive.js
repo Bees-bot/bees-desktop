@@ -4,6 +4,7 @@ import {
   lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { json, stable } from "./document-extractor.js";
 import { drive } from "@googleapis/drive";
 import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import { knowledgeMarkdown, officeMarkdown } from "./document-extractor.js";
@@ -31,14 +32,6 @@ const pointerFormats = {
   ".gform": { type: "form" }
 };
 pointerFormats[".gslide"] = pointerFormats[".gslides"];
-
-function stable(value) {
-  return createHash("sha256").update(String(value)).digest("hex");
-}
-
-function json(value) {
-  try { return JSON.parse(value); } catch { return null; }
-}
 
 function pointerId(path) {
   const stat = lstatSync(path);

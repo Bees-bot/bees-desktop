@@ -173,9 +173,8 @@ export function optionalModelRoute(value) {
 }
 
 export function agentCapabilities(agent) {
-  try { return capabilities(Array.isArray(agent?.capabilities)
-    ? agent.capabilities : JSON.parse(agent?.capabilities || "[]")); }
-  catch { return []; }
+  return capabilities(Array.isArray(agent?.capabilities)
+    ? agent.capabilities : JSON.parse(agent?.capabilities || "[]"));
 }
 
 export function assignment(database, id, workspaceId) {
@@ -197,7 +196,7 @@ export function activeAgentRuns(database, agentId) {
       e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
       OR (e.execution_id IS NULL AND d.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
     )
-  `).get(agentId)?.count ?? 0);
+  `).get(agentId).count);
 }
 
 function ensureAgentDefaults(database, workspaceId, at = iso()) {
@@ -250,7 +249,7 @@ function ensureGoalDiscussion(database, workspaceId, at = iso()) {
   const worker = defaultAssignment(database, workspaceId);
   const reviewer = defaultAssignment(database, workspaceId, "reviewer");
   const route = database.prepare("SELECT * FROM stage_routes WHERE stage_id = ?").get(stage.id);
-  if (route && (route.agent_pool_id || route.required_capabilities_json !== "[]" ||
+  if (route && (route.required_capabilities_json !== "[]" ||
       route.agent_assignment_id !== worker.id || !["[]", JSON.stringify([worker.id])].includes(route.agent_ids_json))) return;
   database.prepare(`INSERT INTO stage_routes
     (stage_id, agent_assignment_id, agent_ids_json, required_capabilities_json, created_at, updated_at)
@@ -348,8 +347,13 @@ export function insertDefaultWorkspace(database, teamId, {
   return { id, dshWorkspaceId };
 }
 
+export function assertMcpAccess(access) {
+  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  return access;
+}
+
 export function initializeProductDatabase(database) {
-  const version = Number(database.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
     PRAGMA foreign_keys = OFF;
     DROP TRIGGER IF EXISTS bees_item_search_insert;
@@ -478,17 +482,6 @@ export function initializeProductDatabase(database) {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(workspace_id, name)
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS agent_pools (
-      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-      name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', archived_at TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(workspace_id, name)
-    ) STRICT;
-    CREATE TABLE IF NOT EXISTS agent_pool_members (
-      pool_id TEXT NOT NULL REFERENCES agent_pools(id) ON DELETE CASCADE,
-      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id) ON DELETE CASCADE,
-      priority INTEGER NOT NULL DEFAULT 100, enabled INTEGER NOT NULL DEFAULT 1,
-      last_assigned_at TEXT, PRIMARY KEY (pool_id, agent_assignment_id)
-    ) STRICT;
     CREATE TABLE IF NOT EXISTS processes (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
@@ -512,11 +505,9 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS stage_routes (
       stage_id TEXT PRIMARY KEY REFERENCES stages(id) ON DELETE CASCADE,
       agent_assignment_id TEXT REFERENCES agent_assignments(id) ON DELETE RESTRICT,
-      agent_pool_id TEXT REFERENCES agent_pools(id) ON DELETE RESTRICT,
       required_capabilities_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      agent_ids_json TEXT NOT NULL DEFAULT '[]',
-      CHECK (agent_assignment_id IS NULL OR agent_pool_id IS NULL)
+      agent_ids_json TEXT NOT NULL DEFAULT '[]'
     ) STRICT;
     CREATE TABLE IF NOT EXISTS recurring_work (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -570,7 +561,7 @@ export function initializeProductDatabase(database) {
       execution_id TEXT PRIMARY KEY,
       work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
       stage_id TEXT NOT NULL REFERENCES stages(id),
-      target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'pool', 'workspace-default')),
+      target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'workspace-default')),
       target_id TEXT NOT NULL,
       agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id),
       agent_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -640,7 +631,6 @@ export function initializeProductDatabase(database) {
     CREATE INDEX IF NOT EXISTS bees_processes_workspace ON processes(workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS bees_stages_process ON stages(process_id, position);
     CREATE INDEX IF NOT EXISTS bees_items_stage ON work_items(stage_id, updated_at);
-    CREATE INDEX IF NOT EXISTS bees_pool_members_agent ON agent_pool_members(agent_assignment_id, pool_id);
     CREATE INDEX IF NOT EXISTS bees_dispatches_item ON agent_dispatches(work_item_id, created_at);
     CREATE INDEX IF NOT EXISTS bees_recurring_source ON recurring_work(source_work_item_id);
     CREATE INDEX IF NOT EXISTS bees_specializations_recurring ON agent_specializations(recurring_work_id);
@@ -718,67 +708,25 @@ export function initializeProductDatabase(database) {
     CREATE UNIQUE INDEX IF NOT EXISTS bees_assignment_system_role
       ON agent_assignments(workspace_id, system_role) WHERE system_role IS NOT NULL;
   `);
-  // This runs on every init, and init runs twice per boot. Setting the version in here put every
-  // install back to 8 after the migrations below had run, so they ran again on every start.
-  if (version < 8) database.exec("PRAGMA user_version = 8");
-  if (version < 9) database.exec(`
-    DELETE FROM bees_search WHERE kind = 'file';
-    PRAGMA user_version = 9;
-  `);
-  if (version < 11) database.exec("PRAGMA user_version = 11");
-  if (version < 12) database.exec(`
-    UPDATE workspaces SET name = '${DEFAULT_WORKSPACE_NAME}' WHERE name = 'My workspace';
-    PRAGMA user_version = 12;
-  `);
-  if (version < 13) database.exec("PRAGMA user_version = 13");
-  if (version < 14) database.exec(`
-    DROP TABLE IF EXISTS bees_sync_cursors;
-    DROP TABLE IF EXISTS bees_connected_organizations;
-    DROP TABLE IF EXISTS bees_account;
-    PRAGMA user_version = 14;
-  `);
-  // An already-installed browser server still carries the arguments that started a second Chrome.
-  if (version < 15) database.exec(`
-    UPDATE mcp_servers
-      SET args_json = '["-y","@playwright/mcp@latest","--cdp-endpoint","{cdpEndpoint}"]'
-      WHERE catalog_id = 'playwright';
-    PRAGMA user_version = 15;
-  `);
-  if (version < 16) database.exec(`
-    WITH RECURSIVE scheduled_descendants(id, recurring_work_id) AS (
-      SELECT id, recurring_work_id FROM work_items
-        WHERE kind = 'run' AND recurring_work_id IS NOT NULL
-      UNION ALL
-      SELECT child.id, parent.recurring_work_id
-        FROM work_items child JOIN scheduled_descendants parent ON child.parent_id = parent.id
-    )
-    UPDATE work_items SET
-      recurring_work_id = (SELECT recurring_work_id FROM scheduled_descendants WHERE id = work_items.id),
-      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    WHERE recurring_work_id IS NULL AND id IN (SELECT id FROM scheduled_descendants);
-    PRAGMA user_version = 16;
-  `);
-  if (version < 17) database.exec("PRAGMA user_version = 17");
   if (version < 18) {
-    for (const route of database.prepare(`
-      SELECT r.stage_id AS stageId, r.agent_assignment_id AS agentId,
-             r.agent_pool_id AS poolId, s.driver
-      FROM stage_routes r JOIN stages s ON s.id = r.stage_id
-    `).all()) {
-      let ids = route.agentId ? [route.agentId] : [];
-      if (!ids.length && route.poolId) {
-        ids = database.prepare(`
-          SELECT a.id FROM agent_pool_members m
-          JOIN agent_assignments a ON a.id = m.agent_assignment_id
-          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
-          ORDER BY m.priority, a.id LIMIT 8
+    // A stage that named a pool has to keep its roster before version 23 drops the pool tables.
+    if (database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'agent_pool_members'").get())
+      for (const route of database.prepare(`
+        SELECT r.stage_id AS stageId, r.agent_pool_id AS poolId, s.driver
+        FROM stage_routes r JOIN stages s ON s.id = r.stage_id
+        WHERE r.agent_assignment_id IS NULL AND r.agent_pool_id IS NOT NULL
+      `).all()) {
+        const members = database.prepare(`
+          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
+          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1 ORDER BY m.priority, a.id LIMIT 8
         `).all(route.poolId).map(({ id }) => id);
-        if (route.driver !== "discussion") ids = ids.slice(0, 1);
+        const ids = route.driver === "discussion" ? members : members.slice(0, 1);
+        database.prepare("UPDATE stage_routes SET agent_assignment_id = ?, agent_ids_json = ? WHERE stage_id = ?")
+          .run(ids[0] ?? null, JSON.stringify(ids), route.stageId);
       }
-      database.prepare("UPDATE stage_routes SET agent_assignment_id = ?, agent_pool_id = NULL, agent_ids_json = ? WHERE stage_id = ?")
-        .run(ids[0] ?? null, JSON.stringify(ids), route.stageId);
-    }
     database.exec(`
+      UPDATE stage_routes SET agent_ids_json = json_array(agent_assignment_id)
+      WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
       UPDATE work_items SET agent_ids_json = json_array(agent_assignment_id)
       WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
       UPDATE agent_dispatches SET agent_ids_json = json_array(agent_assignment_id)
@@ -798,7 +746,6 @@ export function initializeProductDatabase(database) {
     UPDATE agent_assignments SET preset_id = 'ptc' WHERE preset_id = 'code';
     PRAGMA user_version = 20;
   `);
-  if (version < 21) database.exec("PRAGMA user_version = 21");
   if (version < 22) transaction(database, () => {
     for (const { id } of database.prepare("SELECT id FROM workspaces WHERE status = 'active'").all()) {
       ensureAgentDefaults(database, id);
@@ -806,6 +753,50 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 22");
   });
+  // Agent pools are gone: a stage names its agents directly, so the column, the tables and the
+  // dispatch target they supported go with them.
+  if (version < 23) {
+    database.exec("PRAGMA foreign_keys = OFF");
+    transaction(database, () => database.exec(`
+    CREATE TABLE stage_routes_next (
+      stage_id TEXT PRIMARY KEY REFERENCES stages(id) ON DELETE CASCADE,
+      agent_assignment_id TEXT REFERENCES agent_assignments(id) ON DELETE RESTRICT,
+      required_capabilities_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      agent_ids_json TEXT NOT NULL DEFAULT '[]'
+    ) STRICT;
+    INSERT INTO stage_routes_next
+      SELECT stage_id, agent_assignment_id, required_capabilities_json, created_at, updated_at, agent_ids_json
+      FROM stage_routes;
+    DROP TABLE stage_routes;
+    ALTER TABLE stage_routes_next RENAME TO stage_routes;
+    CREATE TABLE agent_dispatches_next (
+      execution_id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL REFERENCES stages(id),
+      target_type TEXT NOT NULL CHECK (target_type IN ('item', 'agent', 'workspace-default')),
+      target_id TEXT NOT NULL,
+      agent_assignment_id TEXT NOT NULL REFERENCES agent_assignments(id),
+      agent_ids_json TEXT NOT NULL DEFAULT '[]',
+      specialization_id TEXT REFERENCES agent_specializations(id),
+      reason TEXT NOT NULL, agent_revision TEXT NOT NULL,
+      agent_config_json TEXT NOT NULL, created_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO agent_dispatches_next
+      SELECT execution_id, work_item_id, stage_id,
+             CASE target_type WHEN 'pool' THEN 'agent' ELSE target_type END,
+             target_id, agent_assignment_id, agent_ids_json, specialization_id,
+             reason, agent_revision, agent_config_json, created_at
+      FROM agent_dispatches;
+    DROP TABLE agent_dispatches;
+    ALTER TABLE agent_dispatches_next RENAME TO agent_dispatches;
+    CREATE INDEX IF NOT EXISTS bees_dispatches_item ON agent_dispatches(work_item_id, created_at);
+    DROP TABLE IF EXISTS agent_pool_members;
+    DROP TABLE IF EXISTS agent_pools;
+    PRAGMA user_version = 23;
+  `));
+    database.exec("PRAGMA foreign_keys = ON");
+  }
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -886,7 +877,7 @@ export function normalizeRunSettings(value = {}) {
     settings.reasoningEffort = optionalReasoningEffort(value.reasoningEffort);
   } else if (value.reasoningEffort) throw new Error("Choose a model before setting reasoning effort");
   if (Object.hasOwn(value, "mcpAccess")) {
-    if (!["all", "none", "listed"].includes(value.mcpAccess)) throw new Error("Choose all, none, or listed MCP servers");
+    assertMcpAccess(value.mcpAccess);
     if (value.mcpServers !== undefined && (!Array.isArray(value.mcpServers) || value.mcpServers.length > 128 ||
         value.mcpServers.some((id) => typeof id !== "string" || !id || id.length > 128)))
       throw new Error("Choose valid MCP server identifiers");

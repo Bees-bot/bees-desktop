@@ -381,7 +381,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
     );
 
   const details = h("div", { className: "bees-details-panel" },
-    // 1. TABS HEADER
+    // tabs header
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
@@ -389,7 +389,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
     ),
 
-    // 3. TAB CONTENT
+    // tab content
     h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
       activeTab === "details" ? h(React.Fragment, null,
         h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
@@ -667,6 +667,9 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
         onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
 }
 
+// Autofocus scrolled the widget to the box, so the question above it was out of view before you read it.
+const focusWithoutScroll = (element) => element?.focus({ preventScroll: true });
+
 export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
   const pending = wait;
   const questions = pending.questions ?? [];
@@ -745,7 +748,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           if (event.key === "Enter" && !event.nativeEvent?.isComposing) { event.preventDefault(); continueFlow(); }
         }
       }) : h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy, autoFocus: true,
+        className: "bees-textarea", value: draft.custom, disabled: busy, ref: focusWithoutScroll,
         placeholder: "Type your answer", onChange: custom,
         onKeyDown: (event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); continueFlow(); }

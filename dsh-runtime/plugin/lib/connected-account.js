@@ -5,9 +5,8 @@ import {
 import { syncTeamRecords } from "./team-sync.js";
 
 const defaultServer = "https://app.bees.bot";
-const legacySessionCredential = "BEES_ACCOUNT_SESSION";
 const sessionCredential = (userId) =>
-  `${legacySessionCredential}_${Buffer.from(String(userId), "utf8").toString("hex")}`;
+  `BEES_ACCOUNT_SESSION_${Buffer.from(String(userId), "utf8").toString("hex")}`;
 const connectedSeedAt = "1970-01-01T00:00:00.000Z";
 /** Consecutive background 401s before the session is really gone, not just interrupted. */
 const SIGN_OUT_AFTER_REJECTED_SYNCS = 3;
@@ -30,9 +29,6 @@ export class ConnectedAccount {
     this.syncQueue = Promise.resolve();
     this.closed = false;
     this.rejectedSyncs = new Map();
-    if (typeof this.credentials.unset === "function") void Promise.resolve(
-      this.credentials.unset(legacySessionCredential)
-    ).catch(() => undefined);
   }
 
   accounts() {
@@ -247,7 +243,6 @@ export class ConnectedAccount {
       "SELECT organization_id AS id FROM bees_connections WHERE account_user_id = ?"
     ).all(account.userId).map(({ id }) => id);
     await this.credentials.unset(sessionCredential(account.userId));
-    if (this.accounts().length === 1) await this.credentials.unset(legacySessionCredential);
     this.database.prepare("DELETE FROM bees_accounts WHERE user_id = ?").run(account.userId);
     this.rejectedSyncs.delete(account.userId);
     this.refreshLocalAccess(affected);
@@ -328,8 +323,8 @@ export class ConnectedAccount {
         team,
         members: await this.request(`/api/teams/${team.id}/members`, {
           organizationId: organization.id, accountUserId: account.userId
-        })
-          .then(({ members }) => members).catch(() => [])
+        // A team whose roster will not load is skipped this pass; guessing its role writes the wrong one.
+        }).then(({ members }) => members).catch(() => null)
       }))) };
     }));
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
@@ -353,6 +348,7 @@ export class ConnectedAccount {
         ).all(connectionId).map(({ teamId }) => teamId));
         this.database.prepare("DELETE FROM bees_connection_teams WHERE connection_id = ?").run(connectionId);
         for (const { team, members } of teams) {
+          if (!members) continue;
           this.database.prepare(`
             INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
             VALUES (?, ?, ?, 0, ?, 'active', ?, ?)

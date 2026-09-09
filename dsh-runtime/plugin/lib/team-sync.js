@@ -1,13 +1,13 @@
 import { normalizeRunSettings, stableUuid, transaction } from "./product-database.js";
 
 const TYPES = [
-  "team_location", "agent", "agent_pool", "team_process", "process_template",
+  "team_location", "agent", "team_process", "process_template",
   "recurring_work", "team_work_item"
 ];
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
 
 const json = (value, fallback = []) => {
-  try { return JSON.parse(value) ?? fallback; }
+  try { return value == null ? fallback : JSON.parse(value) ?? fallback; }
   catch { return fallback; }
 };
 const timestamp = (value) => value ? new Date(value).toISOString() : null;
@@ -67,7 +67,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     const stages = database.prepare(`
       SELECT s.id, s.name, s.position, s.driver,
              s.requires_human_approval AS requiresHumanApproval, s.is_terminal AS isTerminal,
-             r.agent_assignment_id AS agentId, r.agent_pool_id AS agentPoolId,
+             r.agent_assignment_id AS agentId,
              r.agent_ids_json AS agentIds,
              r.required_capabilities_json AS requiredCapabilities, r.updated_at AS routeUpdatedAt
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
@@ -76,9 +76,9 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
       id: stage.id, name: stage.name, position: stage.position, driver: stage.driver,
       requiresHumanApproval: Boolean(stage.requiresHumanApproval),
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
-      route: json(stage.agentIds).length || stage.agentId || stage.agentPoolId || stage.requiredCapabilities
+      route: json(stage.agentIds).length || stage.agentId || stage.requiredCapabilities
         ? {
-            agentId: stage.agentId ?? null, agentPoolId: stage.agentPoolId ?? null,
+            agentId: stage.agentId ?? null,
             agentIds: json(stage.agentIds),
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
@@ -271,11 +271,6 @@ function applyAgent(database, record, authoritativeApps = false) {
       INSERT OR IGNORE INTO agent_locations
       SELECT ?, location_id, relative_path FROM agent_locations WHERE agent_assignment_id = ?
     `).run(record.recordId, id);
-    database.prepare(`
-      INSERT OR IGNORE INTO agent_pool_members
-      SELECT pool_id, ?, priority, enabled, last_assigned_at
-      FROM agent_pool_members WHERE agent_assignment_id = ?
-    `).run(record.recordId, id);
     database.prepare("UPDATE stage_routes SET agent_assignment_id = ? WHERE agent_assignment_id = ?")
       .run(record.recordId, id);
     database.prepare("UPDATE work_items SET agent_assignment_id = ? WHERE agent_assignment_id = ?")
@@ -361,18 +356,11 @@ function applyProcess(database, record, authoritativeApps = false) {
     if (stage.route) {
       let ids = Array.isArray(stage.route.agentIds) ? stage.route.agentIds : [];
       if (!ids.length && stage.route.agentId) ids = [stage.route.agentId];
-      if (!ids.length && stage.route.agentPoolId) {
-        ids = database.prepare(`
-          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
-          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1 ORDER BY m.priority, a.id LIMIT 8
-        `).all(stage.route.agentPoolId).map(({ id }) => id);
-        if (stage.driver !== "discussion") ids = ids.slice(0, 1);
-      }
       database.prepare(`
         INSERT INTO stage_routes
-          (stage_id, agent_assignment_id, agent_pool_id, required_capabilities_json,
+          (stage_id, agent_assignment_id, required_capabilities_json,
            created_at, updated_at, agent_ids_json)
-        VALUES (?, ?, NULL, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
       `).run(stage.id, ids[0] ?? null, JSON.stringify(stage.route.requiredCapabilities),
         stage.route.updatedAt, stage.route.updatedAt, JSON.stringify(ids));
     }

@@ -58,7 +58,9 @@ export function FlexibleGrid({ layout, editing, resizeAlways = false, onLayout, 
         "gs-y": widget.y,
         "gs-w": widget.w,
         "gs-h": widget.h,
-        "gs-min-w": panel.minW ?? 3,
+        // A minimum wider than the widget itself makes GridStack grow it into its neighbour when
+        // the window is narrow enough to halve the columns.
+        "gs-min-w": Math.min(panel.minW ?? 3, widget.w),
         "gs-min-h": panel.minH ?? 2
       }, h("div", { className: `grid-stack-item-content bees-flex-widget ${panel.borderless ? "bees-flex-widget-borderless" : ""}` },
         !panel.hideHeader ? h("header", { className: "bees-flex-widget-handle" }, h("strong", null, panel.label), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: panel.helpText, examples: panel.helpExamples }),

@@ -43,7 +43,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
 
   const stage = database.prepare(`
     SELECT s.id, s.name, s.driver, p.workspace_id AS workspaceId,
-           r.agent_assignment_id AS routeAgentId, r.agent_pool_id AS routePoolId,
+           r.agent_assignment_id AS routeAgentId,
            r.agent_ids_json AS routeAgentIds, r.required_capabilities_json AS requiredCapabilities
     FROM stages s JOIN processes p ON p.id = s.process_id
     LEFT JOIN stage_routes r ON r.stage_id = s.id
@@ -70,14 +70,6 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     } else {
       ids = agentIds(JSON.parse(stage.routeAgentIds || "[]"));
       if (!ids.length && stage.routeAgentId) ids = [stage.routeAgentId];
-      if (!ids.length && stage.routePoolId) {
-        ids = database.prepare(`
-          SELECT a.id FROM agent_pool_members m JOIN agent_assignments a ON a.id = m.agent_assignment_id
-          WHERE m.pool_id = ? AND m.enabled = 1 AND a.enabled = 1
-          ORDER BY m.priority, a.id LIMIT 8
-        `).all(stage.routePoolId).map(({ id }) => id);
-        if (stage.driver !== "discussion") ids = ids.slice(0, 1);
-      }
     }
     if (!targetType && ids.length) {
       targetType = "agent";

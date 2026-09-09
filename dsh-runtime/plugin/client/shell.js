@@ -167,7 +167,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
   const [runId, setRunId] = useState("");
-  const [needsYouRunId, setNeedsYouRunId] = useState("");
   const setPageActions = (actions) => headerEmitter.setActions(actions);
   const setPageHeader = (header) => headerEmitter.setHeader(header);
   const load = async () => {
@@ -232,7 +231,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   useEffect(() => { setAiTest(null); }, [JSON.stringify(modelConfig), JSON.stringify(data?.systemDefaultModel)]);
   const setScope = (next, nextConnectionId = connectionId) => {
     setConnectionId(nextConnectionId);
-    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
+    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
     void preferences.set("lastScope", next);
     void preferences.set("lastConnectionId", nextConnectionId);
   };
@@ -274,7 +273,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
-    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId(""); setNeedsYouRunId("");
+    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
   };
   const finishOrganization = async (organizationId, nextConnectionId = "") => {
     const fresh = await load();
@@ -341,8 +340,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
-  const openNeedsYou = (id) => {
-    setRoute("waiting"); setNeedsYouRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+  const openNeedsYou = () => {
+    setRoute("waiting"); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
   };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");

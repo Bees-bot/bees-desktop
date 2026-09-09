@@ -10,7 +10,6 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
-import { assertAgentHasTools } from "./product-commands.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -939,8 +938,6 @@ export class AgentRuntime {
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
-        if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action))
-          assertAgentHasTools({ ...input, name: input.name ?? input.agent });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
@@ -1127,7 +1124,7 @@ export class AgentRuntime {
         `).get(data.workItemId);
         return row?.locationId ? [row.locationId] : [];
       }
-      return data.grants ?? [];
+      return data.grants;
     };
     const granted = () => this.database.prepare(`
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
@@ -1137,7 +1134,7 @@ export class AgentRuntime {
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
     `).all(currentIdentity(this.database).deviceId, JSON.stringify(grantIds()), data.workspaceId);
-    const grants = installedApp ? [] : granted();
+    const grants = installedApp || data.mode !== "work" ? [] : granted();
     if (grants.length) {
       agentCtx.systemPrompt.context({
         name: "bees:publication-grants",
@@ -1704,6 +1701,12 @@ export class AgentRuntime {
     return eventsToConversation(events, settlements);
   }
 
+  async sessionEvents(executionId, sessionId) {
+    return String(this.live.get(executionId)?.handle.agent.session.id ?? "") === sessionId
+      ? this.live.get(executionId).handle.agent.session.snapshotEvents()
+      : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
+  }
+
   async reviewEvidence(executionId) {
     const target = this.database.prepare(`
       SELECT work_item_id AS workItemId, created_at AS createdAt
@@ -1725,21 +1728,15 @@ export class AgentRuntime {
     `).all(executionId)).reverse();
     const executions = [];
     for (const run of runs) {
-      let config = {};
-      try { config = JSON.parse(run.configJson); } catch {}
+      const config = JSON.parse(run.configJson);
       const sessions = [];
       for (const sessionId of [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))]) {
-        let events = [];
-        try {
-          events = String(this.live.get(run.executionId)?.handle.agent.session.id ?? "") === sessionId
-            ? this.live.get(run.executionId).handle.agent.session.snapshotEvents()
-            : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
-        } catch {}
-        sessions.push({
-          sessionId,
-          toolCalls: toolCallCounts(events),
-          timeline: reviewTimeline(events)
-        });
+        // One pruned session must not stop every review; say so rather than reporting no tool calls.
+        const events = await this.sessionEvents(run.executionId, sessionId)
+          .catch((error) => { this.ctx.logger.warn(`bees: review evidence for ${sessionId} is unavailable: ${message(error)}`); });
+        sessions.push(events
+          ? { sessionId, toolCalls: toolCallCounts(events), timeline: reviewTimeline(events) }
+          : { sessionId, unavailable: true });
       }
       const result = this.database.prepare(`
         SELECT outcome, summary, created_at AS createdAt
