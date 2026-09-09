@@ -130,7 +130,7 @@ it("briefs Ask with existing resources in its workspace and keeps new setup revi
   expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [privateAgent.id] }])).toThrow("active in this workspace");
 
   const proposal = propose([
-    { action: "add_agent_assignment", name: "Editor", instructions: "Check the copy" },
+    { action: "add_agent_assignment", name: "Editor", instructions: "Read the draft in outputs/, fix wording and facts, write the edited copy back to outputs/ and ask the owner when a claim cannot be sourced" },
     { action: "create_process", name: "Publishing", stages: [{ name: "Edit", driver: "agent", requiresHumanApproval: true }, "Done"] },
     { action: "set_stage_route", process: "Publishing", stage: "Edit", agents: ["Editor"] },
     { action: "install_skill", repo: "example/skills", directory: "editor" }
@@ -224,7 +224,7 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   expect(restrictions).toContain("mcp__other__read");
   expect(restrictions).not.toContain("mcp__news__read");
   expect(prompts.join("\n")).toContain("Otherwise use create_goal");
-  expect(prompts.join("\n")).toContain("Only propose create_process when the person explicitly asks");
+  expect(prompts.join("\n")).toContain("Only propose create_process when the person asks for something that runs again");
   expect(tools.map(({ name }) => name)).not.toContain("bees_control");
   const proposal = await tools.find(({ name }) => name === "bees_propose_changes").execute({
     proposal_title: "Morning brief", proposal_summary: "Use Goals daily",

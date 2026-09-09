@@ -53,7 +53,7 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Goals with default agents · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, "Run using defaults starts a Goal now with the team's agents · Plan and do works out the process, agents and tools first, then runs it once you approve · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
           busy && mode === "run" ? "Starting…" : "Run using defaults"),
