@@ -43,8 +43,8 @@ export function AppsPage({ workspaceId, openWorkItem }) {
         value: values[field.key] ?? "", onChange: (event) => change({ ...values, [field.key]: event.target.value }) }),
       field.help ? h("small", { className: "bees-muted" }, field.help) : null));
 
-  return h("div", { className: "bees-stack", style: { maxWidth: 880, margin: "0 auto" } },
-    h("header", null, h("h1", null, "Apps"), h("p", { className: "bees-muted" }, "Small apps. One place for results and decisions.")),
+  return h("div", { className: "bees-stack" },
+    h("p", { className: "bees-muted" }, "Small apps. One place for results and decisions."),
     h("p", { className: "bees-callout" }, "Preview · Local workspaces only. Research and drafts; no sending or paid execution. Model-provider charges are separate and not capped here."),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     !workspaceId ? h("p", null, "Choose a local team to install apps.") : null,
