@@ -822,7 +822,7 @@ export class AgentRuntime {
   }
 
   async setup(agentCtx, data, executionId, workspace) {
-    const installedApp = data.workItemId ? this.apps?.context(data.workItemId) : null;
+    const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);

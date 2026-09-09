@@ -23,8 +23,12 @@ function inputLocations(database, table, owner, id) {
   `).all(id);
 }
 
-function teamRecords(database, organizationId, connectionId = "") {
+function teamRecords(database, organizationId, connectionId = "", includeAppDefinitions = false) {
   const records = [];
+  const owner = (table, key, id) => {
+    const row = database.prepare(`SELECT installation_id FROM ${table} WHERE ${key}=?`).get(id);
+    return row ? { appInstallationId: row.installation_id } : {};
+  };
   for (const row of database.prepare(`
     SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
            l.archived_at AS archivedAt, l.created_at AS createdAt, l.updated_at AS updatedAt
@@ -44,6 +48,7 @@ function teamRecords(database, organizationId, connectionId = "") {
     FROM agent_assignments a JOIN workspaces w ON w.id = a.workspace_id
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
   `).all(organizationId)) records.push(record("agent", row, {
+    ...owner('app_agent_owners', 'agent_id', row.id),
     teamId: row.teamId, name: row.name, description: row.description, instructions: row.instructions,
     presetId: row.presetId, model: row.model, reasoningEffort: row.reasoningEffort,
     systemRole: row.systemRole, capabilities: json(row.capabilities), enabled: Boolean(row.enabled),
@@ -81,6 +86,7 @@ function teamRecords(database, organizationId, connectionId = "") {
         : null
     }));
     records.push(record("team_process", row, {
+      ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
       outputLocationId: row.outputLocationId,
       inputLocations: inputLocations(database, "process_locations", "process_id", row.id),
@@ -128,6 +134,7 @@ function teamRecords(database, organizationId, connectionId = "") {
     JOIN workspaces w ON w.id = p.workspace_id JOIN teams t ON t.id = w.team_id
     WHERE t.organization_id = ?
   `).all(organizationId)) records.push(record("team_work_item", row, {
+    ...owner('app_process_owners', 'process_id', row.processId),
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
     kind: row.kind, title: row.title, description: row.description, owner: row.owner,
     agentId: row.agentId, agentIds: json(row.agentIds),
@@ -140,11 +147,13 @@ function teamRecords(database, organizationId, connectionId = "") {
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }, Boolean(row.deletedAt)));
-  if (!connectionId) return records;
+  // App definitions are published atomically with app state, not by the background LWW sync.
+  const visible = records.filter((r) => includeAppDefinitions || !r.payload.appInstallationId || !['agent', 'team_process'].includes(r.recordType));
+  if (!connectionId) return visible;
   const teamIds = new Set(database.prepare(`
     SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?
   `).all(connectionId).map(({ teamId }) => teamId));
-  return records.filter(({ payload }) => teamIds.has(payload.teamId));
+  return visible.filter(({ payload }) => teamIds.has(payload.teamId));
 }
 
 function workspaceFor(database, teamId, at) {
@@ -229,8 +238,9 @@ function applyLocation(database, record) {
   for (const { id } of collisions) mergeLocation(database, id, record.recordId);
 }
 
-function applyAgent(database, record) {
-  if (!newer(database, "agent_assignments", record.recordId, record.version)) return;
+function applyAgent(database, record, authoritativeApps = false) {
+  if (record.payload.appInstallationId) database.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(record.recordId, record.payload.appInstallationId);
+  if (!(authoritativeApps && record.payload.appInstallationId) && !newer(database, "agent_assignments", record.recordId, record.version)) return;
   const p = record.payload;
   const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
   const collisions = database.prepare(`
@@ -294,8 +304,26 @@ function applyAgent(database, record) {
   replaceLocations(database, "agent_locations", "agent_assignment_id", record.recordId, p.inputLocations);
 }
 
-function applyProcess(database, record) {
-  if (!newer(database, "processes", record.recordId, record.version)) return;
+function applyPool(database, record) {
+  if (!newer(database, "agent_pools", record.recordId, record.version)) return;
+  const p = record.payload;
+  const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
+  database.prepare(`
+    INSERT INTO agent_pools VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+      archived_at = excluded.archived_at, updated_at = excluded.updated_at
+  `).run(record.recordId, workspaceId, p.name, p.description, p.archivedAt, p.createdAt, p.updatedAt);
+  database.prepare("DELETE FROM agent_pool_members WHERE pool_id = ?").run(record.recordId);
+  const insert = database.prepare("INSERT INTO agent_pool_members VALUES (?, ?, ?, ?, ?)");
+  for (const member of p.members) if (database.prepare(
+    "SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?"
+  ).get(member.agentId, workspaceId)) insert.run(record.recordId, member.agentId,
+    member.priority, member.enabled ? 1 : 0, member.lastAssignedAt);
+}
+
+function applyProcess(database, record, authoritativeApps = false) {
+  if (record.payload.appInstallationId) database.prepare('INSERT OR IGNORE INTO app_process_owners VALUES (?,?)').run(record.recordId, record.payload.appInstallationId);
+  if (!(authoritativeApps && record.payload.appInstallationId) && !newer(database, "processes", record.recordId, record.version)) return;
   const p = record.payload;
   const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
   if (p.kind === "goals") database.prepare(`
@@ -411,7 +439,7 @@ function applyItem(database, record) {
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
 }
 
-export function applyTeamRecords(database, organizationId, records) {
+export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
   // A deleted team publishes tombstones carrying only a teamId. Only work items have a local
   // delete path; feeding the rest to their apply functions throws and takes the whole batch down.
   const applicable = records.filter(({ recordType, deleted, payload }) => ORDER.has(recordType)
@@ -424,8 +452,9 @@ export function applyTeamRecords(database, organizationId, records) {
   transaction(database, () => {
     for (const entry of applicable) {
       if (entry.recordType === "team_location") applyLocation(database, entry);
-      else if (entry.recordType === "agent") applyAgent(database, entry);
-      else if (entry.recordType === "team_process") applyProcess(database, entry);
+      else if (entry.recordType === "agent") applyAgent(database, entry, authoritativeApps);
+      else if (entry.recordType === "agent_pool") applyPool(database, entry);
+      else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
       else if (entry.recordType === "team_work_item") applyItem(database, entry);
@@ -444,7 +473,7 @@ async function pullAll(request, organizationId, cursor) {
   const records = [];
   let next = cursor;
   do {
-    const page = await request(`/api/sync/pull?cursor=${encodeURIComponent(next)}`, { organizationId });
+    const page = await request(`/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId });
     records.push(...page.records);
     const previous = next;
     next = page.cursor;
@@ -454,9 +483,10 @@ async function pullAll(request, organizationId, cursor) {
 }
 
 export async function syncTeamRecords(database, request, organizationId, connectionId) {
-  const saved = database.prepare(
+  const hasApps = database.prepare('SELECT 1 FROM bees_app_sync_versions WHERE connection_id=?').get(connectionId);
+  const saved = hasApps ? database.prepare(
     "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
-  ).get(connectionId)?.cursor ?? "0";
+  ).get(connectionId)?.cursor ?? "0" : "0";
   const incoming = await pullAll(request, organizationId, saved);
   applyTeamRecords(database, organizationId, incoming.records);
   const outgoing = teamRecords(database, organizationId, connectionId);
@@ -469,6 +499,7 @@ export async function syncTeamRecords(database, request, organizationId, connect
     INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
     ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
   `).run(connectionId, settled.cursor, new Date().toISOString());
+  database.prepare('INSERT OR IGNORE INTO bees_app_sync_versions VALUES (?)').run(connectionId);
   return { pushed: outgoing.length, pulled: settled.records.length, cursor: settled.cursor };
 }
 

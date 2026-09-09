@@ -461,15 +461,17 @@ export class ConnectedAccount {
       if (!scope) return null;
       if (!scope.connectionId) return { local: true, accountUserId: "" };
       const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
+      const appProcessId = this.database.prepare(`SELECT a.process_id FROM app_process_owners a
+        JOIN ${kind === 'work_item' ? 'work_items' : 'recurring_work'} w ON w.process_id=a.process_id WHERE w.id=?`).get(id)?.process_id;
       const machineId = currentIdentity(this.database).deviceId;
       const result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
         method: "POST", organizationId: scope.organizationId, accountUserId,
-        body: { teamId, machineId, permanent: kind !== "work_item" }
+        body: { teamId, machineId, permanent: kind !== "work_item", appProcessId }
       });
       return result.acquired
         ? {
             claimId, teamId, machineId, organizationId: scope.organizationId,
-            accountUserId, token: result.token, permanent: kind !== "work_item"
+            accountUserId, token: result.token, permanent: kind !== "work_item", appProcessId
           }
         : null;
     };
@@ -477,7 +479,7 @@ export class ConnectedAccount {
       if (claim.local) return claim;
       const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
         method: "POST", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
-        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token, appProcessId: claim.appProcessId }
       });
       return result.acquired ? claim : null;
     };
@@ -485,10 +487,19 @@ export class ConnectedAccount {
       if (claim?.local || claim?.permanent || !claim) return;
       await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
         method: "DELETE", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
-        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token }
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token, appProcessId: claim.appProcessId }
       });
     };
     return { acquire, renew, release };
+  }
+
+  appConnection(teamId, { connectionId = '', accountUserId = '' } = {}) {
+    const connections = this.database.prepare(`SELECT c.id FROM bees_connections c
+      JOIN bees_connection_teams t ON t.connection_id=c.id JOIN bees_accounts a ON a.user_id=c.account_user_id
+      WHERE t.team_id=? AND a.enabled=1 AND (?='' OR c.id=?) AND (?='' OR c.account_user_id=?)`)
+      .all(teamId, connectionId, connectionId, accountUserId, accountUserId);
+    if (connections.length !== 1) throw new Error('Choose a signed-in account with access to this workspace');
+    return connections[0];
   }
 
   async summary() {

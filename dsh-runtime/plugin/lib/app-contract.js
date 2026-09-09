@@ -43,12 +43,12 @@ export function validateApp(manifest) {
   return JSON.parse(JSON.stringify(manifest));
 }
 
-export function appConfig(manifest, supplied) {
+export function appConfig(manifest, supplied, allowIncomplete = false) {
   fields(supplied, manifest.inputs.map((f) => f.key), "configuration");
   const result = {};
   for (const input of manifest.inputs) {
     const value = supplied[input.key] ?? "";
-    if (typeof value !== "string" || value.length > 4000 || input.required && !value.trim()) throw new Error(`${input.label} is required (maximum 4000 characters)`);
+    if (typeof value !== "string" || value.length > 4000 || !allowIncomplete && input.required && !value.trim()) throw new Error(`${input.label} is required (maximum 4000 characters)`);
     result[input.key] = value.trim();
   }
   return result;
