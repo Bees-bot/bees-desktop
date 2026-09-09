@@ -91,7 +91,17 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("dsh-runtime");
-    let runtime = if packaged.is_dir() { packaged } else { source };
+    let runtime = if cfg!(debug_assertions) {
+        if source.is_dir() {
+            source
+        } else {
+            packaged
+        }
+    } else if packaged.is_dir() {
+        packaged
+    } else {
+        source
+    };
     let entry = runtime
         .join("node_modules")
         .join("@deepseek-ai")
