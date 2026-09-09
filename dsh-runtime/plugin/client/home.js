@@ -13,8 +13,9 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
     try {
-      const result = await act(workFromOutcome(outcome, { workspaceId }));
+      const result = await act(workFromOutcome(outcome, { workspaceId, plan: true }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+      else if (result?.executionId) setOutcome("");
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
@@ -37,7 +38,7 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Goals with default agents · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, "Bees plans it · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))

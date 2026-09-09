@@ -10,6 +10,7 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
+import { assertAgentHasTools } from "./product-commands.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -920,9 +921,8 @@ export class AgentRuntime {
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
-        if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action) &&
-          (input.mcpAccess === "none" || input.mcpAccess === "listed" && !(input.mcpServers ?? []).length))
-          throw new Error(`${input.name ?? input.agent ?? "That agent"} would have no tool at all; list the servers its work needs, or all`);
+        if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action))
+          assertAgentHasTools({ ...input, name: input.name ?? input.agent });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);

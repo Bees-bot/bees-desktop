@@ -4,12 +4,12 @@ import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
-export function workFromOutcome(outcome, target, resources = {}) {
+export function workFromOutcome(outcome, { plan, ...target }, resources = {}) {
   const description = outcome.trim();
-  // A named process means the person already chose how the work runs. Without one, Bees plans it:
-  // the planner decides whether this is one goal or a process with its own agents and schedule.
-  if (!target.processId) return { action: "ask_bees", ...target, outcome: description };
-  return { action: "create_item", ...target,
+  // Defaults hands the outcome to the planner, which decides between one goal and a whole process
+  // with its own agents, servers and schedule. Advanced is the manual route and never plans.
+  if (plan) return { action: "ask_bees", ...target, outcome: description };
+  return { action: target.processId ? "create_item" : "create_goal", ...target,
     title: description.split("\n")[0], description, ...resources };
 }
 
@@ -49,7 +49,6 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
       const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
       const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
       if (result?.id) onStarted(result.id);
-      else if (result?.executionId) onBack();
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });

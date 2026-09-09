@@ -13,7 +13,7 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { assertAgentHasTools, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
@@ -684,8 +684,7 @@ export class BeesProduct {
         const adding = change.action === "add_agent_assignment";
         const name = required(adding ? change.name : change.agent, "Agent name");
         if (adding) proposedAgents.add(name.toLocaleLowerCase()); else available(proposedAgents, name, "agent");
-        if (change.mcpAccess === "none" || change.mcpAccess === "listed" && !(change.mcpServers ?? []).length)
-          throw new Error(`${name} would have no tool at all; list the servers its work needs, or all`);
+        assertAgentHasTools({ ...change, name });
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
             throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);

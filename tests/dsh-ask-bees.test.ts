@@ -242,9 +242,11 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   }
 });
 
-it("plans without a process, and builds work directly on a chosen one", () => {
-  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace" }))
+it("plans on defaults, and builds work directly when the person configured it", () => {
+  expect(workFromOutcome(" Research options\nCompare pricing ", { workspaceId: "workspace", plan: true }))
     .toEqual({ action: "ask_bees", workspaceId: "workspace", outcome: "Research options\nCompare pricing" });
+  expect(workFromOutcome("Research options", { workspaceId: "workspace" }))
+    .toEqual({ action: "create_goal", workspaceId: "workspace", title: "Research options", description: "Research options" });
   expect(workFromOutcome("Research options", { processId: "process" }, { inputLocationIds: ["brief"], outputLocationId: "results" }))
     .toEqual({ action: "create_item", processId: "process", title: "Research options", description: "Research options",
       inputLocationIds: ["brief"], outputLocationId: "results" });

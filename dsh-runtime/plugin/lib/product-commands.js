@@ -29,6 +29,13 @@ const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_ski
 /** An MCP server's API keys ride in the change list; nothing outside apply needs them. */
 export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) => change);
 
+/** An agent with no server has no mcp__ tool at all, so it cannot read a file, open a page or call
+ *  an API. A person may still choose that in the Agents screen; a model proposing it may not. */
+export function assertAgentHasTools({ mcpAccess, mcpServers, name }) {
+  if (mcpAccess === "none" || (mcpAccess === "listed" && !(mcpServers ?? []).length))
+    throw new Error(`${name || "That agent"} would have no tool at all; list the servers its work needs, or all`);
+}
+
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
   if (!Object.hasOwn(input, "mcpAccess")) return current;
   const access = String(input.mcpAccess ?? "all");
