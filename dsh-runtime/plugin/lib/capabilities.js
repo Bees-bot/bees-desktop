@@ -433,7 +433,7 @@ export class Capabilities {
       throw new Error("Arguments must be a list, not one pasted string");
     const typed = (input.args ?? []).map((part) => String(part).trim()).filter(Boolean);
     const words = transport === "stdio"
-      ? (required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""))
+      ? required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g).map((w) => w.replace(/^["']|["']$/g, ""))
       : [];
     return this.insert({
       id: randomUUID(),

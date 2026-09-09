@@ -253,7 +253,8 @@ export class ProcessRuntime {
       FROM bees_recurring_executors WHERE recurring_work_id = ?
     `).all(recurringWorkId);
     for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
-      await this.client.schedule.getHandle(executor.temporalScheduleId).delete().catch(() => undefined);
+      // Dropping the row while the Temporal schedule survives leaves a schedule nothing can stop.
+      await this.client.schedule.getHandle(executor.temporalScheduleId).delete();
       this.database.prepare(`
         DELETE FROM bees_recurring_executors WHERE recurring_work_id = ? AND account_user_id = ?
       `).run(recurringWorkId, executor.accountUserId);

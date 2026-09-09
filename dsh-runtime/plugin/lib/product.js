@@ -13,7 +13,7 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { assertAgentHasTools, assertFolderOutsideBees, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { assertAgentHasTools, assertFolderOutsideBees, assertUsableInstructions, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 import { agentBrowserRunning } from "./agent-browser.js";
 
@@ -21,14 +21,6 @@ export { initializeProductDatabase };
 
 const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review. Work is the only stage of a goal that acts; Review only checks and Done ends it, so anything the goal asks for that has not happened when you submit, including processes, agents and schedules built with bees_control, never happens. A process you build knows only what you wrote into it, so put every fact the person gave you, such as the product, prices, audience and accounts, into its agents' instructions or its items.";
 const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback. Work is the only stage that acts, so a candidate that defers any requested part of the outcome to a later stage has not delivered it.";
-/** A role description is not an instruction. An agent earns its place by naming the material it
- *  reads, what it leaves behind, and when it stops or asks; without that it repeats the prompt. */
-function assertUsableInstructions(name, instructions, description) {
-  const text = String(instructions ?? "").trim();
-  if (text.length < 80 || text === String(description ?? "").trim())
-    throw new Error(`${name} needs instructions of its own: what it reads, what it writes, and when it asks the owner or stops`);
-}
-
 const GOALS_DISCUSSION_PROTOCOL = "When the outcome is small enough for one run, a lookup, a summary or a short answer, skip the planning round: say so to the reviewer and do the work. Otherwise plan together before executing. As lead, propose a concise approach with assumptions, success criteria, dependencies, and validation. Send it to the plan reviewer, wait for their critique, then reconcile the feedback. Use one proposal, one critique, and one reconciliation by default; record unresolved decisions rather than repeating rounds. After planning, you own execution: complete the goal and verify the actual deliverables. A plan alone does not complete Work. The seated reviewer only challenges the approach; final result review happens in a fresh session in Review.";
 
 /** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
@@ -699,7 +691,7 @@ export class BeesProduct {
         const name = required(adding ? change.name : change.agent, "Agent name");
         if (adding) proposedAgents.add(name.toLocaleLowerCase()); else available(proposedAgents, name, "agent");
         assertAgentHasTools({ ...change, name });
-        if (adding) assertUsableInstructions(name, change.instructions, change.description);
+        if (adding) assertUsableInstructions({ ...change, name });
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
             throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);

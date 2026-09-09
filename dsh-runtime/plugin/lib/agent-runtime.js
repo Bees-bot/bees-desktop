@@ -10,7 +10,6 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
-import { assertAgentHasTools } from "./product-commands.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -939,8 +938,6 @@ export class AgentRuntime {
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
-        if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action))
-          assertAgentHasTools({ ...input, name: input.name ?? input.agent });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
@@ -1127,7 +1124,7 @@ export class AgentRuntime {
         `).get(data.workItemId);
         return row?.locationId ? [row.locationId] : [];
       }
-      return data.grants ?? [];
+      return data.grants;
     };
     const granted = () => this.database.prepare(`
       SELECT l.id, l.name, m.absolute_path AS localPath FROM team_locations l
@@ -1725,16 +1722,12 @@ export class AgentRuntime {
     `).all(executionId)).reverse();
     const executions = [];
     for (const run of runs) {
-      let config = {};
-      try { config = JSON.parse(run.configJson); } catch {}
+      const config = JSON.parse(run.configJson);
       const sessions = [];
       for (const sessionId of [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))]) {
-        let events = [];
-        try {
-          events = String(this.live.get(run.executionId)?.handle.agent.session.id ?? "") === sessionId
-            ? this.live.get(run.executionId).handle.agent.session.snapshotEvents()
-            : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
-        } catch {}
+        const events = String(this.live.get(run.executionId)?.handle.agent.session.id ?? "") === sessionId
+          ? this.live.get(run.executionId).handle.agent.session.snapshotEvents()
+          : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
         sessions.push({
           sessionId,
           toolCalls: toolCallCounts(events),

@@ -328,8 +328,7 @@ export class ConnectedAccount {
         team,
         members: await this.request(`/api/teams/${team.id}/members`, {
           organizationId: organization.id, accountUserId: account.userId
-        })
-          .then(({ members }) => members).catch(() => [])
+        }).then(({ members }) => members)
       }))) };
     }));
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();

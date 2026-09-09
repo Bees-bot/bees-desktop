@@ -6,10 +6,7 @@ const TYPES = [
 ];
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
 
-const json = (value, fallback = []) => {
-  try { return JSON.parse(value) ?? fallback; }
-  catch { return fallback; }
-};
+const json = (value, fallback = []) => value == null ? fallback : JSON.parse(value) ?? fallback;
 const timestamp = (value) => value ? new Date(value).toISOString() : null;
 const versionOf = (value) => Math.max(0, Date.parse(value) || 0);
 const record = (recordType, row, payload, deleted = false) => ({

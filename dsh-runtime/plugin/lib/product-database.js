@@ -197,7 +197,7 @@ export function activeAgentRuns(database, agentId) {
       e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
       OR (e.execution_id IS NULL AND d.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
     )
-  `).get(agentId)?.count ?? 0);
+  `).get(agentId).count);
 }
 
 function ensureAgentDefaults(database, workspaceId, at = iso()) {
@@ -349,7 +349,7 @@ export function insertDefaultWorkspace(database, teamId, {
 }
 
 export function initializeProductDatabase(database) {
-  const version = Number(database.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
     PRAGMA foreign_keys = OFF;
     DROP TRIGGER IF EXISTS bees_item_search_insert;
