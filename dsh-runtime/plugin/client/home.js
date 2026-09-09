@@ -9,17 +9,23 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
-  const [planned, setPlanned] = useState(false);
+  const [planId, setPlanId] = useState("");
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
-    setError(""); setPlanned(false);
+    setError(""); setPlanId("");
     try {
       const result = await act(workFromOutcome(outcome, { workspaceId, plan: true }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
-      else if (result?.executionId) { setOutcome(""); setPlanned(true); }
+      else if (result?.executionId) { setOutcome(""); setPlanId(result.executionId); }
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const plan = planId ? data.runs.find((row) => row.id === planId) : null;
+  const planStatus = !plan ? "" : ["waiting_for_input", "waiting_for_approval"].includes(plan.status)
+    ? "Bees is asking about this plan. Answer it in Needs your attention."
+    : ["completed", "failed", "cancelled"].includes(plan.status)
+      ? "Planning finished. The plan is in Needs your attention."
+      : "Bees is planning this. It takes a minute.";
   return h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
@@ -39,8 +45,7 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" },
-        planned ? "Bees is planning this. It appears in Needs your attention." : "Bees plans it · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, planStatus || "Bees plans it · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
