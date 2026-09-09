@@ -317,10 +317,15 @@ function lastTurn(events, afterSeq = -1) {
 
 export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
-  // DSH wants seq to equal the index, so renumber after dropping team events.
-  return last ? events.filter((event) => event.seq <= last.seq &&
-    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message")
-    .map((event, seq) => ({ ...event, seq })) : [];
+  if (!last) return [];
+  // DSH wants seq to equal the index, so renumber after dropping team events, references included.
+  const kept = events.filter((event) => event.seq <= last.seq &&
+    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message");
+  const renumbered = new Map(kept.map((event, seq) => [event.seq, seq]));
+  return kept.map(({ sourceEventSeqs, ...event }, seq) => {
+    const sources = sourceEventSeqs?.map((source) => renumbered.get(source)).filter((source) => source !== undefined);
+    return { ...event, seq, ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
+  });
 }
 
 function outcomeFor(event) {
