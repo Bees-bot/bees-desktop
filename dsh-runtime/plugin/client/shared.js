@@ -149,8 +149,8 @@ export const css = `
 .bees-widget-tooltip li { margin-bottom: 4px; }
 
 .bees-app [hidden]{display:none!important}
-.bees-ask-setup{max-width:1100px;margin:0 auto;padding:4px 0;min-width:0}
-.bees-ask-heading{padding:14px 0 12px}.bees-ask-heading h1{font-size:28px;margin:6px 0 6px}.bees-ask-heading h1:focus{outline:none}
+.bees-ask-setup{max-width:none;margin:0;padding:16px 0;min-width:0}
+.bees-ask-heading{padding:24px 0 20px}.bees-ask-heading h1{font-size:28px;margin:6px 0 10px}.bees-ask-heading h1:focus{outline:none}
 .bees-ask-step{color:var(--bees-accent);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em}
 .bees-ask-setup .bees-box{padding:12px}.bees-ask-setup .bees-cockpit-board{padding:4px 0!important}
 @media(max-width:760px){.bees-ask-heading h1{font-size:24px}}
@@ -940,11 +940,11 @@ export async function request(path, options) {
 export function useSubmit(handler) {
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
-  return [busy, async (event) => {
+  return [busy, async (event, ...rest) => {
     event.preventDefault();
     if (running.current) return;
     running.current = true; setBusy(true);
-    try { await handler(event); } finally { running.current = false; setBusy(false); }
+    try { await handler(event, ...rest); } finally { running.current = false; setBusy(false); }
   }];
 }
 

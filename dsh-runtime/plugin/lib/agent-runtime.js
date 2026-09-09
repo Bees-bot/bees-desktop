@@ -10,13 +10,14 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
+import { assertAgentHasTools } from "./product-commands.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
   product: ["list_items", "create_process", "create_item", "create_goal", "create_recurring_work",
-    "add_agent_assignment", "set_stage_route"],
+    "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
 
@@ -31,7 +32,7 @@ const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest s
 
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals already has two agents planning together in Work, followed by independent Review and Done; keep those stages and routes. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
 
-Only propose create_process when the person explicitly asks to create a reusable workflow. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role or an explicit request for a new agent. Give a new agent presetId "standard", a name, and instructions defining its role and boundaries, including that it asks the owner for anything missing rather than stopping. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
+Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
@@ -233,10 +234,15 @@ function messageParts(content) {
   }) : [];
 }
 
-function isInternalPromptMessage(message) {
+// The stage brief Bees writes arrives as an ordinary user message, so the run screen printed the
+// whole machine instruction to the person who only asked for the outcome.
+const STAGE_BRIEF = /^(Complete only the |Independently review the candidate |Resume this )/;
+function internalPromptLabel(message) {
   const source = message?.source;
-  return source?.kind === "skill-catalog" ||
-    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt");
+  if (source?.kind === "skill-catalog" ||
+    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt"))
+    return `Context injection · ${source.plugin || source.kind}`;
+  return STAGE_BRIEF.test(textBlocks(message?.content)[0] ?? "") ? "Bees stage brief" : null;
 }
 
 const CURL_AUTH_HEADER = /(-H\s+['"])([^'":]*(?:auth|token|key|secret)[^'":]*:\s*)[^'"]+/gi;
@@ -261,11 +267,11 @@ function eventsToConversation(events, settlements) {
   const calls = new Map();
   for (const event of events) {
     if (event.type === "user/message") {
-      if (isInternalPromptMessage(event.data)) {
+      const label = internalPromptLabel(event.data);
+      if (label) {
         messages.push({
-          id: event.data.id,
-          role: "context",
-          parts: [{ type: "context", text: `Context injection · ${event.data.source?.plugin || event.data.source?.kind}` }],
+          id: event.data.id, role: "context",
+          parts: [{ type: "context", text: label }],
           metadata: { timestamp: event.time }
         });
         continue;
@@ -317,10 +323,22 @@ function lastTurn(events, afterSeq = -1) {
 
 export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
-  // DSH wants seq to equal the index, so renumber after dropping team events.
-  return last ? events.filter((event) => event.seq <= last.seq &&
-    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message")
-    .map((event, seq) => ({ ...event, seq })) : [];
+  if (!last) return [];
+  // DSH wants seq to equal the index, so renumber after dropping team events, references included.
+  const kept = events.filter((event) => event.seq <= last.seq &&
+    !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message");
+  const renumbered = new Map(kept.map((event, seq) => [event.seq, seq]));
+  const seqs = (list) => list?.map((seq) => renumbered.get(seq)).filter((seq) => seq !== undefined);
+  return kept.flatMap(({ sourceEventSeqs, surfaceOp, ...event }, seq) => {
+    // A replace op names the events it shadows. Renumber those too, and drop an op whose events
+    // were filtered out: DSH refuses a seed that cites a seq its surface does not hold.
+    const shadowed = Array.isArray(surfaceOp?.shadowedSeqs) ? seqs(surfaceOp.shadowedSeqs) : null;
+    if (shadowed && shadowed.length !== surfaceOp.shadowedSeqs.length) return [];
+    const sources = seqs(sourceEventSeqs);
+    return [{ ...event, seq,
+      ...(surfaceOp ? { surfaceOp: shadowed ? { ...surfaceOp, shadowedSeqs: shadowed } : surfaceOp } : {}),
+      ...(sources?.length ? { sourceEventSeqs: sources } : {}) }];
+  });
 }
 
 function outcomeFor(event) {
@@ -900,7 +918,7 @@ export class AgentRuntime {
       name: "bees_control",
       description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. "
         + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
-        + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. set_stage_route {stageId, agentIds: [assignment ids]}. "
+        + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
         + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, directory?, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools and catalogId filesystem or git needs directory, an absolute path; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
       parameters: {
@@ -920,7 +938,9 @@ export class AgentRuntime {
         try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
-        const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
+        const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
+        if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action))
+          assertAgentHasTools({ ...input, name: input.name ?? input.agent });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
@@ -943,7 +963,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem or git server needs directory, an absolute path the person gave. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9,timezone:'America/Los_Angeles'}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'none'|'listed',mcpServers?:[server name]}; {action:'edit_agent_assignment',agent,description?,instructions?,model?,mcpAccess?,mcpServers?} for an agent that already exists, instead of a copy under a new name; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},directory?,secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name; what the work is goes in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal; the filesystem or git server needs directory, an absolute path the person gave. Give every agent the servers its own work needs, listed with those servers or all when the work is open ended: an agent left on none has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do the job you built it for. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9,timezone:'America/Los_Angeles'}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
         }
       },
       output: {

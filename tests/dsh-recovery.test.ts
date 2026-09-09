@@ -219,12 +219,12 @@ describe("DSH-owned desktop and recovery", () => {
       { type: "team/member/spawned", seq: 1 },
       { type: "user/message", seq: 2, data: { source: { kind: "team-message" } } },
       { type: "user/message", seq: 3 },
-      { type: "turn/end", seq: 4 },
+      { type: "turn/end", seq: 4, sourceEventSeqs: [3] },
     ];
     expect(safeRecoverySeed(events)).toEqual([
       events[0],
       { ...events[3], seq: 1 },
-      { ...events[4], seq: 2 },
+      { ...events[4], seq: 2, sourceEventSeqs: [1] },
     ]);
   });
 

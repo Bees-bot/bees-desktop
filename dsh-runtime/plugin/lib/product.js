@@ -13,14 +13,22 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { assertAgentHasTools, assertFolderOutsideBees, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
 
-const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review.";
-const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback.";
-const GOALS_DISCUSSION_PROTOCOL = "Within this Work stage, plan together before executing. As lead, propose a concise approach with assumptions, success criteria, dependencies, and validation. Send it to the plan reviewer, wait for their critique, then reconcile the feedback. Use one proposal, one critique, and one reconciliation by default; record unresolved decisions rather than repeating rounds. After planning, you own execution: complete the goal and verify the actual deliverables. A plan alone does not complete Work. The seated reviewer only challenges the approach; final result review happens in a fresh session in Review.";
+const GOALS_WORK_PROTOCOL = "Decide first whether the outcome needs a plan. If one run can finish it, do the work directly. Otherwise execute only the next safe wave, use todos, and use bees_delegate_work only for isolated tracked work. Use the seated DSH Agent Team when this is a discussion stage. Do not plan dependent future waves before current evidence is available. Continue until the outcome and any explicit stop condition are genuinely satisfied, then submit the deliverable for review. Work is the only stage of a goal that acts; Review only checks and Done ends it, so anything the goal asks for that has not happened when you submit, including processes, agents and schedules built with bees_control, never happens. A process you build knows only what you wrote into it, so put every fact the person gave you, such as the product, prices, audience and accounts, into its agents' instructions or its items.";
+const GOALS_REVIEW_PROTOCOL = "Independently inspect the candidate deliverables and evidence against the requested outcome, parent goal, and any explicit stop condition. Pass only when the outcome is actually complete; never pass an ongoing campaign whose stop condition is unmet. Otherwise return specific revision feedback. Work is the only stage that acts, so a candidate that defers any requested part of the outcome to a later stage has not delivered it.";
+/** A role description is not an instruction. An agent earns its place by naming the material it
+ *  reads, what it leaves behind, and when it stops or asks; without that it repeats the prompt. */
+function assertUsableInstructions(name, instructions, description) {
+  const text = String(instructions ?? "").trim();
+  if (text.length < 80 || text === String(description ?? "").trim())
+    throw new Error(`${name} needs instructions of its own: what it reads, what it writes, and when it asks the owner or stops`);
+}
+
+const GOALS_DISCUSSION_PROTOCOL = "When the outcome is small enough for one run, a lookup, a summary or a short answer, skip the planning round: say so to the reviewer and do the work. Otherwise plan together before executing. As lead, propose a concise approach with assumptions, success criteria, dependencies, and validation. Send it to the plan reviewer, wait for their critique, then reconcile the feedback. Use one proposal, one critique, and one reconciliation by default; record unresolved decisions rather than repeating rounds. After planning, you own execution: complete the goal and verify the actual deliverables. A plan alone does not complete Work. The seated reviewer only challenges the approach; final result review happens in a fresh session in Review.";
 
 /** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
 const PREVIEW_BYTES = 256_000;
@@ -211,14 +219,14 @@ export class BeesProduct {
       ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. ${goalPlanning ? GOALS_DISCUSSION_PROTOCOL : "They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported."}`
       : "";
     const delegationProtocol = discussion
-      ? "Use the seated DSH Agent Team to agree on the approach. Once all participants have reported and are idle, execute the requested outcome. Use bees_delegate_work with agentAssignmentId to assign substantial independent work, including to an agent who participated in discussion. Honor the requested delegation count and execution order, inspect returned deliverables, and complete the combined result. Do not ask discussion seats to implement the same assignments. If the request is advice only, finish with the requested advice."
+      ? "Use the seated DSH Agent Team to agree on the approach. Once all participants have reported and are idle, execute the requested outcome. Do small, tightly coupled work yourself: a few lookups, page reads or file edits are faster done than handed out. Use bees_delegate_work with agentAssignmentId only for substantial independent work a peer can own end to end, including an agent who participated in discussion. Honor the requested delegation count and execution order, inspect returned deliverables, and complete the combined result. Do not ask discussion seats to implement the same assignments. If the request is advice only, finish with the requested advice."
       : "Do small, tightly coupled work yourself. Unless delegation is itself an explicit requirement, use bees_delegate_work only for a large separate piece a peer can own end to end; a tool call, lookup, or single-file edit is not enough. When the goal explicitly requires a delegation count, only the parent delegates. Honor the requested delegation count and execution order. A delegated peer is a visible child work item and works in this same workspace, so continue from its changes already in outputs/ when it finishes.";
     const roster = this.database.prepare(`SELECT id AS agentAssignmentId, name, description
       FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
         AND (system_role IS NULL OR system_role != 'reviewer') ORDER BY name`).all(item.workspaceId);
     const body = reviewer
-      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Review"}.${inputs}${approval}`
-      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. ${delegationProtocol} Put every final deliverable under outputs/. If you are granted publication targets, you MUST publish the deliverables using bees_publish_outputs. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}${discussionProtocol}${approval}`;
+      ? `Independently review the candidate under inputs/candidate.${shared} Verify the real deliverables and run relevant checks. When the stage produced no files, judge the summary it submitted; never search the machine for files it did not write. When present, inputs/execution-evidence.json is system-generated from Bees runs and audit records; use it to verify procedural requirements such as human approvals. Call bees_submit_stage_result with pass or revise and concise evidence.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Review"}.${inputs}${approval}`
+      : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. ${delegationProtocol} Put every final deliverable under outputs/, even when you also give the answer in chat. If you are granted publication targets, you MUST publish the deliverables using bees_publish_outputs. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}${discussionProtocol}${approval}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       workspace: runDirectory,
@@ -418,7 +426,7 @@ export class BeesProduct {
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
-             e.status, json_extract(e.config_json, '$.mode') AS mode,
+             CASE WHEN e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
@@ -434,8 +442,9 @@ export class BeesProduct {
         ON starts.execution_id = e.execution_id
       LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
-      WHERE workspace_id IN (SELECT value FROM json_each(?))
-      ORDER BY updated_at DESC LIMIT 200
+      LEFT JOIN work_items i ON i.id = e.work_item_id
+      WHERE e.workspace_id IN (SELECT value FROM json_each(?)) AND (i.id IS NULL OR i.archived_at IS NULL AND i.deleted_at IS NULL)
+      ORDER BY e.updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => {
       const outputsDir = resolve(runDirectory, "outputs");
       return {
@@ -673,6 +682,10 @@ export class BeesProduct {
     const available = (set, name, kind) => {
       if (!set.has(name.toLocaleLowerCase())) return proposalResource(this.database, workspaceId, kind, name);
     };
+    const added = changes.filter((change) => change?.action === "add_agent_assignment").length;
+    if (added > 4) throw new Error(`This plan adds ${added} agents; route the work through at most four and reuse the team's agents for the rest`);
+    if (changes.filter((change) => change?.action === "create_process").length > 1)
+      throw new Error("Propose one process at a time; a second one is a separate request");
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
       if (change.action === "create_goal") {
@@ -680,17 +693,22 @@ export class BeesProduct {
         proposedItems.add(title.toLocaleLowerCase());
         return { action: "create_goal", title, description: workDescription(change), ...locations(change), runSettings: settings, ...requestedAssignment };
       }
-      if (change.action === "add_agent_assignment") {
-        const name = required(change.name, "Agent name");
-        proposedAgents.add(name.toLocaleLowerCase());
+      if (change.action === "add_agent_assignment" || change.action === "edit_agent_assignment") {
+        const adding = change.action === "add_agent_assignment";
+        const name = required(adding ? change.name : change.agent, "Agent name");
+        if (adding) proposedAgents.add(name.toLocaleLowerCase()); else available(proposedAgents, name, "agent");
+        assertAgentHasTools({ ...change, name });
+        if (adding) assertUsableInstructions(name, change.instructions, change.description);
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
             throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
+        const access = change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {};
+        if (!adding) return { action: "edit_agent_assignment", agent: name, ...access,
+          ...Object.fromEntries(["description", "instructions", "model"].filter((key) => change[key] != null).map((key) => [key, String(change[key])])) };
         return {
           action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
           description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
-          ...(change.model ? { model: String(change.model) } : {}),
-          ...(change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {})
+          ...(change.model ? { model: String(change.model) } : {}), ...access
         };
       }
       if (change.action === "set_stage_route") {
@@ -725,6 +743,7 @@ export class BeesProduct {
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
         if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
+        assertFolderOutsideBees(change.directory, this.defaultWorkspace, entry.label);
         const given = change.inputs ?? {};
         for (const field of entry.inputs)
           // A pasted curl command carries the base URL, so the bridge takes one or the other.
@@ -824,18 +843,25 @@ export class BeesProduct {
         if (!agent?.enabled) throw new Error("Delegated agent must be enabled and belong to this team");
       }
       const existing = this.database.prepare(`
-        SELECT id, agent_assignment_id AS agentAssignmentId FROM work_items WHERE parent_id = ? AND title = ?
+        SELECT id, agent_assignment_id AS agentAssignmentId, runtime_phase AS phase FROM work_items WHERE parent_id = ? AND title = ?
           AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
       `).get(parent.id, title);
       if (existing && existing.agentAssignmentId !== agentId)
         throw new Error("This delegated title already belongs to another agent; use a distinct title");
       return { title, description: String(item?.description ?? ""), agentId, existing };
     });
-    return Promise.all(peers.map(({ title, description, agentId, existing }) => existing ?? this.command({
-      action: "create_item", processId: parent.processId, parentId: parent.id,
-      title, description,
-      agentAssignmentId: agentId, accountUserId: parent.accountUserId
-    })));
+    return Promise.all(peers.map(async ({ title, description, agentId, existing }) => {
+      if (existing?.phase === "failed") {
+        this.database.prepare("UPDATE work_items SET description = ?, updated_at = ? WHERE id = ?")
+          .run(description, iso(), existing.id);
+        await this.processes.signal(existing.id, "retry").catch(() => undefined);
+      }
+      return existing ?? this.command({
+        action: "create_item", processId: parent.processId, parentId: parent.id,
+        title, description,
+        agentAssignmentId: agentId, accountUserId: parent.accountUserId
+      });
+    }));
   }
 
   async command(input) {

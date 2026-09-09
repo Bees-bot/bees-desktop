@@ -4,8 +4,11 @@ import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
-export function workFromOutcome(outcome, target, resources = {}) {
+export function workFromOutcome(outcome, { plan, ...target }, resources = {}) {
   const description = outcome.trim();
+  // Defaults hands the outcome to the planner, which decides between one goal and a whole process
+  // with its own agents, servers and schedule. Advanced is the manual route and never plans.
+  if (plan) return { action: "ask_bees", ...target, outcome: description };
   return { action: target.processId ? "create_item" : "create_goal", ...target,
     title: description.split("\n")[0], description, ...resources };
 }

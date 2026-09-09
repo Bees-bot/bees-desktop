@@ -271,6 +271,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
     if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
+      style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
     else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
       h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
       h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
@@ -302,7 +304,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
         : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
-        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..." : "Agent is working...")
+        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..."
+          : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...")
         : null
       ),
       sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
@@ -370,7 +373,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
         run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
         run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
-        run && ["failed", "completed"].includes(item.runtimePhase) ? h("a", { className: "bees-btn-secondary", href: `/bees-api/harness?executionId=${run.id}`, target: "_blank", title: "Open in dev harness" }, h("span", {className: "bees-btn-icon"}, "🌐"), "Browser") : null,
         !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
           : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
@@ -385,7 +387,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
     // 3. TAB CONTENT
@@ -414,13 +415,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
-      : h("div", { style: { height: "100%", display: "flex", flexDirection: "column" } },
-        run ? h("iframe", {
-          src: `/bees-api/harness?executionId=${run.id}`,
-          style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
-          title: "Runtime traces"
-        }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
-      )
+      : null
     )
   );
 

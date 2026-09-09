@@ -5,19 +5,35 @@ import { saveGridLayout, addDashboardWidget, applyDashboardLayout, dashboardsFro
 import { NeedsYouWidget } from "./work.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
-export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
+export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, openNeedsYou }) {
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
-  const [busy, submit] = useSubmit(async () => {
+  const [planId, setPlanId] = useState("");
+  const [mode, setMode] = useState("");
+  const [busy, submit] = useSubmit(async (event, plan = false) => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
-    setError("");
+    setError(""); setPlanId(""); setMode(plan ? "plan" : "run");
     try {
-      const result = await act(workFromOutcome(outcome, { workspaceId }));
+      const result = await act(workFromOutcome(outcome, { workspaceId, plan }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+      else if (result?.executionId) setPlanId(result.executionId);
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const plan = planId ? data.runs.find((row) => row.id === planId) : null;
+  const ready = plan && plan.status !== "queued" && plan.status !== "running";
+  // Planning answers with a run, not a work item, so the composer stands in for it until the plan
+  // is ready: clearing the box on submit read as the click having done nothing.
+  if (plan) return h("div", { className: "bees-stack" },
+    h("strong", null, ready ? "Your plan is ready" : "Bees is planning this"),
+    h("p", { className: "bees-muted" }, ready
+      ? "Open it to see the process, agents and schedule Bees proposes, and approve or change it."
+      : "Working out the process, agents, tools and schedule for this. It takes about a minute."),
+    h("blockquote", { className: "bees-muted", style: { margin: 0, whiteSpace: "pre-wrap" } }, outcome),
+    h("div", { className: "bees-card-actions" },
+      ready ? h(Button, { className: "bees-btn-primary", onClick: () => { setOutcome(""); setPlanId(""); openNeedsYou?.(); } }, "Open the plan") : null,
+      h(Button, { onClick: () => setPlanId("") }, ready ? "Ask for something else" : "Write another")));
   return h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
@@ -37,9 +53,12 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Goals with default agents · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, "Run using defaults starts a Goal now with the team's agents · Plan and do works out the process, agents and tools first, then runs it once you approve · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
-        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
+          busy && mode === "run" ? "Starting…" : "Run using defaults"),
+        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: (event) => void submit(event, true) },
+          busy && mode === "plan" ? "Planning…" : "Plan and do"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
   );
 }

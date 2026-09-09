@@ -26,7 +26,11 @@ export function onboardingProgress(data, teamId, state, aiReady) {
 }
 
 export function starterDescription(prompt, filesChoice) {
-  return `${prompt.trim()}\n\n${(filesChoice === "sample" || !filesChoice) ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
+  const text = prompt.trim();
+  // The sample brief is there for the starter tasks, which say "from the brief". Gluing it onto
+  // someone's own first prompt hands the run two unrelated jobs.
+  const sample = filesChoice === "sample" || (!filesChoice && STARTER_TASKS.some((task) => task.prompt === text));
+  return `${text}\n\n${sample ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
 }
 
 export function planningAgents(data, workspaceId) {
@@ -115,7 +119,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             } }, ...STARTER_TASKS.map((row) => h("option", { value: row.id, key: row.id }, row.title)), h("option", { value: "custom" }, "Write my own task"))),
             h("label", null, "What should Bees create?", h("textarea", { className: "bees-textarea", value: prompt, required: true,
               onChange: (event) => { setPrompt(event.target.value); update({ prompt: event.target.value }); } })),
-            (state.filesChoice === "sample" || !state.filesChoice) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
+            (state.filesChoice === "sample" || (!state.filesChoice && STARTER_TASKS.some((row) => row.prompt === prompt.trim()))) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
             ...data.locations.filter((row) => row.teamId === parts.teamId && row.mapped && !row.archivedAt).map((row) =>
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),

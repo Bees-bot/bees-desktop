@@ -48,9 +48,10 @@ describe("Getting started", () => {
     expect(onboardingProgress(snapshot, "team", { workItemId: "first" }, true)[3]).toBe(false);
   });
 
-  it("includes sample context only when selected or no file decision was made", () => {
+  it("includes sample context for the starter tasks, never for a prompt someone typed", () => {
     expect(starterDescription("Make a plan", "sample")).toContain("repair café");
-    expect(starterDescription("Make a plan", "")).toContain("repair café");
+    expect(starterDescription("Create a practical launch plan from the brief. Include milestones, owners, budget, risks, and decisions that need my input.", "")).toContain("repair café");
+    expect(starterDescription("go to 5 nepal news portals and give me today's top 5", "")).not.toContain("repair café");
     expect(starterDescription("Review my files", "none")).not.toContain("repair café");
     expect(starterDescription("Review my files", "none")).toContain("outputs/first-result.md");
   });

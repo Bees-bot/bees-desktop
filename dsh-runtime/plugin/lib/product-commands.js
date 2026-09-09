@@ -2,7 +2,7 @@ import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
 import { showAgentBrowser } from "./agent-browser.js";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import {
   agentCapabilities, agentIds as normalizeAgentIds, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
@@ -28,6 +28,21 @@ const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_ski
 
 /** An MCP server's API keys ride in the change list; nothing outside apply needs them. */
 export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) => change);
+
+/** An agent with no server has no mcp__ tool at all, so it cannot read a file, open a page or call
+ *  an API. A person may still choose that in the Agents screen; a model proposing it may not. */
+/** Bees keeps its runs, databases and workspaces here; a server bound to any of it reads a folder
+ *  that belongs to the machine, not to the person's work. */
+export function assertFolderOutsideBees(directory, root, label) {
+  const path = String(directory ?? "").trim();
+  if (path === root || path.startsWith(root + sep))
+    throw new Error(`${label} needs a folder the person named, not one inside Bees`);
+}
+
+export function assertAgentHasTools({ mcpAccess, mcpServers, name }) {
+  if (mcpAccess === "none" || (mcpAccess === "listed" && !(mcpServers ?? []).length))
+    throw new Error(`${name || "That agent"} would have no tool at all; list the servers its work needs, or all`);
+}
 
 function mcpPolicy(input, current = { access: "all", servers: [] }) {
   if (!Object.hasOwn(input, "mcpAccess")) return current;
@@ -161,7 +176,8 @@ function timezoneOf(value) {
 }
 
 export function recurringSchedule(input) {
-  const frequency = String(input.frequency ?? "daily");
+  if (!input.frequency && input.cronExpression && input.everyMinutes) throw new Error("Give cronExpression or everyMinutes, not both");
+  const frequency = String(input.frequency ?? (input.cronExpression ? "advanced" : input.everyMinutes ? "hourly" : "daily"));
   if (frequency === "hourly") {
     const everyMinutes = Number(input.everyMinutes ?? 60);
     if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 525_600)
@@ -177,12 +193,12 @@ export function recurringSchedule(input) {
       throw new Error("Advanced schedules need a 5, 6, or 7 field cron expression");
     return { kind: "cron", timezone, value: { expression } };
   }
-  if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency is invalid");
+  if (!["daily", "weekly", "monthly"].includes(frequency)) throw new Error("Schedule frequency must be hourly, daily, weekly, monthly or advanced");
   const hour = Number(input.hour);
   const minute = Number(input.minute ?? 0);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23 ||
       !Number.isInteger(minute) || minute < 0 || minute > 59)
-    throw new Error("Schedule time is invalid");
+    throw new Error(`${frequency} schedules take hour 0-23 and minute 0-59; there is no scheduleTime field, cron goes in cronExpression with frequency advanced`);
   const value = { frequency, hour, minute };
   if (frequency === "weekly") {
     const dayOfWeek = String(input.dayOfWeek ?? "MONDAY").toUpperCase();
@@ -828,17 +844,20 @@ export async function executeProductCommand(action, input) {
       });
     }
     if (action === "edit_agent_assignment") {
-      const id = required(input.agentAssignmentId, "Agent");
+      const id = input.agentAssignmentId
+        ?? proposalResource(this.database, required(input.workspaceId, "Workspace"), "agent", input.agent).id;
       const assignment = this.database.prepare(`
-        SELECT workspace_id AS workspaceId, name, system_role AS systemRole,
-               reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
+        SELECT workspace_id AS workspaceId, name, description, instructions, model, preset_id AS presetId,
+               system_role AS systemRole, reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
                enabled, max_concurrency AS maxConcurrency,
                mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
         FROM agent_assignments WHERE id = ?
-      `).get(id);
+      `).get(required(id, "Agent"));
       if (!assignment) throw new Error("Agent not found");
+      // A run editing the agent that reviews it could tell that reviewer to pass everything.
+      if (input.viaAgent && assignment.systemRole) throw new Error("A run cannot edit the agents Bees ships");
       workspaceContext(this.database, assignment.workspaceId, ["admin", "member"]);
-      const presetId = required(input.presetId, "agent preset");
+      const presetId = input.presetId ?? assignment.presetId;
       if (this.agentPresets) {
         const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
         if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The agent preset is unavailable");
@@ -859,8 +878,9 @@ export async function executeProductCommand(action, input) {
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
           mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
-      `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
-        String(input.description ?? ""), String(input.instructions ?? ""), optionalModelRoute(input.model),
+      `).run(presetId, assignment.systemRole ? assignment.name : required(input.name ?? assignment.name, "Agent name"),
+        String(input.description ?? assignment.description ?? ""), String(input.instructions ?? assignment.instructions ?? ""),
+        optionalModelRoute(input.model ?? assignment.model),
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);
@@ -995,6 +1015,7 @@ export async function executeProductCommand(action, input) {
             `).get(proposal.workspaceId, String(change.name ?? ""));
             if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
+          if (change.action === "edit_agent_assignment") Object.assign(payload, { agentAssignmentId: idOf("agent", change.agent), viaAgent: true });
           // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
           if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
             const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
