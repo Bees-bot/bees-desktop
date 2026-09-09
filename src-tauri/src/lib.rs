@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::{
     fmt::Write as _,
     fs,
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
@@ -244,6 +244,17 @@ const DSH_PROFILE_PLUGINS: [&str; 2] = [
     "dsh-experimental-tool-agent-team",
 ];
 
+fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
+    let path = state_dir(app)?.join("port");
+    let remembered = fs::read_to_string(&path).ok().and_then(|text| text.trim().parse().ok());
+    let port = match remembered {
+        Some(port) if port != 0 && TcpListener::bind(("127.0.0.1", port)).is_ok() => port,
+        _ => available_loopback_port()?,
+    };
+    fs::write(&path, port.to_string()).map_err(|error| error.to_string())?;
+    Ok(port)
+}
+
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -395,7 +406,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     reset_dsh_rc1_state(&home)?;
     prepare_profile(&runtime, &home)?;
 
-    let port = available_loopback_port()?;
+    let port = stable_loopback_port(app)?;
     let temporal_port = loop {
         let candidate = available_loopback_port()?;
         if candidate != port {

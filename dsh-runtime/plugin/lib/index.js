@@ -256,9 +256,13 @@ export async function apply(ctx, _config = {}, internals = {}) {
     // dsh gates its own index on a launch-token cookie, so send the browser the URL it hands
     // out rather than a bare /, which lands on "dsh web authentication required".
     const base = `http://127.0.0.1:${req.socket.localPort}`;
+    const stale = String(req.headers.cookie ?? "").split(";")
+      .map((part) => part.trim().split("=")[0])
+      .filter((name) => /^bees_dsh_\d+$/.test(name))
+      .map((name) => `${name}=; Max-Age=0; Path=/`);
     res.writeHead(302, {
       location: ctx.connection?.authenticatedUrl?.(base) ?? `${base}/`,
-      "set-cookie": `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
+      "set-cookie": [`${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`, ...stale],
       "cache-control": "no-store"
     });
     res.end();

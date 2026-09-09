@@ -219,7 +219,7 @@ describe("Bees DSH public contract", () => {
       expect((await request(server, routes, "/bees-api/snapshot")).status).toBe(401);
       const auth = await request(server, routes, "/bees-auth?token=contract-token");
       expect(auth.status).toBe(302);
-      const cookie = auth.headers["set-cookie"]?.split(";")[0];
+      const cookie = [auth.headers["set-cookie"]].flat()[0]?.split(";")[0];
       expect(cookie).toBe("bees_dsh=contract-token");
       // The token is the boundary, not the cookie name. A cookie an earlier launch left behind
       // carries that launch's token, so it is turned away and the browser goes back through
@@ -282,7 +282,7 @@ describe("Bees DSH public contract", () => {
       harness = testContext(server, routes, workspaces, sessions);
       await apply(harness.ctx, {}, { temporalClient: harness.temporalClient });
       const secondAuth = await request(server, routes, "/bees-auth?token=contract-token");
-      const secondCookie = secondAuth.headers["set-cookie"]?.split(";")[0];
+      const secondCookie = [secondAuth.headers["set-cookie"]].flat()[0]?.split(";")[0];
       const restarted = (await request(server, routes, "/bees-api/snapshot", {
         headers: { cookie: String(secondCookie) }
       })).json() as any;
