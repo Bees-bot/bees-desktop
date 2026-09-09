@@ -6,10 +6,22 @@ const timestamp = (value) => new Date(value ?? 0).getTime() || 0;
 const normalize = (text) => text.replace(/\s+/g, " ").trim();
 
 const TOOL_TARGET = ["url", "query", "file_path", "path", "command", "pattern", "title", "items_json"];
+// A run screen full of send_message and mcp__freelancer__invoke-api-endpoint reads like a log file.
+const TOOL_NAMES = {
+  bash: "Ran a command", read: "Read a file", write: "Wrote a file", edit: "Edited a file",
+  glob: "Looked for files", grep: "Searched the files", web_search: "Searched the web", web_fetch: "Read a page",
+  send_message: "Messaged a teammate", wait_agent: "Waiting for a teammate", followup_task: "Asked for another round",
+  ask_user_question: "Asked you a question", bees_control: "Set up Bees",
+  bees_delegate_work: "Handed work to a peer", bees_submit_stage_result: "Submitted this stage",
+  bees_request_work_review: "Asked you to approve", bees_publish_outputs: "Published the deliverables"
+};
+const readableTool = (name) => TOOL_NAMES[name] ?? (name.startsWith("mcp__")
+  ? name.split("__").slice(1).join(" · ").replace(/[-_]/g, " ")
+  : name.replace(/[-_]/g, " "));
 function toolLine(part) {
   const input = part.input && typeof part.input === "object" ? part.input : {};
   const target = TOOL_TARGET.map((key) => input[key]).find(Boolean);
-  return `${part.toolName}${target ? ` · ${String(target).slice(0, 120).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
+  return `${readableTool(part.toolName)}${target ? ` · ${String(target).slice(0, 120).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
 }
 
 // Seat traffic carries its own plumbing: an envelope with a uuid, and a note when a background seat
