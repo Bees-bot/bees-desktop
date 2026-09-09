@@ -680,19 +680,22 @@ export class BeesProduct {
         proposedItems.add(title.toLocaleLowerCase());
         return { action: "create_goal", title, description: workDescription(change), ...locations(change), runSettings: settings, ...requestedAssignment };
       }
-      if (change.action === "add_agent_assignment") {
-        const name = required(change.name, "Agent name");
-        proposedAgents.add(name.toLocaleLowerCase());
+      if (change.action === "add_agent_assignment" || change.action === "edit_agent_assignment") {
+        const adding = change.action === "add_agent_assignment";
+        const name = required(adding ? change.name : change.agent, "Agent name");
+        if (adding) proposedAgents.add(name.toLocaleLowerCase()); else available(proposedAgents, name, "agent");
         if (change.mcpAccess === "none" || change.mcpAccess === "listed" && !(change.mcpServers ?? []).length)
           throw new Error(`${name} would have no tool at all; list the servers its work needs, or all`);
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
             throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
+        const access = change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {};
+        if (!adding) return { action: "edit_agent_assignment", agent: name, ...access,
+          ...Object.fromEntries(["description", "instructions", "model"].filter((key) => change[key] != null).map((key) => [key, String(change[key])])) };
         return {
           action: "add_agent_assignment", presetId: String(change.presetId || "standard"), name,
           description: String(change.description ?? ""), instructions: String(change.instructions ?? ""),
-          ...(change.model ? { model: String(change.model) } : {}),
-          ...(change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {})
+          ...(change.model ? { model: String(change.model) } : {}), ...access
         };
       }
       if (change.action === "set_stage_route") {

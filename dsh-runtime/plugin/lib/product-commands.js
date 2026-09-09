@@ -828,17 +828,19 @@ export async function executeProductCommand(action, input) {
       });
     }
     if (action === "edit_agent_assignment") {
-      const id = required(input.agentAssignmentId, "Agent");
+      const id = input.agentAssignmentId ?? this.database.prepare(`
+        SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
+      `).get(String(input.workspaceId ?? ""), String(input.agent ?? ""))?.id;
       const assignment = this.database.prepare(`
-        SELECT workspace_id AS workspaceId, name, system_role AS systemRole,
-               reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
+        SELECT workspace_id AS workspaceId, name, description, instructions, model, preset_id AS presetId,
+               system_role AS systemRole, reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
                enabled, max_concurrency AS maxConcurrency,
                mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
         FROM agent_assignments WHERE id = ?
-      `).get(id);
+      `).get(required(id, "Agent"));
       if (!assignment) throw new Error("Agent not found");
       workspaceContext(this.database, assignment.workspaceId, ["admin", "member"]);
-      const presetId = required(input.presetId, "agent preset");
+      const presetId = input.presetId ?? assignment.presetId;
       if (this.agentPresets) {
         const preset = (await this.agentPresets.list()).find(({ id }) => id === presetId);
         if (!preset || preset.broken || await this.presetGap(presetId)) throw new Error("The agent preset is unavailable");
@@ -859,8 +861,9 @@ export async function executeProductCommand(action, input) {
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
           mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
-      `).run(presetId, assignment.systemRole ? assignment.name : required(input.name, "Agent name"),
-        String(input.description ?? ""), String(input.instructions ?? ""), optionalModelRoute(input.model),
+      `).run(presetId, assignment.systemRole ? assignment.name : required(input.name ?? assignment.name, "Agent name"),
+        String(input.description ?? assignment.description ?? ""), String(input.instructions ?? assignment.instructions ?? ""),
+        optionalModelRoute(input.model ?? assignment.model),
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);
@@ -995,6 +998,7 @@ export async function executeProductCommand(action, input) {
             `).get(proposal.workspaceId, String(change.name ?? ""));
             if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
+          if (change.action === "edit_agent_assignment") payload.agentAssignmentId = idOf("agent", change.agent);
           // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
           if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
             const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));
