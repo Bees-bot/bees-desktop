@@ -10,11 +10,12 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
   const [planId, setPlanId] = useState("");
-  const [busy, submit] = useSubmit(async () => {
+  const [mode, setMode] = useState("");
+  const [busy, submit] = useSubmit(async (event, plan = false) => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
-    setError(""); setPlanId("");
+    setError(""); setPlanId(""); setMode(plan ? "plan" : "run");
     try {
-      const result = await act(workFromOutcome(outcome, { workspaceId, plan: true }));
+      const result = await act(workFromOutcome(outcome, { workspaceId, plan }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
       else if (result?.executionId) setPlanId(result.executionId);
       else setError("Could not start this work. Please try again.");
@@ -52,9 +53,12 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
     }),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
-      h("span", { className: "bees-composer-hint" }, "Bees plans it · ⌘ / Ctrl + Enter"),
+      h("span", { className: "bees-composer-hint" }, "Goals with default agents · ⌘ / Ctrl + Enter"),
       h("div", { className: "bees-detail-actions" },
-        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() }, busy ? "Starting…" : "Run using defaults"),
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
+          busy && mode === "run" ? "Starting…" : "Run using defaults"),
+        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: (event) => void submit(event, true) },
+          busy && mode === "plan" ? "Planning…" : "Plan and do"),
         h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
   );
 }

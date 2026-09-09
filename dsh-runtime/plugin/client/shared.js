@@ -937,11 +937,11 @@ export async function request(path, options) {
 export function useSubmit(handler) {
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
-  return [busy, async (event) => {
+  return [busy, async (event, ...rest) => {
     event.preventDefault();
     if (running.current) return;
     running.current = true; setBusy(true);
-    try { await handler(event); } finally { running.current = false; setBusy(false); }
+    try { await handler(event, ...rest); } finally { running.current = false; setBusy(false); }
   }];
 }
 
