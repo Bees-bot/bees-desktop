@@ -63,7 +63,8 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('window.dispatchEvent(new window.CustomEvent("bees-change"');
     expect(client).toContain('window.addEventListener("bees-change", changed)');
     expect(client).toContain("setInterval(() => void load(), 30_000)");
-    expect(client).toContain('run?.status === "queued" ? "Agent is starting..." : "Agent is working..."');
+    expect(client).toContain('run?.status === "queued" ? "Agent is starting..."');
+    expect(client).toContain('message.role === "tool")?.text ?? "Agent is working..."');
   });
 
   it("registers the bundled client module", () => {

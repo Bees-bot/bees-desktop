@@ -271,6 +271,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
     if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
+      style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
     else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
       h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
       h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
@@ -302,7 +304,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         workReview ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id, item, data })))
         : interaction?.kind === "question" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered: answered, act, executionId: pendingRun?.id })))
         : interaction?.kind === "approval" ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }, h("div", { className: "bees-answer-card", style: { padding: "16px" } }, h("div", { style: { color: "#EAB308", fontSize: "11px", fontWeight: "600", marginBottom: "8px" } }, "Needs your input"), h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered: answered })))
-        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..." : "Agent is working...")
+        : isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" }, h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })), run?.status === "queued" ? "Agent is starting..."
+          : [...messages].reverse().find((message) => message.role === "tool")?.text ?? "Agent is working...")
         : null
       ),
       sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,

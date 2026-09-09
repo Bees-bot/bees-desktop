@@ -5,16 +5,26 @@ export const OUTCOME_LABELS = {
 const timestamp = (value) => new Date(value ?? 0).getTime() || 0;
 const normalize = (text) => text.replace(/\s+/g, " ").trim();
 
+// What the agent is doing right now, in the person's words: the tool and the thing it points at.
+const TOOL_TARGET = ["url", "query", "file_path", "path", "command", "pattern", "title", "items_json"];
+function toolLine(part) {
+  const input = part.input && typeof part.input === "object" ? part.input : {};
+  const target = TOOL_TARGET.map((key) => input[key]).find(Boolean);
+  return `${part.toolName}${target ? ` · ${String(target).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
+}
+
 export function conversationMessages(history, runs, assignments, children = []) {
   const agentName = (run) => assignments.find(({ id }) => id === run?.resolvedAgentId)?.name || "Agent";
   const currentRun = runs.find(({ id }) => id === history?.executionId);
   const messages = new Map();
   for (const message of history?.messages ?? []) {
     if (message.role === "context") continue;
-    const text = (message.parts ?? []).filter((part) => part.text).map((part) => part.text).join("\n\n");
+    const tool = (message.parts ?? []).find((part) => part.type === "tool");
+    const text = tool ? toolLine(tool)
+      : (message.parts ?? []).filter((part) => part.text).map((part) => part.text).join("\n\n");
     if (!text.trim()) continue;
     const id = `message:${history.executionId}:${message.id}`;
-    messages.set(id, { id, role: message.role, text, label: agentName(currentRun),
+    messages.set(id, { id, role: tool ? "tool" : message.role, text, label: agentName(currentRun),
       timestamp: timestamp(message.metadata?.timestamp) });
   }
   for (const run of runs) {
