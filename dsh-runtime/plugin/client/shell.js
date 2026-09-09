@@ -389,13 +389,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const aiKey = onboardingAiKey(data, parts.workspaceId, modelConfig);
   const aiReady = aiTest === aiKey;
   const saveAgentModel = async (agent, model) => {
-    const result = await act({ ...agent, ...model, action: "edit_agent_assignment", agentAssignmentId: agent.id });
-    if (!result?.id) throw new Error("Could not save the agent's AI");
     // Every other agent, CEO and the rest included, runs on the system default. Left unset they fall
     // back to a provider nobody signed in to, so a delegated peer dies on "Connection error".
     const [provider, ...rest] = String(model?.model ?? "").split("/");
     if (rest.length) await request("/bees-api/system-default-model", { method: "POST",
       body: JSON.stringify({ provider, model: rest.join("/"), reasoningEffort: model.reasoningEffort ?? "" }) });
+    const result = await act({ ...agent, ...model, action: "edit_agent_assignment", agentAssignmentId: agent.id });
+    if (!result?.id) throw new Error("Could not save the agent's AI");
     setAiTest(null);
     return { ...agent, ...model };
   };

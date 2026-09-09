@@ -251,7 +251,7 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
         Some(port) if port != 0 && TcpListener::bind(("127.0.0.1", port)).is_ok() => port,
         _ => available_loopback_port()?,
     };
-    fs::write(&path, port.to_string()).map_err(|error| error.to_string())?;
+    let _ = fs::write(&path, port.to_string());
     Ok(port)
 }
 

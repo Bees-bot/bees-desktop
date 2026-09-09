@@ -119,7 +119,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             } }, ...STARTER_TASKS.map((row) => h("option", { value: row.id, key: row.id }, row.title)), h("option", { value: "custom" }, "Write my own task"))),
             h("label", null, "What should Bees create?", h("textarea", { className: "bees-textarea", value: prompt, required: true,
               onChange: (event) => { setPrompt(event.target.value); update({ prompt: event.target.value }); } })),
-            (state.filesChoice === "sample" || !state.filesChoice) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
+            (state.filesChoice === "sample" || (!state.filesChoice && STARTER_TASKS.some((row) => row.prompt === prompt.trim()))) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
             ...data.locations.filter((row) => row.teamId === parts.teamId && row.mapped && !row.archivedAt).map((row) =>
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),

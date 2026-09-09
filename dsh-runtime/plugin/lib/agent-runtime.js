@@ -328,9 +328,16 @@ export function safeRecoverySeed(events) {
   const kept = events.filter((event) => event.seq <= last.seq &&
     !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message");
   const renumbered = new Map(kept.map((event, seq) => [event.seq, seq]));
-  return kept.map(({ sourceEventSeqs, ...event }, seq) => {
-    const sources = sourceEventSeqs?.map((source) => renumbered.get(source)).filter((source) => source !== undefined);
-    return { ...event, seq, ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
+  const seqs = (list) => list?.map((seq) => renumbered.get(seq)).filter((seq) => seq !== undefined);
+  return kept.flatMap(({ sourceEventSeqs, surfaceOp, ...event }, seq) => {
+    // A replace op names the events it shadows. Renumber those too, and drop an op whose events
+    // were filtered out: DSH refuses a seed that cites a seq its surface does not hold.
+    const shadowed = Array.isArray(surfaceOp?.shadowedSeqs) ? seqs(surfaceOp.shadowedSeqs) : null;
+    if (shadowed && shadowed.length !== surfaceOp.shadowedSeqs.length) return [];
+    const sources = seqs(sourceEventSeqs);
+    return [{ ...event, seq,
+      ...(surfaceOp ? { surfaceOp: shadowed ? { ...surfaceOp, shadowedSeqs: shadowed } : surfaceOp } : {}),
+      ...(sources?.length ? { sourceEventSeqs: sources } : {}) }];
   });
 }
 
@@ -920,7 +927,7 @@ export class AgentRuntime {
         try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
-        const payload = { ...input, action: args.action, workspaceId: data.workspaceId };
+        const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
         if (["add_agent_assignment", "edit_agent_assignment"].includes(args.action))
           assertAgentHasTools({ ...input, name: input.name ?? input.agent });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);

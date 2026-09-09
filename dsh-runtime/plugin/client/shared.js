@@ -906,7 +906,6 @@ export const css = `
 .bees-row .bees-btn{flex:0 0 auto}
 .bees-row .bees-select.bees-grow{flex:1 1 140px}
 .bees-column,.bees-box,.bees-work-item-row,.bees-flex-widget,.bees-row-main{min-width:0;overflow-wrap:break-word}
-.bees-row-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
 .bees-content,.bees-flex-widget-body{min-width:0}
 .bees-content pre,.bees-flex-widget pre{max-width:100%;overflow:auto}
 .bees-form>*{min-width:0}

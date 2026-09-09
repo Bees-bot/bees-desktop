@@ -2,7 +2,7 @@ import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
 import { showAgentBrowser } from "./agent-browser.js";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import {
   agentCapabilities, agentIds as normalizeAgentIds, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
@@ -31,6 +31,14 @@ export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) 
 
 /** An agent with no server has no mcp__ tool at all, so it cannot read a file, open a page or call
  *  an API. A person may still choose that in the Agents screen; a model proposing it may not. */
+/** Bees keeps its runs, databases and workspaces here; a server bound to any of it reads a folder
+ *  that belongs to the machine, not to the person's work. */
+export function assertFolderOutsideBees(directory, root, label) {
+  const path = String(directory ?? "").trim();
+  if (path === root || path.startsWith(root + sep))
+    throw new Error(`${label} needs a folder the person named, not one inside Bees`);
+}
+
 export function assertAgentHasTools({ mcpAccess, mcpServers, name }) {
   if (mcpAccess === "none" || (mcpAccess === "listed" && !(mcpServers ?? []).length))
     throw new Error(`${name || "That agent"} would have no tool at all; list the servers its work needs, or all`);
@@ -835,9 +843,8 @@ export async function executeProductCommand(action, input) {
       });
     }
     if (action === "edit_agent_assignment") {
-      const id = input.agentAssignmentId ?? this.database.prepare(`
-        SELECT id FROM agent_assignments WHERE workspace_id = ? AND lower(name) = lower(?)
-      `).get(String(input.workspaceId ?? ""), String(input.agent ?? ""))?.id;
+      const id = input.agentAssignmentId
+        ?? proposalResource(this.database, required(input.workspaceId, "Workspace"), "agent", input.agent).id;
       const assignment = this.database.prepare(`
         SELECT workspace_id AS workspaceId, name, description, instructions, model, preset_id AS presetId,
                system_role AS systemRole, reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
@@ -846,6 +853,8 @@ export async function executeProductCommand(action, input) {
         FROM agent_assignments WHERE id = ?
       `).get(required(id, "Agent"));
       if (!assignment) throw new Error("Agent not found");
+      // A run editing the agent that reviews it could tell that reviewer to pass everything.
+      if (input.viaAgent && assignment.systemRole) throw new Error("A run cannot edit the agents Bees ships");
       workspaceContext(this.database, assignment.workspaceId, ["admin", "member"]);
       const presetId = input.presetId ?? assignment.presetId;
       if (this.agentPresets) {
@@ -1005,7 +1014,7 @@ export async function executeProductCommand(action, input) {
             `).get(proposal.workspaceId, String(change.name ?? ""));
             if (existing) { made.agent.set(String(change.name).toLocaleLowerCase(), existing.id); results[index] = { id: existing.id, reused: true }; continue; }
           }
-          if (change.action === "edit_agent_assignment") payload.agentAssignmentId = idOf("agent", change.agent);
+          if (change.action === "edit_agent_assignment") Object.assign(payload, { agentAssignmentId: idOf("agent", change.agent), viaAgent: true });
           // A catalog server that is already installed is reused; only the API bridge is meant to exist many times.
           if (change.action === "install_mcp_server" && !catalogEntry(change.catalogId)?.nameFrom) {
             const installed = this.database.prepare("SELECT id FROM mcp_servers WHERE catalog_id = ?").get(String(change.catalogId ?? ""));

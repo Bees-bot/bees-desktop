@@ -442,8 +442,9 @@ export class ProcessRuntime {
       try {
         if (!await this.claims.renew(claim)) await handle.cancel();
       } catch (error) {
-        // A failed request is our own connection, not proof another machine took the work, so the
-        // run keeps going: cancelling here threw away a waiting run when an account was signed out.
+        // A 4xx is the server saying this claim is not ours any more, so the work must stop. Any
+        // other failure is our own connection: cancelling on that threw away a waiting run.
+        if (error?.status >= 400 && error?.status < 500) await handle.cancel().catch(() => undefined);
         this.logger.warn?.(`bees: execution claim heartbeat failed: ${message(error)}`);
       } finally { renewing = false; }
     }, 20_000);

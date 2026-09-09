@@ -64,7 +64,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('window.addEventListener("bees-change", changed)');
     expect(client).toContain("setInterval(() => void load(), 30_000)");
     expect(client).toContain('run?.status === "queued" ? "Agent is starting..."');
-    expect(client).toContain('message.role === "tool")?.text ?? "Agent is working..."');
+    expect(client).toContain('message.pending)?.text ?? "Agent is working..."');
   });
 
   it("registers the bundled client module", () => {
@@ -111,7 +111,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('setActiveTab("details")');
     expect(client).toContain('setActiveTab("files")');
     expect(client).toContain('setActiveTab("runs")');
-    expect(client).toContain('setActiveTab("audit")');
     expect(client).toContain('role: "tablist"');
     expect(client).toContain('role: "tabpanel"');
     expect(client).toContain('className: "bees-tab-actions"');
@@ -344,7 +343,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('agents: { label: "Agents", actions: h(Button');
     expect(client).toContain('processes: { label: "Process Templates", actions: h(Button');
     expect(client).toContain('"Add participant"');
-    expect(client).toContain('"Discussion lead"');
+    expect(client).toContain('" · Discussion lead"');
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {

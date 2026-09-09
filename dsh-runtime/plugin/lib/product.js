@@ -13,7 +13,7 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { assertAgentHasTools, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { assertAgentHasTools, assertFolderOutsideBees, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
@@ -417,7 +417,7 @@ export class BeesProduct {
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
-             CASE WHEN e.status IN ('running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
+             CASE WHEN e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
@@ -729,7 +729,7 @@ export class BeesProduct {
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
         if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
-        if (String(change.directory ?? "").startsWith(this.defaultWorkspace + sep)) throw new Error(`${entry.label} needs directory: a folder the person named, not a Bees run folder`);
+        assertFolderOutsideBees(change.directory, this.defaultWorkspace, entry.label);
         const given = change.inputs ?? {};
         for (const field of entry.inputs)
           // A pasted curl command carries the base URL, so the bridge takes one or the other.
@@ -837,7 +837,11 @@ export class BeesProduct {
       return { title, description: String(item?.description ?? ""), agentId, existing };
     });
     return Promise.all(peers.map(async ({ title, description, agentId, existing }) => {
-      if (existing?.phase === "failed") await this.processes.signal(existing.id, "retry");
+      if (existing?.phase === "failed") {
+        this.database.prepare("UPDATE work_items SET description = ?, updated_at = ? WHERE id = ?")
+          .run(description, iso(), existing.id);
+        await this.processes.signal(existing.id, "retry").catch(() => undefined);
+      }
       return existing ?? this.command({
         action: "create_item", processId: parent.processId, parentId: parent.id,
         title, description,

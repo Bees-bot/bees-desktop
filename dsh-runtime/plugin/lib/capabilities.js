@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
+import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserStatePath, saveBrowserState } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
@@ -374,7 +375,7 @@ export class Capabilities {
     if (!entry) throw new Error("That catalog entry is unavailable");
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
-    if (directory === this.defaultWorkspace || directory.startsWith(this.defaultWorkspace + sep)) throw new Error(`${entry.label} needs a folder the person named, not one inside Bees`);
+    assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
     const secrets = {};
     for (const secret of [...entry.env, ...entry.headers]) {
       const value = String(input.secrets?.[secret.name] ?? "").trim();
