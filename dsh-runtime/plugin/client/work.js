@@ -667,6 +667,9 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
         onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
 }
 
+// Autofocus scrolled the widget to the box, so the question above it was out of view before you read it.
+const focusWithoutScroll = (element) => element?.focus({ preventScroll: true });
+
 export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
   const pending = wait;
   const questions = pending.questions ?? [];
@@ -745,7 +748,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           if (event.key === "Enter" && !event.nativeEvent?.isComposing) { event.preventDefault(); continueFlow(); }
         }
       }) : h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy, autoFocus: true,
+        className: "bees-textarea", value: draft.custom, disabled: busy, ref: focusWithoutScroll,
         placeholder: "Type your answer", onChange: custom,
         onKeyDown: (event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); continueFlow(); }
