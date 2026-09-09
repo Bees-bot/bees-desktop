@@ -15,6 +15,7 @@ import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
 import { assertAgentHasTools, assertFolderOutsideBees, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { agentBrowserRunning } from "./agent-browser.js";
 
 export { initializeProductDatabase };
 
@@ -475,7 +476,7 @@ export class BeesProduct {
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
-      presets, runs, proposals
+      presets, runs, proposals, agentBrowser: agentBrowserRunning()
     };
   }
 
