@@ -417,7 +417,7 @@ export class BeesProduct {
     const runs = workspaceIds.length ? this.database.prepare(`
       SELECT e.execution_id AS id, e.workspace_id AS workspaceId, e.work_item_id AS workItemId,
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
-             e.status, json_extract(e.config_json, '$.mode') AS mode,
+             CASE WHEN e.status IN ('running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
              e.run_directory AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
@@ -433,8 +433,9 @@ export class BeesProduct {
         ON starts.execution_id = e.execution_id
       LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
-      WHERE workspace_id IN (SELECT value FROM json_each(?))
-      ORDER BY updated_at DESC LIMIT 200
+      LEFT JOIN work_items i ON i.id = e.work_item_id
+      WHERE e.workspace_id IN (SELECT value FROM json_each(?)) AND (i.id IS NULL OR i.archived_at IS NULL AND i.deleted_at IS NULL)
+      ORDER BY e.updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => {
       const outputsDir = resolve(runDirectory, "outputs");
       return {
