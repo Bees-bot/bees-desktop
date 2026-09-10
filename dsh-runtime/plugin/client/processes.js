@@ -103,8 +103,8 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
           : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."),
     h("label", null, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
-    h("label", null, "Description", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
-      placeholder: "When should someone use this workflow?" })),
+    h("label", null, "Description & instructions", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
+      placeholder: "Describe this workflow, its instructions and completion criteria. Every assigned agent receives this brief." })),
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
     h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Assign two or more agents to make a discussion; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
@@ -186,7 +186,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       
       const editProcess = async () => {
         const name = await ask("Process template name", process.name); if (!name) return;
-        const description = await ask("Description", process.description) ?? process.description;
+        const description = await ask("Description & instructions", process.description, "textarea"); if (description === null) return;
         const current = data.stages.filter(({ processId }) => processId === process.id).map(({ name }) => name);
         const listed = await ask("Stages, comma separated", current.join(", ")); if (listed === null) return;
         const stages = listed.split(",").map((value) => value.trim()).filter(Boolean);
@@ -245,6 +245,10 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("summary", null, `Files & folders · ${attached.length} inputs`),
           h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
             owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "" })),
+        h("details", { className: "bees-box", style: { marginBottom: "16px" } },
+          h("summary", null, "Description & instructions"),
+          h("p", { className: "bees-muted" }, "Shared with workers, discussion participants and reviewers."),
+          h("div", { style: { whiteSpace: "pre-wrap" } }, process.description || "No process instructions configured.")),
         routingBoard
       );
 
