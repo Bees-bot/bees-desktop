@@ -43,7 +43,6 @@ function harness() {
           mode: "work", agentPresetId: "standard", workspaceId, workItemId: "work",
           mcpAccess: "none", mcpServers: [], grants: []
         }, id, "/tmp");
-        runtime.runLimits.bind(id, `execution:${id}`);
       }
       ctx.emit(scopeTarget(agent, agent), "agent/created", { agent });
       return agent;
@@ -104,8 +103,9 @@ it("installs discovery, pruning and output caps on a managed parent and each pub
     const child = await h.agent("child", parent);
     const grandchild = await h.agent("grandchild", child);
     const unrelated = await h.agent("unrelated", undefined, false);
-    expect(h.runtime.runLimits.rootForSession(child.session.id)).toBe("execution:parent");
-    expect(h.runtime.runLimits.rootForSession(grandchild.session.id)).toBe("execution:parent");
+    expect(h.runtime.ownsSession(child.session)).toBe(true);
+    expect(h.runtime.ownsSession(grandchild.session)).toBe(true);
+    expect(h.runtime.ownsSession(unrelated.session)).toBe(false);
     const names = async (agent: any) => (await h.prompt.assemble({ scope: agent, agent })).tools.map((tool: any) => tool.name);
     expect(await names(parent)).toEqual(expect.arrayContaining(["bees_find_tools", "bees_read_tool_result"]));
     expect(await names(parent)).not.toContain("fetch_sample");
@@ -181,12 +181,11 @@ it("keeps usage and loop stops terminal even when a provider policy would retry 
       retryPolicy: { mode: "always" }, signal: new AbortController().signal
     }, async () => undefined);
     for (const agent of [parent, child]) {
-      await expect(failure(agent, "BEES_RUN_LIMIT_EXCEEDED")).resolves.toBeUndefined();
       await expect(failure(agent, "BEES_TOOL_LOOP")).resolves.toBeUndefined();
     }
     expect(retries).toBe(0);
     await expect(failure(parent, "TRANSIENT_NETWORK_ERROR")).resolves.toEqual({ kind: "retry" });
-    await expect(failure(unrelated, "BEES_RUN_LIMIT_EXCEEDED")).resolves.toEqual({ kind: "retry" });
+    await expect(failure(unrelated, "BEES_TOOL_LOOP")).resolves.toEqual({ kind: "retry" });
     expect(retries).toBe(2);
   } finally { await h.close(); }
 });

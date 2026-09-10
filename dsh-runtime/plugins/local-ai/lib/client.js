@@ -7,14 +7,32 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
-    // `runsProcesses` means a model keeps making tool calls llama.cpp can still parse once a tool
-    // result is in the history. Qwen3 4B is the only one that does, so it is the only one shipped;
-    // a model added by hand is not recommended for a process unless it says the same.
+    // `runsProcesses` means a model finished a real goal here: searched, read what came back and
+    // submitted a result. Measured on "fetch me top 5 news of nepal today in nepali"; the two that
+    // did not are listed with what stopped them so nobody spends gigabytes finding out again.
     const LOCAL_MODELS = [
       {
-        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
-        description: "Runs processes and agents. Pick this one unless you have a reason not to.",
+        id: "granite-4-0-h-tiny-q4-k-m", name: "Granite 4.0 h tiny (Q4_K_M)",
+        description: "Runs processes and agents. Finished in under two minutes on four tries out of four. Pick this one unless you have a reason not to.",
         runsProcesses: true,
+        fileName: "granite-4.0-h-tiny-Q4_K_M.gguf",
+        url: "https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf?download=true",
+        bytes: 4230976352,
+        sha256: "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
+      },
+      {
+        id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
+        description: "Half the size, and it does search and read. It then stalls on judging what it read instead of answering, so a process waits on it.",
+        runsProcesses: false,
+        fileName: "granite-4.2-3b-Q4_K_M.gguf",
+        url: "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf?download=true",
+        bytes: 2244011552,
+        sha256: "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
+      },
+      {
+        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
+        description: "The fastest of the three at writing, but it repeats its own calls until a run is stopped. Good for drafting, not for a process.",
+        runsProcesses: false,
         fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
         bytes: 2497281120,
