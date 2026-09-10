@@ -209,7 +209,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   }, [item.id]);
   useEffect(() => {
     setHistoryError("");
-    if (!run) { setHistory(null); return; }
+    // The transcript lives with the session that produced it, and that is on the other device.
+    if (!run || run.ranElsewhere) { setHistory(null); return; }
     return pollConversation(run.id, {
       request,
       isVisible: () => document.visibilityState !== "hidden",
@@ -280,7 +281,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
         h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
   }
-  if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
+  if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
+    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+  else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
 
   const isWorking = ["queued", "running"].includes(run?.status) ||
     item.runtimePhase === "running" || (item.runtimePhase === "waiting" && !pendingRun);

@@ -445,6 +445,15 @@ export function initializeProductDatabase(database) {
       user_id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
     ) STRICT;
+    -- Runs that happened on someone else's device. Kept out of execution_links on purpose: the
+    -- runtime scans that table on boot and would try to recover a run it never started.
+    CREATE TABLE IF NOT EXISTS bees_remote_runs (
+      execution_id TEXT PRIMARY KEY, work_item_id TEXT, stage_id TEXT,
+      agent_assignment_id TEXT, agent_ids_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL, mode TEXT, reason TEXT, agent_revision TEXT,
+      outcome TEXT, summary TEXT, started_at TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_directory (
       user_id TEXT PRIMARY KEY, email TEXT NOT NULL
     ) STRICT;

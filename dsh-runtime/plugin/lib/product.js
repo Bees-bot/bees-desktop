@@ -447,6 +447,25 @@ export class BeesProduct {
           ? previewFiles(runDirectory) : []
       };
     }) : [];
+    // Runs from another device: no local session, no run directory, so no transcript and no files.
+    const elsewhere = workspaceIds.length ? this.database.prepare(`
+      SELECT r.execution_id AS id, p.workspace_id AS workspaceId, r.work_item_id AS workItemId,
+             r.status, r.mode, r.stage_id AS dispatchStageId,
+             r.agent_assignment_id AS resolvedAgentId, r.agent_ids_json AS resolvedAgentIds,
+             r.reason AS dispatchReason, r.agent_revision AS agentRevision,
+             r.outcome AS resultOutcome, r.summary AS resultSummary,
+             r.started_at AS startedAt, r.updated_at AS updatedAt, r.updated_at AS resultCreatedAt
+      FROM bees_remote_runs r
+      JOIN work_items i ON i.id = r.work_item_id
+      JOIN processes p ON p.id = i.process_id
+      WHERE p.workspace_id IN (SELECT value FROM json_each(?))
+        AND i.archived_at IS NULL AND i.deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM execution_links e WHERE e.execution_id = r.execution_id)
+      ORDER BY r.updated_at DESC LIMIT 200
+    `).all(JSON.stringify(workspaceIds)).map((run) => ({
+      ...run, resolvedAgentIds: JSON.parse(run.resolvedAgentIds || "[]"),
+      pendingInteraction: null, outputs: [], outputsPath: null, files: [], ranElsewhere: true
+    })) : [];
     const proposals = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, dsh_session_id AS sessionId, title, summary,
              changes_json AS changes, status, created_at AS createdAt
@@ -466,7 +485,9 @@ export class BeesProduct {
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
-      presets, runs, proposals, agentBrowser: agentBrowserRunning()
+      presets, runs: [...runs, ...elsewhere].sort((left, right) =>
+        String(right.updatedAt).localeCompare(String(left.updatedAt))),
+      proposals, agentBrowser: agentBrowserRunning()
     };
   }
 

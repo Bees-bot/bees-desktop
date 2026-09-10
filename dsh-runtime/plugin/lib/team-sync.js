@@ -2,7 +2,7 @@ import { normalizeRunSettings, stableUuid, transaction } from "./product-databas
 
 const TYPES = [
   "team_location", "agent", "team_process", "process_template",
-  "recurring_work", "team_work_item"
+  "recurring_work", "team_work_item", "team_run"
 ];
 const ORDER = new Map(TYPES.map((type, index) => [type, index]));
 
@@ -153,6 +153,31 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }, Boolean(row.deletedAt)));
+  // The agent runtime owns these tables and creates them when it starts. No runtime yet, no runs.
+  if (database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'execution_links'").get())
+  for (const row of database.prepare(`
+    SELECT e.execution_id AS id, w.team_id AS teamId, e.work_item_id AS workItemId, e.status,
+           json_extract(e.config_json, '$.mode') AS mode,
+           e.created_at AS createdAt, e.updated_at AS updatedAt,
+           d.stage_id AS stageId, d.agent_assignment_id AS agentId, d.agent_ids_json AS agentIds,
+           d.reason, d.agent_revision AS agentRevision, r.outcome, r.summary,
+           starts.startedAt
+    FROM execution_links e
+    JOIN workspaces w ON w.id = e.workspace_id JOIN teams t ON t.id = w.team_id
+    LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
+    LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
+    LEFT JOIN (SELECT execution_id, MIN(created_at) AS startedAt FROM dsh_audit_events
+               WHERE event_type = 'run-started' GROUP BY execution_id) starts
+      ON starts.execution_id = e.execution_id
+    WHERE t.organization_id = ?
+  `).all(organizationId)) records.push(record("team_run", row, {
+    teamId: row.teamId, workItemId: row.workItemId, stageId: row.stageId,
+    agentId: row.agentId, agentIds: json(row.agentIds), status: row.status,
+    mode: row.mode, reason: row.reason, agentRevision: row.agentRevision,
+    outcome: row.outcome, summary: row.summary, startedAt: timestamp(row.startedAt),
+    createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
+  }));
+
   // App definitions are published atomically with app state, not by the background LWW sync.
   const visible = records.filter((r) => includeAppDefinitions || !r.payload.appInstallationId || !['agent', 'team_process'].includes(r.recordType));
   if (!connectionId) return visible;
@@ -176,8 +201,8 @@ function workspaceFor(database, teamId, at) {
   return id;
 }
 
-function newer(database, table, id, version) {
-  const row = database.prepare(`SELECT updated_at AS updatedAt FROM ${table} WHERE id = ?`).get(id);
+function newer(database, table, id, version, key = "id") {
+  const row = database.prepare(`SELECT updated_at AS updatedAt FROM ${table} WHERE ${key} = ?`).get(id);
   return !row || version > versionOf(row.updatedAt);
 }
 
@@ -429,6 +454,22 @@ function applyItem(database, record) {
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
 }
 
+function applyRun(database, record) {
+  if (!newer(database, "bees_remote_runs", record.recordId, record.version, "execution_id")) return;
+  const p = record.payload;
+  database.prepare(`
+    INSERT INTO bees_remote_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(execution_id) DO UPDATE SET work_item_id = excluded.work_item_id,
+      stage_id = excluded.stage_id, agent_assignment_id = excluded.agent_assignment_id,
+      agent_ids_json = excluded.agent_ids_json, status = excluded.status, mode = excluded.mode,
+      reason = excluded.reason, agent_revision = excluded.agent_revision,
+      outcome = excluded.outcome, summary = excluded.summary, started_at = excluded.started_at,
+      updated_at = excluded.updated_at
+  `).run(record.recordId, p.workItemId, p.stageId, p.agentId, JSON.stringify(p.agentIds), p.status,
+    p.mode, p.reason, p.agentRevision, p.outcome, p.summary, p.startedAt,
+    p.createdAt, p.updatedAt);
+}
+
 export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
   // A deleted team publishes tombstones carrying only a teamId. Only work items have a local
   // delete path; feeding the rest to their apply functions throws and takes the whole batch down.
@@ -463,6 +504,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
       else if (entry.recordType === "team_work_item") applyItem(database, entry);
+      else if (entry.recordType === "team_run") applyRun(database, entry);
     });
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
       if (!entry.payload.parentId) continue;
