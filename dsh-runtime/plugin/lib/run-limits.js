@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 export const RUN_LIMIT_CODE = "BEES_RUN_LIMIT_EXCEEDED";
-export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 64, maxTokens: 250_000, reserveOutputTokens: 4096 });
+// Tokens are the real cost bound. A small local model answers in many short requests, so 64 of them
+// killed honest work long before the token budget was anywhere near spent.
+export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 250, maxTokens: 250_000, reserveOutputTokens: 4096 });
 
 const count = (value) => Number.isFinite(value) && value >= 0 ? Math.ceil(value) : 0;
 
@@ -121,7 +123,7 @@ export class RunLimits {
     if (!id) {
       yield { type: "finish", reason: { kind: "error", failure: {
         code: RUN_LIMIT_CODE,
-        message: `This workflow reached its shared usage limit (${this.limits.maxRequests} model requests or ${this.limits.maxTokens.toLocaleString("en-US")} processed tokens, including child agents and reviews). No further model request was sent.`,
+        message: `This workflow reached its shared usage limit (${this.limits.maxRequests} model requests or ${this.limits.maxTokens.toLocaleString("en-US")} processed tokens, including child agents and reviews). No further model request was sent. Split the outcome into smaller work items and run them separately.`,
       } } };
       return;
     }
