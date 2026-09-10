@@ -157,10 +157,12 @@ window.__ModuleLoader__.load({
       const models = useMemo(() => allModels(config), [config.localModels, config.removedLocalModelIds]);
       const [statuses, setStatuses] = useState({});
       const [hardware, setHardware] = useState(null);
+      const [hardwareError, setHardwareError] = useState("");
       useEffect(() => {
         let active = true;
-        if (window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware")
-          .then((value) => { if (active) setHardware(value); }, () => {});
+        if (window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware").then(
+          (value) => { if (active) setHardware(value); },
+          (reason) => { if (active) setHardwareError(String(reason?.message ?? reason)); });
         return () => { active = false; };
       }, []);
 
@@ -267,9 +269,10 @@ window.__ModuleLoader__.load({
           h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Local model setup"),
           h("p", { className: "bees-muted" }, hardware
             ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} currently available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
-            : "Hardware information is unavailable. Choose an installed model or review the model sizes below."),
+            : `Bees could not read this computer's memory${hardwareError ? `: ${hardwareError}` : ""}. Choose an installed model or review the sizes below.`),
           h("p", null, recommended ? "A conservative choice based on available memory and storage. Actual speed depends on your computer. Start it below, then select it as your system default."
-            : "We cannot recommend an agent model within the currently measured budget. You can free memory or storage, use an existing model, or connect another AI provider."),
+            : hardware ? "No shipped model fits the memory and storage free right now. Free some up, use a model you already have, or connect another AI provider."
+            : "Pick a model yourself from the list below, or connect another AI provider."),
           recommended ? h(Button, { className: "primary", disabled: Boolean(recommendedStatus?.running) || busy.some((key) => key.endsWith(`:${recommended.id}`)),
             onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
               : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
