@@ -14,7 +14,7 @@ afterEach(() => {
   configureRuntime((id: string) => id === "react" ? React : {});
 });
 
-it("loads organization invitations without waiting for SSO settings", async () => {
+it("loads members and invitations together without waiting for SSO settings", async () => {
   const states: unknown[] = [];
   const effects: Array<() => void> = [];
   let cursor = 0;
@@ -34,7 +34,7 @@ it("loads organization invitations without waiting for SSO settings", async () =
     return Response.json({ memberships: [], invitations: [] });
   }));
   const page = SettingsPage({
-    route: "organization-invitations", organizationId: "org", connectionId: "owner-connection",
+    route: "organization-members", organizationId: "org", connectionId: "owner-connection",
     data: { organizations: [{ id: "org", name: "Shared org", connected: true }], teams: [],
       connections: [{ id: "owner-connection", role: "owner" }] }
   });
@@ -81,7 +81,22 @@ it("renders role selectors for organization members and pending invitations", as
     const html = render();
     expect(html).toContain("owner@example.com");
     expect(html).toContain("member@example.com");
+    expect(html).toContain("invited@example.com");
     expect(html).toContain('class="bees-badge">owner</span>');
     expect(html).toContain('aria-label="Role for member@example.com"');
+    expect(html).toContain('aria-label="Role for invitation invited@example.com"');
   });
+});
+
+it("hides organization administration settings from members", () => {
+  const page = SettingsPage({
+    route: "organization-settings", organizationId: "org", connectionId: "member-connection",
+    data: { organizations: [{ id: "org", name: "Shared org", connected: true }], teams: [],
+      connections: [{ id: "member-connection", role: "member" }] }
+  });
+  const html = renderToStaticMarkup(page);
+  expect(html).toContain(">General</button>");
+  expect(html).not.toContain(">Members &amp; invitations</button>");
+  expect(html).not.toContain(">Authentication</button>");
+  expect(html).not.toContain(">Workspace</button>");
 });

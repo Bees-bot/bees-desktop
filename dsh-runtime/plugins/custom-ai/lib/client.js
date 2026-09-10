@@ -209,23 +209,23 @@ window.__ModuleLoader__.load({
             h(Button, { className: "primary", disabled: Boolean(busy) || !key.trim() || !model.trim(), onClick: add }, busy === `add:${chosen}` ? "Testing…" : "Add and test")) :
             h("p", { className: "bees-muted" }, "Choose a provider to configure it.")) : null,
         ids.length ? h("div", { className: "bees-general-table" }, h("table", null,
-          h("thead", null, h("tr", null, h("th", null, "Provider"), h("th", null, "Models"), h("th", null, "Details"), h("th", null, "Test"), h("th", null, "Enabled"), h("th", null, "Remove"))),
+          h("thead", null, h("tr", null, h("th", null, "Provider"), h("th", null, "Models"), h("th", null, "Test"), h("th", null, "Enabled"), h("th", null, "Remove"))),
           h("tbody", null, ...ids.map((id) => {
             const provider = BY_ID[id];
             const enabled = Boolean(config.providers?.[id]);
             const models = modelsFor(id);
             return h("tr", { key: id, "data-provider-id": id },
               h("td", null, h("strong", null, provider.name), h("div", { className: "bees-muted" }, provider.note),
-                h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${id}`, () => openExternal(provider.signup)) }, "Provider website")),
+                h("div", { className: "bees-general-actions" },
+                  h("span", { className: `bees-status ${credentialState[id] ? "bees-running" : ""}` }, credentialState[id] ? "API key saved" : "API key needed"),
+                  h(Button, { disabled: Boolean(busy), onClick: () => replaceKey(id) }, credentialState[id] ? "Replace" : "Add key"),
+                  h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${id}`, () => openExternal(provider.signup)) }, "Provider website"))),
               h("td", null, h("div", { className: "bees-general-models" },
                 ...(models.length ? models.map((entry) => h("span", { className: "bees-badge", key: entry.id }, entry.id,
                   h(Button, { title: models.length > 1 && protects(id, entry.id) ? defaultGuard : `Remove ${entry.id}`, "aria-label": `Remove ${entry.id}`,
                     disabled: Boolean(busy) || (models.length > 1 && protects(id, entry.id)), onClick: () => removeModel(id, entry.id) }, "×")))
                   : [h("span", { className: "bees-muted", key: "all" }, "All catalog models")]),
                 h(Button, { disabled: Boolean(busy), onClick: () => addModel(id) }, "Add model"))),
-              h("td", null, h("div", { className: "bees-general-actions" },
-                h("span", { className: `bees-status ${credentialState[id] ? "bees-running" : ""}` }, credentialState[id] ? "API key saved" : "API key needed"),
-                h(Button, { disabled: Boolean(busy), onClick: () => replaceKey(id) }, credentialState[id] ? "Replace" : "Add key"))),
               h("td", null, h("div", { className: "bees-general-actions" },
                 h(Button, { disabled: Boolean(busy) || !credentialState[id], onClick: () => test(id) }, busy === `test:${id}` ? "Testing…" : "Test"),
                 tests[id] ? h("span", { className: "bees-status bees-running" }, tests[id]) : null)),

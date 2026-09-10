@@ -411,6 +411,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
       const input = await body(req);
       if (["social_start", "sso_start"].includes(input.action)) input.callbackPort = req.socket.localPort;
       const result = await connected.command(input);
+      if (["accounts", "organization_people", "organization_sso", "team_people"].includes(input.action)) {
+        return reply(res, 200, result);
+      }
       await product.initialize();
       await processes.reconcile();
       reply(res, 200, result);

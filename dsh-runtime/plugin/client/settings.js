@@ -20,12 +20,12 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) 
       h("div", { className: "bees-card-actions" },
         ...[["local", "On this computer"], ["subscriptions", "Codex or Claude"], ["other", "Other providers"], ["", "Show all"]].map(([id, label]) =>
           h(Button, { key: id, className: focus === id ? "primary" : "", onClick: () => preferences.set("onboardingAiFocus", id) }, label)))) : null,
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }),
     (!focus || focus === "subscriptions") ? h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }) : null,
     (!focus || focus === "other") ? h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
     (!focus || focus === "local") ? h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }) : null,
     (!focus || focus === "other") ? h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }) : null,
-    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
-    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }));
+    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null);
 }
 
 function AppearanceSettings({ ctx, preferences }) {
@@ -163,22 +163,11 @@ export function AccountsPage({ reload }) {
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null));
 }
 
-function OrganizationsSettings({ reload, openOrganization }) {
+function OrganizationsSettings() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   useEffect(() => { collaboration().then(setData).catch((reason) =>
     setError(reason instanceof Error ? reason.message : String(reason))); }, []);
-  const accept = async (invitation) => {
-    setBusy(true);
-    try {
-      setData(await collaboration("accept_invitation", {
-        invitationId: invitation.id, accountUserId: invitation.accountUserId
-      }));
-      setError(""); await reload();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
   if (!data) return h(Empty, null, error || "Loading organizations…");
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, "Organizations"),
@@ -186,21 +175,8 @@ function OrganizationsSettings({ reload, openOrganization }) {
         className: "bees-row", key: organization.connectionId
       }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, organization.name),
-        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`)),
-      ["owner", "admin"].includes(organization.role) ? h(Button, {
-        onClick: () => openOrganization(organization)
-      }, "Invite members") : null))
+        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`))))
         : [h(Empty, { key: "empty" }, "No Regular organizations yet")])),
-    h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
-      ...(data.invitations.length ? data.invitations.map((invitation) => h("div", {
-        className: "bees-row", key: `${invitation.accountUserId}:${invitation.id}`
-      },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.organizationName),
-          h("div", { className: "bees-muted" },
-            [invitation.accountEmail, invitation.role, invitation.expiresAt ? `expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "no expiry date"].join(" · "))),
-        h(Button, { className: "primary", disabled: busy,
-          onClick: () => accept(invitation) }, "Accept")))
-        : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -264,7 +240,7 @@ function ConnectionsSettings() {
 }
 
 function OrganizationSettings({
-  organization, connectionId, reload, route, preferences, organizationColors = {}, teams = [], workspaces = []
+  organization, connectionId, reload, route, preferences, organizationColors = {}
 }) {
   const [people, setPeople] = useState(null);
   const [sso, setSso] = useState(null);
@@ -277,7 +253,7 @@ function OrganizationSettings({
     setSso(null);
     setError("");
     if (organization?.connected && ["owner", "admin"].includes(organization.role)) {
-      if (["organization-members", "organization-invitations"].includes(route)) {
+      if (route === "organization-members") {
         collaboration("organization_people", { organizationId: organization.id, connectionId })
           .then((nextPeople) => { if (active) setPeople(nextPeople); })
           .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
@@ -425,23 +401,8 @@ function OrganizationSettings({
     dangerZone,
     failure);
 
-  if (route === "organization-workspace") {
-    const organizationTeams = teams.filter((team) => team.organizationId === organization.id);
-    return h("div", { className: "bees-stack" },
-      h("section", { className: "bees-box" }, h("h3", null, "Team workspaces"),
-        h("p", { className: "bees-muted" },
-          "Current Bees gives every team one working area. Files and knowledge sources are managed from that team's navigation."),
-        ...(organizationTeams.length ? organizationTeams.map((team) => {
-          const workspace = workspaces.find((row) => row.teamId === team.id);
-          return h("div", { className: "bees-row", key: team.id },
-            h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, team.name),
-              h("div", { className: "bees-muted" }, workspace?.name || "No active workspace")));
-        }) : [h(Empty, { key: "empty" }, "This organization has no teams yet")])));
-  }
-
   if (!organization.connected) return message(
     route === "organization-members" ? "Private organizations do not have shared members."
-      : route === "organization-invitations" ? "Private organizations do not use member invitations."
       : "Enterprise authentication is only available to Regular organizations."
   );
   if (!["owner", "admin"].includes(organization.role)) return message(
@@ -467,13 +428,7 @@ function OrganizationSettings({
               h("option", { value: "member" }, "Member"),
               h("option", { value: "admin" }, "Admin"))))
           : [h(Empty, { key: "empty" }, "No organization members")])),
-      failure);
-  }
-
-  if (route === "organization-invitations") {
-    if (!people) return h(Empty, null, error || "Loading organization invitations…");
-    return h("div", { className: "bees-stack" },
-      h("section", { className: "bees-box" }, h("h3", null, "Invite organization member"),
+      h("section", { className: "bees-box" }, h("h3", null, "Invite member"),
         h("form", { className: "bees-form-row", onSubmit: invite },
           h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
           h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
@@ -549,6 +504,12 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     }
     return () => { active = false; };
   }, [team?.id, connectionId]);
+  const [adding, add] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
+    try { setPeople(await collaboration("add_team_member", { teamId: team?.id, connectionId,
+      userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  });
   if (!team) return h(Empty, null, "Choose a team");
   const deleteTeam = async () => {
     const name = await ask(
@@ -585,12 +546,6 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
   if (!people) return h("div", { className: "bees-stack" },
     h(Empty, null, error || "Loading team members…"), dangerZone);
-  const [adding, add] = useSubmit(async (event) => {
-    const form = new FormData(event.currentTarget);
-    try { setPeople(await collaboration("add_team_member", { teamId: team.id, connectionId,
-      userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  });
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, `${team.name} members`),
       ...people.members.map((member) => h("div", { className: "bees-row", key: member.id },
@@ -608,20 +563,17 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
 }
 
 const GLOBAL_SETTINGS = [
+  ["personal-ai", "AI connections"],
   ["appearance", "Appearance"],
   ["system-instructions", "System instructions"],
-  ["personal-ai", "AI connections"],
   ["organizations", "Organizations"],
   ["connections", "Connections"]
 ];
 
 const ORGANIZATION_SETTINGS = [
   ["organization-settings", "General"],
-  ["organization-members", "Members"],
-  ["organization-invitations", "Invitations"],
-  ["organization-ai", "Connect AI"],
-  ["organization-workspace", "Workspace"],
-  ["organization-authentication", "Authentication"]
+  ["organization-members", "Members & invitations", ["owner", "admin"]],
+  ["organization-authentication", "Authentication", ["owner"]]
 ];
 
 function SettingsLayout({ route, navigate, organization, children }) {
@@ -632,8 +584,10 @@ function SettingsLayout({ route, navigate, organization, children }) {
         className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
         onClick: () => navigate(id) }, label)),
       organization ? h(React.Fragment, null,
+        h("hr", { className: "bees-settings-divider" }),
         h("div", { className: "bees-settings-menu-label", title: organization.name }, organization.name),
-        ...ORGANIZATION_SETTINGS.map(([id, label]) => h("button", { type: "button", key: id,
+        ...ORGANIZATION_SETTINGS.filter(([, , roles]) => !roles || organization.connected && roles.includes(organization.role))
+          .map(([id, label]) => h("button", { type: "button", key: id,
           className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
           onClick: () => navigate(id) }, label))) : null),
     h("section", { className: "bees-settings-content" }, children));
@@ -660,18 +614,12 @@ export function SettingsPage({
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
-    : route === "organizations" ? h(OrganizationsSettings, { reload, openOrganization })
+    : route === "organizations" ? h(OrganizationsSettings)
     : route === "connections" ? h(ConnectionsSettings)
-    : route === "organization-ai" ? h("div", { className: "bees-stack" },
-      h("section", { className: "bees-callout" }, h("strong", null, "AI for this organization"),
-        h("p", { className: "bees-muted" },
-          "AI connections are currently stored on this device and can be used by every organization. Organization-specific credentials are not yet supported.")),
-      h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload }))
     : ORGANIZATION_SETTINGS.some(([id]) => id === route)
       ? h(OrganizationSettings, {
         organization, connectionId, reload, route, preferences,
-        organizationColors: preference.organizationColors ?? {}, teams: data.teams,
-        workspaces: data.workspaces ?? []
+        organizationColors: preference.organizationColors ?? {}
       })
       : h(Empty, null, "Choose a settings section");
   return h(SettingsLayout, { route, navigate, organization }, content);
