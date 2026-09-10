@@ -137,13 +137,14 @@ export class RunLimits {
         yield chunk;
       }
     } finally {
-      // A provider that reports no usage still spent its estimate; one that never answered spent nothing.
+      // A provider that reports no usage still spent its estimate; one that never answered spent no
+      // tokens, but it keeps its request slot so a stream that dies every time cannot retry for ever.
       // ponytail: estimated admission may undershoot provider tokenization; actual overages block the next request.
       if (observed !== null) this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = ? WHERE id = ?")
         .run(finished ? observed : Math.max(reservation, observed), id);
       else if (finished) this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = ? WHERE id = ?")
         .run(reservation, id);
-      else this.database.prepare("DELETE FROM bees_run_limit_requests WHERE id = ?").run(id);
+      else this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = 0 WHERE id = ?").run(id);
     }
   }
 }

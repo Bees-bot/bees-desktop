@@ -6,7 +6,8 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
   "ask_user_question", "bees_request_work_review",
-  "web_search", "web_fetch", "bees_fetch_page", "read", "write"
+  "web_search", "web_fetch", "bees_fetch_page", "read", "write",
+  "bees_control", "bees_publish_outputs"
 ]);
 const HIDDEN_TOOLS = new Set(["subagent", "subagent_fork"]);
 const PAGE_SIZE = 4;
@@ -21,11 +22,8 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    // DeepSeek search is the only backend, and without its key every call errors.
-    const searchable = Boolean(process.env.DEEPSEEK_API_KEY);
     return { ...assembly, tools: assembly.tools.filter(({ name }) =>
-      !HIDDEN_TOOLS.has(name) && (searchable || name !== "web_search")
-      && (BASE_TOOLS.has(name) || loaded.has(name))) };
+      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name))) };
   });
   agentCtx.tools.register(defineTool({
     name: "bees_find_tools",

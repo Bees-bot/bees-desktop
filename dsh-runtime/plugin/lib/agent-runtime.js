@@ -179,12 +179,6 @@ function toolCallCounts(events) {
   return counts;
 }
 
-/** Calling these proves nothing was looked up: they end the stage or talk to the person. */
-const NO_EVIDENCE_TOOLS = new Set([
-  "bees_submit_stage_result", "bees_request_work_review", "ask_user_question",
-  "bees_find_tools", "bees_read_tool_result"
-]);
-
 const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
@@ -671,8 +665,9 @@ export class AgentRuntime {
     const rows = this.database.prepare(`
       SELECT error_json AS errorJson FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at DESC LIMIT 3
     `).all(executionId);
-    return rows.length === 3 && rows.every(({ errorJson }) =>
-      errorJson && JSON.parse(errorJson).code === "TRANSPORT");
+    return rows.length === 3 && rows.every(({ errorJson }) => {
+      try { return JSON.parse(errorJson ?? "").code === "TRANSPORT"; } catch { return false; }
+    });
   }
 
   needsRecovery(executionId) {
@@ -1231,28 +1226,13 @@ export class AgentRuntime {
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
         // A small model will happily report a file it never wrote, and review then judges a fiction.
-        // It gets one chance to actually write it; after that the claim is corrected, not believed.
         const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
-          .map(([path]) => path).filter((path) => !existsSync(resolve(workspace, path))) : [];
-        if (missing.length) {
-          const told = this.database.prepare(`SELECT 1 FROM dsh_audit_events
-            WHERE execution_id = ? AND event_type = 'missing-output-claim' LIMIT 1`).get(executionId);
-          if (!told) {
-            this.audit("missing-output-claim", executionId, String(exec.agent?.session.id ?? ""), { missing });
-            throw new Error(`${missing[0]} is not there. Write the file you named, or drop the claim and put the answer in the summary.`);
-          }
-          result.summary = `${result.summary}\n\nNo file was written for ${missing.join(", ")}; this summary is the deliverable.`;
-        }
+          .map(([path]) => path.replace(/[.,;:]+$/, ""))
+          .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
+        if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
-        // A stage that called nothing cannot have checked anything. Say so, so review judges the
-        // claim rather than the confidence: a small model states today's news it never fetched.
-        const events = exec.agent?.session.snapshotEvents?.();
-        const used = events && Object.keys(toolCallCounts(events))
-          .filter((name) => !NO_EVIDENCE_TOOLS.has(name));
-        if (used && !used.length && args.outcome === "candidate")
-          result.summary = `${result.summary}\n\nNo tool was used in this stage, so everything above is written from the model's own knowledge.`;
         const prior = this.database.prepare(`
           SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
         `).get(executionId);
@@ -1826,7 +1806,7 @@ export class AgentRuntime {
       const failure = submission?.errorJson ? JSON.parse(submission.errorJson) : null;
       if (failure && !providerBadTurn(failure)) throw new Error(failure.message);
       if (failure && this.unreachableProvider(executionId))
-        throw new Error(`${failure.message} The model provider was unreachable three times; check that it is running.`);
+        throw new Error(`${failure.message} The model provider failed three times in a row; check that it is running and reachable.`);
       const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
       submission = await this.admit("bees-run", executionId, {
         ...payload,
