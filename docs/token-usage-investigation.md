@@ -183,26 +183,16 @@ deduplication.
 - **Text answers need no intermediate files.** Their complete answer goes into
   the stage-result summary and directly into the reviewer's brief. Requested
   file deliverables and publication requirements still apply.
-- **Runaway use has a durable shared ceiling.** A root work item, its children,
-  discussion participants, reviews, recovery sessions and provider retries share
-  a SQLite admission ledger: 64 model requests or 250,000 processed tokens.
-  Planning sessions without a work item have their own shared execution budget.
-  Compaction calls carrying that session identity are included. Cached tokens
-  count because the metric is processed tokens, not billing. Concurrent requests
-  reserve allowance atomically; completed provider usage settles each receipt
-  once, and missing usage retains the reservation. Preflight estimates use text
-  bytes plus an image allowance and may stop early; provider usage can exceed an
-  estimate, in which case subsequent requests are blocked. These are runaway
-  ceilings, **not** the desired cost of a trivial task.
 - **Repeated failures terminate.** Three identical failed tool calls stop the
-  run; a successful tool or new human input resets this detector. Internal
-  context notices do not. Budget refusals bypass even an `always` provider retry
-  policy and are not retried by the stage driver. Normal agent responses have a
+  run, as does the same call returning the same answer three times; a successful
+  tool or new human input resets this detector. Internal context notices do not.
+  A loop stop bypasses even an `always` provider retry policy and is not retried
+  by the stage driver. Normal agent responses have a
   4,096-token output cap (a lower configured cap is preserved); long answers and
   reasoning-heavy calls can therefore be truncated.
 
-The constants live in `context-policy.js`, `tool-discovery.js`, and
-`run-limits.js`; there is no new settings UI. Saved agent instructions, skill
+The constants live in `context-policy.js` and `tool-discovery.js`; there is no
+new settings UI. Saved agent instructions, skill
 catalogs, and explicitly configured discussion/review stages remain. Tracked
 children still run their process lifecycle. Thus a universal 1,000-token
 workflow or 100-fold **end-to-end** improvement has not been established.

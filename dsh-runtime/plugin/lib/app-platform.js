@@ -45,8 +45,6 @@ export class AppPlatform {
         max_runs INTEGER NOT NULL DEFAULT 5);
       CREATE TABLE IF NOT EXISTS app_admissions (
         item_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL, day TEXT NOT NULL, config TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS app_process_owners (
-        process_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS app_suppressions (
         workspace_id TEXT NOT NULL, destination TEXT NOT NULL, PRIMARY KEY(workspace_id, destination));
     `);

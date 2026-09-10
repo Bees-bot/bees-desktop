@@ -7,47 +7,36 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
-    // `runsProcesses` means a model keeps making tool calls llama.cpp can still parse once a tool
-    // result is in the history. Only Qwen3 4B has been run that far; the rest say what stops them.
-    // The point is that nobody aims a process at a chat-only model and gets a silent no-op.
+    // `runsProcesses` means a model finished a real goal here: searched, read what came back and
+    // submitted a result. Measured on "fetch me top 5 news of nepal today in nepali"; the two that
+    // did not are listed with what stopped them so nobody spends gigabytes finding out again.
     const LOCAL_MODELS = [
       {
-        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
-        description: "Runs processes and agents. Pick this one unless you have a reason not to.",
+        id: "granite-4-0-h-tiny-q4-k-m", name: "Granite 4.0 h tiny (Q4_K_M)",
+        description: "Runs processes and agents. Finished in under two minutes on four tries out of four. Pick this one unless you have a reason not to.",
         runsProcesses: true,
+        fileName: "granite-4.0-h-tiny-Q4_K_M.gguf",
+        url: "https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf?download=true",
+        bytes: 4230976352,
+        sha256: "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
+      },
+      {
+        id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
+        description: "Half the size, and it does search and read. It then stalls on judging what it read instead of answering, so a process waits on it.",
+        runsProcesses: false,
+        fileName: "granite-4.2-3b-Q4_K_M.gguf",
+        url: "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf?download=true",
+        bytes: 2244011552,
+        sha256: "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
+      },
+      {
+        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
+        description: "The fastest of the three at writing, but it repeats its own calls until a run is stopped. Good for drafting, not for a process.",
+        runsProcesses: false,
         fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
         bytes: 2497281120,
         sha256: "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
-      },
-      {
-        id: "nanbeige-4-2-3b-q6-k", name: "Nanbeige 4.2 3B (Q6_K)",
-        description: "Chat only. It answers well, but it changes tool-call format part way through a "
-          + "run, so agents stop doing anything without saying why.",
-        runsProcesses: false,
-        fileName: "Nanbeige4.2-3B-Q6_K.gguf",
-        url: "https://huggingface.co/owao/Nanbeige4.2-3B-GGUF/resolve/main/Nanbeige4.2-3B-Q6_K.gguf?download=true",
-        bytes: 3424947040,
-        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df"
-      },
-      {
-        id: "gemma-4-e2b-it-qat-q4-0", name: "Gemma 4 E2B (Q4_0)",
-        description: "Chat only. Its own prompt template rejects the messages Bees sends.",
-        runsProcesses: false,
-        fileName: "gemma-4-E2B_q4_0-it.gguf",
-        url: "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/gemma-4-E2B_q4_0-it.gguf?download=true",
-        bytes: 3349516256,
-        sha256: "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634"
-      },
-      {
-        id: "qwen3-0-6b-q8-0", name: "Qwen3 0.6B (Q8_0)",
-        description: "Chat only, and small enough to feel it. Too little room to hold a process "
-          + "together across steps.",
-        runsProcesses: false,
-        fileName: "Qwen3-0.6B-Q8_0.gguf",
-        url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true",
-        bytes: 639446688,
-        sha256: "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
       }
     ];
     const DEFAULT_LOCAL_MODEL = LOCAL_MODELS[0];
