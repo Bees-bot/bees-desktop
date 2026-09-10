@@ -183,13 +183,19 @@ deduplication.
 - **Text answers need no intermediate files.** Their complete answer goes into
   the stage-result summary and directly into the reviewer's brief. Requested
   file deliverables and publication requirements still apply.
-- **Repeated failures terminate.** Three identical failed tool calls stop the
-  run, as does the same call returning the same answer three times; a successful
-  tool or new human input resets this detector. Internal context notices do not.
-  A loop stop bypasses even an `always` provider retry policy and is not retried
-  by the stage driver. Normal agent responses have a
-  4,096-token output cap (a lower configured cap is preserved); long answers and
-  reasoning-heavy calls can therefore be truncated.
+- **Team waiting is event-driven.** Bees supplies a compact live team roster.
+  Managed agents use `bees_wait_for_team` for a pending wait that wakes on a
+  teammate message or status change. `list_agents` and `wait_agent` are hidden
+  from discovery so agents do not spend model requests polling for status.
+  When no teammate can make progress, the wait returns that state immediately.
+- **Model work has no Bees token budget, request/step cap, output cap, or repeated-call cutoff.** Successful rereads
+  and model-chosen retries of failed tools can continue. Provider request retries
+  retain the provider policy. Bees does not automatically resubmit ended agent
+  turns, retry failed stage activities, or restart failed runs on launch. A failed
+  stage waits for an explicit retry, whose stable ID prevents duplicate attempts.
+  Web fetch errors also return to the model without a Bees redirect retry.
+  Model requests preserve the provider's or caller's output settings, including
+  leaving the output limit unset. The same behavior applies to child agents.
 
 The constants live in `context-policy.js` and `tool-discovery.js`; there is no
 new settings UI. Saved agent instructions, skill
@@ -197,15 +203,22 @@ catalogs, and explicitly configured discussion/review stages remain. Tracked
 children still run their process lifecycle. Thus a universal 1,000-token
 workflow or 100-fold **end-to-end** improvement has not been established.
 
-Validation: desktop `npm run check` passed all 233 Vitest tests, both release
-checks, TypeScript, and the production build. Real DSH scope/session tests cover
-parent/child/grandchild policies, independent tool selection, error-loop stops,
-retry-policy bypass prevention, durable flushing, full-result recall, and
+Original implementation validation: desktop `npm run check` passed all 233
+Vitest tests, both release checks, TypeScript, and the production build. Real DSH scope/session tests cover
+parent/child/grandchild policies, independent tool selection, durable flushing,
+full-result recall, and
 recovery after event positions change. A synthetic 29-request replay with four
 roughly 52 KB feeds reduced estimated cumulative **tool-result history** from
 1,514,965 to 23,993 tokens: **98.42% less**. This excludes fixed prompts, schemas,
 new model output, and any extra recall calls; it is not a paid model benchmark
 or a measured total-workflow saving.
+
+September 10 retry/coordination validation: 249 Vitest tests pass. Four existing
+file-index/search tests fail in `dsh-document-extractor.test.ts` and
+`dsh-product.test.ts`; these also fail on the unchanged baseline. Release checks,
+TypeScript, and a separate production build pass. Regression tests cover
+more than 100 model steps, model-directed tool retries, provider retry policy,
+failed-stage waiting, explicit retry idempotency, and event-driven team waits.
 
 The local runtime plugin is staged for the next development-app launch. The
 active app has not been restarted; packaged releases need rebuilding to include

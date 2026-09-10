@@ -1,8 +1,81 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { NodeDatabase } from "./node-database.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("DSH stage results", () => {
+  it("hands the parent the actual child result and resolves only evidence belonging to its task tree", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bees-parent-evidence-"));
+    const database = new NodeDatabase();
+    const runtime: any = new AgentRuntime({ on: () => () => undefined,
+      tools: { schemas: () => [] }, agentPresets: { mount: async () => undefined } }, database.connection);
+    try {
+      const stage = database.connection.prepare(`SELECT s.id AS stageId, s.process_id AS processId,
+        p.workspace_id AS workspaceId FROM stages s JOIN processes p ON p.id = s.process_id
+        WHERE p.kind = 'goals' AND s.driver = 'agent'`).get() as { stageId: string; processId: string; workspaceId: string };
+      for (const [id, parent] of [["parent", null], ["child", "parent"], ["unrelated", null]] as const)
+        database.connection.prepare(`INSERT INTO work_items
+          (id, parent_id, process_id, stage_id, title, runtime_phase, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'completed', '2026-01-01', '2026-01-02')
+        `).run(id, parent, stage.processId, stage.stageId, id);
+      mkdirSync(join(directory, "outputs"));
+      writeFileSync(join(directory, "outputs/yahoo-news.md"), "Yahoo story");
+      writeFileSync(join(directory, "outputs/other-child.md"), "Sibling file");
+      database.connection.prepare(`INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+        VALUES ('child-run', ?, 'child', 'worker', 'child-session', 'uid', ?, '{}', 'completed', '2026-01-01', '2026-01-02')
+      `).run(stage.workspaceId, directory);
+      const summary = "Wrote outputs/yahoo-news.md. Publication dates available in the Yahoo RSS; article pages have limited text.";
+      database.connection.prepare("INSERT INTO bees_stage_results VALUES ('child-run', 'worker', 'candidate', ?, '2026-01-02')").run(summary);
+      const evidenceText = "Lyft: published 2026-09-10T17:13:16Z, https://finance.yahoo.com/story";
+      const events = [
+        { type: "tool/call", data: { callId: "rss", name: "bees_fetch_page", arguments: '{"url":"https://finance.yahoo.com/rss/"}' } },
+        { type: "tool/result", data: { message: { source: { callId: "rss" }, content: [{
+          type: "tool-result", content: [{ type: "text", text: evidenceText }]
+        }] } } }
+      ];
+      runtime.sessionEvents = vi.fn(async () => events);
+      const [result] = await runtime.waitForPeers(["child"]);
+      expect(result).toMatchObject({ status: "completed", summary, artifacts: ["outputs/yahoo-news.md"],
+        evidence: [{ session_id: "child-session", call_id: "rss", tool: "bees_fetch_page" }] });
+      const tools: any[] = [];
+      await runtime.setup({ systemPrompt: { section: () => undefined },
+        tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined } }, {
+        mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
+        workItemId: "parent", workspaceId: stage.workspaceId, grants: []
+      }, "parent-run", directory);
+      const read = tools.find(({ name }) => name === "bees_read_work_evidence");
+      const page = await read.execute({ work_item_id: "child", session_id: "child-session", call_id: "rss" });
+      expect(JSON.parse(page.result_json).text).toBe(evidenceText);
+      await expect(read.execute({ work_item_id: "unrelated" })).rejects.toThrow("direct children only");
+      await expect(read.execute({ work_item_id: "child", session_id: "foreign-session", call_id: "rss" })).rejects.toThrow("session and call reference");
+      await expect(read.execute({ work_item_id: "child", session_id: "child-session", call_id: "missing" })).rejects.toThrow("this session");
+      const revise = vi.fn(async () => ({ id: "child" }));
+      runtime.setSubitemStore({ revise, cancel: vi.fn() });
+      const correction = tools.find(({ name }) => name === "bees_revise_work");
+      const signal = new AbortController().signal;
+      const revised = await correction.execute({ work_item_id: "child", feedback: "Add the RSS date already retrieved" }, {
+        callId: "fix-call", signal, agent: { session: { id: "parent-session", header: {} } }
+      });
+      expect(revise).toHaveBeenCalledWith({ parentId: "parent", workItemId: "child",
+        feedback: "Add the RSS date already retrieved", requestId: "parent-run:fix-call", signal });
+      expect(JSON.parse(revised.result_json).summary).toBe(summary);
+      runtime.sessionEvents.mockResolvedValue(Array.from({ length: 45 }, (_, index) => [
+        { ...events[0], data: { ...events[0]!.data, callId: `source-${index}` } },
+        { ...events[1], data: { message: { ...events[1]!.data.message, source: { callId: `source-${index}` } } } }
+      ]).flat());
+      const first = JSON.parse((await read.execute({ work_item_id: "child" })).result_json);
+      const last = JSON.parse((await read.execute({ work_item_id: "child", evidence_offset: first.next_evidence_offset })).result_json);
+      expect(first.evidence).toHaveLength(40);
+      expect(last.evidence).toHaveLength(5);
+      expect(last.next_evidence_offset).toBeNull();
+      expect(new Set([...first.evidence, ...last.evidence].map(({ call_id }: any) => call_id)).size).toBe(45);
+    } finally { database.connection.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("concludes the turn only after accepting a durable result", async () => {
     const database = new NodeDatabase();
     const requestReview = vi.fn();

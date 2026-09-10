@@ -1,8 +1,21 @@
+import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error Client modules are plain JavaScript.
-import { connectionIdForScope, defaultOrgColor, nextThemePreset, THEME_PRESETS } from "../dsh-runtime/plugin/client/shared.js";
+import { accountLabel, connectionIdForScope, defaultOrgColor, isDone, isScheduleDefinition, nextThemePreset, THEME_PRESETS, workItemStatus } from "../dsh-runtime/plugin/client/shared.js";
 import { clientBundle, clientSource as client } from "./client-source.js";
+
+const workSource = readFileSync(new URL("../dsh-runtime/plugin/client/work.js", import.meta.url), "utf8");
+const workUi = (context: Record<string, any> = {}) => new Script(
+  workSource.slice(workSource.indexOf("function WorkItemControls("), workSource.indexOf("function AgentInteractionPanel(")) +
+  workSource.slice(workSource.indexOf("export function WorkPage(")).replace("export function", "function") +
+  "; ({ WorkPage, WorkItemControls })"
+).runInNewContext({
+  h: (tag: any, props: any, ...children: any[]) => ({ tag, props, children }),
+  React: { Fragment: "fragment" }, Button: "button", Empty: "empty", GridStackPage: "grid", WORK_PAGE_LAYOUT: [],
+  useState: (initial: any) => [initial, () => {}], useEffect: () => {}, accountLabel,
+  isDone, isScheduleDefinition, workItemStatus, ...context
+});
 
 describe("Bees work cockpit UI", () => {
   it("switches directly from a connected organization to a private one", () => {
@@ -170,14 +183,167 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');
     expect(client).toContain("const listedItemIds = new Set(records.map(({ id }) => id));");
-    expect(client).toContain("function NeedsYouControls");
-    expect(client).toContain('h(NeedsYouControls, { item, act, onDone: onControlled })');
+    expect(client).toContain("function WorkItemControls");
+    expect(client).toContain('h(WorkItemControls, { item, act, onDone: onControlled })');
     expect(client).toContain('busy === "retry_item" ? "Retrying…" : "Retry"');
     expect(client).toContain('act({ action: "retry_item", itemId: item.id })');
     expect(client).not.toContain('action: "retry_run"');
     expect(client).toContain('busy === "cancel_item" ? "Stopping…" : "Stop"');
     expect(client).toContain('busy === "archive_item" ? "Archiving…" : "Archive"');
     expect(client).not.toContain("The prior request was interrupted");
+  });
+
+  it("adds type and separate actions to Active work while preserving the other lists", async () => {
+    const { WorkPage, WorkItemControls } = workUi();
+    const setWorkItemId = vi.fn();
+    const act = vi.fn().mockResolvedValue({});
+    const items = [
+      { id: "run", kind: "run", runtimePhase: "running" },
+      { id: "work", kind: "work", runtimePhase: "failed" },
+      { id: "goal", kind: "goal", runtimePhase: "waiting" },
+      { id: "finished", kind: "work", runtimePhase: "completed" },
+      { id: "schedule", kind: "work", recurringWorkId: "recurring" }
+    ].map((item) => ({ title: item.id, processId: "process", ...item }));
+    const props = { route: "all-work", workspaceIds: ["workspace"], setWorkItemId, act,
+      data: { items, stages: [], processes: [{ id: "process", workspaceId: "workspace", name: "Template" }] } };
+    const panels = WorkPage(props).children[1].props.panels;
+    const table = panels["active-work"].content;
+    expect(table.tag).toBe("table");
+    expect(table.props["aria-label"]).toBe("Active work");
+    expect(table.children[0].children[0].children.map((cell: any) => [cell.props.scope, ...cell.children]))
+      .toEqual([["col", "Work"], ["col", "Type"], ["col", "Owner"], ["col", "Status"], ["col", "Actions"]]);
+    const rows = table.children[1].children;
+    expect(rows.map((row: any) => row.children[1].children[0])).toEqual(["Process", "Work item", "Work item"]);
+    expect(rows.map((row: any) => row.children[3].children[0].children[0])).toEqual(["running", "failed", "waiting"]);
+    const row = rows[0];
+    expect(row.props.onClick).toBeUndefined();
+    row.children[0].children[0].props.onClick();
+    expect(setWorkItemId).toHaveBeenCalledExactlyOnceWith("run");
+    expect(act).not.toHaveBeenCalled();
+    const group = row.children[4].children[0];
+    expect(group.props).toMatchObject({ role: "group", "aria-label": "Actions for run" });
+    const controls = group.children[0];
+    expect(controls.tag).toBe(WorkItemControls);
+    expect(controls.props.showUnavailable).toBe(true);
+    await WorkItemControls(controls.props).children[1].props.onClick();
+    expect(act).toHaveBeenCalledExactlyOnceWith({ action: "cancel_item", itemId: "run" });
+    expect(setWorkItemId).toHaveBeenCalledTimes(1);
+    expect(panels["finished-work"].content.map((entry: any) => [entry.tag, entry.props.key, entry.children.length]))
+      .toEqual([["button", "finished", 2]]);
+    const schedules = WorkPage({ ...props, route: "schedules" }).children[1].props.panels["active-work"].content;
+    expect(schedules.map((entry: any) => [entry.tag, entry.props.key, entry.children.length]))
+      .toEqual([["button", "schedule", 2]]);
+    const empty = WorkPage({ ...props, data: { ...props.data, items: [] } }).children[1].props.panels["active-work"].content;
+    expect(empty).toMatchObject({ tag: "empty", children: ["No active work matches these filters"] });
+  });
+
+  it("labels owners and filters by identity alongside search, status, and type", () => {
+    const states: any[] = [];
+    let cursor = 0;
+    const { WorkPage } = workUi({ useState: (initial: any) => {
+      const index = cursor++;
+      states[index] ??= initial;
+      return [states[index], (value: any) => { states[index] = value; }];
+    } });
+    const items = [
+      { id: "alice-run", accountUserId: "alice", kind: "run", runtimePhase: "failed" },
+      { id: "alice-work", accountUserId: "alice", runtimePhase: "failed" },
+      { id: "alice-waiting", accountUserId: "alice", runtimePhase: "waiting" },
+      { id: "alice-other", accountUserId: "alice", title: "Other", runtimePhase: "failed" },
+      { id: "other-alice", accountUserId: "alice-twin", runtimePhase: "failed" },
+      { id: "bob", accountUserId: "bob" },
+      { id: "unlisted", accountUserId: "user-unlisted" },
+      { id: "unknown", owner: "Unverified text" },
+      { id: "outside", accountUserId: "outside", processId: "other-process" }
+    ].map((item) => ({ title: "Report", processId: "process", kind: "work", ...item }));
+    const props = { route: "all-work", workspaceIds: ["workspace"], workspaceId: "workspace",
+      data: { items, stages: [], processes: [{ id: "process", workspaceId: "workspace" }],
+        connections: [{ accountUserId: "alice", accountName: "Alice" }, { accountUserId: "alice-twin", accountName: "Alice" }],
+        directory: [{ accountUserId: "bob", email: "bob@example.com" }] } };
+    const render = () => { cursor = 0; return WorkPage(props); };
+    const control = (label: string) => render().children[0].children.find((entry: any) => entry?.props?.["aria-label"] === label);
+    const change = (label: string, value: string) => control(label).props.onChange({ target: { value } });
+    const rows = () => render().children[1].props.panels["active-work"].content.children[1].children;
+    const rowIds = () => rows().map((row: any) => row.props.key);
+    const options = control("Filter by owner").children;
+    expect(Object.fromEntries(options.map((option: any) => [option.props.value, option.children[0]]))).toEqual({
+      all: "All owners", alice: "Alice", "alice-twin": "Alice", bob: "bob@example.com",
+      "user-unlisted": "user-unlisted", "": "Unknown owner"
+    });
+    expect(options).toHaveLength(6);
+    const labels = options.slice(1).map((option: any) => option.children[0]);
+    expect(labels).toEqual([...labels].sort((left, right) => left.localeCompare(right)));
+    expect(rows().map((row: any) => [row.props.key, row.children[2].children[0].children[0]])).toEqual([
+      ["alice-run", "Alice"], ["alice-work", "Alice"], ["alice-waiting", "Alice"], ["alice-other", "Alice"],
+      ["other-alice", "Alice"], ["bob", "bob@example.com"], ["unlisted", "user-unlisted"], ["unknown", "Unknown owner"]
+    ]);
+    change("Filter by owner", "alice");
+    expect(rowIds()).toEqual(["alice-run", "alice-work", "alice-waiting", "alice-other"]);
+    change("Search work items by task name", " report ");
+    change("Filter by status", "failed");
+    change("Filter by type", "work");
+    expect(rowIds()).toEqual(["alice-work"]);
+    change("Filter by owner", "alice-twin");
+    expect(rowIds()).toEqual(["other-alice"]);
+    change("Search work items by task name", "");
+    change("Filter by status", "all");
+    change("Filter by type", "all");
+    change("Filter by owner", "");
+    expect(rowIds()).toEqual(["unknown"]);
+    change("Filter by owner", "all");
+    expect(rowIds()).toEqual(items.filter((item) => item.id !== "outside").map((item) => item.id));
+  });
+
+  it.each([
+    ["failed", false, false], ["running", true, false], ["waiting", true, false], ["paused", true, false],
+    ["idle", true, true], ["completed", true, true], ["cancelled", true, true], [undefined, true, true]
+  ])("enables eligible work controls for %s", (runtimePhase, retryDisabled, stopDisabled) => {
+    const { WorkItemControls } = workUi();
+    const props = { item: { id: "item", runtimePhase }, act: vi.fn() };
+    const buttons = WorkItemControls({ ...props, showUnavailable: true }).children;
+    expect(buttons.map((button: any) => [button.children[0], button.props.disabled]))
+      .toEqual([["Retry", retryDisabled], ["Stop", stopDisabled], ["Archive", false]]);
+    expect(WorkItemControls(props).children.filter(Boolean).map((button: any) => button.children[0]))
+      .toEqual(buttons.filter((button: any) => !button.props.disabled).map((button: any) => button.children[0]));
+  });
+
+  it.each(["retry_item", "cancel_item", "archive_item"])("dispatches %s once and disables controls until it settles", async (action) => {
+    let busy = "";
+    let finish!: (value: any) => void;
+    let started!: () => void;
+    const invoked = new Promise<void>((resolve) => { started = resolve; });
+    const act = vi.fn(() => new Promise((resolve) => { finish = resolve; started(); }));
+    const onDone = vi.fn();
+    const confirmAction = vi.fn().mockResolvedValue(true);
+    const { WorkItemControls } = workUi({ confirmAction,
+      useState: () => [busy, (value: string) => { busy = value; }] });
+    const render = () => WorkItemControls({ item: { id: "item", title: "Draft", runtimePhase: "failed" }, act, onDone });
+    const index = ["retry_item", "cancel_item", "archive_item"].indexOf(action);
+    const pending = render().children[index].props.onClick();
+    await invoked;
+    expect(act).toHaveBeenCalledExactlyOnceWith({ action, itemId: "item" });
+    if (action === "archive_item") expect(confirmAction).toHaveBeenCalledExactlyOnceWith(
+      "Archive “Draft”? Active work will be cancelled. Its history will be preserved.");
+    expect(render().children.every((button: any) => button.props.disabled)).toBe(true);
+    expect(render().children[index].children[0]).toBe(["Retrying…", "Stopping…", "Archiving…"][index]);
+    finish({});
+    await pending;
+    expect(render().children.every((button: any) => !button.props.disabled)).toBe(true);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves declined archives untouched and clears busy state after an action fails", async () => {
+    let busy = "";
+    const act = vi.fn().mockRejectedValue(new Error("offline"));
+    const onDone = vi.fn();
+    const { WorkItemControls } = workUi({ confirmAction: async () => false,
+      useState: () => [busy, (value: string) => { busy = value; }] });
+    const render = () => WorkItemControls({ item: { id: "item", runtimePhase: "failed" }, act, onDone });
+    await render().children[2].props.onClick();
+    expect(act).not.toHaveBeenCalled();
+    await expect(render().children[0].props.onClick()).rejects.toThrow("offline");
+    expect(render().children.every((button: any) => !button.props.disabled)).toBe(true);
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it("omits archived work from every Needs you list", () => {

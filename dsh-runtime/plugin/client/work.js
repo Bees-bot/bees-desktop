@@ -800,27 +800,32 @@ export const pendingInteractionFor = (waiting, sessionId, handled) => {
 
 const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "work-review" ? "Work review" : "Question";
 
-function NeedsYouControls({ item, act, onDone }) {
+function WorkItemControls({ item, act, onDone, showUnavailable = false }) {
   const [busy, setBusy] = useState("");
   if (!item || !act) return null;
+  const canRetry = item.runtimePhase === "failed";
+  const canStop = ["running", "waiting", "paused", "failed"].includes(item.runtimePhase);
   const invoke = async (action) => {
     setBusy(action);
-    const result = await act({ action, itemId: item.id });
-    setBusy("");
-    if (result) onDone?.();
+    try {
+      const result = await act({ action, itemId: item.id });
+      if (result) onDone?.();
+    } finally { setBusy(""); }
   };
   const archive = async () => {
     if (!await confirmAction(`Archive “${item.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
     await invoke("archive_item");
   };
   return h(React.Fragment, null,
-    item.runtimePhase === "failed" ? h(Button, {
-      className: "primary", disabled: Boolean(busy), onClick: () => void invoke("retry_item")
+    canRetry || showUnavailable ? h(Button, {
+      className: canRetry ? "primary" : "", disabled: Boolean(busy) || !canRetry,
+      title: canRetry ? "Retry work" : "Retry is available for failed work", onClick: () => invoke("retry_item")
     }, busy === "retry_item" ? "Retrying…" : "Retry") : null,
-    ["running", "waiting", "paused", "failed"].includes(item.runtimePhase) ? h(Button, {
-      disabled: Boolean(busy), onClick: () => void invoke("cancel_item")
+    canStop || showUnavailable ? h(Button, {
+      disabled: Boolean(busy) || !canStop,
+      title: canStop ? "Stop work" : "This work is not active", onClick: () => invoke("cancel_item")
     }, busy === "cancel_item" ? "Stopping…" : "Stop") : null,
-    h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => void archive() },
+    h(Button, { className: "danger", disabled: Boolean(busy), onClick: archive },
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
@@ -839,7 +844,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
     h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
-      h(NeedsYouControls, { item, act, onDone: onControlled }))),
+      h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
       : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.agentBrowser })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
@@ -939,7 +944,9 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [type, setType] = useState("all");
+  const [owner, setOwner] = useState("all");
   useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); setType("all"); }, [route]);
+  useEffect(() => { setOwner("all"); }, [route, workspaceId]);
   if (workItemId) return h(WorkItemCockpit, {
     ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
@@ -962,23 +969,41 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   });
   const statuses = [...new Set(items.map(workItemStatus))].sort();
   const types = [...new Set(items.map(({ kind }) => kind))].sort();
+  const owners = [...new Set(items.map((item) => item.accountUserId || ""))]
+    .map((id) => ({ id, label: accountLabel(data, id) || "Unknown owner" }))
+    .sort((left, right) => left.label.localeCompare(right.label));
   const needle = query.trim().toLocaleLowerCase();
   const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
-    (status === "all" || workItemStatus(item) === status) && (type === "all" || item.kind === type));
-  const renderRows = (records, empty) => records.length ? records.map((item) => {
-    const process = data.processes.find(({ id }) => id === item.processId);
-    const stage = data.stages.find(({ id }) => id === item.stageId);
-    const initiator = accountLabel(data, item.accountUserId);
-    const subtitle = [
-      item.kind === "run" ? "scheduled run" : item.kind,
-      process?.name ?? "Process",
-      stage?.name ?? "Stage",
-      initiator ? `by ${initiator}` : null
-    ].filter(Boolean).join(" · ");
-    return h("button", { type: "button", className: "bees-row bees-work-item-row", key: item.id, onClick: () => setWorkItemId(item.id) },
-      h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, subtitle)),
-      h("span", { className: `bees-status bees-${workItemStatus(item)}` }, workItemStatus(item)));
-  }) : h(Empty, null, empty);
+    (status === "all" || workItemStatus(item) === status) && (type === "all" || item.kind === type) &&
+    (owner === "all" || (item.accountUserId || "") === owner));
+  const renderRows = (records, empty, showColumns = false) => {
+    if (!records.length) return h(Empty, null, empty);
+    const rendered = records.map((item) => {
+      const process = data.processes.find(({ id }) => id === item.processId);
+      const stage = data.stages.find(({ id }) => id === item.stageId);
+      const initiator = accountLabel(data, item.accountUserId);
+      const subtitle = [
+        item.kind === "run" ? "scheduled run" : item.kind,
+        process?.name ?? "Process",
+        stage?.name ?? "Stage",
+        initiator && !showColumns ? `by ${initiator}` : null
+      ].filter(Boolean).join(" · ");
+      const title = h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, subtitle));
+      const status = h("span", { className: `bees-status bees-${workItemStatus(item)}` }, workItemStatus(item));
+      const open = { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(item.id) };
+      return showColumns ? h("tr", { key: item.id },
+        h("td", null, h("button", { ...open, title: item.title }, title)),
+        h("td", null, item.kind === "run" ? "Process" : "Work item"),
+        h("td", null, h("span", { className: "bees-work-owner", title: initiator || "Unknown owner" }, initiator || "Unknown owner")),
+        h("td", null, status),
+        h("td", null, h("div", { className: "bees-answer-controls", role: "group", "aria-label": `Actions for ${item.title}` },
+          h(WorkItemControls, { item, act, showUnavailable: true }))))
+        : h("button", { ...open, key: item.id }, title, status);
+    });
+    return showColumns ? h("table", { className: "bees-work-table", "aria-label": "Active work" },
+      h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
+      h("tbody", null, ...rendered)) : rendered;
+  };
   return h("div", null,
     h("div", { className: "bees-row" },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
@@ -989,12 +1014,15 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       h("select", { className: "bees-select", value: type, onChange: (event) => setType(event.target.value), "aria-label": "Filter by type" },
         h("option", { value: "all" }, "All types"),
         ...types.map((value) => h("option", { value, key: value }, value === "goal" ? "Goals" : value === "work" ? "Work items" : value))),
+      h("select", { className: "bees-select bees-owner-filter", value: owner, onChange: (event) => setOwner(event.target.value), "aria-label": "Filter by owner" },
+        h("option", { value: "all" }, "All owners"),
+        ...owners.map(({ id, label }) => h("option", { value: id, key: id }, label))),
       route !== "schedules" ? h(Button, { disabled: !workspaceId, onClick: () => setCreating("goal") }, "New goal") : null,
       route !== "schedules" ? h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("work") }, "New work") : null),
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters"), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules"), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
         "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters") }
       }
     })

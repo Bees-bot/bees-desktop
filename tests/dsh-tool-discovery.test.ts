@@ -35,6 +35,9 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
     // Simulate the standard preset's agent/created registrations after Bees setup.
     run.ctx.tools.register(tool("bees_submit_stage_result"));
     run.ctx.tools.register(tool("bees_read_tool_result"));
+    run.ctx.tools.register(tool("bees_wait_for_team"));
+    run.ctx.tools.register(tool("list_agents"));
+    run.ctx.tools.register(tool("wait_agent"));
     run.ctx.tools.register(tool("bash", "Run shell commands"));
     run.ctx.tools.register(tool("guarded_send", "Send guarded data"));
     run.ctx.tools.register(tool("subagent"));
@@ -43,7 +46,7 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
     other.ctx.tools.register(tool("other_private"));
     const initial = await prompt.assemble({ scope: agent });
     expect(initial.tools.map(({ name }: any) => name).sort()).toEqual([
-      "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result"
+      "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_wait_for_team"
     ]);
     const discover = async (query: string, offset = 0) => {
       const result = await execute("bees_find_tools", { query, offset });
@@ -55,6 +58,8 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
     expect((await execute("bash")).isError).not.toBe(true);
     expect(await discover("mcp__private__read")).toMatchObject({ tools: [], total: 0 });
     expect(await discover("subagent")).toMatchObject({ tools: [], total: 0 });
+    expect(await discover("list_agents")).toMatchObject({ tools: [], total: 0 });
+    expect(await discover("wait_agent")).toMatchObject({ tools: [], total: 0 });
     expect((await execute("mcp__private__read")).isError).toBe(true);
     expect((await execute("subagent")).isError).toBe(true);
     expect((await execute("subagent_fork")).isError).toBe(true);
@@ -67,7 +72,7 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
       expect(page.tools.length).toBeLessThanOrEqual(4);
       expect(JSON.stringify(page).length).toBeLessThan(1200);
       for (const entry of page.tools) seen.add(entry.name);
-      expect((await prompt.assemble({ scope: agent })).tools.length).toBeLessThanOrEqual(11);
+      expect((await prompt.assemble({ scope: agent })).tools.length).toBeLessThanOrEqual(12);
       offset = page.next_offset;
     }
     expect(seen.size).toBe(30);

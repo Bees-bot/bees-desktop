@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 import {
   installContextPolicy, pruneToolResults, readToolResult,
-  TOOL_PREVIEW_CHARS, TOOL_RECEIPT_CHARS, TOOL_READ_CHARS
+  TOOL_PREVIEW_CHARS, TOOL_RECEIPT_CHARS, TOOL_READ_CHARS, TOOL_CONTEXT_CHARS
 } from "../dsh-runtime/plugin/lib/context-policy.js";
 import { safeRecoverySeed } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 
@@ -22,16 +22,16 @@ function runtime() {
   return { ctx, meter };
 }
 
-function appendResult(session: any, step: number, content: any[], error = false) {
+function appendResult(session: any, step: number, content: any[], error = false, name = "fetch", args = "{}") {
   const callId = `call-${step}`;
   session.append("step/start", { turn: 1, step });
   session.append("assistant/message", {
     turn: 1, step, message: createAssistantMessage({
       source: { provider: "test", model: "test" },
-      content: [{ type: "tool-call", id: callId, name: "fetch", arguments: "{}" }]
+      content: [{ type: "tool-call", id: callId, name, arguments: args }]
     })
   }, { surfaceOp: "append" });
-  session.append("tool/call", { turn: 1, step, callId, name: "fetch", arguments: "{}" });
+  session.append("tool/call", { turn: 1, step, callId, name, arguments: args });
   const result = session.append("tool/result", {
     turn: 1, step, message: createToolResultMessage({ callId, content, isError: error }),
     ...(error ? { error: { name: "FetchError", code: "HTTP_ERROR" } } : {}),
@@ -46,7 +46,7 @@ const resultEvents = (session: any) => session.surface.nodes.map((seq: number) =
 const resultText = (event: any) => event.data.message.content[0].content
   .filter((block: any) => block.type === "text").map((block: any) => block.text).join("");
 
-it("bounds first-request tool text, ages it, and preserves immutable originals, metadata, errors and rich blocks", () => {
+it("bounds large results without discarding evidence merely because two responses passed", () => {
   const { meter } = runtime();
   const session = Session.create("bounded");
   const image = { type: "image", attachment: {
@@ -76,10 +76,41 @@ it("bounds first-request tool text, ages it, and preserves immutable originals, 
 
   appendResult(session, 2, [{ type: "text", text: "second" }]);
   appendResult(session, 3, [{ type: "text", text: "third" }]);
-  expect(pruneToolResults(session, meter).pruned).toBe(1);
-  expect(Array.from(resultText(resultEvents(session)[0]))).toHaveLength(TOOL_RECEIPT_CHARS);
+  expect(pruneToolResults(session, meter).pruned).toBe(0);
+  expect(Array.from(resultText(resultEvents(session)[0]))).toHaveLength(TOOL_PREVIEW_CHARS);
   expect(pruneToolResults(session, meter).pruned).toBe(0);
   expect(toolPairingBalancedAfter(session, session.surface.nodes.at(-1))).toBe(true);
+});
+
+it("keeps a small news file and recalled dates readable while other results accumulate", () => {
+  const { meter } = runtime();
+  const session = Session.create("google-review");
+  const document = "Headline, publisher, article URL and publication date\n".repeat(80);
+  appendResult(session, 1, [{ type: "text", text: document }], false, "read");
+  const page = readToolResult(session, { call_id: "call-1" });
+  appendResult(session, 2, [{ type: "text", text: page.text }], false, "bees_read_tool_result", '{"call_id":"call-1"}');
+  for (let step = 3; step < 10; step++) {
+    appendResult(session, step, [{ type: "text", text: "Other check completed" }]);
+    pruneToolResults(session, meter);
+  }
+  expect(resultText(resultEvents(session)[0])).toBe(document);
+  expect(resultText(resultEvents(session)[1])).toBe(document);
+  expect(readToolResult(session, { call_id: "call-2" })).toMatchObject({ call_id: "call-1", text: document });
+  // Simulate a stale caller using the file tool's pagination arguments.
+  expect(() => readToolResult(session, { call_id: "call-1", limit: 10 } as any)).toThrow("there is no line limit");
+});
+
+it("shortens older observations under pressure but never turns recalled evidence into another receipt", () => {
+  const { meter } = runtime();
+  const session = Session.create("pressure");
+  appendResult(session, 1, [{ type: "text", text: "Old large observation ".repeat(500) }]);
+  appendResult(session, 2, [{ type: "text", text: "Publication time: 2026-09-10T17:13:16Z\n".repeat(100) }], false, "bees_read_work_evidence");
+  for (let step = 3; step < 5 + TOOL_CONTEXT_CHARS / TOOL_PREVIEW_CHARS; step++)
+    appendResult(session, step, [{ type: "text", text: "x".repeat(TOOL_PREVIEW_CHARS) }]);
+  pruneToolResults(session, meter);
+  expect(Array.from(resultText(resultEvents(session)[0]))).toHaveLength(TOOL_RECEIPT_CHARS);
+  expect(resultText(resultEvents(session)[1])).toContain("2026-09-10T17:13:16Z");
+  expect(resultText(resultEvents(session)[1])).not.toContain("Text shortened");
 });
 
 it("retrieves bounded pages and focused Unicode matches from originals after durable replay and recovery", () => {
@@ -164,7 +195,7 @@ it("flushes surface replacements before the request and keeps recall reads in th
   await expect(recall.execute(args, { agent: { session: unrelated } })).rejects.toThrow("this session");
 });
 
-it("cuts cumulative replay of four large RSS results by over 95% across 29 request frames without losing original text", () => {
+it("cuts large-result replay by over 80% while preserving readable evidence", () => {
   const { meter } = runtime();
   const oldSession = Session.create("baseline");
   const bounded = Session.create("bounded");
@@ -179,9 +210,9 @@ it("cuts cumulative replay of four large RSS results by over 95% across 29 reque
     baselineTokens += meter.measure(oldSession).surfaceTokens;
     boundedTokens += meter.measure(bounded).surfaceTokens;
   }
-  expect(boundedTokens / baselineTokens).toBeLessThan(0.05);
+  expect(boundedTokens / baselineTokens).toBeLessThan(0.20);
   expect(resultEvents(bounded)).toHaveLength(29);
   expect(toolPairingBalancedAfter(bounded, bounded.surface.nodes.at(-1))).toBe(true);
   expect(readToolResult(bounded, { call_id: "call-1" }).total_chars).toBe(feed.length);
-  expect(bounded.snapshotEvents().filter((event: any) => event.type === "compaction/prune")).toHaveLength(8);
+  expect(bounded.snapshotEvents().filter((event: any) => event.type === "compaction/prune")).toHaveLength(4);
 });

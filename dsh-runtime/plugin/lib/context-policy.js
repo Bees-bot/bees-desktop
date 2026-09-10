@@ -1,9 +1,10 @@
 import { freezeMessage } from "@deepseek-ai/dsh-llm";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-export const TOOL_PREVIEW_CHARS = 2_000;
+export const TOOL_PREVIEW_CHARS = 8_000;
 export const TOOL_RECEIPT_CHARS = 256;
-export const TOOL_READ_CHARS = 1_500;
+export const TOOL_READ_CHARS = 6_000;
+export const TOOL_CONTEXT_CHARS = 64_000;
 const installed = new WeakSet();
 const pendingFlush = new WeakSet();
 
@@ -46,19 +47,26 @@ function previewContent(blocks, budget, callId) {
 /** Rewrite the DSH surface, never a provider request or the immutable original event. */
 export function pruneToolResults(session, tokenMeter) {
   const originals = originalResults(session);
+  const calls = new Map(session.snapshotEvents().filter(({ type }) => type === "tool/call")
+    .map(({ data }) => [data.callId, data.name]));
   let laterResponses = 0;
+  let remaining = TOOL_CONTEXT_CHARS;
   let pruned = 0;
   let charsRemoved = 0;
   for (const seq of [...session.surface.nodes].reverse()) {
     const event = session.eventAt(seq);
     if (event.type === "assistant/message") { laterResponses++; continue; }
     if (event.type !== "tool/result") continue;
-    // The latest two result batches remain readable; older observations become receipts.
-    const budget = laterResponses >= 2 ? TOOL_RECEIPT_CHARS : TOOL_PREVIEW_CHARS;
+    const callId = event.data.message.source.callId;
+    const recalled = ["bees_read_tool_result", "bees_read_work_evidence"].includes(calls.get(callId));
+    // Age alone is not pressure. Keep small documents and recalled evidence usable;
+    // native DSH compaction owns the overall model context limit.
+    const budget = recalled || laterResponses < 2 ? TOOL_PREVIEW_CHARS
+      : Math.max(TOOL_RECEIPT_CHARS, Math.min(TOOL_PREVIEW_CHARS, remaining));
     const result = event.data.message.content[0];
     const before = textLength(result.content);
+    remaining -= Math.min(before, budget);
     if (before <= budget) continue;
-    const callId = event.data.message.source.callId;
     const original = originals.get(callId).data.message.content[0];
     const content = previewContent(original.content, budget, callId);
     const after = textLength(content);
@@ -80,10 +88,24 @@ export function pruneToolResults(session, tokenMeter) {
 }
 
 /** Read only this session's original tool text. Offsets count Unicode code points. */
-export function readToolResult(session, { call_id, offset = 0, find = "" }) {
+export function readToolResult(session, args, visited = new Set()) {
+  let { call_id, offset = 0, find = "" } = args;
+  if (Object.keys(args).some((key) => !["call_id", "offset", "find"].includes(key)))
+    throw new Error("Use call_id, character offset and optional find only. Continue with next_offset; there is no line limit.");
   if (typeof call_id !== "string" || !call_id || !Number.isSafeInteger(offset) || offset < 0 ||
       typeof find !== "string" || Array.from(find).length > 200)
     throw new Error("Supply a call_id, nonnegative integer offset, and optional find text (up to 200 characters).");
+  if (visited.has(call_id)) throw new Error("Circular tool result reference");
+  visited.add(call_id);
+  const events = session.snapshotEvents();
+  // Resolve old receipts pointing to recall pages back to the underlying source.
+  const call = events.find((event) => event.type === "tool/call" && event.data.callId === call_id)?.data;
+  if (call?.name === "bees_read_tool_result") {
+    const source = typeof call.arguments === "string" ? JSON.parse(call.arguments) : call.arguments;
+    const prior = readToolResult(session, { call_id: source.call_id, offset: source.offset, find: source.find }, visited);
+    if (prior.found === false) return prior;
+    return readToolResult(session, { call_id: prior.call_id, offset: prior.offset + offset, find });
+  }
   const event = originalResults(session).get(call_id);
   if (!event) throw new Error("No tool result with that call_id exists in this session.");
   const result = event.data.message.content[0];
@@ -111,7 +133,7 @@ export function installContextPolicy(agentCtx, tokenMeter) {
   installed.add(agentCtx);
   agentCtx.tools.register(defineTool({
     name: "bees_read_tool_result",
-    description: "Read original text shortened in this session's tool history. Returns up to 1500 characters; use find for an exact phrase or next_offset for another page.",
+    description: `Read original text shortened in this session's tool history. Returns up to ${TOOL_READ_CHARS} characters; use find for an exact phrase or the returned call_id and next_offset for another page. Reuse a returned page while checking it; offsets count characters, not lines.`,
     parameters: {
       call_id: { type: "string", required: true, description: "Call id in the shortened result." },
       offset: { type: "integer", description: "Character offset; defaults to zero." },
