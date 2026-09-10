@@ -3,7 +3,7 @@ import {
 } from "./runtime.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
-  ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
+  accountLabel, ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -964,9 +964,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const renderRows = (records, empty) => records.length ? records.map((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
     const stage = data.stages.find(({ id }) => id === item.stageId);
-    const initiator = item.accountUserId
-      ? (data.connections?.find((c) => c.accountUserId === item.accountUserId)?.accountName ?? item.accountUserId)
-      : null;
+    const initiator = accountLabel(data, item.accountUserId);
     const subtitle = [
       item.kind === "run" ? "scheduled run" : item.kind,
       process?.name ?? "Process",

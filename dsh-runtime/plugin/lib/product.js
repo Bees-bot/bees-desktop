@@ -286,6 +286,7 @@ export class BeesProduct {
       WHERE a.enabled = 1
       ORDER BY o.name, a.email
     `).all();
+    const directory = this.database.prepare("SELECT user_id AS accountUserId, email FROM bees_directory").all();
     const connectionTeams = this.database.prepare(`
       SELECT ct.connection_id AS connectionId, ct.team_id AS teamId, ct.role
       FROM bees_connection_teams ct
@@ -461,7 +462,7 @@ export class BeesProduct {
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
       currentUserId: userId, currentDeviceId: deviceId,
-      accounts, organizations, connections, connectionTeams, teams, workspaces,
+      accounts, organizations, connections, connectionTeams, directory, teams, workspaces,
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
