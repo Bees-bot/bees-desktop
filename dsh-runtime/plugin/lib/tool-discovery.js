@@ -6,7 +6,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
   "ask_user_question", "bees_request_work_review",
-  "web_search", "web_fetch", "bees_fetch_page", "read", "write",
+  "web_search", "web_fetch", "bees_fetch_page", "bees_search_web", "read", "write",
   "bees_control", "bees_publish_outputs"
 ]);
 const HIDDEN_TOOLS = new Set(["subagent", "subagent_fork"]);
