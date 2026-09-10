@@ -25,9 +25,10 @@ function inputLocations(database, table, owner, id) {
 
 function teamRecords(database, organizationId, connectionId = "", includeAppDefinitions = false) {
   const records = [];
+  // Always present, null when no app owns it: a key that comes and goes drifts off the contract.
   const owner = (table, key, id) => {
     const row = database.prepare(`SELECT installation_id FROM ${table} WHERE ${key}=?`).get(id);
-    return row ? { appInstallationId: row.installation_id } : {};
+    return { appInstallationId: row?.installation_id ?? null };
   };
   for (const row of database.prepare(`
     SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
@@ -80,7 +81,6 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
         ? {
             agentId: stage.agentId ?? null,
             agentIds: json(stage.agentIds),
-            agentPoolId: null, // Older coordination servers require the retired pool field.
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
           }
@@ -143,7 +143,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
     recurringWorkId: row.recurringWorkId, accountUserId: row.accountUserId,
-    ...(row.runSettingsJson !== "{}" ? { runSettings: json(row.runSettingsJson, {}) } : {}),
+    runSettings: json(row.runSettingsJson, {}),
     inputLocations: inputLocations(database, "work_item_locations", "work_item_id", row.id),
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
@@ -338,8 +338,7 @@ function applyProcess(database, record, authoritativeApps = false) {
       stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
     if (stage.route) {
-      let ids = Array.isArray(stage.route.agentIds) ? stage.route.agentIds : [];
-      if (!ids.length && stage.route.agentId) ids = [stage.route.agentId];
+      const ids = stage.route.agentIds;
       database.prepare(`
         INSERT INTO stage_routes
           (stage_id, agent_assignment_id, required_capabilities_json,
@@ -395,11 +394,8 @@ function applyItem(database, record) {
   // A new row starts unparented because the parent may arrive later in this batch; the pass in
   // applyTeamRecords links it once the parent is confirmed. An update must leave an existing
   // link alone, or any later metadata change would orphan a child that was already correct.
-  // Older clients omit settings. Do not let their metadata updates erase a goal's restrictions.
-  const priorSettings = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
-    .get(record.recordId)?.settings;
-  const settings = normalizeRunSettings(p.runSettings ?? json(priorSettings, {}));
-  const ids = Array.isArray(p.agentIds) ? p.agentIds : p.agentId ? [p.agentId] : [];
+  const settings = normalizeRunSettings(p.runSettings);
+  const ids = p.agentIds;
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
@@ -452,38 +448,50 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   });
 }
 
-async function pullAll(request, organizationId, cursor) {
-  const records = [];
+/** Applies everything past `cursor` and commits how far we got, page by page. */
+async function pull(database, request, organizationId, connectionId, cursor) {
   let next = cursor;
-  do {
-    const page = await request(`/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId });
-    records.push(...page.records);
-    const previous = next;
+  let count = 0;
+  let more = true;
+  while (more) {
+    const page = await request(
+      `/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId }
+    );
+    applyTeamRecords(database, organizationId, page.records);
+    count += page.records.length;
     next = page.cursor;
-    if (page.records.length < 1_000 || next === previous) break;
-  } while (true);
-  return { cursor: next, records };
+    more = page.more;
+    // Committing each page means a later failure costs one page, not the whole pass.
+    database.prepare(`
+      INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
+      ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
+    `).run(connectionId, next, new Date().toISOString());
+  }
+  return { cursor: next, count };
 }
 
+const PUSH_LIMIT = 500;
+
 export async function syncTeamRecords(database, request, organizationId, connectionId) {
-  const hasApps = database.prepare('SELECT 1 FROM bees_app_sync_versions WHERE connection_id=?').get(connectionId);
-  const saved = hasApps ? database.prepare(
+  const saved = database.prepare(
     "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
-  ).get(connectionId)?.cursor ?? "0" : "0";
-  const incoming = await pullAll(request, organizationId, saved);
-  applyTeamRecords(database, organizationId, incoming.records);
+  ).get(connectionId)?.cursor ?? "0";
+  const incoming = await pull(database, request, organizationId, connectionId, saved);
   const outgoing = teamRecords(database, organizationId, connectionId);
-  for (let index = 0; index < outgoing.length; index += 500) await request("/api/sync/push", {
-    method: "POST", organizationId, body: { records: outgoing.slice(index, index + 500) }
-  });
-  const settled = await pullAll(request, organizationId, saved);
-  applyTeamRecords(database, organizationId, settled.records);
-  database.prepare(`
-    INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
-    ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
-  `).run(connectionId, settled.cursor, new Date().toISOString());
-  database.prepare('INSERT OR IGNORE INTO bees_app_sync_versions VALUES (?)').run(connectionId);
-  return { pushed: outgoing.length, pulled: settled.records.length, cursor: settled.cursor };
+  const rejected = [];
+  for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
+    const result = await request("/api/sync/push", {
+      method: "POST", organizationId, body: { records: outgoing.slice(index, index + PUSH_LIMIT) }
+    });
+    rejected.push(...result.rejected);
+  }
+  const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
+  return {
+    pushed: outgoing.length - rejected.length,
+    rejected,
+    pulled: incoming.count + settled.count,
+    cursor: settled.cursor
+  };
 }
 
 export { teamRecords };

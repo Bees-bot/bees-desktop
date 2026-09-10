@@ -13,4 +13,9 @@ export function syncTeamRecords(
   request: (path: string, options?: Record<string, any>) => Promise<any>,
   organizationId: string,
   connectionId: string
-): Promise<{ pushed: number; pulled: number; cursor: string }>;
+): Promise<{
+  pushed: number;
+  rejected: { recordId: string; reason: string }[];
+  pulled: number;
+  cursor: string;
+}>;

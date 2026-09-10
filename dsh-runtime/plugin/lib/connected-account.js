@@ -417,9 +417,14 @@ export class ConnectedAccount {
           const request = (path, options = {}) => this.request(path, {
             ...options, accountUserId: connection.accountUserId
           });
-          results.push(await syncTeamRecords(
+          const result = await syncTeamRecords(
             this.database, request, connection.organizationId, connection.id
-          ));
+          );
+          // Once per pass, not per record: the full-state push re-sends every refusal every time.
+          const [first] = result.rejected;
+          if (first) this.logger.error?.(`bees: the server refused ${result.rejected.length} ${
+            connection.organizationName} record(s), starting with ${first.recordId}: ${first.reason}`);
+          results.push(result);
         } catch (error) {
           // A 4xx is the server refusing what we sent; retrying sends the same thing forever, so
           // it has to read as a fault, not as the network being briefly unavailable.

@@ -73,8 +73,8 @@ export function ProcessRoutingBoard({ stages, agents, act, onOpenAgent, onCreate
 
 function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
-  const initialStages = (draft?.stages ?? ["Plan", "Doing", "Done"])
-    .map((stage) => typeof stage === "string" ? stage : stage.name);
+  const initialStages = (draft?.stages ?? [{ name: "Plan" }, { name: "Doing" }, { name: "Done" }])
+    .map(({ name }) => name);
   const [inputLocationIds, setInputLocationIds] = useState([]);
   const [outputLocationId, setOutputLocationId] = useState("");
 
@@ -268,7 +268,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(Button, { className: "primary", disabled: !workspaceId, onClick: () => { setProcessDraft(null); setCreating("template"); } }, "New template")),
       ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, template.name),
-          h("div", { className: "bees-muted" }, [template.description, (template.stages ?? []).join(" → ")].filter(Boolean).join(" · "))),
+          h("div", { className: "bees-muted" }, [template.description, template.stages.map(({ name }) => name).join(" → ")].filter(Boolean).join(" · "))),
         h(Button, { className: "primary", disabled: template.workspaceId !== workspaceId,
           onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
         h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&
