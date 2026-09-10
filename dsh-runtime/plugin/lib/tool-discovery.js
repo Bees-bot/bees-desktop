@@ -22,8 +22,12 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
+    // DeepSeek search is the only backend, and without its key every call errors. Offering it just
+    // burns a turn and ends with the model asking the owner where to look, so it goes.
+    const searchable = Boolean(process.env.DEEPSEEK_API_KEY);
     return { ...assembly, tools: assembly.tools.filter(({ name }) =>
-      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name))) };
+      !HIDDEN_TOOLS.has(name) && (searchable || name !== "web_search")
+      && (BASE_TOOLS.has(name) || loaded.has(name))) };
   });
   agentCtx.tools.register(defineTool({
     name: "bees_find_tools",
