@@ -1118,6 +1118,44 @@ Current international expansion strategy`);
     });
   });
 
+  it("reads accounts locally, including disabled accounts and fresh sign-in timestamps", async () => {
+    const database = new NodeDatabase();
+    const fetch = vi.fn(() => { throw new Error("offline"); });
+    vi.stubGlobal("fetch", fetch);
+    const connected = new ConnectedAccount(database.connection, {} as never);
+    try {
+      await expect(connected.command({ action: "accounts" })).resolves.toEqual({ accounts: [] });
+      database.connection.prepare("INSERT INTO bees_accounts VALUES (?, ?, ?, ?, ?, ?)")
+        .run("user", "you@example.com", "You", "2026-01-01", "2026-01-01", 0);
+      await expect(connected.command({ action: "accounts" })).resolves.toMatchObject({
+        accounts: [{ userId: "user", email: "you@example.com", enabled: false, updatedAt: "2026-01-01" }]
+      });
+      database.connection.prepare("UPDATE bees_accounts SET enabled = 1, updated_at = ? WHERE user_id = ?")
+        .run("2026-09-10", "user");
+      await expect(connected.command({ action: "accounts" })).resolves.toMatchObject({
+        accounts: [{ userId: "user", enabled: true, updatedAt: "2026-09-10" }]
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { database.connection.close(); }
+  });
+
+  it("reuses successful auth configuration for five minutes and retries failures", async () => {
+    const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
+    const request = vi.spyOn(connected as any, "request")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ googleDriveDesktopClientId: "drive-client" });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      expect((await connected.authConfig()).googleDriveDesktopClientId).toBe("");
+      expect((await connected.authConfig()).googleDriveDesktopClientId).toBe("drive-client");
+      await connected.authConfig();
+      expect(request).toHaveBeenCalledTimes(2);
+      now.mockReturnValue(301_000);
+      await connected.authConfig();
+      expect(request).toHaveBeenCalledTimes(3);
+    } finally { now.mockRestore(); request.mockRestore(); }
+  });
+
   it("keeps a valid account signed in when older coordination routes are missing", async () => {
     const database = new DatabaseSync(":memory:");
     initializeProductDatabase(database);

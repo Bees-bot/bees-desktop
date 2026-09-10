@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apply, inject } from "../dsh-runtime/plugin/lib/index.js";
+import { ConnectedAccount } from "../dsh-runtime/plugin/lib/connected-account.js";
+import { BeesProduct } from "../dsh-runtime/plugin/lib/product.js";
+import { ProcessRuntime } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { clientSource } from "./client-source.js";
 
 type Route = {
@@ -199,6 +202,40 @@ async function waitFor(check: () => Promise<boolean>) {
 }
 
 describe("Bees DSH public contract", () => {
+  it("returns settings reads without initializing workspaces or reconciling processes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-settings-reads-"));
+    process.env.BEES_DATABASE_PATH = join(root, "bees.sqlite3");
+    process.env.BEES_DSH_TOKEN = "settings-token";
+    process.env.BEES_DEFAULT_WORKSPACE = root;
+    const routes: Route[] = [];
+    const server = new EventEmitter();
+    const harness = testContext(server, routes, new Map(), new Map());
+    const config = vi.spyOn(ConnectedAccount.prototype, "authConfig").mockResolvedValue({});
+    const sync = vi.spyOn(ConnectedAccount.prototype, "sync").mockResolvedValue([]);
+    const initialize = vi.spyOn(BeesProduct.prototype, "initialize");
+    const reconcile = vi.spyOn(ProcessRuntime.prototype, "reconcile");
+    const command = vi.spyOn(ConnectedAccount.prototype, "command").mockResolvedValue({ memberships: [], invitations: [] });
+    try {
+      await apply(harness.ctx, {}, { temporalClient: harness.temporalClient });
+      // Drain the initial background sync before watching requests.
+      await new Promise((resolve) => setImmediate(resolve));
+      initialize.mockClear(); reconcile.mockClear();
+      for (const action of ["accounts", "organization_people", "team_people", "organization_sso"]) {
+        const result = await request(server, routes, "/bees-api/collaboration", {
+          method: "POST", headers: { cookie: "bees_dsh=settings-token" }, body: { action }
+        });
+        expect(result.status).toBe(200);
+        expect(result.json()).toEqual({ memberships: [], invitations: [] });
+      }
+      expect(initialize).not.toHaveBeenCalled();
+      expect(reconcile).not.toHaveBeenCalled();
+    } finally {
+      await harness.dispose();
+      for (const spy of [config, sync, initialize, reconcile, command]) spy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("declares the human-question service used by work review", () => {
     expect(inject).toContain("userQuestions");
   });

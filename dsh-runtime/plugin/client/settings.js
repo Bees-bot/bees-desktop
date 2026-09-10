@@ -504,6 +504,12 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     }
     return () => { active = false; };
   }, [team?.id, connectionId]);
+  const [adding, add] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
+    try { setPeople(await collaboration("add_team_member", { teamId: team?.id, connectionId,
+      userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  });
   if (!team) return h(Empty, null, "Choose a team");
   const deleteTeam = async () => {
     const name = await ask(
@@ -540,12 +546,6 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
   if (!people) return h("div", { className: "bees-stack" },
     h(Empty, null, error || "Loading team members…"), dangerZone);
-  const [adding, add] = useSubmit(async (event) => {
-    const form = new FormData(event.currentTarget);
-    try { setPeople(await collaboration("add_team_member", { teamId: team.id, connectionId,
-      userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  });
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, `${team.name} members`),
       ...people.members.map((member) => h("div", { className: "bees-row", key: member.id },

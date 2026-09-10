@@ -157,13 +157,16 @@ export class ConnectedAccount {
   }
 
   async authConfig() {
+    if (this.cachedAuthConfig?.expiresAt > Date.now()) return this.cachedAuthConfig.value;
     try {
       const config = await this.request("/api/config", { authenticated: false });
-      return {
+      const value = {
         ...config,
         socialProviders: [...new Set(["google", "github", ...(config.socialProviders ?? [])])],
         ssoEnabled: true
       };
+      this.cachedAuthConfig = { value, expiresAt: Date.now() + 5 * 60_000 };
+      return value;
     } catch {
       return {
         socialProviders: ["google", "github"], ssoEnabled: true,
@@ -715,6 +718,7 @@ export class ConnectedAccount {
 
   async command(input) {
     switch (input.action) {
+      case "accounts": return { accounts: this.accounts() };
       case "sign_in": return this.signIn(input.email, input.password);
       case "sign_up": return this.signUp(input.name, input.email, input.password);
       case "social_start": return this.startBrowserSignIn("social", input.provider, input.callbackPort);
