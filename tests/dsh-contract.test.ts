@@ -426,6 +426,8 @@ describe("Bees DSH public contract", () => {
       expect(customAiClient).toContain('openExternal(provider.signup)');
       expect(customAiClient).toContain('"generalAiModels"');
       expect(customAiClient).toContain('"Model ID"');
+      expect(customAiClient).not.toContain('h("th", null, "Details")');
+      expect(customAiClient).toContain('credentialState[id] ? "Replace" : "Add key"');
       expect(customAiClient).toContain("systemDefault?.provider === provider");
       expect(customAiHost).toContain('path: "/bees-api/general-ai/test"');
       expect(customAiHost).toContain("Preserve credentials saved by the earlier combined AI APIs screen");

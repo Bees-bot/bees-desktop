@@ -380,5 +380,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('required: !allowSystemDefault');
     expect(client).toContain('request("/bees-api/system-default-model"');
     expect(client).toContain("Choose another default before turning this connection off.");
+    expect(client.indexOf("h(SystemDefaultSettings")).toBeLessThan(client.indexOf("h(SubscriptionSettings"));
   });
 });

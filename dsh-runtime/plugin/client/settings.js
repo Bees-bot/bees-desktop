@@ -20,12 +20,12 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) 
       h("div", { className: "bees-card-actions" },
         ...[["local", "On this computer"], ["subscriptions", "Codex or Claude"], ["other", "Other providers"], ["", "Show all"]].map(([id, label]) =>
           h(Button, { key: id, className: focus === id ? "primary" : "", onClick: () => preferences.set("onboardingAiFocus", id) }, label)))) : null,
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }),
     (!focus || focus === "subscriptions") ? h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }) : null,
     (!focus || focus === "other") ? h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
     (!focus || focus === "local") ? h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }) : null,
     (!focus || focus === "other") ? h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }) : null,
-    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null,
-    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }));
+    (!focus || focus === "other") ? h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) : null);
 }
 
 function AppearanceSettings({ ctx, preferences }) {
