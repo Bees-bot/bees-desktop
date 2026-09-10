@@ -59,3 +59,13 @@ it('rejects unsafe catalog paths, unsupported formats and missing first-load dat
   expect(() => f.catalog.validate(null)).toThrow();
   expect(() => new AppCatalog(null, 'http://example.com/catalog.json')).toThrow('HTTPS');
 });
+
+it('loads v2 record metadata without changing the v1 catalog format and checks inspected schema metadata', async () => {
+  const f = fixture();
+  const app = { ...manifest, schemaVersion: 2, recordTypes: [{ key: 'task', label: 'Tasks', fields: [{ key: 'status', label: 'Status', type: 'text' }] }] };
+  const bytes = Buffer.from(JSON.stringify(app)); f.bytes = bytes; const entry = f.entry(app, bytes);
+  f.listing = { schemaVersion: 1, apps: [entry] };
+  expect(await f.catalog.resolve(entry.id, entry.version, entry.sha256)).toEqual(app);
+  f.listing.apps[0] = { ...entry, recordTypes: [] };
+  await expect(f.catalog.resolve(entry.id, entry.version, entry.sha256)).rejects.toThrow('does not match');
+});

@@ -8,9 +8,9 @@ import { NodeDatabase } from "./node-database.js";
 // @ts-expect-error Plain JS app boundary.
 import { AppPlatform } from "../dsh-runtime/plugin/lib/app-platform.js";
 // @ts-expect-error Plain JS app contract.
-import { validateApp, appToolDenial } from "../dsh-runtime/plugin/lib/app-contract.js";
+import { validateApp, appRecordData, appToolDenial } from "../dsh-runtime/plugin/lib/app-contract.js";
 // @ts-expect-error Plain JS source boundary.
-import { publicIPv4 } from "../dsh-runtime/plugin/lib/app-source.js";
+import { publicIPv4, publicSourceUrl } from "../dsh-runtime/plugin/lib/app-source.js";
 // @ts-expect-error Plain JS tool boundary.
 import { mountAppTools } from "../dsh-runtime/plugin/lib/app-tools.js";
 // @ts-expect-error Plain JS client module.
@@ -27,7 +27,7 @@ const manifest = {
 };
 const databases: any[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
-function setup(connected?: any) {
+function setup(connected?: any, connector?: any) {
   const db = new NodeDatabase().connection;
   databases.push(db);
   const runtime: any = new AgentRuntime({ on: () => () => undefined, tools: { schemas: () => [] },
@@ -35,9 +35,10 @@ function setup(connected?: any) {
   const processes = { isAutomatic: () => true, startItem: vi.fn(async () => ({ status: "started" })) };
   const product = new BeesProduct(db, runtime, processes, "/tmp/bees-app-tests");
   const fetcher = vi.fn(async () => ({ url: "https://example.com/feed?q=help", observedAt: "2026-09-08T00:00:00Z", content: "Public request for help" }));
-  const apps = new AppPlatform(product, fetcher, { connected });
-  runtime.apps = apps;
   const workspaceId = (db.prepare("SELECT id FROM workspaces LIMIT 1").get() as any).id;
+  const userId = (db.prepare("SELECT id FROM users LIMIT 1").get() as any).id;
+  const apps = new AppPlatform(product, fetcher, { connected, actionConnector: connector?.({ workspaceId, userId }) ?? null });
+  runtime.apps = apps;
   const install = (m = manifest, scope = workspaceId) => apps.install(scope, { manifest: m, config: { topic: "Useful research" } });
   const run = (id: string) => apps.command({ action: "run", installationId: id, workspaceId });
   return { db, apps, runtime, product, processes, fetcher, workspaceId, install, run };
@@ -60,6 +61,180 @@ it('installs before configuration but cannot run until required setup is saved; 
   expect(() => s.apps.context(work.id)).toThrow('older app version');
 });
 
+const structuredManifest = { ...manifest, schemaVersion: 2,
+  recordTypes: [{ key: 'ticket', label: 'Tickets', fields: [
+    { key: 'status', label: 'Status', type: 'text', required: true },
+    { key: 'count', label: 'Count', type: 'number' }, { key: 'enabled', label: 'Enabled', type: 'boolean' }
+  ] }], sources: [...manifest.sources, { key: 'public-page', label: 'Public page', type: 'page', url: 'https://example.com', pathPrefix: '/docs/' }]
+};
+
+it('preserves v1 and validates generic v2 record schemas and bounded primitive values', () => {
+  expect(validateApp(structuredManifest)).toEqual(structuredManifest);
+  expect(appRecordData(structuredManifest, 'ticket', { status: 'new', count: 0, enabled: false })).toEqual({ status: 'new', count: 0, enabled: false });
+  expect(appRecordData(manifest, 'finding')).toEqual({});
+  for (const data of [{}, { status: '' }, { status: 'new', unknown: 1 }, { status: 'new', count: Infinity }, { status: 'new', enabled: 'yes' }, { status: 'x'.repeat(4001) }])
+    expect(() => appRecordData(structuredManifest, 'ticket', data)).toThrow();
+  expect(() => appRecordData(structuredManifest, 'unknown', {})).toThrow('not declared');
+  expect(() => validateApp({ ...manifest, recordTypes: structuredManifest.recordTypes })).toThrow('Unknown app field');
+  expect(() => validateApp({ ...structuredManifest, recordTypes: [{ ...structuredManifest.recordTypes[0], fields: [{ key: 'status', label: 'Status', type: 'code' }] }] })).toThrow();
+});
+
+it('restricts public page reads to declared exact paths or directories, without credentials or encoded escapes', () => {
+  const page = structuredManifest.sources[1];
+  expect(publicSourceUrl(page, 'https://example.com/docs/start?q=public').href).toBe('https://example.com/docs/start?q=public');
+  for (const url of ['https://evil.example/docs/start', 'https://example.com/document', 'https://example.com/docs/../private', 'https://example.com/docs/%2fprivate', 'https://user@example.com/docs/a', 'https://example.com/docs/a?token=x', 'https://example.com/docs/a#secret'])
+    expect(() => publicSourceUrl(page, url)).toThrow();
+  const exact = { ...page, pathPrefix: '/item' };
+  expect(publicSourceUrl(exact, 'https://example.com/item?id=42').pathname).toBe('/item');
+  expect(() => publicSourceUrl(exact, 'https://example.com/item/other')).toThrow();
+  expect(() => validateApp({ ...structuredManifest, sources: [{ ...page, pathPrefix: '/docs/../' }] })).toThrow();
+  expect(publicSourceUrl(manifest.sources[0], 'a b').searchParams.get('q')).toBe('a b');
+});
+
+it('queries own records before pagination and retrieves older receipts with explicit portfolio access', async () => {
+  const s = setup(); const first = await s.install(); const work = await s.run(first.id); const app = s.apps.context(work.id);
+  const receipt = await s.apps.source(app, work.id, 'public-feed', 'help');
+  s.apps.record(app, work.id, { key: 'kept', kind: 'finding', title: 'Own old record', body: 'Evidence', evidenceIds: [receipt.id] });
+  const other = await s.install({ ...manifest, id: 'other-app' }); const otherWork = await s.run(other.id); const otherApp = s.apps.context(otherWork.id);
+  for (let i = 0; i < 210; i++) s.apps.record(otherApp, otherWork.id, { key: `key-${i}`, kind: 'finding', title: `Other ${i}`, body: 'Unrelated' });
+  expect(s.apps.read(app).records).toHaveLength(1);
+  expect(s.apps.queryRecords(otherApp, { limit: 100 })).toMatchObject({ total: 210, nextOffset: 100 });
+  expect(s.apps.queryRecords(otherApp, { offset: 200, limit: 100 })).toMatchObject({ total: 210, nextOffset: null, records: expect.any(Array) });
+  expect(s.apps.queryRecords(otherApp, { key: 'key-123' }).records).toHaveLength(1);
+  expect(() => s.apps.receipt(otherApp, receipt.id)).toThrow('not available');
+  const reviewer = await s.install({ ...manifest, id: 'portfolio-review', permissions: ['portfolio-read'], sources: [] });
+  const reviewWork = await s.run(reviewer.id); const reviewApp = s.apps.context(reviewWork.id);
+  expect(s.apps.queryRecords(reviewApp).total).toBe(211);
+  expect(s.apps.receipt(reviewApp, receipt.id).id).toBe(receipt.id);
+  const ownExport = await s.apps.command({ action: 'export_records', workspaceId: s.workspaceId, installationId: reviewer.id });
+  expect(ownExport.records).toHaveLength(0);
+  for (const input of [{ limit: 101 }, { offset: -1 }, { limit: 1.5 }]) expect(() => s.apps.queryRecords(app, input)).toThrow();
+});
+
+it('previews imports without writes, prevents approval imports and detects stale import/edit previews', async () => {
+  const s = setup(); const installed = await s.install(structuredManifest as any);
+  const call = (action: string, input: any = {}) => s.apps.command({ action, workspaceId: s.workspaceId, installationId: installed.id, ...input });
+  const records = [{ key: 'ticket-1', kind: 'ticket', title: 'Imported task', body: 'User notes; not independently verified', data: { status: 'new', count: 0 } }];
+  const preview = await call('preview_import', { records });
+  expect(preview).toMatchObject({ creates: 1, updates: 0, approvalsImported: 0, sent: false });
+  expect((await call('query_records')).total).toBe(0);
+  for (const patch of [{ status: 'approved' }, { evidenceIds: ['fake'] }, { decided_by: 'human' }, { execution: { receipt: 'fake' } }])
+    await expect(call('preview_import', { records: [{ ...records[0], ...patch }] })).rejects.toThrow('cannot be imported');
+  await call('import_records', { records, previewDigest: preview.digest });
+  const saved = (await call('query_records')).records[0]; expect(saved.provenance).toBe('user-import'); expect(saved.evidence).toEqual([]);
+  await expect(call('import_records', { records, previewDigest: preview.digest })).rejects.toThrow('preview again');
+  const repeat = await call('preview_import', { records }); expect(repeat.updates).toBe(1);
+  await call('import_records', { records, previewDigest: repeat.digest }); expect((await call('query_records')).total).toBe(1);
+  const current = (await call('query_records')).records[0];
+  await call('edit_record', { record: { ...records[0], data: { status: 'clarify' } }, digest: current.digest });
+  await expect(call('edit_record', { record: records[0], digest: current.digest })).rejects.toThrow('changed');
+  expect((await call('query_records')).records[0]).toMatchObject({ provenance: 'user', data: { status: 'clarify' } });
+  expect((await call('export_records')).records).toEqual([{ ...records[0], data: { status: 'clarify' } }]);
+  expect(s.apps.snapshot(s.workspaceId).actions).toHaveLength(0);
+});
+
+it('binds reviewer readiness to one app/item and lets revision create a new immutable draft', async () => {
+  const s = setup(); const installed = await s.install(); const work = await s.run(installed.id); const app = s.apps.context(work.id);
+  const input = { destination: 'https://example.com/contact', account: 'test', content: 'Test only', rationale: 'Synthetic fixture', costCents: 0 };
+  const first = s.apps.draft(app, work.id, input); const row = s.apps.snapshot(s.workspaceId).actions[0];
+  expect(() => s.apps.reviewDraft(app, work.id, { actionId: first.id, digest: row.digest, decision: 'pass' })).toThrow('designated approver');
+  await s.apps.command({ action: 'set_approver', workspaceId: s.workspaceId });
+  expect(() => s.apps.reviewDraft(app, 'wrong-work', { actionId: first.id, digest: row.digest, decision: 'pass' })).toThrow('work item');
+  expect(() => s.apps.reviewDraft({ ...app, actorUserId: 'other-person' }, work.id, { actionId: first.id, digest: row.digest, decision: 'pass' })).toThrow('designated approver');
+  s.apps.reviewDraft(app, work.id, { actionId: first.id, digest: row.digest, decision: 'revise' });
+  expect(s.apps.draft(app, work.id, { ...input, content: 'Corrected fixture' }).id).not.toBe(first.id);
+  expect(s.apps.snapshot(s.workspaceId).actions.find((action: any) => action.id === first.id).status).toBe('cancelled');
+  expect(appToolDenial('bees_app_review_action')).toContain('not permitted');
+  expect(appToolDenial('bees_app_review_action', true)).toBeUndefined();
+});
+
+it('requires admin opt-in for approver policy and ignores forged actor identities', async () => {
+  const s = setup(); const actor = (s.db.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').get() as any).id;
+  await s.apps.command({ action: 'set_approver', workspaceId: s.workspaceId, actorUserId: 'forged', approverUserId: 'forged' });
+  expect(s.apps.snapshot(s.workspaceId).portfolio.approver_user_id).toBe(actor);
+  s.db.prepare("UPDATE team_memberships SET role='member'").run();
+  await expect(s.apps.command({ action: 'clear_approver', workspaceId: s.workspaceId })).rejects.toThrow('team admin');
+  await expect(s.apps.command({ action: 'portfolio', workspaceId: s.workspaceId, capCents: 0, maxRuns: 1 })).rejects.toThrow('team admin');
+  s.db.prepare("UPDATE team_memberships SET role='admin'").run();
+  await s.apps.command({ action: 'clear_approver', workspaceId: s.workspaceId });
+  expect(s.apps.snapshot(s.workspaceId).portfolio.approver_user_id).toBeNull();
+  expect(() => setup(undefined, () => ({ id: 'unscoped', account: 'unsafe', send: () => {} }))).toThrow('explicit workspace and actor grants');
+});
+
+it('rolls back rejected approval metadata when authoritative legacy snapshots omit new columns', async () => {
+  let state: any; let actor = '';
+  const connected = { appConnection: () => ({ id: 'fixture' }), request: async (_path: string, input: any) => {
+    if (input.method === 'GET') return { state: structuredClone(state), revision: 0, userId: actor };
+    throw new Error('Rejected fixture write');
+  } };
+  const s = setup(connected); actor = (s.db.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').get() as any).id;
+  const installed = await s.install(); const work = await s.run(installed.id); const app = s.apps.context(work.id);
+  const draft = s.apps.draft(app, work.id, { destination: 'https://example.com/test', account: 'test', content: 'Synthetic draft', rationale: 'Regression fixture', costCents: 0 });
+  const digest = s.apps.snapshot(s.workspaceId).actions[0].digest;
+  const workspace = { ...s.apps.scope(s.workspaceId), authority: 'connected' };
+  state = s.apps.shared.export(workspace); state.nativeRecords = [];
+  delete state.tables.app_portfolios[0].approver_user_id;
+  for (const action of state.tables.app_actions) { delete action.reviewed_digest; delete action.execution; }
+  await expect(s.apps.shared.run(workspace, true, () => s.apps.localCommand({ action: 'set_approver', workspaceId: s.workspaceId, actorUserId: actor }))).rejects.toThrow('Rejected fixture write');
+  expect(s.apps.snapshot(s.workspaceId).portfolio.approver_user_id).toBeNull();
+  state.tables.app_portfolios[0].approver_user_id = actor;
+  await expect(s.apps.shared.run(workspace, true, () => s.apps.reviewDraft(app, work.id, { actionId: draft.id, digest, decision: 'pass' }))).rejects.toThrow('Rejected fixture write');
+  expect(s.apps.snapshot(s.workspaceId).actions[0]).toMatchObject({ reviewed_digest: null, execution: {} });
+  await s.apps.shared.run(workspace, false, () => {});
+  expect(s.apps.snapshot(s.workspaceId).actions[0].reviewed_digest).toBeNull();
+});
+
+it('the actual DSH tool pipeline accepts typed record data and denies worker action-review calls', async () => {
+  const s = setup(); const installed = await s.install(structuredManifest as any); const work = await s.run(installed.id); const app = s.apps.context(work.id);
+  const require = createRequire(new URL('../dsh-runtime/package.json', import.meta.url));
+  const { Context } = require('@deepseek-ai/cordis'); const { ToolRuntime } = require('@deepseek-ai/dsh-tools');
+  const { createScope } = require('@deepseek-ai/dsh-scope');
+  const ctx: any = new Context(); ctx.systemPrompt = { tools: () => {}, section: () => {} };
+  const tools = new ToolRuntime(ctx);
+  const agent: any = { session: { header: {} } }; const run = createScope(ctx, agent);
+  try {
+    mountAppTools(run.ctx, s.apps, app, { stagePurpose: 'worker', workItemId: work.id });
+    const result = await tools.execute({ agent, callId: 'typed-record', name: 'bees_app_record', arguments: { key: 'tool-ticket', kind: 'ticket', title: 'Tool-created fixture', body: 'No live data', data: { status: 'new', count: 2, enabled: false }, evidenceIds: [] }, signal: new AbortController().signal });
+    expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    expect(s.apps.queryRecords(app).records[0].data).toEqual({ status: 'new', count: 2, enabled: false });
+    const denied = await tools.execute({ agent, callId: 'invalid-review', name: 'bees_app_review_action', arguments: {}, signal: new AbortController().signal });
+    expect(denied.isError).toBe(true);
+  } finally { await run.dispose(); }
+});
+
+it('scopes connector credentials to workspace and actor and retains interrupted attempts without duplicate sends', async () => {
+  const send = vi.fn(async () => ({ outcome: 'accepted', receipt: { id: 'synthetic-receipt' } }));
+  const s = setup(undefined, ({ workspaceId, userId }: any) => ({ id: 'fixture', account: 'fixture-account', workspaceIds: [workspaceId], actorUserIds: [userId], send }));
+  const installed = await s.install({ ...manifest, schemaVersion: 2 }); const work = await s.run(installed.id); const app = s.apps.context(work.id);
+  await s.apps.command({ action: 'set_approver', workspaceId: s.workspaceId });
+  const input = { destination: 'https://example.com/contact', account: 'fixture-account', connectorId: 'fixture', content: 'Synthetic only', rationale: 'Test', costCents: 0 };
+  expect(() => s.apps.draft({ ...app, manifest }, work.id, input)).toThrow('Version-1');
+  expect(s.apps.snapshot(s.workspaceId, 'unauthorized').connectors).toEqual([]);
+  expect(s.apps.connectorFor('other-workspace')).toBeNull();
+  expect(() => s.apps.draft({ ...app, actorUserId: 'unauthorized' }, work.id, input)).toThrow('workspace, actor');
+  const draft = s.apps.draft(app, work.id, input); const row = s.apps.snapshot(s.workspaceId).actions[0];
+  s.apps.reviewDraft(app, work.id, { actionId: draft.id, digest: row.digest, decision: 'pass' });
+  const action = { workspaceId: s.workspaceId, actionId: draft.id, digest: row.digest };
+  await s.apps.command({ ...action, action: 'decide', decision: 'approve' });
+  s.apps.actionConnector.workspaceIds = ['other-workspace'];
+  await expect(s.apps.command({ ...action, action: 'execute_action' })).rejects.toThrow('not authorized'); expect(send).not.toHaveBeenCalled();
+  s.apps.actionConnector.workspaceIds = [s.workspaceId];
+  const save = s.apps.saveAction.bind(s.apps);
+  vi.spyOn(s.apps, 'saveAction').mockImplementation((record: any, patch: any) => { if (patch.status === 'succeeded') throw new Error('Simulated persistence failure'); return save(record, patch); });
+  await expect(s.apps.command({ ...action, action: 'execute_action' })).rejects.toThrow('persistence failure'); expect(send).toHaveBeenCalledTimes(1);
+  s.db.prepare("UPDATE work_items SET runtime_phase='completed'").run();
+  await expect(s.apps.command({ action: 'remove', workspaceId: s.workspaceId, installationId: installed.id })).rejects.toThrow('in-flight');
+  const executing = s.apps.snapshot(s.workspaceId).actions[0];
+  await expect(s.apps.command({ ...action, action: 'mark_unknown', attemptId: executing.execution.attemptId })).rejects.toThrow('one minute');
+  executing.execution.claimedAt = new Date(Date.now() - 120_000).toISOString();
+  s.db.prepare('UPDATE app_actions SET execution=? WHERE id=?').run(JSON.stringify(executing.execution), draft.id);
+  await s.apps.command({ ...action, action: 'mark_unknown', attemptId: executing.execution.attemptId });
+  await s.apps.command({ action: 'remove', workspaceId: s.workspaceId, installationId: installed.id });
+  await s.apps.command({ ...action, action: 'reconcile_action', attemptId: executing.execution.attemptId, evidence: 'Fixture operator checked provider history.' });
+  expect(s.apps.snapshot(s.workspaceId).actions[0]).toMatchObject({ status: 'unknown', execution: { reconciliation: { evidence: 'Fixture operator checked provider history.' } } });
+  await expect(s.apps.command({ ...action, action: 'execute_action' })).rejects.toThrow('not available'); expect(send).toHaveBeenCalledTimes(1);
+});
+
 it('shares installations, records and approvals between distinct devices and rejects conflicting writes', async () => {
   let state: any = null; let revision = 0; let offline = false; let rejectWrites = false;
   const transport = (userId: string) => ({ appConnection: () => ({ id: 'test-connection' }), request: async (_path: string, input: any) => {
@@ -69,7 +244,7 @@ it('shares installations, records and approvals between distinct devices and rej
     if (input.body.revision !== revision) throw new Error('App state changed on another device');
     state = structuredClone(input.body.state); revision++; return { revision, userId };
   } });
-  const a = setup(transport('human-a')); const b = setup(transport('human-b'));
+  const a = setup(transport('human-a')); const b = setup(transport('human-a'));
   const org = randomUUID(); const team = randomUUID();
   const connect = (s: ReturnType<typeof setup>) => {
     const at = new Date().toISOString(); const ws = randomUUID();
@@ -102,6 +277,8 @@ it('shares installations, records and approvals between distinct devices and rej
     destination: `https://example.com/${suffix}`, account: 'test', content: 'Synthetic draft', rationale: 'Test', costCents: 60
   })));
   const actions = (await a.apps.view(wa)).actions;
+  await a.apps.command({ action: 'set_approver', workspaceId: wa });
+  for (const action of actions) await a.apps.useApp(app, work.id, true, (current: any) => a.apps.reviewDraft(current, work.id, { actionId: action.id, digest: action.digest, decision: 'pass' }));
   const decision = (s: any, ws: string, id: string) => s.apps.command({ action: 'decide', workspaceId: ws, actionId: id,
     digest: actions.find((d: any) => d.id === id).digest, decision: 'approve' });
   const decisions = await Promise.allSettled([decision(a, wa, drafts[0].id), decision(b, wb, drafts[1].id)]);
@@ -121,7 +298,7 @@ it('shares installations, records and approvals between distinct devices and rej
 
 it("validates the declarative boundary and rejects executable hooks, secrets and unknown fields", () => {
   expect(validateApp(manifest)).toEqual(manifest);
-  for (const patch of [{ schemaVersion: 2 }, { entrypoint: "malware.js" }, { permissions: ["shell"] },
+  for (const patch of [{ schemaVersion: 3 }, { entrypoint: "malware.js" }, { permissions: ["shell"] },
     { inputs: [...manifest.inputs, ...manifest.inputs] }, { id: "../escape" }, { task: "" },
     { sources: [{ ...manifest.sources[0], url: "http://localhost:3000" }] },
     { sources: [{ ...manifest.sources[0], url: "https://example.com/?token=secret" }] }])
@@ -203,6 +380,10 @@ it("binds human decisions to immutable drafts and reserves shared budget atomica
   const decide = (id: string, digest: string) => s.apps.command({ action: "decide", workspaceId: s.workspaceId, actionId: id, digest, decision: "approve" });
   const digest = (id: string) => s.apps.snapshot(s.workspaceId).actions.find((a: any) => a.id === id).digest;
   await expect(decide(first.id, "changed")).rejects.toThrow("changed");
+  await expect(decide(first.id, digest(first.id))).rejects.toThrow("designated approver");
+  await s.apps.command({ action: "set_approver", workspaceId: s.workspaceId });
+  await expect(decide(first.id, digest(first.id))).rejects.toThrow("Independent review");
+  for (const actionId of [first.id, second.id]) s.apps.reviewDraft(app, work.id, { actionId, digest: digest(actionId), decision: "pass" });
   await expect(decide(first.id, digest(first.id))).rejects.toThrow("cap");
   await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 100, maxRuns: 5 });
   expect((await decide(first.id, digest(first.id))).sent).toBe(false);
@@ -256,7 +437,7 @@ it("mounts app restrictions in the actual agent setup without browser or unrelat
   expect(browser).not.toHaveBeenCalled(); expect(folders).not.toHaveBeenCalled();
   expect(registered.map((t) => t.name)).toEqual(expect.arrayContaining(["bees_app_read", "bees_app_record", "bees_submit_stage_result"]));
   for (const tool of registered) expect(appToolDenial(tool.name)).toBeUndefined();
-  expect(guards[0]({ name: "mcp__mail__send" })).toContain("not permitted");
+  expect(guards.some((guard) => String(guard({ name: "mcp__mail__send" }) ?? "").includes("not permitted"))).toBe(true);
 });
 
 it("blocks private, reserved and IPv6 source addresses", () => {

@@ -12,10 +12,22 @@ export function publicIPv4(address) {
 
 // Resolve once and pin that address at TLS connection time. No redirects, cookies or auth.
 // IPv4-only deliberately: unavailable IPv4 fails closed instead of weakening SSRF checks.
+export function publicSourceUrl(source, query) {
+  const base = new URL(source.url);
+  if (typeof query !== "string" || !query.trim() || query.length > (source.type === "page" ? 2000 : 300)) throw new Error("Invalid source query");
+  const url = source.type === "page" ? new URL(query) : base;
+  if (source.type === "page") {
+    const inPath = source.pathPrefix.endsWith("/") ? url.pathname.startsWith(source.pathPrefix) : url.pathname === source.pathPrefix;
+    if (url.origin !== base.origin || url.protocol !== "https:" || url.username || url.password || url.hash || url.port || /%2f|%5c|%2e/i.test(url.pathname) || !inPath)
+      throw new Error("Page URL is outside the declared source scope");
+    for (const key of url.searchParams.keys()) if (/token|secret|password|api.?key|auth/i.test(key)) throw new Error("Page URLs must not contain credentials");
+  } else url.searchParams.set(source.queryParam, query);
+  return url;
+}
+
 export async function readPublicSource(source, query, signal) {
   signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
-  const url = new URL(source.url);
-  url.searchParams.set(source.queryParam, query);
+  const url = publicSourceUrl(source, query);
   signal.throwIfAborted();
   const addresses = await lookup(url.hostname, { all: true, family: 4 });
   signal.throwIfAborted();
