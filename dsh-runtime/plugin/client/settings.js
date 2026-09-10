@@ -163,22 +163,11 @@ export function AccountsPage({ reload }) {
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null));
 }
 
-function OrganizationsSettings({ reload, openOrganization }) {
+function OrganizationsSettings() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   useEffect(() => { collaboration().then(setData).catch((reason) =>
     setError(reason instanceof Error ? reason.message : String(reason))); }, []);
-  const accept = async (invitation) => {
-    setBusy(true);
-    try {
-      setData(await collaboration("accept_invitation", {
-        invitationId: invitation.id, accountUserId: invitation.accountUserId
-      }));
-      setError(""); await reload();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
   if (!data) return h(Empty, null, error || "Loading organizations…");
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, "Organizations"),
@@ -186,21 +175,8 @@ function OrganizationsSettings({ reload, openOrganization }) {
         className: "bees-row", key: organization.connectionId
       }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, organization.name),
-        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`)),
-      ["owner", "admin"].includes(organization.role) ? h(Button, {
-        onClick: () => openOrganization(organization)
-      }, "Invite members") : null))
+        h("div", { className: "bees-muted" }, `${organization.accountEmail} · ${organization.role}`))))
         : [h(Empty, { key: "empty" }, "No Regular organizations yet")])),
-    h("section", { className: "bees-box" }, h("h3", null, "Pending invitations"),
-      ...(data.invitations.length ? data.invitations.map((invitation) => h("div", {
-        className: "bees-row", key: `${invitation.accountUserId}:${invitation.id}`
-      },
-        h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.organizationName),
-          h("div", { className: "bees-muted" },
-            [invitation.accountEmail, invitation.role, invitation.expiresAt ? `expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "no expiry date"].join(" · "))),
-        h(Button, { className: "primary", disabled: busy,
-          onClick: () => accept(invitation) }, "Accept")))
-        : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -452,7 +428,7 @@ function OrganizationSettings({
               h("option", { value: "member" }, "Member"),
               h("option", { value: "admin" }, "Admin"))))
           : [h(Empty, { key: "empty" }, "No organization members")])),
-      h("section", { className: "bees-box" }, h("h3", null, "Invite organization member"),
+      h("section", { className: "bees-box" }, h("h3", null, "Invite member"),
         h("form", { className: "bees-form-row", onSubmit: invite },
           h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
           h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
@@ -638,7 +614,7 @@ export function SettingsPage({
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
-    : route === "organizations" ? h(OrganizationsSettings, { reload, openOrganization })
+    : route === "organizations" ? h(OrganizationsSettings)
     : route === "connections" ? h(ConnectionsSettings)
     : ORGANIZATION_SETTINGS.some(([id]) => id === route)
       ? h(OrganizationSettings, {
