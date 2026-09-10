@@ -103,8 +103,9 @@ export function readToolResult(session, { call_id, offset = 0, find = "" }) {
   };
 }
 
-/** Installed on each managed agent, including discussion participants and resumed agents. */
-export function installContextPolicy(agentCtx) {
+/** Installed on each managed agent, including discussion participants and resumed agents.
+ *  The meter comes from the plugin context: an agent context may only read what it injects. */
+export function installContextPolicy(agentCtx, tokenMeter) {
   if (typeof agentCtx.on !== "function") return;
   if (installed.has(agentCtx)) return;
   installed.add(agentCtx);
@@ -131,7 +132,7 @@ export function installContextPolicy(agentCtx) {
   }));
   agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
     if (agent !== agentCtx.agent || signal.aborted) return next();
-    const { pruned } = pruneToolResults(agent.session, agentCtx.tokenMeter);
+    const { pruned } = pruneToolResults(agent.session, tokenMeter);
     if (pruned) pendingFlush.add(agent.session);
     if (pendingFlush.has(agent.session)) {
       await agentCtx.sessions.flush(agent.session);

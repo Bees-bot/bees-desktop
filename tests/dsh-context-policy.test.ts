@@ -148,8 +148,8 @@ it("flushes surface replacements before the request and keeps recall reads in th
     tools: { register: (tool: any) => definitions.push(tool) },
     on: (_name: string, hook: any, options: any) => { hooks.push(hook); expect(options.prepend).toBe(true); }
   };
-  installContextPolicy(agentCtx);
-  installContextPolicy(agentCtx);
+  installContextPolicy(agentCtx, meter);
+  installContextPolicy(agentCtx, meter);
   expect(hooks).toHaveLength(1);
   let flushed: any[] = [];
   ctx.on("session/flush", (value: any) => { flushed = value.snapshotEvents(); });

@@ -914,7 +914,7 @@ export class AgentRuntime {
       }
       return next();
     });
-    installContextPolicy(agentCtx);
+    installContextPolicy(agentCtx, this.ctx.tokenMeter);
   }
 
   async setup(agentCtx, data, executionId, workspace) {
