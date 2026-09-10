@@ -658,6 +658,15 @@ export class AgentRuntime {
     return ["question", "work-review"].includes(pending?.kind) ? pending : null;
   }
 
+  /** A provider that cannot be reached will not be reached by asking it again in a loop. */
+  unreachableProvider(executionId) {
+    const rows = this.database.prepare(`
+      SELECT error_json AS errorJson FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at DESC LIMIT 3
+    `).all(executionId);
+    return rows.length === 3 && rows.every(({ errorJson }) =>
+      errorJson && JSON.parse(errorJson).code === "TRANSPORT");
+  }
+
   needsRecovery(executionId) {
     return this.recovery.has(executionId);
   }
@@ -1787,6 +1796,8 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const failure = submission?.errorJson ? JSON.parse(submission.errorJson) : null;
       if (failure && !providerBadTurn(failure)) throw new Error(failure.message);
+      if (failure && this.unreachableProvider(executionId))
+        throw new Error(`${failure.message} The model provider was unreachable three times; check that it is running.`);
       const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
       submission = await this.admit("bees-run", executionId, {
         ...payload,
