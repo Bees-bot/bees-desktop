@@ -58,10 +58,16 @@ export function mountToolDiscovery(agentCtx) {
         loaded.add(name);
       }
       while (loaded.size > RETAINED_TOOLS) loaded.delete(loaded.values().next().value);
+      // A search that matches nothing reads as "this run has no tools", and a small model gives up
+      // there. Names are cheap: show what it could have asked for.
+      const available = page.length ? [] : matches.length ? [] : agentCtx.tools.schemas(exec.agent)
+        .filter(({ name }) => !HIDDEN_TOOLS.has(name) && !BASE_TOOLS.has(name))
+        .map(({ name }) => name).slice(0, 40);
       return { result: JSON.stringify({
         tools: page.map(({ name, description }) => ({ name, description: String(description ?? "").slice(0, 180) })),
         total: matches.length,
-        next_offset: offset + page.length < matches.length ? offset + page.length : null
+        next_offset: offset + page.length < matches.length ? offset + page.length : null,
+        ...(available.length ? { available } : {})
       }) };
     }
   }));
