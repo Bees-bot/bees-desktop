@@ -305,23 +305,6 @@ function applyAgent(database, record, authoritativeApps = false) {
   replaceLocations(database, "agent_locations", "agent_assignment_id", record.recordId, p.inputLocations);
 }
 
-function applyPool(database, record) {
-  if (!newer(database, "agent_pools", record.recordId, record.version)) return;
-  const p = record.payload;
-  const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
-  database.prepare(`
-    INSERT INTO agent_pools VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
-      archived_at = excluded.archived_at, updated_at = excluded.updated_at
-  `).run(record.recordId, workspaceId, p.name, p.description, p.archivedAt, p.createdAt, p.updatedAt);
-  database.prepare("DELETE FROM agent_pool_members WHERE pool_id = ?").run(record.recordId);
-  const insert = database.prepare("INSERT INTO agent_pool_members VALUES (?, ?, ?, ?, ?)");
-  for (const member of p.members) if (database.prepare(
-    "SELECT 1 FROM agent_assignments WHERE id = ? AND workspace_id = ?"
-  ).get(member.agentId, workspaceId)) insert.run(record.recordId, member.agentId,
-    member.priority, member.enabled ? 1 : 0, member.lastAssignedAt);
-}
-
 function applyProcess(database, record, authoritativeApps = false) {
   if (record.payload.appInstallationId) database.prepare('INSERT OR IGNORE INTO app_process_owners VALUES (?,?)').run(record.recordId, record.payload.appInstallationId);
   if (!(authoritativeApps && record.payload.appInstallationId) && !newer(database, "processes", record.recordId, record.version)) return;
@@ -454,7 +437,6 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
     for (const entry of applicable) {
       if (entry.recordType === "team_location") applyLocation(database, entry);
       else if (entry.recordType === "agent") applyAgent(database, entry, authoritativeApps);
-      else if (entry.recordType === "agent_pool") applyPool(database, entry);
       else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);

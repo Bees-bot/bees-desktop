@@ -185,7 +185,7 @@ deduplication.
   file deliverables and publication requirements still apply.
 - **Runaway use has a durable shared ceiling.** A root work item, its children,
   discussion participants, reviews, recovery sessions and provider retries share
-  a SQLite admission ledger: 64 model requests or 250,000 processed tokens.
+  a SQLite admission ledger: 250 model requests or 250,000 processed tokens.
   Planning sessions without a work item have their own shared execution budget.
   Compaction calls carrying that session identity are included. Cached tokens
   count because the metric is processed tokens, not billing. Concurrent requests

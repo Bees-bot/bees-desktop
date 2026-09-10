@@ -75,7 +75,8 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.model).toBeNull();
       expect(payload.initialData.discussionMembers).toHaveLength(1);
       expect(payload.initialData.discussionMembers[0]).toMatchObject({ model: null, planningReviewer: true });
-      expect(payload.body).toContain("A plan alone does not complete Work");
+      expect(payload.initialData.instructions).toContain("A plan alone does not complete Work");
+      expect(payload.body).not.toContain("A plan alone does not complete Work");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Do not implement the goal");
       await run("goal-work", work); // Replayed dispatch preserves the planning role.
       expect(execute.mock.calls.at(-1)![1].initialData.discussionMembers[0].planningReviewer).toBe(true);
