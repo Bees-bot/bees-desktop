@@ -805,23 +805,29 @@ export function initializeProductDatabase(database) {
   // Starter templates stored bare stage names; every other template stored shaped ones. The
   // rewrite has to move updated_at too, or the server keeps the old shape at the newer version.
   if (version < 25) transaction(database, () => {
-    const at = iso();
-    for (const row of database.prepare("SELECT id, stages_json AS stages FROM process_templates").all()) {
-      let stages;
-      try { stages = JSON.parse(row.stages); } catch { continue; }
-      if (!Array.isArray(stages) || !stages.some((stage) => typeof stage === "string")) continue;
+    for (const row of database.prepare(
+      "SELECT id, stages_json AS stages, updated_at AS updatedAt FROM process_templates"
+    ).all()) {
+      let shaped;
+      // A row this cannot convert keeps what it has. Throwing here would fail the boot.
+      try {
+        const stages = JSON.parse(row.stages);
+        if (!Array.isArray(stages) || !stages.some((stage) => typeof stage === "string")) continue;
+        shaped = JSON.stringify(processStages(stages, "process template"));
+      } catch { continue; }
+      // The push reads a version off updated_at, and the server only takes a strictly newer one.
+      const at = new Date(Math.max(Date.now(), Date.parse(row.updatedAt) + 1)).toISOString();
       database.prepare("UPDATE process_templates SET stages_json = ?, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(processStages(stages, "process template")), at, row.id);
+        .run(shaped, at, row.id);
     }
-    // A connection that never finished the apps-v1 replay still owes it, so send it back to zero
-    // before the table that remembered as much goes.
-    if (database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'bees_app_sync_versions'").get())
-      database.exec(`
-        DELETE FROM bees_connection_sync_cursors WHERE connection_id NOT IN
-          (SELECT connection_id FROM bees_app_sync_versions);
-        DROP TABLE bees_app_sync_versions;
-      `);
-    database.exec("PRAGMA user_version = 25");
+    // No marker means no connection ever proved it finished the apps-v1 replay, so they all owe it.
+    const proven = database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'bees_app_sync_versions'").get()
+      ? "SELECT connection_id FROM bees_app_sync_versions" : "SELECT NULL WHERE 0";
+    database.exec(`
+      DELETE FROM bees_connection_sync_cursors WHERE connection_id NOT IN (${proven});
+      DROP TABLE IF EXISTS bees_app_sync_versions;
+      PRAGMA user_version = 25;
+    `);
   });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`

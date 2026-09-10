@@ -73,19 +73,24 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
              r.required_capabilities_json AS requiredCapabilities, r.updated_at AS routeUpdatedAt
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
       WHERE s.process_id = ? AND s.archived_at IS NULL ORDER BY s.position
-    `).all(row.id).map((stage) => ({
+    `).all(row.id).map((stage) => {
+      // product-routing falls back to the scalar when the list is empty, so the list has to carry
+      // it or the assignment does not survive the trip.
+      const routeIds = json(stage.agentIds).length ? json(stage.agentIds)
+        : stage.agentId ? [stage.agentId] : [];
+      return {
       id: stage.id, name: stage.name, position: stage.position, driver: stage.driver,
       requiresHumanApproval: Boolean(stage.requiresHumanApproval),
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
-      route: json(stage.agentIds).length || stage.agentId || stage.requiredCapabilities
+      route: routeIds.length || stage.requiredCapabilities
         ? {
-            agentId: json(stage.agentIds)[0] ?? null,
-            agentIds: json(stage.agentIds),
+            agentId: routeIds[0] ?? null,
+            agentIds: routeIds,
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
           }
         : null
-    }));
+    };});
     records.push(record("team_process", row, {
       ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
@@ -338,7 +343,8 @@ function applyProcess(database, record, authoritativeApps = false) {
       stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
     if (stage.route) {
-      const ids = stage.route.agentIds ?? [];
+      const ids = stage.route.agentIds?.length ? stage.route.agentIds
+        : stage.route.agentId ? [stage.route.agentId] : [];
       database.prepare(`
         INSERT INTO stage_routes
           (stage_id, agent_assignment_id, required_capabilities_json,
@@ -400,10 +406,11 @@ function applyItem(database, record) {
     .get(record.recordId)?.settings;
   const settings = normalizeRunSettings(p.runSettings ?? json(prior, {}));
   // The server can refuse one record and keep its neighbours, so an item can arrive before, or
-  // without, the rows it points at. Skipping it beats failing the whole pull on a foreign key.
-  if (!database.prepare("SELECT 1 FROM stages WHERE id = ? AND process_id = ?").get(p.stageId, p.processId)) return;
-  const ids = (p.agentIds ?? (p.agentId ? [p.agentId] : []))
-    .filter((id) => database.prepare("SELECT 1 FROM agent_assignments WHERE id = ?").get(id));
+  // without, the rows it points at. Inserting it would fail a foreign key and take the pull down.
+  const ids = p.agentIds ?? (p.agentId ? [p.agentId] : []);
+  const missing = !database.prepare("SELECT 1 FROM stages WHERE id = ? AND process_id = ?").get(p.stageId, p.processId)
+    || ids.some((id) => !database.prepare("SELECT 1 FROM agent_assignments WHERE id = ?").get(id));
+  if (missing) return true;
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
@@ -425,6 +432,7 @@ function applyItem(database, record) {
     p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
     record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
+  return false;
 }
 
 export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
@@ -437,6 +445,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
     `).get(payload.teamId, organizationId)).sort(
     (left, right) => ORDER.get(left.recordType) - ORDER.get(right.recordType)
   );
+  let deferred = false;
   transaction(database, () => {
     for (const entry of applicable) {
       if (entry.recordType === "team_location") applyLocation(database, entry);
@@ -444,7 +453,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
-      else if (entry.recordType === "team_work_item") applyItem(database, entry);
+      else if (entry.recordType === "team_work_item") deferred = applyItem(database, entry) || deferred;
     }
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
       if (entry.payload.parentId && database.prepare(
@@ -454,6 +463,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       ).run(entry.payload.parentId, entry.recordId);
     }
   });
+  return deferred;
 }
 
 /** Applies everything past `cursor` and commits it, whatever the push after it does. */
@@ -471,7 +481,9 @@ async function pull(database, request, organizationId, connectionId, cursor) {
     next = page.cursor;
     more = page.more;
   }
-  applyTeamRecords(database, organizationId, records);
+  // A record whose rows are missing keeps its version, so a cursor moved past it never offers it
+  // again. Hold the cursor until the batch applies whole.
+  if (applyTeamRecords(database, organizationId, records)) return { cursor, count: records.length };
   database.prepare(`
     INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
     ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
