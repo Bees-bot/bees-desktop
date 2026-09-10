@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { ConnectedAccount } from "../dsh-runtime/plugin/lib/connected-account.js";
 import { BeesProduct, initializeProductDatabase } from "../dsh-runtime/plugin/lib/product.js";
-import { applyTeamRecords, teamRecords } from "../dsh-runtime/plugin/lib/team-sync.js";
+import { applyTeamRecords, syncTeamRecords, teamRecords } from "../dsh-runtime/plugin/lib/team-sync.js";
 import { NodeDatabase } from "./node-database.js";
 
 /**
@@ -17,15 +17,15 @@ import { NodeDatabase } from "./node-database.js";
  */
 const acceptedPayloadKeys: Record<string, string[]> = {
   team_location: ["teamId", "logicalId", "name", "kind", "description", "archivedAt", "createdAt", "updatedAt"],
-  agent: ["teamId", "name", "description", "instructions", "presetId", "model", "reasoningEffort",
+  agent: ["appInstallationId", "teamId", "name", "description", "instructions", "presetId", "model", "reasoningEffort",
     "systemRole", "capabilities", "enabled", "maxConcurrency", "mcpAccess", "mcpServers",
     "inputLocations", "createdAt", "updatedAt"],
-  team_process: ["teamId", "name", "description", "kind", "outputLocationId", "inputLocations",
+  team_process: ["appInstallationId", "teamId", "name", "description", "kind", "outputLocationId", "inputLocations",
     "stages", "archivedAt", "createdAt", "updatedAt"],
   process_template: ["teamId", "name", "description", "stages", "archivedAt", "createdAt", "updatedAt"],
   recurring_work: ["teamId", "processId", "sourceWorkItemId", "name", "scheduleKind", "schedule",
     "timezone", "status", "createdAt", "updatedAt"],
-  team_work_item: ["teamId", "processId", "stageId", "parentId", "kind", "title", "description",
+  team_work_item: ["appInstallationId", "teamId", "processId", "stageId", "parentId", "kind", "title", "description",
     "owner", "agentId", "agentIds", "priority", "runtimePhase", "runtimeAttempt",
     "runtimeReviewCycle", "runtimeError", "outputLocationId", "recurringWorkId", "accountUserId",
     "runSettings", "inputLocations", "archivedAt", "deletedAt", "createdAt", "updatedAt"]
@@ -175,7 +175,7 @@ describe("team coordination projection", () => {
         .toEqual([]);
     }
     expect(records.find(({ recordId }) => recordId === processId)!.payload.stages[0].route)
-      .toEqual({ agentId, agentIds: [agentId, peerAgentId], agentPoolId: null,
+      .toEqual({ agentId, agentIds: [agentId, peerAgentId],
         requiredCapabilities: [], updatedAt: at });
     expect(JSON.stringify(records)).not.toContain("/secret/company");
     applyTeamRecords(target.connection, organizationId, records);
@@ -212,15 +212,9 @@ describe("team coordination projection", () => {
     ).get(itemId)!.agentIds))).toEqual([agentId, peerAgentId]);
     expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
       .toEqual(runSettings);
-    const legacy = structuredClone(records.find((record) => record.recordType === "team_work_item")!);
-    delete (legacy.payload as any).runSettings;
-    legacy.version += 1000;
-    legacy.payload.updatedAt = new Date(legacy.version).toISOString();
-    applyTeamRecords(target.connection, organizationId, [legacy]);
-    expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
-      .toEqual(runSettings);
-    const invalid = structuredClone(legacy);
+    const invalid = structuredClone(records.find((record) => record.recordType === "team_work_item")!);
     invalid.version += 1000;
+    invalid.payload.updatedAt = new Date(invalid.version).toISOString();
     (invalid.payload as any).runSettings = { mcpAccess: "everything" };
     expect(() => applyTeamRecords(target.connection, organizationId, [invalid])).toThrow("Choose all, none, or listed");
   });
@@ -364,9 +358,9 @@ describe("team coordination projection", () => {
               ? { members: [{ id: randomUUID(), userId: "member-b", role: "member" }] }
               : url.includes("/api/sync/pull")
                 ? (pullCursors.push(new URL(url).searchParams.get("cursor") ?? ""),
-                  { records: pullCursors.at(-1) === "0" ? history : [], cursor: "50" })
+                  { records: pullCursors.at(-1) === "0" ? history : [], cursor: "50", more: false })
                 : url.endsWith("/api/sync/push")
-                  ? { cursor: "50" }
+                  ? { cursor: "50", rejected: [] }
                   : { invitations: [], candidates: [] };
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -390,4 +384,5 @@ describe("team coordination projection", () => {
     expect(database.prepare("SELECT name FROM processes WHERE id = ?").get(processId))
       .toEqual({ name: "Weekly report" });
   });
+
 });

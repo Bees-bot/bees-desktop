@@ -25,9 +25,10 @@ function inputLocations(database, table, owner, id) {
 
 function teamRecords(database, organizationId, connectionId = "", includeAppDefinitions = false) {
   const records = [];
+  // Always present, null when no app owns it: a key that comes and goes drifts off the contract.
   const owner = (table, key, id) => {
     const row = database.prepare(`SELECT installation_id FROM ${table} WHERE ${key}=?`).get(id);
-    return row ? { appInstallationId: row.installation_id } : {};
+    return { appInstallationId: row?.installation_id ?? null };
   };
   for (const row of database.prepare(`
     SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
@@ -72,20 +73,24 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
              r.required_capabilities_json AS requiredCapabilities, r.updated_at AS routeUpdatedAt
       FROM stages s LEFT JOIN stage_routes r ON r.stage_id = s.id
       WHERE s.process_id = ? AND s.archived_at IS NULL ORDER BY s.position
-    `).all(row.id).map((stage) => ({
+    `).all(row.id).map((stage) => {
+      // product-routing falls back to the scalar when the list is empty, so the list has to carry
+      // it or the assignment does not survive the trip.
+      const routeIds = json(stage.agentIds).length ? json(stage.agentIds)
+        : stage.agentId ? [stage.agentId] : [];
+      return {
       id: stage.id, name: stage.name, position: stage.position, driver: stage.driver,
       requiresHumanApproval: Boolean(stage.requiresHumanApproval),
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
-      route: json(stage.agentIds).length || stage.agentId || stage.requiredCapabilities
+      route: routeIds.length || stage.requiredCapabilities
         ? {
-            agentId: stage.agentId ?? null,
-            agentIds: json(stage.agentIds),
-            agentPoolId: null, // Older coordination servers require the retired pool field.
+            agentId: routeIds[0] ?? null,
+            agentIds: routeIds,
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
           }
         : null
-    }));
+    };});
     records.push(record("team_process", row, {
       ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
@@ -138,12 +143,12 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     ...owner('app_process_owners', 'process_id', row.processId),
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
     kind: row.kind, title: row.title, description: row.description, owner: row.owner,
-    agentId: row.agentId, agentIds: json(row.agentIds),
+    agentId: json(row.agentIds)[0] ?? null, agentIds: json(row.agentIds),
     priority: row.priority, runtimePhase: row.runtimePhase,
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
     recurringWorkId: row.recurringWorkId, accountUserId: row.accountUserId,
-    ...(row.runSettingsJson !== "{}" ? { runSettings: json(row.runSettingsJson, {}) } : {}),
+    runSettings: json(row.runSettingsJson, {}),
     inputLocations: inputLocations(database, "work_item_locations", "work_item_id", row.id),
     archivedAt: timestamp(row.archivedAt), deletedAt: timestamp(row.deletedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
@@ -338,8 +343,8 @@ function applyProcess(database, record, authoritativeApps = false) {
       stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
     if (stage.route) {
-      let ids = Array.isArray(stage.route.agentIds) ? stage.route.agentIds : [];
-      if (!ids.length && stage.route.agentId) ids = [stage.route.agentId];
+      const ids = stage.route.agentIds?.length ? stage.route.agentIds
+        : stage.route.agentId ? [stage.route.agentId] : [];
       database.prepare(`
         INSERT INTO stage_routes
           (stage_id, agent_assignment_id, required_capabilities_json,
@@ -395,11 +400,17 @@ function applyItem(database, record) {
   // A new row starts unparented because the parent may arrive later in this batch; the pass in
   // applyTeamRecords links it once the parent is confirmed. An update must leave an existing
   // link alone, or any later metadata change would orphan a child that was already correct.
-  // Older clients omit settings. Do not let their metadata updates erase a goal's restrictions.
-  const priorSettings = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
+  // An older desktop sends neither and the server still accepts it, so a missing field must not
+  // read as "clear it".
+  const prior = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
     .get(record.recordId)?.settings;
-  const settings = normalizeRunSettings(p.runSettings ?? json(priorSettings, {}));
-  const ids = Array.isArray(p.agentIds) ? p.agentIds : p.agentId ? [p.agentId] : [];
+  const settings = normalizeRunSettings(p.runSettings ?? json(prior, {}));
+  // The server can refuse one record and keep its neighbours, so an item can arrive before, or
+  // without, the rows it points at. Inserting it would fail a foreign key and take the pull down.
+  const ids = p.agentIds ?? (p.agentId ? [p.agentId] : []);
+  const missing = !database.prepare("SELECT 1 FROM stages WHERE id = ? AND process_id = ?").get(p.stageId, p.processId)
+    || ids.some((id) => !database.prepare("SELECT 1 FROM agent_assignments WHERE id = ?").get(id));
+  if (missing) return true;
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
@@ -421,6 +432,7 @@ function applyItem(database, record) {
     p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
     record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
+  return false;
 }
 
 export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
@@ -433,6 +445,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
     `).get(payload.teamId, organizationId)).sort(
     (left, right) => ORDER.get(left.recordType) - ORDER.get(right.recordType)
   );
+  let deferred = false;
   transaction(database, () => {
     for (const entry of applicable) {
       if (entry.recordType === "team_location") applyLocation(database, entry);
@@ -440,7 +453,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
-      else if (entry.recordType === "team_work_item") applyItem(database, entry);
+      else if (entry.recordType === "team_work_item") deferred = applyItem(database, entry) || deferred;
     }
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
       if (entry.payload.parentId && database.prepare(
@@ -450,40 +463,56 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       ).run(entry.payload.parentId, entry.recordId);
     }
   });
+  return deferred;
 }
 
-async function pullAll(request, organizationId, cursor) {
+/** Applies everything past `cursor` and commits it, whatever the push after it does. */
+async function pull(database, request, organizationId, connectionId, cursor) {
   const records = [];
   let next = cursor;
-  do {
-    const page = await request(`/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId });
+  let more = true;
+  while (more) {
+    const page = await request(
+      `/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId }
+    );
+    // Applied as one batch: a work item and the process it needs can fall either side of a page
+    // boundary, and applyTeamRecords only orders what it is handed.
     records.push(...page.records);
-    const previous = next;
     next = page.cursor;
-    if (page.records.length < 1_000 || next === previous) break;
-  } while (true);
-  return { cursor: next, records };
-}
-
-export async function syncTeamRecords(database, request, organizationId, connectionId) {
-  const hasApps = database.prepare('SELECT 1 FROM bees_app_sync_versions WHERE connection_id=?').get(connectionId);
-  const saved = hasApps ? database.prepare(
-    "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
-  ).get(connectionId)?.cursor ?? "0" : "0";
-  const incoming = await pullAll(request, organizationId, saved);
-  applyTeamRecords(database, organizationId, incoming.records);
-  const outgoing = teamRecords(database, organizationId, connectionId);
-  for (let index = 0; index < outgoing.length; index += 500) await request("/api/sync/push", {
-    method: "POST", organizationId, body: { records: outgoing.slice(index, index + 500) }
-  });
-  const settled = await pullAll(request, organizationId, saved);
-  applyTeamRecords(database, organizationId, settled.records);
+    more = page.more;
+  }
+  // A record whose rows are missing keeps its version, so a cursor moved past it never offers it
+  // again. Hold the cursor until the batch applies whole.
+  if (applyTeamRecords(database, organizationId, records)) return { cursor, count: records.length };
   database.prepare(`
     INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
     ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
-  `).run(connectionId, settled.cursor, new Date().toISOString());
-  database.prepare('INSERT OR IGNORE INTO bees_app_sync_versions VALUES (?)').run(connectionId);
-  return { pushed: outgoing.length, pulled: settled.records.length, cursor: settled.cursor };
+  `).run(connectionId, next, new Date().toISOString());
+  return { cursor: next, count: records.length };
+}
+
+const PUSH_LIMIT = 500;
+
+export async function syncTeamRecords(database, request, organizationId, connectionId) {
+  const saved = database.prepare(
+    "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
+  ).get(connectionId)?.cursor ?? "0";
+  const incoming = await pull(database, request, organizationId, connectionId, saved);
+  const outgoing = teamRecords(database, organizationId, connectionId);
+  const rejected = [];
+  for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
+    const result = await request("/api/sync/push", {
+      method: "POST", organizationId, body: { records: outgoing.slice(index, index + PUSH_LIMIT) }
+    });
+    rejected.push(...(result.rejected ?? []));
+  }
+  const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
+  return {
+    pushed: outgoing.length - rejected.length,
+    rejected,
+    pulled: incoming.count + settled.count,
+    cursor: settled.cursor
+  };
 }
 
 export { teamRecords };
