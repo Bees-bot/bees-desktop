@@ -47,7 +47,9 @@ export class AppSharedState {
           if (!raw || Object.keys(raw).some((key) => !columns.includes(key) || key === 'workspace_id')) throw new Error('Invalid shared app row');
           if (!scoped.has(table) && !ids.has(raw.installation_id)) throw new Error('Shared app row is outside its installation');
           const row = scoped.has(table) ? { ...raw, workspace_id: workspace.id } : raw;
-          insert.run(...columns.map((key) => row[key] ?? null));
+          // The server is authoritative, including legacy absence. Never retain rejected local mutations on rollback.
+          const defaults = { data: '{}', provenance: 'agent', execution: '{}', reviewed_digest: null, approver_user_id: null };
+          insert.run(...columns.map((key) => Object.hasOwn(row, key) ? row[key] : defaults[key] ?? null));
         }
       }
     });

@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appConfig, validateApp } from "./app-contract.js";
+import { appConfig, appRecordData, validateApp } from "./app-contract.js";
 import { currentIdentity, iso, transaction, workspaceContext } from "./product-database.js";
 import { readPublicSource } from "./app-source.js";
 import { AppSharedState } from './app-shared-state.js';
+import { ACTION_RESERVED_STATUSES, AppActionDispatcher, claimAction, decideAction, reconcileAction, reviewAction, settleAction } from './app-actions.js';
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bounded = (value, name, max = 8000) => {
@@ -10,10 +11,13 @@ const bounded = (value, name, max = 8000) => {
   return value.trim();
 };
 const amount = (n) => { if (!Number.isSafeInteger(n) || n < 0) throw new Error("Use nonnegative integer USD cents"); return n; };
+const recordRow = (row) => ({ ...row, data: JSON.parse(row.data ?? "{}"), evidence: JSON.parse(row.evidence) });
 
 /** Generic installation and portfolio storage, not marketing tables. No package code loads here. */
 export class AppPlatform {
-  constructor(product, readSource = readPublicSource, { connected, catalog } = {}) {
+  constructor(product, readSource = readPublicSource, { connected, catalog, actionConnector = null } = {}) {
+    if (actionConnector && (typeof actionConnector.send !== "function" || ![actionConnector.workspaceIds, actionConnector.actorUserIds].every((ids) => Array.isArray(ids) && ids.length > 0 && ids.every((id) => typeof id === "string" && id.trim())))) throw new Error("Action connectors require explicit workspace and actor grants");
+    if (actionConnector) { bounded(actionConnector.id, "connector ID", 200); bounded(actionConnector.account, "connector account", 200); }
     this.product = product;
     this.db = product.database;
     this.readSource = readSource;
@@ -46,9 +50,29 @@ export class AppPlatform {
       CREATE TABLE IF NOT EXISTS app_suppressions (
         workspace_id TEXT NOT NULL, destination TEXT NOT NULL, PRIMARY KEY(workspace_id, destination));
     `);
+    const recordColumns = this.db.prepare("PRAGMA table_info(app_records)").all().map((column) => column.name);
+    if (!recordColumns.includes("data")) this.db.exec("ALTER TABLE app_records ADD COLUMN data TEXT NOT NULL DEFAULT '{}'");
+    if (!recordColumns.includes("provenance")) this.db.exec("ALTER TABLE app_records ADD COLUMN provenance TEXT NOT NULL DEFAULT 'agent'");
+    const actionColumns = this.db.prepare("PRAGMA table_info(app_actions)").all().map((column) => column.name);
+    if (!actionColumns.includes("reviewed_digest")) this.db.exec("ALTER TABLE app_actions ADD COLUMN reviewed_digest TEXT");
+    if (!actionColumns.includes("execution")) this.db.exec("ALTER TABLE app_actions ADD COLUMN execution TEXT NOT NULL DEFAULT '{}'");
+    if (!this.db.prepare("PRAGMA table_info(app_portfolios)").all().some((column) => column.name === "approver_user_id")) this.db.exec("ALTER TABLE app_portfolios ADD COLUMN approver_user_id TEXT");
     for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all())
       for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id);
     this.shared = connected ? new AppSharedState(this, connected) : null;
+    this.actionConnector = actionConnector;
+    this.dispatcher = new AppActionDispatcher({ connector: actionConnector,
+      load: (input) => this.withState(input.workspaceId, false, () => this.actionRow(input.workspaceId, input.actionId), { connectionId: input.connectionId }),
+      claim: (input) => this.withState(input.workspaceId, true, (actor) => transaction(this.db, () => {
+        if (!this.connectorFor(input.workspaceId, actor)) throw new Error("This workspace and actor are not authorized to use the action connector");
+        const row = this.actionRow(input.workspaceId, input.actionId);
+        if (this.installation(row.installation_id).manifest.schemaVersion !== 2) throw new Error("Version-1 apps are research and draft only");
+        return this.saveAction(row, claimAction(row, { ...input, ...this.actionContext(input.workspaceId, row, actor) }));
+      }), { connectionId: input.connectionId }),
+      settle: (input) => this.withState(input.workspaceId, true, () => transaction(this.db, () => {
+        const row = this.actionRow(input.workspaceId, input.actionId, false);
+        return this.saveAction(row, settleAction(row, input));
+      }), { connectionId: input.connectionId }) });
   }
 
   scope(workspaceId, write = false) {
@@ -64,7 +88,11 @@ export class AppPlatform {
     return this.shared.run(workspace, write, operation, identity);
   }
 
-  view(workspaceId, connectionId) { return this.withState(workspaceId, false, () => this.snapshot(workspaceId), { connectionId }); }
+  view(workspaceId, connectionId) { return this.withState(workspaceId, false, (actor) => ({ ...this.snapshot(workspaceId, actor), actorUserId: actor ?? currentIdentity(this.db).userId }), { connectionId }); }
+  connectorFor(workspaceId, actor) {
+    const connector = this.actionConnector; const userId = actor ?? currentIdentity(this.db).userId;
+    return connector?.workspaceIds.includes(workspaceId) && connector.actorUserIds.includes(userId) ? connector : null;
+  }
 
   executionContext(itemId) {
     const row = this.db.prepare(`SELECT p.workspace_id, w.account_user_id FROM work_items w JOIN processes p ON p.id=w.process_id
@@ -73,10 +101,10 @@ export class AppPlatform {
   }
 
   useApp(app, itemId, write, operation) {
-    return this.withState(app.workspace_id, write, () => {
+    return this.withState(app.workspace_id, write, (actor) => {
       const current = this.context(itemId);
       if (!current || current.id !== app.id) throw new Error('App scope is no longer available');
-      return operation(current);
+      return operation({ ...current, actorUserId: actor ?? currentIdentity(this.db).userId });
     }, { accountUserId: app.accountUserId ?? '' });
   }
 
@@ -91,7 +119,7 @@ export class AppPlatform {
     return Boolean(this.db.prepare("SELECT 1 FROM app_process_owners WHERE process_id=?").get(processId));
   }
 
-  snapshot(workspaceId) {
+  snapshot(workspaceId, actor) {
     this.scope(workspaceId);
     this.expire();
     const apps = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id = ? ORDER BY created_at").all(workspaceId)
@@ -101,11 +129,12 @@ export class AppPlatform {
         return app;
       });
     const records = this.db.prepare(`SELECT r.* FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? ORDER BY r.updated_at DESC LIMIT 200`).all(workspaceId)
-      .map((r) => ({ ...r, evidence: JSON.parse(r.evidence) }));
-    const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? ORDER BY x.created_at DESC LIMIT 200`).all(workspaceId)
-      .map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+      .map(recordRow);
+    const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND (x.status IN ('draft','approved','executing','unknown') OR x.id IN (SELECT y.id FROM app_actions y JOIN app_installations b ON b.id=y.installation_id WHERE b.workspace_id=? AND y.status NOT IN ('draft','approved','executing','unknown') ORDER BY y.created_at DESC LIMIT 100)) ORDER BY CASE WHEN x.status IN ('draft','approved','executing','unknown') THEN 0 ELSE 1 END,x.created_at DESC`).all(workspaceId, workspaceId)
+      .map((r) => ({ ...r, payload: JSON.parse(r.payload), execution: JSON.parse(r.execution) }));
+    const connector = this.connectorFor(workspaceId, actor);
     return { apps, records, actions, portfolio: this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId),
-      reservedCents: this.reserved(workspaceId), sendingEnabled: false, modelCost: null };
+      reservedCents: this.reserved(workspaceId), sendingEnabled: Boolean(connector), connectors: connector ? [{ id: connector.id, account: connector.account }] : [], modelCost: null };
   }
 
   async install(workspaceId, input) {
@@ -159,6 +188,7 @@ export class AppPlatform {
 
   async command(input) {
     let prepared = { ...input };
+    if (input.action === "execute_action") return this.dispatcher.dispatch(prepared);
     if (['install', 'update'].includes(input.action) && this.catalog) {
       prepared.manifest = await this.catalog.resolve(input.appId, input.version, input.checksum);
       prepared.config = {};
@@ -170,12 +200,13 @@ export class AppPlatform {
       }, { connectionId: input.connectionId });
       return this.localCommand(prepared);
     }
-    return this.withState(input.workspaceId, true, (actorUserId) => this.localCommand({ ...prepared, actorUserId }), { connectionId: input.connectionId });
+    const write = !["query_records", "receipt", "export_records", "preview_import"].includes(input.action);
+    return this.withState(input.workspaceId, write, (actorUserId) => this.localCommand({ ...prepared, actorUserId }), { connectionId: input.connectionId });
   }
 
   async localCommand(input) {
     const { workspaceId, action } = input;
-    this.scope(workspaceId, true);
+    this.scope(workspaceId, !["query_records", "receipt", "export_records", "preview_import"].includes(action));
     if (action === "install") return this.install(workspaceId, input);
     if (action === 'repair') {
       const app = this.installation(input.installationId);
@@ -183,6 +214,8 @@ export class AppPlatform {
       return this.install(workspaceId, { manifest: app.manifest, config: app.config });
     }
     if (action === "portfolio") {
+      const workspace = this.scope(workspaceId, true);
+      if (workspace.membership.role !== "admin") throw new Error("Only a team admin can change app limits");
       const cap = amount(input.capCents);
       const max = input.maxRuns;
       if (!Number.isInteger(max) || max < 1 || max > 50) throw new Error("Daily run limit must be 1–50");
@@ -203,8 +236,52 @@ export class AppPlatform {
       return {};
     }
     if (action === "decide") return this.decide(workspaceId, input);
+    if (["set_approver", "clear_approver"].includes(action)) {
+      const workspace = this.scope(workspaceId, true); const actor = input.actorUserId ?? currentIdentity(this.db).userId;
+      const prior = this.db.prepare("SELECT approver_user_id FROM app_portfolios WHERE workspace_id=?").get(workspaceId).approver_user_id;
+      if (workspace.membership.role !== "admin" || prior && prior !== actor) throw new Error("Only the current approver with team admin access can change this policy");
+      transaction(this.db, () => {
+        this.db.prepare("UPDATE app_portfolios SET approver_user_id=? WHERE workspace_id=?").run(action === "set_approver" ? actor : null, workspaceId);
+        this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE status='approved' AND installation_id IN (SELECT id FROM app_installations WHERE workspace_id=?)").run(workspaceId);
+      });
+      return { approverUserId: action === "set_approver" ? actor : null };
+    }
+    if (action === "reconcile_action") {
+      const row = this.actionRow(workspaceId, input.actionId, false);
+      return this.saveAction(row, reconcileAction(row, { ...input, ...this.actionContext(workspaceId, row, input.actorUserId), at: iso() }));
+    }
+    if (action === "mark_unknown") {
+      const row = this.actionRow(workspaceId, input.actionId, false); const execution = JSON.parse(row.execution);
+      const context = this.actionContext(workspaceId, row, input.actorUserId);
+      if (!context.approverUserId || context.actorUserId !== context.approverUserId || context.actorUserId !== execution.claimedBy) throw new Error("Only this attempt's designated approver can mark it unresolved");
+      if (Date.now() - Date.parse(execution.claimedAt) < 60_000) throw new Error("Allow the connector one minute to finish before marking it unresolved");
+      return this.saveAction(row, settleAction(row, { attemptId: input.attemptId, at: iso(), result: { outcome: "unknown", reason: "Operator marked an interrupted attempt unresolved. Reconcile before any new action; this does not retry." } }));
+    }
     const app = this.installation(input.installationId);
     if (app.workspace_id !== workspaceId) throw new Error("App belongs to another workspace");
+    if (action === "query_records") return this.queryRecords(app, input, true);
+    if (action === "receipt") return this.receipt(app, input.receiptId);
+    if (action === "export_records") {
+      const page = this.queryRecords(app, input, true);
+      return { schemaVersion: 1, packageId: app.package_id, exportedAt: iso(), nextOffset: page.nextOffset,
+        records: page.records.map((record) => ({ key: record.record_key, kind: record.kind, title: record.title, body: record.body, data: record.data })) };
+    }
+    if (["preview_import", "import_records"].includes(action)) {
+      if (app.status !== "active") throw new Error("App is not active");
+      const preview = this.previewImport(app, input.records);
+      if (action === "preview_import") return preview;
+      if (input.previewDigest !== preview.digest) throw new Error("Import data or existing records changed; preview again");
+      transaction(this.db, () => {
+        for (const record of preview.records) this.record(app, "", record, "user-import");
+      });
+      return { imported: preview.records.length };
+    }
+    if (action === "edit_record") {
+      if (app.status !== "active") throw new Error("App is not active");
+      const prior = this.db.prepare("SELECT * FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, input.record?.key);
+      if (!prior || hash(prior) !== input.digest) throw new Error("Record changed; refresh before editing");
+      return this.record(app, prior.item_id, { ...input.record, evidenceIds: JSON.parse(prior.evidence) }, "user");
+    }
     if (action === 'update') {
       const manifest = validateApp(input.manifest);
       if (manifest.id !== app.package_id || app.status !== 'active') throw new Error('Choose an update for this installed app');
@@ -215,6 +292,7 @@ export class AppPlatform {
       return this.install(workspaceId, { manifest, config });
     }
     if (action === "remove") {
+      if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before removing this app; uncertain history will be retained");
       if (app.process_id) await this.product.command({ action: "archive_process", processId: app.process_id });
       this.db.prepare("UPDATE app_installations SET status='removed' WHERE id=?").run(app.id);
       this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE installation_id=? AND status IN ('draft','approved')").run(app.id);
@@ -255,18 +333,66 @@ export class AppPlatform {
   }
 
   read(app) {
-    const view = this.snapshot(app.workspace_id);
+    const view = this.snapshot(app.workspace_id, app.actorUserId);
+    const page = this.queryRecords(app);
     return { configuration: app.config, sources: app.manifest.sources, portfolio: view.portfolio,
-      records: view.records.filter((r) => r.installation_id === app.id || app.manifest.permissions.includes("portfolio-read")),
+      recordTypes: app.manifest.recordTypes ?? [], records: page.records, totalRecords: page.total, nextOffset: page.nextOffset,
       actions: view.actions.filter((r) => r.installation_id === app.id || app.manifest.permissions.includes("portfolio-read")),
       evidence: this.db.prepare("SELECT * FROM app_sources WHERE installation_id=? ORDER BY created_at DESC LIMIT 60").all(app.id).map((r) => ({ ...r, result: JSON.parse(r.result) })),
-      sendingEnabled: false, modelCost: null };
+      sendingEnabled: app.manifest.schemaVersion === 2 && view.sendingEnabled, connectors: app.manifest.schemaVersion === 2 ? view.connectors : [], modelCost: null };
+  }
+
+  queryRecords(app, input = {}, ownOnly = false) {
+    const limit = input.limit ?? 50; const offset = input.offset ?? 0;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new Error("Invalid record page");
+    const portfolio = !ownOnly && app.manifest.permissions.includes("portfolio-read");
+    const clauses = [portfolio ? "a.workspace_id=?" : "r.installation_id=?"];
+    const values = [portfolio ? app.workspace_id : app.id];
+    for (const [field, column, max] of [["kind", "kind", 50], ["key", "record_key", 1000]]) {
+      if (input[field] === undefined || input[field] === "") continue;
+      clauses.push(`r.${column}=?`); values.push(bounded(input[field], field, max));
+    }
+    if (input.query) {
+      const query = bounded(input.query, "record search", 1000);
+      clauses.push("(r.title LIKE ? OR r.body LIKE ? OR r.data LIKE ?)");
+      values.push(...Array(3).fill(`%${query}%`));
+    }
+    const from = `FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE ${clauses.join(" AND ")}`;
+    const total = this.db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...values).n;
+    const records = this.db.prepare(`SELECT r.* ${from} ORDER BY r.updated_at DESC,r.id LIMIT ? OFFSET ?`).all(...values, limit, offset)
+      .map((row) => ({ ...recordRow(row), digest: hash(row) }));
+    return { records, total, offset, limit, nextOffset: offset + records.length < total ? offset + records.length : null };
+  }
+
+  receipt(app, id) {
+    const row = this.db.prepare(`SELECT s.* FROM app_sources s JOIN app_installations a ON a.id=s.installation_id WHERE s.id=? AND ${app.manifest.permissions.includes("portfolio-read") ? "a.workspace_id=?" : "s.installation_id=?"}`)
+      .get(bounded(id, "receipt ID", 100), app.manifest.permissions.includes("portfolio-read") ? app.workspace_id : app.id);
+    if (!row) throw new Error("Source receipt is not available to this app");
+    return { ...row, result: JSON.parse(row.result) };
+  }
+
+  previewImport(app, rows) {
+    if (!Array.isArray(rows) || rows.length < 1 || rows.length > 200 || JSON.stringify(rows).length > 1_000_000) throw new Error("Import 1–200 records, maximum 1 MB");
+    const records = rows.map((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row) || Object.keys(row).some((key) => !["key", "kind", "title", "body", "data"].includes(key)))
+        throw new Error("Import only record content; evidence, approvals and delivery state cannot be imported");
+      return this.recordInput(app, row);
+    });
+    if (new Set(records.map((record) => record.key)).size !== records.length) throw new Error("Duplicate import keys");
+    const existing = records.map((record) => this.db.prepare("SELECT * FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, record.key) ?? null);
+    return { records, creates: existing.filter((row) => !row).length, updates: existing.filter(Boolean).length,
+      digest: hash({ installation: app.id, manifest: app.digest, records, existing }), provenance: "user-import", approvalsImported: 0, sent: false };
+  }
+
+  recordInput(app, input) {
+    const key = bounded(input.key, "record key", 1000); const kind = bounded(input.kind, "record kind", 50);
+    return { key, kind, title: bounded(input.title, "title", 200), body: bounded(input.body, "record body"), data: appRecordData(app.manifest, kind, input.data) };
   }
 
   async source(app, itemId, key, query, signal) {
     const source = app.manifest.sources.find((s) => s.key === key);
     if (!source) throw new Error("Source is not declared by this app");
-    bounded(query, "query", 300);
+    bounded(query, "query", source.type === "page" ? 2000 : 300);
     const id = randomUUID();
     await this.useApp(app, itemId, true, () => transaction(this.db, () => {
       if (this.db.prepare("SELECT COUNT(*) AS n FROM app_sources WHERE item_id=?").get(itemId).n >= 20) throw new Error("This work item reached its 20-request limit");
@@ -282,18 +408,15 @@ export class AppPlatform {
     }
   }
 
-  record(app, itemId, input) {
-    const key = bounded(input.key, "record key", 1000);
-    const kind = bounded(input.kind, "record kind", 50);
-    const title = bounded(input.title, "title", 200);
-    const body = bounded(input.body, "record body");
+  record(app, itemId, input, provenance = "agent") {
+    const { key, kind, title, body, data } = this.recordInput(app, input);
     const evidence = input.evidenceIds ?? [];
     if (!Array.isArray(evidence) || evidence.length > 20) throw new Error("Invalid evidence IDs");
     for (const id of evidence) if (!this.db.prepare("SELECT 1 FROM app_sources WHERE id=? AND installation_id=?").get(id, app.id)) throw new Error("Evidence belongs to another app or does not exist");
     const prior = this.db.prepare("SELECT id FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, key);
     const id = prior?.id ?? randomUUID();
-    this.db.prepare(`INSERT INTO app_records VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(installation_id,record_key) DO UPDATE SET title=excluded.title,body=excluded.body,evidence=excluded.evidence,item_id=excluded.item_id,updated_at=excluded.updated_at`)
-      .run(id, app.id, key, kind, title, body, JSON.stringify(evidence), itemId, iso());
+    this.db.prepare(`INSERT INTO app_records (id,installation_id,record_key,kind,title,body,evidence,item_id,updated_at,data,provenance) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(installation_id,record_key) DO UPDATE SET kind=excluded.kind,title=excluded.title,body=excluded.body,evidence=excluded.evidence,item_id=excluded.item_id,updated_at=excluded.updated_at,data=excluded.data,provenance=excluded.provenance`)
+      .run(id, app.id, key, kind, title, body, JSON.stringify(evidence), itemId, iso(), JSON.stringify(data), provenance);
     return { id, updated: Boolean(prior) };
   }
 
@@ -301,13 +424,19 @@ export class AppPlatform {
     if (!app.manifest.permissions.includes("draft-actions")) throw new Error("This app cannot prepare external actions");
     const payload = { destination: bounded(input.destination, "destination", 1000), account: bounded(input.account, "account", 200),
       content: bounded(input.content, "content"), rationale: bounded(input.rationale, "rationale", 2000), costCents: amount(input.costCents ?? 0) };
+    if (input.connectorId !== undefined) {
+      if (app.manifest.schemaVersion !== 2) throw new Error("Version-1 apps are research and draft only");
+      const connector = this.connectorFor(app.workspace_id, app.actorUserId);
+      if (!connector || input.connectorId !== connector.id || payload.account !== connector.account) throw new Error("No connector is configured for this workspace, actor and account");
+      payload.connectorId = input.connectorId;
+    }
     const id = randomUUID();
     this.expire();
     if (this.db.prepare("SELECT 1 FROM app_suppressions WHERE workspace_id=? AND destination=?").get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("Destination is suppressed");
     const existing = this.db.prepare("SELECT id FROM app_actions WHERE installation_id=? AND digest=? AND status IN ('draft','approved')").get(app.id, hash(payload));
     if (existing) return { id: existing.id, reused: true };
-    if (this.db.prepare(`SELECT 1 FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND lower(json_extract(x.payload,'$.destination'))=? AND x.status IN ('draft','approved')`).get(app.workspace_id, payload.destination.toLowerCase()))
+    if (this.db.prepare(`SELECT 1 FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND lower(json_extract(x.payload,'$.destination'))=? AND x.status IN ('draft','approved','executing','unknown')`).get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("This destination already has an active action in the portfolio");
     const count = this.db.prepare(`SELECT COUNT(*) AS n FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND x.status='draft'`).get(app.workspace_id).n;
     if (count >= 5) throw new Error("Five drafts already await review; finish the approval backlog first");
@@ -318,23 +447,42 @@ export class AppPlatform {
 
   expire() { this.db.prepare("UPDATE app_actions SET status='expired' WHERE status='approved' AND expires_at <= ?").run(iso()); }
   reserved(workspaceId) {
-    return this.db.prepare(`SELECT COALESCE(SUM(x.cost_cents),0) AS total FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND x.status='approved'`).get(workspaceId).total;
+    return this.db.prepare(`SELECT COALESCE(SUM(x.cost_cents),0) AS total FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND x.status IN (${ACTION_RESERVED_STATUSES.map(() => "?").join(",")})`).get(workspaceId, ...ACTION_RESERVED_STATUSES).total;
+  }
+  actionRow(workspaceId, id, requireActive = true) {
+    const row = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE x.id=? AND a.workspace_id=? ${requireActive ? "AND a.status='active'" : ""}`).get(id, workspaceId);
+    if (!row) throw new Error("Action is not available in this workspace");
+    return row;
+  }
+  actionContext(workspaceId, row, actor) {
+    const portfolio = this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId);
+    return { actorUserId: actor ?? currentIdentity(this.db).userId, approverUserId: portfolio.approver_user_id,
+      suppressed: Boolean(this.db.prepare("SELECT 1 FROM app_suppressions WHERE workspace_id=? AND destination=?").get(workspaceId, JSON.parse(row.payload).destination.toLowerCase())),
+      capCents: portfolio.cap_cents, reservedCents: this.reserved(workspaceId) };
+  }
+  saveAction(row, patch) {
+    const entries = Object.entries(patch);
+    const allowed = ["status", "reviewed_digest", "execution", "decided_by", "decided_at", "expires_at"];
+    if (entries.some(([key]) => !allowed.includes(key))) throw new Error("Invalid action change");
+    this.db.prepare(`UPDATE app_actions SET ${entries.map(([key]) => `${key}=?`).join(",")} WHERE id=?`)
+      .run(...entries.map(([key, value]) => key === "execution" ? JSON.stringify(value) : value), row.id);
+    return { ...row, ...patch };
+  }
+  reviewDraft(app, itemId, input) {
+    const row = this.actionRow(app.workspace_id, input.actionId);
+    if (row.installation_id !== app.id || row.item_id !== itemId) throw new Error("Reviewer can only review this app work item's actions");
+    const context = this.actionContext(app.workspace_id, row, app.actorUserId);
+    if (!context.approverUserId || context.actorUserId !== context.approverUserId) throw new Error("Configure the designated approver and run review under that account first");
+    const patch = reviewAction(row, input);
+    if (input.decision === "revise") patch.status = "cancelled";
+    return this.saveAction(row, patch);
   }
   decide(workspaceId, input) {
-    if (!["approve", "reject"].includes(input.decision)) throw new Error("Choose approve or reject");
     return transaction(this.db, () => {
       this.expire();
-      const row = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE x.id=? AND a.workspace_id=? AND a.status='active'`).get(input.actionId, workspaceId);
-      if (!row || row.status !== "draft" || row.digest !== input.digest) throw new Error("This draft changed or was already decided; refresh before reviewing");
-      if (input.decision === "approve") {
-        const payload = JSON.parse(row.payload);
-        if (this.db.prepare("SELECT 1 FROM app_suppressions WHERE workspace_id=? AND destination=?").get(workspaceId, payload.destination.toLowerCase())) throw new Error("Destination is suppressed");
-        const cap = this.db.prepare("SELECT cap_cents FROM app_portfolios WHERE workspace_id=?").get(workspaceId).cap_cents;
-        if (this.reserved(workspaceId) + row.cost_cents > cap) throw new Error("Portfolio commitment cap would be exceeded");
-      }
-      this.db.prepare("UPDATE app_actions SET status=?,decided_by=?,decided_at=?,expires_at=? WHERE id=?")
-        .run(input.decision === "approve" ? "approved" : "rejected", input.actorUserId ?? currentIdentity(this.db).userId, iso(), new Date(Date.now() + 48 * 3600_000).toISOString(), row.id);
-      return { id: row.id, sent: false, note: "Draft decision saved. This preview has no sending or paid execution connector." };
+      const row = this.actionRow(workspaceId, input.actionId);
+      this.saveAction(row, decideAction(row, { ...input, ...this.actionContext(workspaceId, row, input.actorUserId), at: iso() }));
+      return { id: row.id, sent: false, note: this.actionConnector ? "Decision saved; execution is a separate action." : "Decision saved. No sending or paid execution connector is configured." };
     });
   }
 }

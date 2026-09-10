@@ -64,11 +64,11 @@ export class AppCatalog {
     if (catalog.stale) throw new Error('Reconnect to the app directory before installing');
     const entry = catalog.apps.find((app) => app.id === id && app.version === version && app.sha256 === checksum);
     if (!entry) throw new Error('This app listing changed. Refresh the directory before installing.');
-    if (entry.schemaVersion !== 1) throw new Error('This app needs a newer Bees runtime');
+    if (![1, 2].includes(entry.schemaVersion)) throw new Error('This app needs a newer Bees runtime');
     const bytes = await this.download(new URL(entry.path, this.url).href, 64_000);
     if (createHash('sha256').update(bytes).digest('hex') !== checksum) throw new Error('App package checksum did not match the directory');
     const manifest = validateApp(JSON.parse(bytes.toString('utf8')));
-    for (const key of ['id', 'version', 'name', 'description', 'author', 'license', 'permissions', 'sources'])
+    for (const key of ['schemaVersion', 'id', 'version', 'name', 'description', 'author', 'license', 'permissions', 'sources', ...(entry.recordTypes !== undefined ? ['recordTypes'] : [])])
       if (JSON.stringify(manifest[key]) !== JSON.stringify(entry[key])) throw new Error('App package does not match its listing');
     return manifest;
   }
