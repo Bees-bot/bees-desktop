@@ -864,7 +864,7 @@ export class AgentRuntime {
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
     if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
-      throw new Error("Discussion participants are still working; wait for their pitches before submitting");
+      throw new Error("Discussion participants are still working. Do the work now and submit once they are idle.");
     const leadId = String(agent.session.id);
     if (expected.some((entry) => !entry || entry.status === "failed")) {
       if (!executionId || !members.every((member) => member.planningReviewer))
@@ -1001,6 +1001,8 @@ export class AgentRuntime {
         if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
+        // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
+        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
