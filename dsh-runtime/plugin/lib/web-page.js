@@ -16,7 +16,7 @@ export function mountPageFetch(agentCtx, web) {
   if (!web?.fetch) return;
   agentCtx.tools.register(defineTool({
     name: "bees_search_news",
-    description: "Recent news headlines and their addresses for a topic, from Google News. Needs no key. Fetch a headline's address to read the story.",
+    description: "Recent news headlines and their addresses for a topic, from Google News. Needs no key. Add when:1d to the query for the last day only. Headlines come back in the language the outlet published; fetch a local outlet's address when the answer has to be in that language.",
     parameters: {
       query: { type: "string", required: true, description: "Topic to search, in any language." },
       language: { type: "string", description: "Two-letter language code for the results, such as ne or en. Defaults to en." },
