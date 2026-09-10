@@ -357,6 +357,12 @@ export class ConnectedAccount {
             VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
             ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = 'active', updated_at = excluded.updated_at
           `).run(team.id, organization.id, team.name, localUser.id, at, at);
+          // Who ran a shared item is an id on the wire. Remember the names behind the ids the
+          // server already hands back, or another member reads as a random string.
+          for (const member of members) if (member.email) this.database.prepare(`
+            INSERT INTO bees_directory VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET email = excluded.email
+          `).run(member.userId, member.email);
           const own = members.find(({ userId }) => userId === account.userId);
           const role = own?.role ?? (["owner", "admin"].includes(organization.role) ? "admin" : "member");
           this.database.prepare(`

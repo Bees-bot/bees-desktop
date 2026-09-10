@@ -1,5 +1,5 @@
 import { h, useEffect, useState, React } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, ProposalCard, useSubmit, PageHead} from "./shared.js";
+import { accountLabel, ask, Button, confirmAction, Empty, ProposalCard, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
@@ -285,9 +285,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
   const processList = h("div", null,
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
-      const creator = process.accountUserId
-        ? (data.connections?.find((c) => c.accountUserId === process.accountUserId)?.accountName ?? process.accountUserId)
-        : null;
+      const creator = accountLabel(data, process.accountUserId);
       const subtitle = [process.description, stages.map(({ name }) => name).join(" → "), creator ? `by ${creator}` : null].filter(Boolean).join(" · ");
       return h("button", { type: "button", className: "bees-row", style: { cursor: "pointer", width: "100%", textAlign: "left", font: "inherit", color: "inherit", background: "transparent", border: 0 }, key: process.id, onClick: () => setProcessId(process.id) },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, subtitle)));

@@ -1213,6 +1213,13 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
       h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
 
+/** An account id off the wire only means something once it has a person behind it. */
+export const accountLabel = (data, accountUserId) => accountUserId
+  ? (data.connections?.find((c) => c.accountUserId === accountUserId)?.accountName
+    ?? data.directory?.find((d) => d.accountUserId === accountUserId)?.email
+    ?? accountUserId)
+  : null;
+
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);
 export const isScheduleDefinition = (item) => !item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId);
 export const workItemStatus = (item) => isScheduleDefinition(item)

@@ -445,6 +445,9 @@ export function initializeProductDatabase(database) {
       user_id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS bees_directory (
+      user_id TEXT PRIMARY KEY, email TEXT NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS bees_sign_in_attempts (
       state TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
     ) STRICT;
