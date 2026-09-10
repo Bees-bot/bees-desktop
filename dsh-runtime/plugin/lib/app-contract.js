@@ -86,7 +86,7 @@ export function appRecordData(manifest, kind, value = {}) {
   return JSON.parse(JSON.stringify(value));
 }
 
-export const APP_TOOLS = ["bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record", "bees_app_draft", "bees_app_review_action", "bees_submit_stage_result", "bees_request_work_review", "ask_user_question"];
+export const APP_TOOLS = ["bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record", "bees_app_draft", "bees_app_review_action", "bees_submit_stage_result", "bees_request_work_review", "bees_read_tool_result", "ask_user_question"];
 export function appToolDenial(name, reviewer = false) {
   if (!APP_TOOLS.includes(name) || reviewer && ["bees_app_record", "bees_app_draft"].includes(name) || !reviewer && name === "bees_app_review_action")
     return "This app is research/draft-only. Shell, browser, MCP, delegation, setup and external execution are not permitted.";

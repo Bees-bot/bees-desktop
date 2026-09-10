@@ -3,12 +3,16 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSy
 import { mkdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { createUserMessage, LlmError } from "@deepseek-ai/dsh-llm";
+import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
+import { installContextPolicy } from "./context-policy.js";
+import { mountToolDiscovery } from "./tool-discovery.js";
+import { RunLimits, RUN_LIMIT_CODE, DEFAULT_RUN_LIMITS } from "./run-limits.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
@@ -22,7 +26,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write every deliverable under outputs/. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -192,8 +196,35 @@ const STAGE_RESULT_COLUMNS = `
       ) STRICT;`;
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 // The provider dropping mid-turn is its bad turn, not the stage's, unless pi-ai says it will not change.
-const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED"]);
+const TOOL_LOOP_CODE = "BEES_TOOL_LOOP";
+const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", RUN_LIMIT_CODE, TOOL_LOOP_CODE]);
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
+
+/** Three identical failed calls without intervening success/input indicate a stuck retry. */
+function repeatedToolFailure(session) {
+  const events = session.snapshotEvents();
+  const calls = new Map(events.filter((event) => event.type === "tool/call")
+    .map((event) => [String(event.data.callId), event.data]));
+  const seen = new Set();
+  let signature;
+  let failures = 0;
+  for (const event of [...events].reverse()) {
+    if (event.type === "user/message" && event.data.source?.kind === "user") break;
+    if (event.type !== "tool/result" || event.surfaceOp?.op === "replace") continue;
+    const callId = String(event.data.message.source.callId);
+    if (seen.has(callId)) continue;
+    seen.add(callId);
+    const result = event.data.message.content[0];
+    if (!result.isError && !event.data.error) break;
+    const call = calls.get(callId);
+    if (!call) break;
+    const key = JSON.stringify([call.name, call.arguments, event.data.error?.code ?? result.content]);
+    if (signature !== undefined && key !== signature) break;
+    signature = key;
+    if (++failures === 3) return call.name;
+  }
+  return null;
+}
 
 function reviewTimeline(events) {
   const calls = new Set();
@@ -215,6 +246,15 @@ function reviewTimeline(events) {
 }
 
 function removeDshOneShotDelegationTools(agentCtx) {
+  // The standard preset registers subagent in the agent's own scope on
+  // agent/created, after setup. restrict() cannot hide own-scope registrations.
+  agentCtx.on?.("system-prompt/assemble", async (_assembly, _context, next) => {
+    const assembly = await next();
+    return { ...assembly, tools: assembly.tools.filter(({ name }) => !DSH_ONE_SHOT_DELEGATION_TOOLS.includes(name)) };
+  });
+  agentCtx.tools.guard?.(({ name }) => DSH_ONE_SHOT_DELEGATION_TOOLS.includes(name)
+    ? "Use bees_delegate_work for tracked work, or the existing Agent Team tools for discussion."
+    : undefined);
   if (!agentCtx.tools.restrict) return;
   try { agentCtx.tools.restrict({ deny: DSH_ONE_SHOT_DELEGATION_TOOLS }); }
   catch (error) {
@@ -324,19 +364,37 @@ export function safeRecoverySeed(events) {
   const last = [...events].reverse().find((event) => event.type === "turn/end");
   if (!last) return [];
   // DSH wants seq to equal the index, so renumber after dropping team events, references included.
-  const kept = events.filter((event) => event.seq <= last.seq &&
+  let kept = events.filter((event) => event.seq <= last.seq &&
     !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message");
+  // Remove projections of filtered events before assigning contiguous new indices.
+  for (;;) {
+    const ids = new Set(kept.map((event) => event.seq));
+    const validRange = (range) => !range || ids.has(range.start) && ids.has(range.end);
+    const next = kept.filter((event) => {
+      const op = event.surfaceOp;
+      return (!op?.shadowedSeqs || op.shadowedSeqs.every((seq) => ids.has(seq))) &&
+        (op?.op !== "replace" || op.start === undefined || validRange(op)) &&
+        (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange));
+    });
+    if (next.length === kept.length) break;
+    kept = next;
+  }
   const renumbered = new Map(kept.map((event, seq) => [event.seq, seq]));
   const seqs = (list) => list?.map((seq) => renumbered.get(seq)).filter((seq) => seq !== undefined);
-  return kept.flatMap(({ sourceEventSeqs, surfaceOp, ...event }, seq) => {
-    // A replace op names the events it shadows. Renumber those too, and drop an op whose events
-    // were filtered out: DSH refuses a seed that cites a seq its surface does not hold.
-    const shadowed = Array.isArray(surfaceOp?.shadowedSeqs) ? seqs(surfaceOp.shadowedSeqs) : null;
-    if (shadowed && shadowed.length !== surfaceOp.shadowedSeqs.length) return [];
+  const range = (value) => ({ ...value, start: renumbered.get(value.start), end: renumbered.get(value.end) });
+  return kept.map(({ sourceEventSeqs, surfaceOp, ...event }, seq) => {
     const sources = seqs(sourceEventSeqs);
-    return [{ ...event, seq,
-      ...(surfaceOp ? { surfaceOp: shadowed ? { ...surfaceOp, shadowedSeqs: shadowed } : surfaceOp } : {}),
-      ...(sources?.length ? { sourceEventSeqs: sources } : {}) }];
+    return { ...event, seq,
+      ...(event.type === "compaction/prune" ? { data: { ...event.data,
+        ...(event.data.shadowedRange ? { shadowedRange: range(event.data.shadowedRange) } : {}),
+        ...(event.data.shadowedSeqs ? { shadowedSeqs: seqs(event.data.shadowedSeqs) } : {})
+      } } : {}),
+      ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : {
+        ...surfaceOp,
+        ...(surfaceOp.shadowedSeqs ? { shadowedSeqs: seqs(surfaceOp.shadowedSeqs) } : {}),
+        ...(surfaceOp.op === "replace" && surfaceOp.start !== undefined ? range(surfaceOp) : {})
+      } } : {}),
+      ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
   });
 }
 
@@ -406,6 +464,7 @@ export class AgentRuntime {
     this.starting = new Set();
     this.recovery = new Set();
     this.closing = false;
+    this.policyAgents = new WeakSet();
     database.exec(`
       CREATE TABLE IF NOT EXISTS execution_links (
         execution_id TEXT PRIMARY KEY,
@@ -464,6 +523,12 @@ export class AgentRuntime {
         ON bees_run_checkpoints(execution_id, created_at);
       CREATE TABLE IF NOT EXISTS bees_stage_results (${STAGE_RESULT_COLUMNS}
     `);
+    this.runLimits = new RunLimits(database);
+    ctx.on("llm/stream", (options, next) => this.runLimits.stream(options, next), { global: true });
+    ctx.on("agent/created", ({ agent }) => {
+      if (this.runLimits.observeSession(agent.session))
+        this.installPolicies(agent.ctx);
+    }, { global: true });
     const stageResultSchema = database.prepare(`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'
     `).get()?.sql ?? "";
@@ -606,6 +671,8 @@ export class AgentRuntime {
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
     this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
+    // History projections are not another tool execution or human decision.
+    if (event.type === "tool/result" && event.surfaceOp?.op === "replace") return;
     if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL].includes(event.data.name)) {
       const pending = {
         kind: event.data.name === WORK_REVIEW_TOOL ? "work-review" : "question",
@@ -751,10 +818,11 @@ export class AgentRuntime {
    * No agent can reach for a tool it has not been told about, and three API bridges all labelled
    * "Any REST API" are indistinguishable without the host they point at.
    */
-  connectedTools() {
+  connectedTools(data) {
     const servers = this.database.prepare(`
       SELECT server_name AS name, label, args_json AS args FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
-    `).all();
+    `).all().filter(({ name }) => !data || data.mcpAccess === "all" ||
+      data.mcpAccess === "listed" && data.mcpServers.includes(name));
     if (!servers.length) return [];
     const named = servers.map(({ name, label, args }) => {
       const argv = JSON.parse(args);
@@ -765,10 +833,12 @@ export class AgentRuntime {
   }
 
   /** A folder-bound server takes its folder as its last argument; nothing else tells the model which. */
-  boundFolders() {
+  boundFolders(data) {
     const bound = new Set(MCP_CATALOG.filter(({ requiresDirectory }) => requiresDirectory).map(({ id }) => id));
     return this.database.prepare("SELECT server_name AS name, args_json AS args, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
       .all()
+      .filter(({ name }) => !data || data.mcpAccess === "all" ||
+        data.mcpAccess === "listed" && data.mcpServers.includes(name))
       .filter(({ catalogId }) => bound.has(catalogId))
       .map(({ name, args }) => `Every mcp__${name}__ tool takes a path argument. Always pass ${JSON.parse(args).at(-1)}, never your working directory.`);
   }
@@ -821,6 +891,32 @@ export class AgentRuntime {
     }
   }
 
+  installPolicies(agentCtx, { discovery = true } = {}) {
+    if (!agentCtx?.on) return;
+    const owner = scopeOf(agentCtx);
+    if (this.policyAgents.has(owner)) return;
+    this.policyAgents.add(owner);
+    if (discovery) mountToolDiscovery(agentCtx);
+    // Intercept before dsh-llm-retry: an "always" provider policy must not retry our stop.
+    agentCtx.on("agent/request-error", ({ agent, failure }, next) => {
+      if (agent === owner && [RUN_LIMIT_CODE, TOOL_LOOP_CODE].includes(failure.code)) return Promise.resolve();
+      return next();
+    }, { prepend: true });
+    agentCtx.on("agent/request", async ({ agent }, next) => {
+      const config = await next();
+      if (agent !== owner) return config;
+      return { ...config, maxTokens: Math.min(config.maxTokens ?? Infinity, DEFAULT_RUN_LIMITS.reserveOutputTokens) };
+    });
+    agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
+      if (agent === owner && !signal.aborted) {
+        const tool = repeatedToolFailure(agent.session);
+        if (tool) throw new LlmError(`Stopped after three identical failures from ${tool}. Change the task or resolve the reported error before trying again.`, TOOL_LOOP_CODE);
+      }
+      return next();
+    });
+    installContextPolicy(agentCtx);
+  }
+
   async setup(agentCtx, data, executionId, workspace) {
     const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
@@ -828,6 +924,9 @@ export class AgentRuntime {
     this.restrictMcp(agentCtx, data);
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     if (installedApp) mountAppTools(agentCtx, this.apps, installedApp, data);
+    this.installPolicies(agentCtx, { discovery: !installedApp });
+    const agent = agentCtx.on ? scopeOf(agentCtx) : null;
+    if (agent?.session?.id) this.runLimits.observeSession(agent.session, executionId);
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
@@ -835,10 +934,11 @@ export class AgentRuntime {
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
         systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
         String(data.instructions ?? ""),
+        installedApp ? "" : "Use bees_find_tools to load tools absent from the current list. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
         !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
-        ...(installedApp ? [] : [...this.connectedTools(), ...this.boundFolders()])
+        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)])
       ].filter(Boolean).join("\n\n"), complete: true
     });
     if (!installedApp) agentCtx.tools.register(defineTool({
@@ -986,6 +1086,28 @@ export class AgentRuntime {
         });
       }
     }));
+    if (!installedApp && data.mode === "work" && data.workItemId) agentCtx.tools.register(defineTool({
+      name: "bees_list_execution_agents",
+      description: "Find enabled execution agents in this team when delegation needs a specific assignment. Omit agentAssignmentId in bees_delegate_work to inherit your own configuration.",
+      parameters: {
+        query: { type: "string", description: "Optional name or role to find (max 200 characters)." },
+        offset: { type: "integer", description: "next_offset from a previous page; defaults to zero." }
+      },
+      output: {
+        schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } },
+        render: (_args, value) => [{ type: "text", text: value.result }]
+      },
+      execute: ({ query = "", offset = 0 }) => {
+        if (typeof query !== "string" || query.length > 200 || !Number.isSafeInteger(offset) || offset < 0)
+          throw new Error("Supply a query of at most 200 characters and a nonnegative integer offset.");
+        const rows = this.database.prepare(`SELECT id AS agentAssignmentId, name, substr(description, 1, 180) AS description
+          FROM agent_assignments WHERE workspace_id = ? AND enabled = 1
+            AND (system_role IS NULL OR system_role != 'reviewer')
+            AND instr(lower(name || ' ' || description), lower(?)) > 0 ORDER BY name, id LIMIT 9 OFFSET ?`)
+          .all(data.workspaceId, query, offset);
+        return { result: JSON.stringify({ agents: rows.slice(0, 8), next_offset: rows.length > 8 ? offset + 8 : null }) };
+      }
+    }));
     if (!installedApp && data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
@@ -994,7 +1116,7 @@ export class AgentRuntime {
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Choose agentAssignmentId from the team roster to assign a specific agent. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, wait for all participants to report and become idle before delegating.`
+            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, wait for all participants to report and become idle before delegating.`
           }
         },
         output: {
@@ -1255,6 +1377,7 @@ export class AgentRuntime {
       handle = await this.ctx.agents.create(options);
     }
     try {
+      this.runLimits.observeSession(handle.agent.session, run?.executionId ?? sessionId);
       this.ctx.approval.setPolicy(handle.agent, "ask");
     } catch (error) {
       await handle.dispose().catch(() => undefined);

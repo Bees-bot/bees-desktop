@@ -81,4 +81,4 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions]
