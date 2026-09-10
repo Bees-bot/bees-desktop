@@ -135,8 +135,9 @@ it("recommends only models within memory and disk budgets, preferring installed 
   const noDisk = { ...hardware, availableDisk: 0 };
   const capable = plugin.DEFAULT_LOCAL_MODEL;
   expect(pick(noDisk, { [capable.id]: { state: "ready" } }).id).toBe(capable.id);
-  // A chat-only model is never recommended, installed or not: pointing a process at one
-  // produces a silent no-op rather than an error anyone can read.
-  const chatOnly = plugin.LOCAL_MODELS.find(({ runsProcesses }: any) => !runsProcesses);
-  expect(pick(noDisk, { [chatOnly.id]: { state: "ready" } })).toBeNull();
+  // A model added by hand that does not say it runs processes is never recommended, installed or
+  // not: pointing a process at one produces a silent no-op rather than an error anyone can read.
+  const chatOnly = { id: "added-by-hand", bytes: gib, runsProcesses: false };
+  expect(plugin.recommendedLocalModel(noDisk, [...plugin.LOCAL_MODELS, chatOnly],
+    { [chatOnly.id]: { state: "ready" } })).toBeNull();
 });

@@ -1,9 +1,13 @@
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
+// A small model cannot do the search dance: it looks for its task words, misses, and reports that
+// the run has no tools. Reading, writing and the web are what most work needs, so they stay visible.
 const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
-  "ask_user_question", "bees_request_work_review"
+  "ask_user_question", "bees_request_work_review",
+  "web_search", "web_fetch", "bees_fetch_page", "bees_search_news", "read", "write",
+  "bees_control", "bees_publish_outputs"
 ]);
 const HIDDEN_TOOLS = new Set(["subagent", "subagent_fork"]);
 const PAGE_SIZE = 4;

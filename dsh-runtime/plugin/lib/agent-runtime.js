@@ -11,6 +11,7 @@ import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy } from "./context-policy.js";
+import { mountPageFetch } from "./web-page.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { RunLimits, RUN_LIMIT_CODE, DEFAULT_RUN_LIMITS } from "./run-limits.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
@@ -26,7 +27,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When web_search is unavailable or returns nothing, fetch a source you are sure exists and read the answer off it; a national newspaper, an official site, a well known index. Never invent a domain. One page that redirects, paywalls or carries an older story is not the end: bees_fetch_page follows a redirect within the same site, and another source may carry the same answer. Ask the owner where to look only after two real sources have failed. Once a tool has returned what the task asked for, write the answer and submit: another search is not more evidence. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -200,28 +201,29 @@ const TOOL_LOOP_CODE = "BEES_TOOL_LOOP";
 const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", RUN_LIMIT_CODE, TOOL_LOOP_CODE]);
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
 
-/** Three identical failed calls without intervening success/input indicate a stuck retry. */
-function repeatedToolFailure(session) {
+/** A stuck run repeats itself: the same call failing again, or the same pair of pages fetched round
+ *  and round. Both burn the workflow budget without moving, so both stop the turn. */
+function repeatedToolCalls(session) {
   const events = session.snapshotEvents();
   const calls = new Map(events.filter((event) => event.type === "tool/call")
     .map((event) => [String(event.data.callId), event.data]));
+  const counts = new Map();
   const seen = new Set();
-  let signature;
-  let failures = 0;
   for (const event of [...events].reverse()) {
     if (event.type === "user/message" && event.data.source?.kind === "user") break;
     if (event.type !== "tool/result" || event.surfaceOp?.op === "replace") continue;
     const callId = String(event.data.message.source.callId);
     if (seen.has(callId)) continue;
     seen.add(callId);
-    const result = event.data.message.content[0];
-    if (!result.isError && !event.data.error) break;
     const call = calls.get(callId);
-    if (!call) break;
-    const key = JSON.stringify([call.name, call.arguments, event.data.error?.code ?? result.content]);
-    if (signature !== undefined && key !== signature) break;
-    signature = key;
-    if (++failures === 3) return call.name;
+    if (!call) continue;
+    const failed = Boolean(event.data.message.content[0].isError || event.data.error);
+    const key = JSON.stringify([call.name, call.arguments]);
+    const tally = counts.get(key) ?? { name: call.name, failures: 0, repeats: 0 };
+    if (failed) tally.failures += 1;
+    else { tally.failures = 0; tally.repeats += 1; }
+    counts.set(key, tally);
+    if (tally.failures === 3 || tally.repeats === 3) return tally.name;
   }
   return null;
 }
@@ -658,6 +660,16 @@ export class AgentRuntime {
     return ["question", "work-review"].includes(pending?.kind) ? pending : null;
   }
 
+  /** A provider that cannot be reached will not be reached by asking it again in a loop. */
+  unreachableProvider(executionId) {
+    const rows = this.database.prepare(`
+      SELECT error_json AS errorJson FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at DESC LIMIT 3
+    `).all(executionId);
+    return rows.length === 3 && rows.every(({ errorJson }) => {
+      try { return JSON.parse(errorJson ?? "").code === "TRANSPORT"; } catch { return false; }
+    });
+  }
+
   needsRecovery(executionId) {
     return this.recovery.has(executionId);
   }
@@ -864,7 +876,7 @@ export class AgentRuntime {
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
     if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
-      throw new Error("Discussion participants are still working; wait for their pitches before submitting");
+      throw new Error("Discussion participants are still working. Do the work now and submit once they are idle.");
     const leadId = String(agent.session.id);
     if (expected.some((entry) => !entry || entry.status === "failed")) {
       if (!executionId || !members.every((member) => member.planningReviewer))
@@ -909,12 +921,13 @@ export class AgentRuntime {
     });
     agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
       if (agent === owner && !signal.aborted) {
-        const tool = repeatedToolFailure(agent.session);
-        if (tool) throw new LlmError(`Stopped after three identical failures from ${tool}. Change the task or resolve the reported error before trying again.`, TOOL_LOOP_CODE);
+        const tool = repeatedToolCalls(agent.session);
+        if (tool) throw new LlmError(`Stopped after repeating the same ${tool} call. Use what it already returned, or change the task.`, TOOL_LOOP_CODE);
       }
       return next();
     });
-    installContextPolicy(agentCtx);
+    installContextPolicy(agentCtx, this.ctx.tokenMeter);
+    mountPageFetch(agentCtx, this.ctx.web);
   }
 
   async setup(agentCtx, data, executionId, workspace) {
@@ -1001,6 +1014,8 @@ export class AgentRuntime {
         if (exec.agent.session.header.parentSession) throw new Error("Only the lead work agent can request human approval");
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
+        // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
+        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
@@ -1210,6 +1225,11 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
+        // A small model will happily report a file it never wrote, and review then judges a fiction.
+        const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
+          .map(([path]) => path.replace(/[.,;:]+$/, ""))
+          .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
+        if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
@@ -1785,6 +1805,8 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const failure = submission?.errorJson ? JSON.parse(submission.errorJson) : null;
       if (failure && !providerBadTurn(failure)) throw new Error(failure.message);
+      if (failure && this.unreachableProvider(executionId))
+        throw new Error(`${failure.message} The model provider failed three times in a row; check that it is running and reachable.`);
       const asked = this.database.prepare("SELECT COUNT(*) AS n FROM dsh_deliveries WHERE execution_id = ?").get(executionId).n;
       submission = await this.admit("bees-run", executionId, {
         ...payload,

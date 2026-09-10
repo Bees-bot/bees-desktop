@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 export const RUN_LIMIT_CODE = "BEES_RUN_LIMIT_EXCEEDED";
-export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 64, maxTokens: 250_000, reserveOutputTokens: 4096 });
+// Requests died long before the tokens did; a small local model answers in many short calls.
+export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 250, maxTokens: 250_000, reserveOutputTokens: 4096 });
 
 const count = (value) => Number.isFinite(value) && value >= 0 ? Math.ceil(value) : 0;
 
@@ -22,9 +23,8 @@ export function estimateRequestTokens(options) {
     imageTokens += 1536;
     return { type: "image" };
   });
-  // Reserve a byte per token rather than assuming English's usual chars/token ratio:
-  // opaque URLs, encoded values and non-Latin text can tokenize much more densely.
-  return Buffer.byteLength(text ?? "", "utf8") + imageTokens;
+  // Three bytes a token is already pessimistic; a byte a token booked a 60 KB request as 60,000.
+  return Math.ceil(Buffer.byteLength(text ?? "", "utf8") / 3) + imageTokens;
 }
 
 /** One durable admission ledger shared by a goal, its children, reviews and recovered sessions. */
@@ -121,7 +121,7 @@ export class RunLimits {
     if (!id) {
       yield { type: "finish", reason: { kind: "error", failure: {
         code: RUN_LIMIT_CODE,
-        message: `This workflow reached its shared usage limit (${this.limits.maxRequests} model requests or ${this.limits.maxTokens.toLocaleString("en-US")} processed tokens, including child agents and reviews). No further model request was sent.`,
+        message: `This workflow reached its shared usage limit (${this.limits.maxRequests} model requests or ${this.limits.maxTokens.toLocaleString("en-US")} processed tokens, including child agents and reviews). No further model request was sent. Split the outcome into smaller work items and run them separately.`,
       } } };
       return;
     }
@@ -137,10 +137,14 @@ export class RunLimits {
         yield chunk;
       }
     } finally {
-      // A missing final usage report or interrupted stream keeps its reservation across recovery.
+      // A provider that reports no usage still spent its estimate; one that never answered spent no
+      // tokens, but it keeps its request slot so a stream that dies every time cannot retry for ever.
       // ponytail: estimated admission may undershoot provider tokenization; actual overages block the next request.
       if (observed !== null) this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = ? WHERE id = ?")
         .run(finished ? observed : Math.max(reservation, observed), id);
+      else if (finished) this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = ? WHERE id = ?")
+        .run(reservation, id);
+      else this.database.prepare("UPDATE bees_run_limit_requests SET used_tokens = 0 WHERE id = ?").run(id);
     }
   }
 }
