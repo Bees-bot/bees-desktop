@@ -41,7 +41,7 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
           busy ? "Starting…" : "Run using defaults"),
-        h(Button, { disabled: busy || !allowed || !workspaceId, onClick: configureGoal }, "Configure advanced")))
+        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced")))
   );
 }
 
