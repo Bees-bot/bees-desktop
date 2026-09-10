@@ -26,8 +26,10 @@ use crate::process::{available_loopback_port, Sidecar};
 const GIB: u64 = 1024 * 1024 * 1024;
 /// Below this a window is too small to run an agent turn in, so it is asked for even when the
 /// budget says no. Better a server that fails to boot loudly than one that silently serves a
-/// window nothing fits in.
-const MIN_CONTEXT: u32 = 4_096;
+/// window nothing fits in. Bees sends about 4.5k tokens of instructions and tool schemas before
+/// the work even starts, and the runtime holds back the model's whole output allowance on top of
+/// that, so anything under this leaves the model one token to answer in.
+const MIN_CONTEXT: u32 = 16_384;
 /// Ceiling on the *derived* window only. Past this the arithmetic keeps saying yes while
 /// prompt processing time and attention quality both say no, and no local model Bees ships
 /// benefits. An administrator who knows better overrides it per model; the override is not
