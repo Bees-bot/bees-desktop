@@ -207,28 +207,29 @@ const TOOL_LOOP_CODE = "BEES_TOOL_LOOP";
 const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", RUN_LIMIT_CODE, TOOL_LOOP_CODE]);
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
 
-/** Three identical failed calls without intervening success/input indicate a stuck retry. */
-function repeatedToolFailure(session) {
+/** A stuck run repeats itself: the same call failing again, or the same pair of pages fetched round
+ *  and round. Both burn the workflow budget without moving, so both stop the turn. */
+function repeatedToolCalls(session) {
   const events = session.snapshotEvents();
   const calls = new Map(events.filter((event) => event.type === "tool/call")
     .map((event) => [String(event.data.callId), event.data]));
+  const counts = new Map();
   const seen = new Set();
-  let signature;
-  let failures = 0;
   for (const event of [...events].reverse()) {
     if (event.type === "user/message" && event.data.source?.kind === "user") break;
     if (event.type !== "tool/result" || event.surfaceOp?.op === "replace") continue;
     const callId = String(event.data.message.source.callId);
     if (seen.has(callId)) continue;
     seen.add(callId);
-    const result = event.data.message.content[0];
-    if (!result.isError && !event.data.error) break;
     const call = calls.get(callId);
-    if (!call) break;
-    const key = JSON.stringify([call.name, call.arguments, event.data.error?.code ?? result.content]);
-    if (signature !== undefined && key !== signature) break;
-    signature = key;
-    if (++failures === 3) return call.name;
+    if (!call) continue;
+    const failed = Boolean(event.data.message.content[0].isError || event.data.error);
+    const key = JSON.stringify([call.name, call.arguments]);
+    const tally = counts.get(key) ?? { name: call.name, failures: 0, repeats: 0 };
+    if (failed) tally.failures += 1;
+    else { tally.failures = 0; tally.repeats += 1; }
+    counts.set(key, tally);
+    if (tally.failures === 3 || tally.repeats === 3) return tally.name;
   }
   return null;
 }
@@ -925,8 +926,8 @@ export class AgentRuntime {
     });
     agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
       if (agent === owner && !signal.aborted) {
-        const tool = repeatedToolFailure(agent.session);
-        if (tool) throw new LlmError(`Stopped after three identical failures from ${tool}. Change the task or resolve the reported error before trying again.`, TOOL_LOOP_CODE);
+        const tool = repeatedToolCalls(agent.session);
+        if (tool) throw new LlmError(`Stopped after repeating the same ${tool} call. Use what it already returned, or change the task.`, TOOL_LOOP_CODE);
       }
       return next();
     });
