@@ -753,6 +753,11 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 22");
   });
+  if (version < 24) database.exec(`
+    DROP TABLE IF EXISTS bees_run_limit_requests;
+    DROP TABLE IF EXISTS bees_run_limit_sessions;
+    PRAGMA user_version = 24;
+  `);
   // Agent pools are gone: a stage names its agents directly, so the column, the tables and the
   // dispatch target they supported go with them.
   if (version < 23) {

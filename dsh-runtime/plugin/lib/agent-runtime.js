@@ -13,7 +13,6 @@ import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy } from "./context-policy.js";
 import { mountPageFetch } from "./web-page.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
-import { RunLimits, RUN_LIMIT_CODE, DEFAULT_RUN_LIMITS } from "./run-limits.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
@@ -198,7 +197,9 @@ const STAGE_RESULT_COLUMNS = `
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 // The provider dropping mid-turn is its bad turn, not the stage's, unless pi-ai says it will not change.
 const TOOL_LOOP_CODE = "BEES_TOOL_LOOP";
-const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", RUN_LIMIT_CODE, TOOL_LOOP_CODE]);
+const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", TOOL_LOOP_CODE]);
+/** One answer's worth of output; a run that needs more is asking the wrong question. */
+const MAX_OUTPUT_TOKENS = 4096;
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
 
 /** A stuck run repeats itself: the same call failing again, or the same pair of pages fetched round
@@ -525,11 +526,9 @@ export class AgentRuntime {
         ON bees_run_checkpoints(execution_id, created_at);
       CREATE TABLE IF NOT EXISTS bees_stage_results (${STAGE_RESULT_COLUMNS}
     `);
-    this.runLimits = new RunLimits(database);
-    ctx.on("llm/stream", (options, next) => this.runLimits.stream(options, next), { global: true });
+    this.policySessions = new Set();
     ctx.on("agent/created", ({ agent }) => {
-      if (this.runLimits.observeSession(agent.session))
-        this.installPolicies(agent.ctx);
+      if (this.ownsSession(agent.session)) this.installPolicies(agent.ctx);
     }, { global: true });
     const stageResultSchema = database.prepare(`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'
@@ -658,6 +657,18 @@ export class AgentRuntime {
   pendingQuestion(executionId) {
     const pending = this.pendingInteraction(executionId);
     return ["question", "work-review"].includes(pending?.kind) ? pending : null;
+  }
+
+  /** A run's own agent and every peer it seats get the run's policies. The lead is recorded when its
+   *  stage starts, and a peer is recognised by the parent it was created from. */
+  ownsSession(session) {
+    const id = String(session?.id ?? "");
+    if (!id) return false;
+    if (this.policySessions.has(id)) return true;
+    const parent = session.header?.parentSession;
+    if (!parent || !this.policySessions.has(String(parent))) return false;
+    this.policySessions.add(id);
+    return true;
   }
 
   /** A provider that cannot be reached will not be reached by asking it again in a loop. */
@@ -911,13 +922,13 @@ export class AgentRuntime {
     if (discovery) mountToolDiscovery(agentCtx);
     // Intercept before dsh-llm-retry: an "always" provider policy must not retry our stop.
     agentCtx.on("agent/request-error", ({ agent, failure }, next) => {
-      if (agent === owner && [RUN_LIMIT_CODE, TOOL_LOOP_CODE].includes(failure.code)) return Promise.resolve();
+      if (agent === owner && failure.code === TOOL_LOOP_CODE) return Promise.resolve();
       return next();
     }, { prepend: true });
     agentCtx.on("agent/request", async ({ agent }, next) => {
       const config = await next();
       if (agent !== owner) return config;
-      return { ...config, maxTokens: Math.min(config.maxTokens ?? Infinity, DEFAULT_RUN_LIMITS.reserveOutputTokens) };
+      return { ...config, maxTokens: Math.min(config.maxTokens ?? Infinity, MAX_OUTPUT_TOKENS) };
     });
     agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
       if (agent === owner && !signal.aborted) {
@@ -939,7 +950,7 @@ export class AgentRuntime {
     if (installedApp) mountAppTools(agentCtx, this.apps, installedApp, data);
     this.installPolicies(agentCtx, { discovery: !installedApp });
     const agent = agentCtx.on ? scopeOf(agentCtx) : null;
-    if (agent?.session?.id) this.runLimits.observeSession(agent.session, executionId);
+    if (agent?.session?.id) this.policySessions.add(String(agent.session.id));
     const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
@@ -1397,7 +1408,6 @@ export class AgentRuntime {
       handle = await this.ctx.agents.create(options);
     }
     try {
-      this.runLimits.observeSession(handle.agent.session, run?.executionId ?? sessionId);
       this.ctx.approval.setPolicy(handle.agent, "ask");
     } catch (error) {
       await handle.dispose().catch(() => undefined);
