@@ -962,7 +962,10 @@ fn start_local_model_blocking_inner(
         .args(["--parallel", "1"])
         // Without --jinja llama.cpp falls back to its legacy template handling and parses tool calls
         // by guesswork, which is most of why a local model answers in prose instead of calling a tool.
-        .arg("--jinja");
+        .arg("--jinja")
+        // llama.cpp keeps every layer on the CPU unless asked. On this Mac that halves generation
+        // speed for nothing: the GPU shares the same memory the layers were already costing.
+        .args(["--n-gpu-layers", "99"]);
     let mut child = Sidecar::new(
         command
             .stdin(Stdio::null())

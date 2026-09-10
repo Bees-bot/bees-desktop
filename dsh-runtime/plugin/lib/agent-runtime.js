@@ -223,7 +223,8 @@ function repeatedToolCalls(session) {
     const call = calls.get(callId);
     if (!call) continue;
     const failed = Boolean(event.data.message.content[0].isError || event.data.error);
-    const key = JSON.stringify([call.name, call.arguments]);
+    // A poll repeats on purpose, so a success only counts as stuck when it also came back the same.
+    const key = JSON.stringify([call.name, call.arguments, failed ? "" : event.data.message.content]);
     const tally = counts.get(key) ?? { name: call.name, failures: 0, repeats: 0 };
     if (failed) tally.failures += 1;
     else { tally.failures = 0; tally.repeats += 1; }
@@ -970,7 +971,7 @@ export class AgentRuntime {
         data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
         systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
         String(data.instructions ?? ""),
-        installedApp ? "" : "Use bees_find_tools to load tools absent from the current list. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
+        installedApp ? "" : "The tools listed are ready to call. Use bees_find_tools only when nothing listed can do the job. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
         !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
