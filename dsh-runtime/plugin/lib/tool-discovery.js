@@ -1,9 +1,8 @@
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-// Hiding every schema behind a search saves a lot of prompt, but a small model cannot do the search
-// dance: it looks for its task words, misses, and reports that the run has no tools. Reading a page,
-// searching the web and writing a file are what most work needs, so they stay in front of it.
+// A small model cannot do the search dance: it looks for its task words, misses, and reports that
+// the run has no tools. Reading, writing and the web are what most work needs, so they stay visible.
 const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
   "ask_user_question", "bees_request_work_review",
@@ -22,8 +21,7 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    // DeepSeek search is the only backend, and without its key every call errors. Offering it just
-    // burns a turn and ends with the model asking the owner where to look, so it goes.
+    // DeepSeek search is the only backend, and without its key every call errors.
     const searchable = Boolean(process.env.DEEPSEEK_API_KEY);
     return { ...assembly, tools: assembly.tools.filter(({ name }) =>
       !HIDDEN_TOOLS.has(name) && (searchable || name !== "web_search")
@@ -66,17 +64,11 @@ export function mountToolDiscovery(agentCtx) {
         loaded.add(name);
       }
       while (loaded.size > RETAINED_TOOLS) loaded.delete(loaded.values().next().value);
-      // Searching the task subject instead of a capability is how a model concludes it has no tools:
-      // "nepal news in nepali api" matched an unrelated server while web_fetch sat unlisted.
-      const available = page.length ? [] : agentCtx.tools.schemas(exec.agent)
-        .filter(({ name }) => !HIDDEN_TOOLS.has(name) && !BASE_TOOLS.has(name))
-        .map(({ name }) => name).slice(0, 40);
       return { result: JSON.stringify({
         tools: page.map(({ name, description }) => ({ name, description: String(description ?? "").slice(0, 180) })),
         total: matches.length,
         next_offset: offset + page.length < matches.length ? offset + page.length : null,
-        search_by: "capability, not subject: web, files, shell, browser, delegation, skills",
-        ...(available.length ? { available } : {})
+        search_by: "capability, not subject: web, files, shell, browser, delegation, skills"
       }) };
     }
   }));

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 export const RUN_LIMIT_CODE = "BEES_RUN_LIMIT_EXCEEDED";
-// Tokens are the real cost bound. A small local model answers in many short requests, so 64 of them
-// killed honest work long before the token budget was anywhere near spent. The 250k ceiling was set
-// while the meter charged a token per byte, so it bought about 750k real tokens: this keeps that.
+// 64 requests died long before the tokens did. The 250k ceiling was set while the meter charged a
+// token per byte, so it bought about 750k real tokens; this keeps the ceiling where it effectively was.
 export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 250, maxTokens: 750_000, reserveOutputTokens: 4096 });
 
 const count = (value) => Number.isFinite(value) && value >= 0 ? Math.ceil(value) : 0;
@@ -25,8 +24,7 @@ export function estimateRequestTokens(options) {
     imageTokens += 1536;
     return { type: "image" };
   });
-  // Three bytes a token is already pessimistic: English averages four, and a byte a token booked a
-  // 60 KB request as 60,000 tokens, which spent a whole workflow budget in a dozen calls.
+  // Three bytes a token is already pessimistic; a byte a token booked a 60 KB request as 60,000.
   return Math.ceil(Buffer.byteLength(text ?? "", "utf8") / 3) + imageTokens;
 }
 
