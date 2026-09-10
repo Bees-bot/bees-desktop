@@ -67,8 +67,7 @@ export function mountToolDiscovery(agentCtx) {
       return { result: JSON.stringify({
         tools: page.map(({ name, description }) => ({ name, description: String(description ?? "").slice(0, 180) })),
         total: matches.length,
-        next_offset: offset + page.length < matches.length ? offset + page.length : null,
-        search_by: "capability, not subject: web, files, shell, browser, delegation, skills"
+        next_offset: offset + page.length < matches.length ? offset + page.length : null
       }) };
     }
   }));

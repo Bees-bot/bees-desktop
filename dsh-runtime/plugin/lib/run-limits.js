@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 export const RUN_LIMIT_CODE = "BEES_RUN_LIMIT_EXCEEDED";
-// 64 requests died long before the tokens did. The 250k ceiling was set while the meter charged a
-// token per byte, so it bought about 750k real tokens; this keeps the ceiling where it effectively was.
-export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 250, maxTokens: 750_000, reserveOutputTokens: 4096 });
+// 64 requests died long before the tokens did; a small local model answers in many short calls.
+export const DEFAULT_RUN_LIMITS = Object.freeze({ maxRequests: 250, maxTokens: 250_000, reserveOutputTokens: 4096 });
 
 const count = (value) => Number.isFinite(value) && value >= 0 ? Math.ceil(value) : 0;
 
