@@ -7,13 +7,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
-    // `runsProcesses` means a model finished a real goal here: searched, read what came back and
-    // submitted a result. Measured on "fetch me top 5 news of nepal today in nepali"; the two that
-    // did not are listed with what stopped them so nobody spends gigabytes finding out again.
+    // runsProcesses marks the models that finish a goal end to end; only those can be recommended.
     const LOCAL_MODELS = [
       {
         id: "granite-4-0-h-tiny-q4-k-m", name: "Granite 4.0 h tiny (Q4_K_M)",
-        description: "Runs processes and agents. Finished in under two minutes on four tries out of four. Pick this one unless you have a reason not to.",
         runsProcesses: true,
         fileName: "granite-4.0-h-tiny-Q4_K_M.gguf",
         url: "https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf?download=true",
@@ -22,7 +19,6 @@ window.__ModuleLoader__.load({
       },
       {
         id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
-        description: "Half the size, and it does search and read. It then stalls on judging what it read instead of answering, so a process waits on it.",
         runsProcesses: false,
         fileName: "granite-4.2-3b-Q4_K_M.gguf",
         url: "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf?download=true",
@@ -31,7 +27,6 @@ window.__ModuleLoader__.load({
       },
       {
         id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
-        description: "The fastest of the three at writing, but it repeats its own calls until a run is stopped. Good for drafting, not for a process.",
         runsProcesses: false,
         fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
@@ -57,7 +52,6 @@ window.__ModuleLoader__.load({
     const css = `
       .bees-local-model-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-sidebar-fill)}
       .bees-local-model-table table{width:100%;min-width:680px;border-collapse:collapse}.bees-local-model-table th,.bees-local-model-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-local-model-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-local-model-table tbody tr:last-child td{border-bottom:0}.bees-local-model-table th:nth-last-child(-n+3),.bees-local-model-table td:nth-last-child(-n+3){width:1%;text-align:center;white-space:nowrap}
-      .bees-local-model-note{margin-top:4px;max-width:52ch;text-wrap:pretty}
       .bees-local-model-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.bees-local-model-name{display:flex;align-items:center;gap:7px;font-weight:700}.bees-local-model-status{min-width:130px}.bees-local-model-progress{display:block;width:125px;height:5px;margin-top:5px;accent-color:#f2b84b}.bees-local-server-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}.bees-local-server-models .bees-badge{gap:4px;text-transform:none}.bees-local-server-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-local-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-local-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-local-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-local-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-local-toggle input:checked:after{left:16px;background:#151515}.bees-local-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-local-delete{padding:5px 8px}
     `;
 
@@ -309,8 +303,7 @@ window.__ModuleLoader__.load({
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
                   model.id === DEFAULT_LOCAL_MODEL.id ? h("span", { className: "bees-badge" }, "Default") : null),
-                h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`),
-                model.description ? h("div", { className: "bees-muted bees-local-model-note" }, model.description) : null),
+                h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`)),
               h("td", { className: "bees-local-model-status" },
                 h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, label),
                 downloading && !cancelling ? h("progress", { className: "bees-local-model-progress", max: total, value: downloaded }) : null),
