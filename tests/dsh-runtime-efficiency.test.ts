@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+import { TOOL_PREVIEW_CHARS } from "../dsh-runtime/plugin/lib/context-policy.js";
 import { NodeDatabase } from "./node-database.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
@@ -11,7 +12,7 @@ const { SystemPrompt } = require("@deepseek-ai/dsh-system-prompt");
 const { ToolRuntime, defineTool } = require("@deepseek-ai/dsh-tools");
 const { SessionProjectionRegistry } = require("@deepseek-ai/dsh-session-projection");
 const { TokenMeter } = require("@deepseek-ai/dsh-token-meter");
-const { createAssistantMessage, createToolResultMessage, createUserMessage } = require("@deepseek-ai/dsh-llm");
+const { createAssistantMessage, createToolResultMessage } = require("@deepseek-ai/dsh-llm");
 
 function harness() {
   const ctx: any = new Context();
@@ -69,26 +70,21 @@ function harness() {
   };
 }
 
-function result(agent: any, step: number, error = false, text = "same failure") {
+function result(agent: any, step: number, error = false, text = "same failure", name = "fetch_sample") {
   const session = agent.session;
   const callId = `call-${step}`;
+  const args = name === "fetch_sample" ? '{"url":"https://example.com"}'
+    : name === "read" ? '{"path":"outputs/brief.md"}' : '{}';
   session.append("step/start", { turn: 1, step });
   session.append("assistant/message", { turn: 1, step, message: createAssistantMessage({
     source: { provider: "test", model: "test" },
-    content: [{ type: "tool-call", id: callId, name: "fetch_sample", arguments: '{"url":"https://example.com"}' }]
+    content: [{ type: "tool-call", id: callId, name, arguments: args }]
   }) }, { surfaceOp: "append" });
-  session.append("tool/call", { turn: 1, step, callId, name: "fetch_sample", arguments: '{"url":"https://example.com"}' });
+  session.append("tool/call", { turn: 1, step, callId, name, arguments: args });
   session.append("tool/result", { turn: 1, step, message: createToolResultMessage({
     callId, isError: error, content: [{ type: "text", text }]
   }), ...(error ? { error: { name: "FetchError", code: "HTTP_ERROR" } } : {}) }, { surfaceOp: "append" });
   session.append("step/end", { turn: 1, step });
-}
-
-function input(agent: any, kind: "user" | "plugin") {
-  agent.session.append("user/message", createUserMessage({
-    source: kind === "user" ? { kind } : { kind, plugin: "runtime-context", form: "snapshot", sections: [] },
-    content: [{ type: "text", text: "Updated context" }]
-  }), { surfaceOp: "append" });
 }
 
 const toolText = (agent: any) => agent.session.deriveMessages()
@@ -96,7 +92,7 @@ const toolText = (agent: any) => agent.session.deriveMessages()
   .filter((block: any) => block.type === "tool-result")
   .map((block: any) => block.content.filter((entry: any) => entry.type === "text").map((entry: any) => entry.text).join(""));
 
-it("installs discovery, pruning and output caps on a managed parent and each published descendant without cross-scope filtering", async () => {
+it("installs discovery and pruning on managed agents without changing their output settings", async () => {
   const h = harness();
   try {
     const parent = await h.agent("parent");
@@ -121,35 +117,67 @@ it("installs discovery, pruning and output caps on a managed parent and each pub
     for (const agent of [parent, child, grandchild]) {
       result(agent, 1, false, "large data ".repeat(4_000));
       await h.preStep(agent);
-      expect(toolText(agent)[0].length).toBeLessThanOrEqual(2_000);
+      expect(toolText(agent)[0].length).toBeLessThanOrEqual(TOOL_PREVIEW_CHARS);
       expect(agent.session.snapshotEvents().filter((event: any) => event.type === "compaction/prune")).toHaveLength(1);
-      expect((await h.request(agent, 32_000)).maxTokens).toBe(4_096);
-      expect((await h.request(agent, 1_000)).maxTokens).toBe(1_000);
+      await expect(h.request(agent)).resolves.toEqual({ provider: "test", model: "test" });
+      for (const maxTokens of [1_000, 32_000, 128_000])
+        await expect(h.request(agent, maxTokens)).resolves.toEqual({ provider: "test", model: "test", maxTokens });
     }
     expect((await h.request(unrelated, 32_000)).maxTokens).toBe(32_000);
   } finally { await h.close(); }
 });
 
-it("stops three identical failed calls, ignores injected context as a reset, and resumes after success or actual user input", async () => {
+it("leaves failed tool retries to the model on managed leads and peers", async () => {
   const h = harness();
   try {
-    const agent = await h.agent("retrying");
-    result(agent, 1, true, "failure ".repeat(600));
-    await h.preStep(agent);
-    input(agent, "plugin");
-    result(agent, 2, true, "failure ".repeat(600));
-    await h.preStep(agent);
-    result(agent, 3, true, "failure ".repeat(600));
-    await expect(h.preStep(agent)).rejects.toMatchObject({ code: "BEES_TOOL_LOOP" });
-    expect(agent.session.deriveMessages().flatMap((message: any) => message.content)
-      .filter((block: any) => block.type === "tool-result").every((block: any) => block.isError)).toBe(true);
-    input(agent, "user");
-    await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
-    result(agent, 4, true);
-    result(agent, 5, true);
-    result(agent, 6, false, "success");
-    result(agent, 7, true);
-    await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
+    let attempts = 0;
+    h.tools.register(defineTool({
+      name: "failing_sample", description: "An unavailable tool", parameters: {},
+      output: { schema: { type: "object", additionalProperties: false, properties: {} },
+        render: () => [{ type: "text", text: "ok" }] },
+      execute: () => { attempts++; throw new Error("service unavailable"); }
+    }));
+    const parent = await h.agent("retrying-parent");
+    const child = await h.agent("retrying-child", parent);
+    for (const agent of [parent, child]) {
+      await h.find(agent, "failing_sample");
+      for (let step = 1; step <= 4; step++) {
+        const before = attempts;
+        const failure = await h.tools.execute({ agent, callId: `failed-${step}`, name: "failing_sample",
+          arguments: {}, signal: new AbortController().signal });
+        expect(failure.isError).toBe(true);
+        expect(attempts).toBe(before + 1);
+        result(agent, step, true, "service unavailable", "failing_sample");
+        await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
+        expect(attempts).toBe(before + 1);
+      }
+    }
+  } finally { await h.close(); }
+});
+
+it("allows unchanged and updated rereads even after old results are shortened", async () => {
+  const h = harness();
+  try {
+    const agent = await h.agent("rereading");
+    for (let step = 1; step <= 6; step++) {
+      result(agent, step, false, `file version ${Math.ceil(step / 3)} `.repeat(600), "read");
+      await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
+    }
+    expect(toolText(agent)[0]).toContain("Text shortened");
+  } finally { await h.close(); }
+});
+
+it("allows a managed lead and peer to continue beyond 100 model steps", async () => {
+  const h = harness();
+  try {
+    const parent = await h.agent("long-stage");
+    const child = await h.agent("long-peer", parent);
+    for (const agent of [parent, child]) {
+      for (let step = 1; step <= 150; step++) {
+        result(agent, step, false, `file version ${step}`, "read");
+        await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
+      }
+    }
   } finally { await h.close(); }
 });
 
@@ -168,24 +196,21 @@ it("does not send a request when newly pruned tool history cannot be flushed", a
   } finally { await h.close(); }
 });
 
-it("keeps usage and loop stops terminal even when a provider policy would retry every failure", async () => {
+it("leaves provider request retries to the provider policy for managed leads and peers", async () => {
   const h = harness();
   try {
     let retries = 0;
     h.ctx.on("agent/request-error", async () => { retries++; return { kind: "retry" }; });
-    const parent = await h.agent("terminal-parent");
-    const child = await h.agent("terminal-child", parent);
+    const parent = await h.agent("provider-parent");
+    const child = await h.agent("provider-child", parent);
     const unrelated = await h.agent("other-provider", undefined, false);
-    const failure = (agent: any, code: string) => h.ctx.waterfall(scopeTarget(agent, agent), "agent/request-error", {
-      agent, turn: 1, step: 1, provider: "test", failure: { code, message: "test failure" },
-      retryPolicy: { mode: "always" }, signal: new AbortController().signal
-    }, async () => undefined);
-    for (const agent of [parent, child]) {
-      await expect(failure(agent, "BEES_TOOL_LOOP")).resolves.toBeUndefined();
+    for (const agent of [parent, child, unrelated]) {
+      await expect(h.ctx.waterfall(scopeTarget(agent, agent), "agent/request-error", {
+        agent, turn: 1, step: 1, provider: "test",
+        failure: { code: "TRANSPORT", message: "connection interrupted" },
+        retryPolicy: { mode: "always" }, signal: new AbortController().signal
+      }, async () => undefined)).resolves.toEqual({ kind: "retry" });
     }
-    expect(retries).toBe(0);
-    await expect(failure(parent, "TRANSIENT_NETWORK_ERROR")).resolves.toEqual({ kind: "retry" });
-    await expect(failure(unrelated, "BEES_TOOL_LOOP")).resolves.toEqual({ kind: "retry" });
-    expect(retries).toBe(2);
+    expect(retries).toBe(3);
   } finally { await h.close(); }
 });

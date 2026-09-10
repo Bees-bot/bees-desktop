@@ -78,6 +78,8 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.instructions).toContain("A plan alone does not complete Work");
       expect(payload.body).not.toContain("A plan alone does not complete Work");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Do not implement the goal");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("call bees_wait_for_team once");
+      expect(payload.body).toContain("Bees supplies current team status automatically");
       await run("goal-work", work); // Replayed dispatch preserves the planning role.
       expect(execute.mock.calls.at(-1)![1].initialData.discussionMembers[0].planningReviewer).toBe(true);
       await run("goal-review", review);
@@ -151,7 +153,11 @@ describe("DSH Agent Teams discussions", () => {
         model: "anthropic/claude-sonnet", reasoningEffort: "high",
       });
       expect(payload.initialData.discussionMembers[0].prompt).toContain("Goal: Choose the API architecture");
-      expect(payload.initialData.discussionMembers[0].prompt).toContain("Wait until list_agents shows all of them");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("Begin independent analysis immediately");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("let lead coordinate follow-up");
+      expect(payload.initialData.discussionMembers[0].prompt).not.toContain("Wait until list_agents shows all of them");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("If it returns no-progress");
+      expect(payload.body).toContain("call bees_wait_for_team once");
       expect(payload.body).toContain("This is a DSH Agent Teams discussion");
       expect(payload.body).toContain("Honor the requested delegation count and execution order");
       expect(payload.body).not.toContain("Delegate sequentially");

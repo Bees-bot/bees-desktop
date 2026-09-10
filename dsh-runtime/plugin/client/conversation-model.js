@@ -10,7 +10,7 @@ const TOOL_TARGET = ["url", "query", "file_path", "path", "command", "pattern", 
 const TOOL_NAMES = {
   bash: "Ran a command", read: "Read a file", write: "Wrote a file", edit: "Edited a file",
   glob: "Looked for files", grep: "Searched the files", web_search: "Searched the web", web_fetch: "Read a page",
-  send_message: "Messaged a teammate", wait_agent: "Waiting for a teammate", followup_task: "Asked for another round",
+  send_message: "Messaged a teammate", wait_agent: "Waiting for a teammate", bees_wait_for_team: "Waiting for a teammate", followup_task: "Asked for another round",
   ask_user_question: "Asked you a question", bees_control: "Set up Bees",
   bees_delegate_work: "Handed work to a peer", bees_submit_stage_result: "Submitted this stage",
   bees_request_work_review: "Asked you to approve", bees_publish_outputs: "Published the deliverables"

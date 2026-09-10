@@ -184,7 +184,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   void connected.authConfig().then((config) =>
     googleDrive.configure(config.googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
-    client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify
+    client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify,
+    abortAgent: (executionId) => agents.abort(executionId)
   });
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,

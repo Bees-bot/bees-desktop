@@ -905,6 +905,15 @@ export const css = `
 /* Nothing may poke out of its box: rows wrap, flex children may shrink, long words break, code scrolls inside. */
 .bees-row>*{min-width:0}
 .bees-row .bees-btn{flex:0 0 auto}
+.bees-work-table{width:100%;border-collapse:collapse;text-align:left}
+.bees-work-table th,.bees-work-table td{padding:10px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:middle}
+.bees-work-table th{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}
+.bees-work-table th:first-child,.bees-work-table td:first-child{width:100%;min-width:220px;max-width:0}
+.bees-work-table td:not(:first-child){white-space:nowrap}
+.bees-work-table .bees-work-item-row{border:0;padding:4px 0}
+.bees-work-table .bees-answer-controls{flex-wrap:nowrap}
+.bees-work-owner{display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bees-owner-filter{max-width:220px}
 .bees-row .bees-select.bees-grow{flex:1 1 140px}
 .bees-column,.bees-box,.bees-work-item-row,.bees-flex-widget,.bees-row-main{min-width:0;overflow-wrap:break-word}
 .bees-content,.bees-flex-widget-body{min-width:0}

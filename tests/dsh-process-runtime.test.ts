@@ -1,9 +1,14 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import { describe, expect, it, vi } from "vitest";
 import {
   PROCESS_TASK_QUEUE, ProcessRuntime, processWorkflowId
 } from "../dsh-runtime/plugin/lib/process-runtime.js";
 import { NodeDatabase } from "./node-database.js";
+import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
+
+const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
+const { Context } = require("@temporalio/activity");
 
 function harness(options: { workerFactory?: (options: any) => Promise<any>; claims?: any } = {}) {
   const database = new NodeDatabase();
@@ -20,6 +25,7 @@ function harness(options: { workerFactory?: (options: any) => Promise<any>; clai
     workflow: {
       start: async (name: string, options: any) => { starts.push({ name, ...options }); },
       getHandle: (workflowId: string) => ({
+        result: async () => undefined,
         signal: async (name: string) => { signals.push({ workflowId, name }); },
         cancel: async () => { signals.push({ workflowId, name: "cancel" }); }
       })
@@ -30,7 +36,7 @@ function harness(options: { workerFactory?: (options: any) => Promise<any>; clai
     }
   };
   const runtime = new ProcessRuntime(database.connection, { client, ...options });
-  return { database, workspaceId, runtime, starts, signals, schedules };
+  return { database, workspaceId, runtime, starts, signals, schedules, client };
 }
 
 function insertManual(state: ReturnType<typeof harness>) {
@@ -61,6 +67,58 @@ function insertGoal(state: ReturnType<typeof harness>, id = "goal") {
 }
 
 describe("Temporal process projection", () => {
+  it("persists an idempotent parent correction and reconstructs it after restart", async () => {
+    const state = harness();
+    new AgentRuntime({ on: () => () => undefined }, state.database.connection);
+    insertGoal(state, "parent");
+    const goal = insertGoal(state, "child");
+    state.database.connection.exec(`UPDATE work_items SET runtime_phase = 'running' WHERE id = 'parent';
+      UPDATE work_items SET parent_id = 'parent', runtime_phase = 'completed', runtime_attempt = 1 WHERE id = 'child';`);
+    state.database.connection.prepare(`INSERT INTO execution_links
+      (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+       run_directory, config_json, status, created_at, updated_at)
+      VALUES ('child-stage-0-work-1', ?, 'child', 'worker', 'child-session', 'child-uid', '/tmp/child', '{}', 'completed', '2026-01-01', '2026-01-01')
+    `).run(state.workspaceId);
+    state.database.connection.exec(`INSERT INTO bees_stage_results VALUES ('child-stage-0-work-1', 'worker', 'candidate', 'Existing answer', '2026-01-01')`);
+    await state.runtime.reviseItem("child", "Add the original publication dates", "parent-call-1");
+    expect(state.starts[0].args[0]).toMatchObject({ stageId: goal.stageId, parentReview: true,
+      correction: { attempt: 2, candidateExecutionId: "child-stage-0-work-1", feedback: "Add the original publication dates" } });
+    await state.runtime.reviseItem("child", "Add the original publication dates", "parent-call-1");
+    expect(state.starts).toHaveLength(1);
+    await expect(state.runtime.reviseItem("parent", "Different target", "parent-call-1")).rejects.toThrow("another child");
+    const restarted = new ProcessRuntime(state.database.connection);
+    expect(restarted.input("child")).toEqual(state.starts[0].args[0]);
+    await expect(state.runtime.reviseItem("parent", "Wrong target", "parent-call-2")).rejects.toThrow("completed delegated");
+    await expect(state.runtime.reviseItem("child", "Already running", "parent-call-3")).rejects.toThrow("completed delegated");
+  });
+
+  it("waits for the previous workflow and claim before a correction, and honors cancellation during that wait", async () => {
+    const state = harness();
+    new AgentRuntime({ on: () => () => undefined }, state.database.connection);
+    insertGoal(state, "parent");
+    insertGoal(state, "child");
+    state.database.connection.exec(`UPDATE work_items SET runtime_phase = 'running' WHERE id = 'parent';
+      UPDATE work_items SET parent_id = 'parent', runtime_phase = 'completed', runtime_attempt = 1 WHERE id = 'child';`);
+    let close!: () => void;
+    let release!: () => void;
+    const closed = new Promise<void>((resolve) => { close = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(state.client.workflow, "getHandle").mockReturnValue({ result: () => closed } as any);
+    (state.runtime as any).claimWatchers.set("work-item:child", { settled: released });
+    const abort = new AbortController();
+    const pending = state.runtime.reviseItem("child", "Fix date", "cancelled-call", abort.signal);
+    const rejected = expect(pending).rejects.toThrow();
+    close();
+    await Promise.resolve();
+    expect(state.starts).toHaveLength(0);
+    abort.abort();
+    release();
+    await rejected;
+    expect(state.runtime.item("child")).toMatchObject({ runtimePhase: "completed", attempt: 1 });
+    expect(state.starts).toHaveLength(0);
+    expect(state.database.connection.prepare("SELECT id FROM dsh_audit_events WHERE event_type = 'peer-work-correction'").all()).toEqual([]);
+  });
+
   it("starts the process worker when a shared Temporal client is injected", async () => {
     let workerOptions: any;
     const state = harness({ workerFactory: async (options) => {
@@ -77,6 +135,23 @@ describe("Temporal process projection", () => {
         runDshStage: expect.any(Function)
       }
     });
+  });
+
+  it("marks failed agent work non-retryable even when it requests an automatic retry", async () => {
+    let workerOptions: any;
+    const state = harness({ workerFactory: async (options) => {
+      workerOptions = options;
+      return { run: async () => undefined };
+    } });
+    await state.runtime.start(async () => { throw Object.assign(new Error("Provider exhausted its retries"), { retryable: true }); });
+    const activity = vi.spyOn(Context, "current").mockReturnValue({
+      heartbeat: () => undefined, cancellationSignal: new AbortController().signal,
+    });
+    try {
+      await expect(workerOptions.activities.runDshStage({})).rejects.toMatchObject({
+        message: "Provider exhausted its retries", type: "DshStageFailure", nonRetryable: true,
+      });
+    } finally { activity.mockRestore(); }
   });
 
   it("keeps human waits open and treats user stops as cancellation", () => {
@@ -222,17 +297,22 @@ describe("Temporal process projection", () => {
     ).get()).toEqual({ phase: "ready" });
   });
 
-  it("retries a heartbeat-interrupted human wait during reconciliation", async () => {
+  it("leaves heartbeat failures for the user while reconciling ready and running work", async () => {
     const state = harness();
     insertGoal(state);
+    insertGoal(state, "ready-goal");
+    insertGoal(state, "running-goal");
     state.database.connection.prepare(`
-      UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'activity Heartbeat timeout'
+      UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'activity Heartbeat timeout', runtime_attempt = 1
       WHERE id = 'goal'
     `).run();
+    state.database.connection.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = 'running-goal'").run();
     await state.runtime.reconcile();
-    expect(state.signals).toEqual([{ workflowId: processWorkflowId("goal"), name: "retry" }]);
-    expect(state.database.connection.prepare("SELECT runtime_phase FROM work_items WHERE id = 'goal'").get())
-      .toEqual({ runtime_phase: "running" });
+    expect(state.signals).toEqual([]);
+    expect(state.starts.map(({ workflowId }) => workflowId).sort())
+      .toEqual([processWorkflowId("ready-goal"), processWorkflowId("running-goal")]);
+    expect(state.database.connection.prepare("SELECT runtime_phase, runtime_attempt FROM work_items WHERE id = 'goal'").get())
+      .toEqual({ runtime_phase: "failed", runtime_attempt: 1 });
   });
 
   it("signals control to Temporal and never stores a workflow id", async () => {

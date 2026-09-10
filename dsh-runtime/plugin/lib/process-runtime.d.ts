@@ -6,6 +6,7 @@ export declare class ProcessRuntime {
   constructor(database: any, options?: {
     client?: any; logger?: any; workerFactory?: (options: any) => Promise<any>; claims?: any;
     notify?: (change: Record<string, unknown>) => void;
+    abortAgent?: (executionId: string) => unknown;
   });
   item(workItemId: string): any;
   stages(processId: string): any[];
@@ -22,6 +23,7 @@ export declare class ProcessRuntime {
   close(): Promise<void>;
   reconcile(): Promise<void>;
   startItem(workItemId: string): Promise<any>;
+  reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;
   move(workItemId: string, targetStageId: string): any;
   archive(workItemId: string, restore?: boolean): Promise<any>;

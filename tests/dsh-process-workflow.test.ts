@@ -3,9 +3,10 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 // Execute the real workflow with deterministic activity/signal boundaries, without a Temporal server.
-function harness(outcomes: string[], patched = true) {
+function harness(outcomes: (string | Error)[], patched = true) {
   const projections: any[] = [];
   const calls: any[] = [];
+  const activityOptions: any[] = [];
   const handlers = new Map<string, () => void>();
   let wake: (() => void) | undefined;
   const temporal = {
@@ -14,18 +15,20 @@ function harness(outcomes: string[], patched = true) {
       wake = () => { if (ready()) resolve(); };
     }),
     defineSignal: (name: string) => name,
+    sleep: async () => undefined,
     deprecatePatch: () => undefined,
     isCancellation: () => false,
     patched: () => patched,
-    proxyActivities: () => ({
+    proxyActivities: (options: any) => { activityOptions.push(options); return {
       projectWorkItem: async (state: any) => { projections.push({ ...state }); },
       runDshStage: async (stage: any) => {
         calls.push({ ...stage });
         const outcome = outcomes.shift();
+        if (outcome instanceof Error) throw outcome;
         if (!outcome) throw new Error("Unexpected extra model stage");
         return { outcome, summary: outcome === "revise" ? "Fix the candidate" : "Verified" };
       },
-    }),
+    }; },
     setHandler: (name: string, handler: () => void) => handlers.set(name, handler),
   };
   const source = readFileSync(new URL("../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url), "utf8")
@@ -33,7 +36,7 @@ function harness(outcomes: string[], patched = true) {
     .replaceAll("export async function", "async function");
   const run = runInNewContext(`${source}\nprocessWorkflow`, { temporal }) as (input: any) => Promise<any>;
   return {
-    run, calls, projections,
+    run, calls, projections, activityOptions,
     retry: () => { handlers.get("retry")!(); wake?.(); },
   };
 }
@@ -46,6 +49,67 @@ const stages = [
 const input = { workItemId: "goal", processId: "goals", stageId: "work", maxAttempts: 3, stages };
 
 describe("Process review budget", () => {
+  it("returns delegated candidates to the parent without running an automatic reviewer", async () => {
+    const state = harness(["candidate"]);
+    await expect(state.run({ ...input, parentReview: true })).resolves.toMatchObject({ phase: "completed" });
+    expect(state.calls.map(({ purpose }) => purpose)).toEqual(["worker"]);
+  });
+
+  it("preserves an explicit human approval stage for delegated work", async () => {
+    const state = harness(["candidate", "pass"]);
+    await state.run({ ...input, parentReview: true,
+      stages: stages.map((stage) => stage.driver === "review" ? { ...stage, requiresHumanApproval: true } : stage) });
+    expect(state.calls[1]).toMatchObject({ purpose: "reviewer", requiresHumanApproval: true });
+  });
+
+  it("gives a parent correction a fresh identity and its existing candidate and feedback", async () => {
+    const state = harness(["candidate"]);
+    await state.run({ ...input, parentReview: true,
+      correction: { attempt: 2, candidateExecutionId: "goal-stage-0-work-1", feedback: "Use the RSS timestamps already retrieved" } });
+    expect(state.calls).toEqual([expect.objectContaining({ executionId: "goal-stage-0-work-2",
+      candidateExecutionId: "goal-stage-0-work-1", feedback: "Use the RSS timestamps already retrieved" })]);
+  });
+
+  it("runs failed agent activity once and waits for an explicit retry", async () => {
+    const state = harness([new Error("Provider unavailable"), "waiting", "candidate", "pass"]);
+    expect(state.activityOptions).toEqual([
+      expect.objectContaining({ retry: { maximumAttempts: 5 } }),
+      expect.objectContaining({ retry: { maximumAttempts: 1 } }),
+    ]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
+      phase: "failed", attempt: 1, error: "Provider unavailable",
+    }));
+    expect(state.calls).toHaveLength(1);
+    expect(state.calls[0].retryRequest).toBe(0);
+    state.retry();
+    await expect(completed).resolves.toMatchObject({ phase: "completed", attempt: 2, retryRequest: 0 });
+    expect(state.calls).toHaveLength(4);
+    expect(state.calls[1].retryRequest).toBe(1);
+    expect(state.calls[2].retryRequest).toBe(1);
+    expect(state.calls[3].retryRequest).toBe(0);
+  });
+
+  it("assigns one stable retry request to each explicit heartbeat retry while preserving the execution id", async () => {
+    const state = harness([new Error("activity Heartbeat timeout"), new Error("activity Heartbeat timeout"), "candidate", "pass"]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
+      phase: "failed", attempt: 1, retryRequest: 0,
+    }));
+    expect(state.calls).toHaveLength(1);
+    state.retry();
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
+      phase: "failed", attempt: 1, retryRequest: 1,
+    }));
+    expect(state.calls).toHaveLength(2);
+    expect(state.calls[1]).toMatchObject({ executionId: state.calls[0].executionId, retryRequest: 1 });
+    state.retry();
+    await expect(completed).resolves.toMatchObject({ phase: "completed", attempt: 1, retryRequest: 0 });
+    expect(state.calls).toHaveLength(4);
+    expect(state.calls[2]).toMatchObject({ executionId: state.calls[0].executionId, retryRequest: 2 });
+    expect(state.calls[3].retryRequest).toBe(0);
+  });
+
   it("stops after three rejected candidates and resumes only after an explicit retry", async () => {
     const state = harness(["candidate", "revise", "candidate", "revise", "candidate", "revise", "candidate", "pass"]);
     const completed = state.run(input);
