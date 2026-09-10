@@ -204,6 +204,8 @@ const MAX_STAGE_STEPS = 100;
 const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", TOOL_LOOP_CODE, STEP_LIMIT_CODE]);
 /** One answer's worth of output; a run that needs more is asking the wrong question. */
 const MAX_OUTPUT_TOKENS = 4096;
+/** How long a lead waits for its seated peers before calling the discussion stuck. */
+const DISCUSSION_WAIT_MS = 180_000;
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
 
 /** A stuck run repeats itself: the same call failing again, or the same pair of pages fetched round
@@ -892,11 +894,19 @@ export class AgentRuntime {
     }
   }
 
-  assertDiscussionReady(agent, members, executionId) {
+  async assertDiscussionReady(agent, members, executionId) {
     if (!members?.length) return;
-    const roster = this.ctx.agentTeams.listMembers(agent);
-    const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
-    if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
+    const busy = (entry) => entry?.status === "running" || entry?.status === "provisioning";
+    let roster = this.ctx.agentTeams.listMembers(agent);
+    let expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
+    // One local model serves every seat in turn, so a peer only moves while the lead is not
+    // generating. Failing here instead of waiting costs the lead a whole turn and starves the peer.
+    for (let waited = 0; waited < DISCUSSION_WAIT_MS && expected.some(busy); waited += 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      roster = this.ctx.agentTeams.listMembers(agent);
+      expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
+    }
+    if (expected.some(busy))
       throw new Error("Discussion participants are still working. Do the work now and submit once they are idle.");
     const leadId = String(agent.session.id);
     if (expected.some((entry) => !entry || entry.status === "failed")) {
@@ -1039,7 +1049,7 @@ export class AgentRuntime {
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
         // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
-        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        await this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
@@ -1169,7 +1179,7 @@ export class AgentRuntime {
         },
         execute: async (args, exec) => {
           if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead work agent can delegate tracked work");
-          this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+          await this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
           let items;
           try { items = JSON.parse(args.items_json); }
@@ -1273,7 +1283,7 @@ export class AgentRuntime {
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
           throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
-        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        if (["candidate", "pass"].includes(args.outcome)) await this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
