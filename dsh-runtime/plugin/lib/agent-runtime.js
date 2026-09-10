@@ -197,7 +197,11 @@ const STAGE_RESULT_COLUMNS = `
 const badTurn = (message) => Object.assign(new Error(message), { retryable: true });
 // The provider dropping mid-turn is its bad turn, not the stage's, unless pi-ai says it will not change.
 const TOOL_LOOP_CODE = "BEES_TOOL_LOOP";
-const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", TOOL_LOOP_CODE]);
+const STEP_LIMIT_CODE = "BEES_STAGE_STEPS";
+/** A stage that has taken this many model turns is not converging; the repeat detector only catches
+ *  a run asking the same thing twice, not one that keeps finding a new query to try. */
+const MAX_STAGE_STEPS = 100;
+const PROVIDER_GAVE_UP = new Set(["AUTH", "INVALID_CREDENTIAL", "QUOTA", "INVALID_REQUEST", "CONTEXT_WINDOW_EXCEEDED", TOOL_LOOP_CODE, STEP_LIMIT_CODE]);
 /** One answer's worth of output; a run that needs more is asking the wrong question. */
 const MAX_OUTPUT_TOKENS = 4096;
 const providerBadTurn = (failure) => Boolean(failure.code) && !PROVIDER_GAVE_UP.has(failure.code);
@@ -659,16 +663,21 @@ export class AgentRuntime {
     return ["question", "work-review"].includes(pending?.kind) ? pending : null;
   }
 
-  /** A run's own agent and every peer it seats get the run's policies. The lead is recorded when its
-   *  stage starts, and a peer is recognised by the parent it was created from. */
+  /** A run's own agent and every peer it seats get the run's policies. The set covers this process,
+   *  execution_links covers a restart, and a peer is recognised by the parent it was created from. */
   ownsSession(session) {
     const id = String(session?.id ?? "");
     if (!id) return false;
-    if (this.policySessions.has(id)) return true;
-    const parent = session.header?.parentSession;
-    if (!parent || !this.policySessions.has(String(parent))) return false;
+    if (this.policySessions.has(id) || this.linkedSession(id)) return true;
+    const parent = String(session.header?.parentSession ?? "");
+    if (!parent || !(this.policySessions.has(parent) || this.linkedSession(parent))) return false;
     this.policySessions.add(id);
     return true;
+  }
+
+  linkedSession(id) {
+    return Boolean(this.database.prepare(`SELECT 1 FROM execution_links
+      WHERE current_session_id = ? OR previous_session_id = ? LIMIT 1`).get(id, id));
   }
 
   /** A provider that cannot be reached will not be reached by asking it again in a loop. */
@@ -922,7 +931,7 @@ export class AgentRuntime {
     if (discovery) mountToolDiscovery(agentCtx);
     // Intercept before dsh-llm-retry: an "always" provider policy must not retry our stop.
     agentCtx.on("agent/request-error", ({ agent, failure }, next) => {
-      if (agent === owner && failure.code === TOOL_LOOP_CODE) return Promise.resolve();
+      if (agent === owner && [TOOL_LOOP_CODE, STEP_LIMIT_CODE].includes(failure.code)) return Promise.resolve();
       return next();
     }, { prepend: true });
     agentCtx.on("agent/request", async ({ agent }, next) => {
@@ -930,8 +939,11 @@ export class AgentRuntime {
       if (agent !== owner) return config;
       return { ...config, maxTokens: Math.min(config.maxTokens ?? Infinity, MAX_OUTPUT_TOKENS) };
     });
+    let steps = 0;
     agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
       if (agent === owner && !signal.aborted) {
+        if ((steps += 1) > MAX_STAGE_STEPS)
+          throw new LlmError(`This stage has taken ${MAX_STAGE_STEPS} model turns without finishing. Narrow the task or split it into smaller work items.`, STEP_LIMIT_CODE);
         const tool = repeatedToolCalls(agent.session);
         if (tool) throw new LlmError(`Stopped after repeating the same ${tool} call. Use what it already returned, or change the task.`, TOOL_LOOP_CODE);
       }
