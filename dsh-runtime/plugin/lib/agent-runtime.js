@@ -178,6 +178,12 @@ function toolCallCounts(events) {
   return counts;
 }
 
+/** Calling these proves nothing was looked up: they end the stage or talk to the person. */
+const NO_EVIDENCE_TOOLS = new Set([
+  "bees_submit_stage_result", "bees_request_work_review", "ask_user_question",
+  "bees_find_tools", "bees_read_tool_result"
+]);
+
 const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
@@ -1237,6 +1243,13 @@ export class AgentRuntime {
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
+        // A stage that called nothing cannot have checked anything. Say so, so review judges the
+        // claim rather than the confidence: a small model states today's news it never fetched.
+        const events = exec.agent?.session.snapshotEvents?.();
+        const used = events && Object.keys(toolCallCounts(events))
+          .filter((name) => !NO_EVIDENCE_TOOLS.has(name));
+        if (used && !used.length && args.outcome === "candidate")
+          result.summary = `${result.summary}\n\nNo tool was used in this stage, so everything above is written from the model's own knowledge.`;
         const prior = this.database.prepare(`
           SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
         `).get(executionId);
