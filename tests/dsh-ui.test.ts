@@ -268,9 +268,10 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('label: "Knowledge Base"');
     expect(client).toContain('["search", "Search & sources"]');
     expect(client).toContain('["organization-settings", "Organization general"]');
-    expect(client).toContain('["organization-members", "Organization members"]');
-    expect(client).toContain('["organization-invitations", "Organization invitations"]');
-    expect(client).toContain('["organization-workspace", "Organization workspace"]');
+    expect(client).toContain('["organization-members", "Organization members & invitations"]');
+    expect(client).not.toContain('"organization-invitations"');
+    expect(client).not.toContain('"organization-workspace"');
+    expect(client).not.toContain('"organization-ai"');
     expect(client).toContain('["organization-authentication", "Organization authentication"]');
     expect(client).toContain('["team-settings", "Team members"]');
     expect(client).toContain('collaboration("delete_organization"');
@@ -300,7 +301,11 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('NAVIGATION.filter(({ id }) => id !== "settings")');
     expect(client).toContain('const [expandedMenus, setExpandedMenus] = useState(() => new Set());');
     expect(client).toContain('"aria-expanded": item.children && item.children.length > 0 ? menuExpanded : null');
-    expect(client).toContain('onClick: () => navigate("appearance")');
+    expect(client).toContain('defaultChild: "personal-ai"');
+    expect(client).toContain('const GLOBAL_SETTINGS = [\n  ["personal-ai", "AI connections"]');
+    expect(client).toContain('onClick: () => navigate("personal-ai")');
+    expect(client).toContain('className: "bees-settings-divider"');
+    expect(client).toContain('row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings"');
     expect(client).not.toContain('key: `top-settings:${child}`');
     expect(client).not.toContain('aria-label": "Bees navigation"');
     expect(client).toContain('className: "bees-settings-layout"');

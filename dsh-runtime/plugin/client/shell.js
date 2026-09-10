@@ -55,7 +55,10 @@ function ScopeSwitcher({
       .map(({ teamId: id }) => id))
     : null;
   const teams = data.teams.filter((row) => row.organizationId === organizationId &&
-    (!allowedTeams || allowedTeams.has(row.id)));
+    (!allowedTeams || allowedTeams.has(row.id))).map((row) => ({ ...row,
+      role: data.connectionTeams?.find((access) =>
+        access.connectionId === connectionId && access.teamId === row.id)?.role ?? row.role
+    }));
   return h("div", { className: "bees-scope-switcher" },
     h("div", { className: "bees-org-tiles", "aria-label": "Organizations" },
       ...organizations.map((row) => h("button", {
@@ -101,8 +104,8 @@ function ScopeSwitcher({
           h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, expanded ? "⌄" : "›"),
           h("span", { className: "bees-team-initial", "aria-hidden": "true" }, row.name.trim().charAt(0).toLocaleUpperCase() || "•"),
           h("span", { className: "bees-team-name" }, row.name)),
-          h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
-            "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
+          row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
+            "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon)) : null),
         expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
           ...NAVIGATION.filter(({ id }) => id !== "settings").map((item) => {
             const menuKey = `${row.id}:${item.id}`;
@@ -514,7 +517,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           h("button", { type: "button",
             className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings"].includes(route) ? "active" : ""}`,
             title: "Global and organization settings", "aria-label": "Global and organization settings",
-            onClick: () => navigate("appearance") }, h(SettingsIcon)))),
+            onClick: () => navigate("personal-ai") }, h(SettingsIcon)))),
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
         onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
