@@ -1,6 +1,6 @@
 import {
   CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
-  executeChild, proxyActivities, setHandler, sleep, workflowInfo
+  executeChild, patched, proxyActivities, setHandler, sleep, workflowInfo
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
@@ -154,7 +154,9 @@ export async function processWorkflow(input) {
       if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
-        state.revisions = 0;
+        // A new candidate is still the same review cycle; only a pass clears its budget.
+        // Preserve the old transition while replaying histories produced before this fix.
+        if (!patched("bees-bounded-review-revisions-v1")) state.revisions = 0;
         index += 1;
         continue;
       }

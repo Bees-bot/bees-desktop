@@ -16,7 +16,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools", "userQuestions", "agentTeams"
+  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions"
 ];
 
 const ModelPreference = z.object({
