@@ -1920,8 +1920,10 @@ export class AgentRuntime {
           ? { sessionId, toolCalls: toolCallCounts(events), timeline: reviewTimeline(events) }
           : { sessionId, unavailable: true });
       }
+      // The summary itself is handed to the reviewer in its brief; repeating it here doubles the
+      // file for nothing. What evidence adds is that the outcome was recorded, and when.
       const result = this.database.prepare(`
-        SELECT outcome, summary, created_at AS createdAt
+        SELECT outcome, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?
       `).get(run.executionId) ?? null;
 
