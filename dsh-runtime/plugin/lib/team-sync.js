@@ -79,7 +79,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
       isTerminal: Boolean(stage.isTerminal), archivedAt: null,
       route: json(stage.agentIds).length || stage.agentId || stage.requiredCapabilities
         ? {
-            agentId: stage.agentId ?? null,
+            agentId: json(stage.agentIds)[0] ?? null,
             agentIds: json(stage.agentIds),
             requiredCapabilities: json(stage.requiredCapabilities),
             updatedAt: timestamp(stage.routeUpdatedAt ?? row.updatedAt)
@@ -138,7 +138,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     ...owner('app_process_owners', 'process_id', row.processId),
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
     kind: row.kind, title: row.title, description: row.description, owner: row.owner,
-    agentId: row.agentId, agentIds: json(row.agentIds),
+    agentId: json(row.agentIds)[0] ?? null, agentIds: json(row.agentIds),
     priority: row.priority, runtimePhase: row.runtimePhase,
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
     runtimeError: row.runtimeError, outputLocationId: row.outputLocationId,
@@ -338,7 +338,7 @@ function applyProcess(database, record, authoritativeApps = false) {
       stage.requiresHumanApproval ? 1 : 0, stage.isTerminal ? 1 : 0);
     database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
     if (stage.route) {
-      const ids = stage.route.agentIds;
+      const ids = stage.route.agentIds ?? [];
       database.prepare(`
         INSERT INTO stage_routes
           (stage_id, agent_assignment_id, required_capabilities_json,
@@ -394,8 +394,16 @@ function applyItem(database, record) {
   // A new row starts unparented because the parent may arrive later in this batch; the pass in
   // applyTeamRecords links it once the parent is confirmed. An update must leave an existing
   // link alone, or any later metadata change would orphan a child that was already correct.
-  const settings = normalizeRunSettings(p.runSettings);
-  const ids = p.agentIds;
+  // An older desktop sends neither and the server still accepts it, so a missing field must not
+  // read as "clear it".
+  const prior = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
+    .get(record.recordId)?.settings;
+  const settings = normalizeRunSettings(p.runSettings ?? json(prior, {}));
+  // The server can refuse one record and keep its neighbours, so an item can arrive before, or
+  // without, the rows it points at. Skipping it beats failing the whole pull on a foreign key.
+  if (!database.prepare("SELECT 1 FROM stages WHERE id = ? AND process_id = ?").get(p.stageId, p.processId)) return;
+  const ids = (p.agentIds ?? (p.agentId ? [p.agentId] : []))
+    .filter((id) => database.prepare("SELECT 1 FROM agent_assignments WHERE id = ?").get(id));
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
@@ -448,26 +456,27 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   });
 }
 
-/** Applies everything past `cursor` and commits how far we got, page by page. */
+/** Applies everything past `cursor` and commits it, whatever the push after it does. */
 async function pull(database, request, organizationId, connectionId, cursor) {
+  const records = [];
   let next = cursor;
-  let count = 0;
   let more = true;
   while (more) {
     const page = await request(
       `/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId }
     );
-    applyTeamRecords(database, organizationId, page.records);
-    count += page.records.length;
+    // Applied as one batch: a work item and the process it needs can fall either side of a page
+    // boundary, and applyTeamRecords only orders what it is handed.
+    records.push(...page.records);
     next = page.cursor;
     more = page.more;
-    // Committing each page means a later failure costs one page, not the whole pass.
-    database.prepare(`
-      INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
-      ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
-    `).run(connectionId, next, new Date().toISOString());
   }
-  return { cursor: next, count };
+  applyTeamRecords(database, organizationId, records);
+  database.prepare(`
+    INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
+    ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at
+  `).run(connectionId, next, new Date().toISOString());
+  return { cursor: next, count: records.length };
 }
 
 const PUSH_LIMIT = 500;
@@ -483,7 +492,7 @@ export async function syncTeamRecords(database, request, organizationId, connect
     const result = await request("/api/sync/push", {
       method: "POST", organizationId, body: { records: outgoing.slice(index, index + PUSH_LIMIT) }
     });
-    rejected.push(...result.rejected);
+    rejected.push(...(result.rejected ?? []));
   }
   const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
   return {

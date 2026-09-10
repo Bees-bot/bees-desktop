@@ -758,18 +758,6 @@ export function initializeProductDatabase(database) {
     DROP TABLE IF EXISTS bees_run_limit_sessions;
     PRAGMA user_version = 24;
   `);
-  // Starter templates stored bare stage names; every other template stored shaped ones.
-  if (version < 25) transaction(database, () => {
-    for (const row of database.prepare("SELECT id, stages_json AS stages FROM process_templates").all()) {
-      const stages = JSON.parse(row.stages);
-      // Anything else is already shaped, and forcing it through here would fail the boot.
-      if (typeof stages[0] !== "string") continue;
-      database.prepare("UPDATE process_templates SET stages_json = ? WHERE id = ?")
-        .run(JSON.stringify(processStages(stages, "process template")), row.id);
-    }
-    database.exec("DROP TABLE IF EXISTS bees_app_sync_versions");
-    database.exec("PRAGMA user_version = 25");
-  });
   // Agent pools are gone: a stage names its agents directly, so the column, the tables and the
   // dispatch target they supported go with them.
   if (version < 23) {
@@ -814,6 +802,27 @@ export function initializeProductDatabase(database) {
   `));
     database.exec("PRAGMA foreign_keys = ON");
   }
+  // Starter templates stored bare stage names; every other template stored shaped ones. The
+  // rewrite has to move updated_at too, or the server keeps the old shape at the newer version.
+  if (version < 25) transaction(database, () => {
+    const at = iso();
+    for (const row of database.prepare("SELECT id, stages_json AS stages FROM process_templates").all()) {
+      let stages;
+      try { stages = JSON.parse(row.stages); } catch { continue; }
+      if (!Array.isArray(stages) || !stages.some((stage) => typeof stage === "string")) continue;
+      database.prepare("UPDATE process_templates SET stages_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(processStages(stages, "process template")), at, row.id);
+    }
+    // A connection that never finished the apps-v1 replay still owes it, so send it back to zero
+    // before the table that remembered as much goes.
+    if (database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'bees_app_sync_versions'").get())
+      database.exec(`
+        DELETE FROM bees_connection_sync_cursors WHERE connection_id NOT IN
+          (SELECT connection_id FROM bees_app_sync_versions);
+        DROP TABLE bees_app_sync_versions;
+      `);
+    database.exec("PRAGMA user_version = 25");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -826,17 +835,12 @@ export function initializeProductDatabase(database) {
     `).all()) insertDefaultWorkspace(database, id);
     for (const { id } of database.prepare("SELECT id FROM workspaces WHERE status = 'active'").all())
       ensureAgentDefaults(database, id);
-    // The backfill above writes one of two columns holding the same fact. Keep them in step.
     database.exec(`
       UPDATE work_items SET agent_assignment_id = (
         SELECT a.id FROM processes p JOIN agent_assignments a
           ON a.workspace_id = p.workspace_id AND a.system_role = 'worker'
         WHERE p.id = work_items.process_id
       ) WHERE agent_assignment_id IS NULL;
-      UPDATE work_items SET agent_ids_json = json_array(agent_assignment_id)
-        WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
-      UPDATE stage_routes SET agent_ids_json = json_array(agent_assignment_id)
-        WHERE agent_assignment_id IS NOT NULL AND agent_ids_json = '[]';
     `);
     return;
   }
