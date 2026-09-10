@@ -8,8 +8,8 @@ window.__ModuleLoader__.load({
     const { useEffect, useMemo, useRef, useState } = React;
 
     // `runsProcesses` means a model keeps making tool calls llama.cpp can still parse once a tool
-    // result is in the history. Only Qwen3 4B has been run that far; the rest say what stops them.
-    // The point is that nobody aims a process at a chat-only model and gets a silent no-op.
+    // result is in the history. Qwen3 4B is the only one that does, so it is the only one shipped;
+    // a model added by hand is not recommended for a process unless it says the same.
     const LOCAL_MODELS = [
       {
         id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
@@ -19,35 +19,6 @@ window.__ModuleLoader__.load({
         url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
         bytes: 2497281120,
         sha256: "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
-      },
-      {
-        id: "nanbeige-4-2-3b-q6-k", name: "Nanbeige 4.2 3B (Q6_K)",
-        description: "Chat only. It answers well, but it changes tool-call format part way through a "
-          + "run, so agents stop doing anything without saying why.",
-        runsProcesses: false,
-        fileName: "Nanbeige4.2-3B-Q6_K.gguf",
-        url: "https://huggingface.co/owao/Nanbeige4.2-3B-GGUF/resolve/main/Nanbeige4.2-3B-Q6_K.gguf?download=true",
-        bytes: 3424947040,
-        sha256: "d9382dbca171ff0c5a31eaef84deb645c8882d6bae2a3eccf57006b6fe16e0df"
-      },
-      {
-        id: "gemma-4-e2b-it-qat-q4-0", name: "Gemma 4 E2B (Q4_0)",
-        description: "Chat only. Its own prompt template rejects the messages Bees sends.",
-        runsProcesses: false,
-        fileName: "gemma-4-E2B_q4_0-it.gguf",
-        url: "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/gemma-4-E2B_q4_0-it.gguf?download=true",
-        bytes: 3349516256,
-        sha256: "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634"
-      },
-      {
-        id: "qwen3-0-6b-q8-0", name: "Qwen3 0.6B (Q8_0)",
-        description: "Chat only, and small enough to feel it. Too little room to hold a process "
-          + "together across steps.",
-        runsProcesses: false,
-        fileName: "Qwen3-0.6B-Q8_0.gguf",
-        url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true",
-        bytes: 639446688,
-        sha256: "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
       }
     ];
     const DEFAULT_LOCAL_MODEL = LOCAL_MODELS[0];

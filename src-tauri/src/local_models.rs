@@ -281,8 +281,6 @@ pub struct ModelSpec {
     /// Only the seeded model pins a digest; user URLs are verified by size alone.
     #[serde(default)]
     sha256: Option<String>,
-    #[serde(default)]
-    chat_template: Option<String>,
     /// Administrator override for the context window, in tokens. Unset means Bees derives one
     /// from the model's own header and the machine's memory, which is right on hardware it can
     /// measure and wrong on hardware it cannot — a shared inference box, a GPU whose memory is
@@ -963,13 +961,6 @@ fn start_local_model_blocking_inner(
         // Without --jinja llama.cpp falls back to its legacy template handling and parses tool calls
         // by guesswork, which is most of why a local model answers in prose instead of calling a tool.
         .arg("--jinja");
-    // Gemma's embedded Jinja template is strict and raises "Conversation roles must alternate" on a
-    // system role or non-alternating turns, which the OpenAI-style messages DSH sends trip; its
-    // built-in llama.cpp template merges system into the first user turn. Models that carry a usable
-    // template of their own leave this unset and llama-server uses theirs.
-    if let Some(template) = &spec.chat_template {
-        command.args(["--chat-template", template]);
-    }
     let mut child = Sidecar::new(
         command
             .stdin(Stdio::null())
@@ -1343,7 +1334,6 @@ mod tests {
             local_path: None,
             bytes: 0,
             sha256: None,
-            chat_template: None,
             context_size: None,
         }
     }
