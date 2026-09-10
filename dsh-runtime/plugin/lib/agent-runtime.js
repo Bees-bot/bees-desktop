@@ -1221,6 +1221,10 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
+        // A small model will happily report a file it never wrote, and review then judges a fiction.
+        const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
+          .map(([path]) => path).filter((path) => !existsSync(resolve(workspace, path))) : [];
+        if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop the claim and put the answer in the summary.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
