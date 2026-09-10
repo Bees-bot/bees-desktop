@@ -816,7 +816,8 @@ export function initializeProductDatabase(database) {
         shaped = JSON.stringify(processStages(stages, "process template"));
       } catch { continue; }
       // The push reads a version off updated_at, and the server only takes a strictly newer one.
-      const at = new Date(Math.max(Date.now(), Date.parse(row.updatedAt) + 1)).toISOString();
+      const previous = Date.parse(row.updatedAt);
+      const at = new Date(Math.max(Date.now(), (previous || 0) + 1)).toISOString();
       database.prepare("UPDATE process_templates SET stages_json = ?, updated_at = ? WHERE id = ?")
         .run(shaped, at, row.id);
     }

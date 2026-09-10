@@ -405,12 +405,7 @@ function applyItem(database, record) {
   const prior = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
     .get(record.recordId)?.settings;
   const settings = normalizeRunSettings(p.runSettings ?? json(prior, {}));
-  // The server can refuse one record and keep its neighbours, so an item can arrive before, or
-  // without, the rows it points at. Inserting it would fail a foreign key and take the pull down.
   const ids = p.agentIds ?? (p.agentId ? [p.agentId] : []);
-  const missing = !database.prepare("SELECT 1 FROM stages WHERE id = ? AND process_id = ?").get(p.stageId, p.processId)
-    || ids.some((id) => !database.prepare("SELECT 1 FROM agent_assignments WHERE id = ?").get(id));
-  if (missing) return true;
   database.prepare(`
     INSERT INTO work_items
       (id, process_id, stage_id, parent_id, kind, title, description, owner, agent_assignment_id,
@@ -432,7 +427,6 @@ function applyItem(database, record) {
     p.outputLocationId, p.recurringWorkId, p.accountUserId ?? null, p.archivedAt,         
     record.deleted ? (p.deletedAt ?? p.updatedAt) : p.deletedAt, p.createdAt, p.updatedAt, JSON.stringify(settings));      
   replaceLocations(database, "work_item_locations", "work_item_id", record.recordId, p.inputLocations);
-  return false;
 }
 
 export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
@@ -446,21 +440,39 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
     (left, right) => ORDER.get(left.recordType) - ORDER.get(right.recordType)
   );
   let deferred = false;
+  // The server can refuse one record and keep its neighbours, so a record can arrive before, or
+  // without, the rows it points at. Every reference here is a foreign key, so let SQLite say which
+  // ones are not ready rather than listing them, and leave those for a later pass.
+  const attempt = (work) => {
+    database.exec("SAVEPOINT record");
+    try { work(); database.exec("RELEASE record"); return; }
+    catch (error) {
+      database.exec("ROLLBACK TO record");
+      database.exec("RELEASE record");
+      // Only a missing reference is worth waiting for. Anything else will fail again next pass and
+      // has to stay loud rather than pin the cursor for good.
+      if (!/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) throw error;
+      deferred = true;
+    }
+  };
   transaction(database, () => {
-    for (const entry of applicable) {
+    for (const entry of applicable) attempt(() => {
       if (entry.recordType === "team_location") applyLocation(database, entry);
       else if (entry.recordType === "agent") applyAgent(database, entry, authoritativeApps);
       else if (entry.recordType === "team_process") applyProcess(database, entry, authoritativeApps);
       else if (entry.recordType === "process_template") applyTemplate(database, entry);
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
-      else if (entry.recordType === "team_work_item") deferred = applyItem(database, entry) || deferred;
-    }
+      else if (entry.recordType === "team_work_item") applyItem(database, entry);
+    });
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
-      if (entry.payload.parentId && database.prepare(
+      if (!entry.payload.parentId) continue;
+      if (database.prepare(
         "SELECT 1 FROM work_items WHERE id = ? AND process_id = ?"
       ).get(entry.payload.parentId, entry.payload.processId)) database.prepare(
         "UPDATE work_items SET parent_id = ? WHERE id = ?"
       ).run(entry.payload.parentId, entry.recordId);
+      // The parent was refused, so this child is not finished arriving.
+      else deferred = true;
     }
   });
   return deferred;
