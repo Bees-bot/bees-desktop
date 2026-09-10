@@ -14,9 +14,6 @@ export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
 
 const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
-/** How many times startup may resume the same interrupted wait before a person decides. */
-const AUTO_RESUME_LIMIT = 3;
-
 export class ProcessRuntime {
   constructor(database, options = {}) {
     this.database = database;
@@ -24,6 +21,7 @@ export class ProcessRuntime {
     this.logger = options.logger ?? console;
     this.workerFactory = options.workerFactory;
     this.claims = options.claims;
+    this.abortAgent = options.abortAgent;
     this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
   }
@@ -32,7 +30,9 @@ export class ProcessRuntime {
     const item = this.database.prepare(`
       SELECT w.id, w.process_id AS processId, w.stage_id AS stageId,
              w.runtime_phase AS runtimePhase, w.archived_at AS archivedAt,
-             w.account_user_id AS accountUserId,
+             w.account_user_id AS accountUserId, w.parent_id AS parentId,
+             w.runtime_attempt AS attempt,
+             w.runtime_execution_id AS executionId,
              p.workspace_id AS workspaceId, ws.team_id AS teamId,
              EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id) AS scheduleDefinition
       FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -56,9 +56,16 @@ export class ProcessRuntime {
     const item = this.item(workItemId);
     const stages = this.stages(item.processId);
     if (!stages.length) throw new Error("Process has no stages");
+    const correction = item.parentId && item.attempt > 0 ? this.database.prepare(`
+      SELECT metadata_json AS metadata FROM dsh_audit_events
+      WHERE event_type = 'peer-work-correction' AND json_extract(metadata_json, '$.workItemId') = ?
+      ORDER BY rowid DESC LIMIT 1
+    `).get(item.id) : null;
     return {
       workItemId: item.id, processId: item.processId, stageId: item.stageId,
-      accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3
+      accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3,
+      parentReview: Boolean(item.parentId),
+      ...(correction ? { correction: JSON.parse(correction.metadata) } : {})
     };
   }
 
@@ -97,7 +104,6 @@ export class ProcessRuntime {
         } catch (error) {
           if (context.cancellationSignal.aborted) throw error;
           const reason = message(error);
-          if (error?.retryable) throw ApplicationFailure.retryable(reason, "DshStageFailure");
           throw ApplicationFailure.nonRetryable(reason, "DshStageFailure");
         } finally {
           clearInterval(heartbeat);
@@ -373,26 +379,9 @@ export class ProcessRuntime {
         )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
     `).all();
-    // A heartbeat timeout usually means the app died mid-wait, so resuming it is right. But a stage
-    // that really does hang every time never increments its attempt, so without a ceiling this
-    // re-ran it on every single launch, spending the agent's time again with nothing said.
-    const interruptedWaits = this.database.prepare(`
-      SELECT w.id FROM work_items w
-      WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
-        AND w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%'
-        AND w.runtime_attempt < ${AUTO_RESUME_LIMIT}
-    `).all();
-    // Counting the resume here is what stops it repeating: the workflow deliberately does not
-    // charge an attempt for an interrupted wait, so nothing else would ever move this number.
-    for (const { id } of interruptedWaits) {
-      this.database.prepare("UPDATE work_items SET runtime_attempt = runtime_attempt + 1 WHERE id = ?").run(id);
-    }
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
-    for (const settled of await Promise.allSettled([
-      ...items.map(({ id }) => this.startItem(id)),
-      ...interruptedWaits.map(({ id }) => this.signal(id, "retry"))
-    ])) {
+    for (const settled of await Promise.allSettled(items.map(({ id }) => this.startItem(id)))) {
       if (settled.status === "rejected")
         this.logger.warn?.(`bees: a work item failed to reconcile: ${message(settled.reason)}`);
     }
@@ -435,6 +424,51 @@ export class ProcessRuntime {
     return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
   }
 
+  /** A parent correction starts a fresh attempt after the previous workflow has closed. */
+  async reviseItem(workItemId, feedback, requestId, signal) {
+    signal?.throwIfAborted();
+    const receiptId = `peer-correction:${requestId}`;
+    const receipt = this.database.prepare("SELECT metadata_json AS metadata FROM dsh_audit_events WHERE id = ?").get(receiptId);
+    if (receipt) {
+      if (JSON.parse(receipt.metadata).workItemId !== workItemId)
+        throw new Error("This correction request belongs to another child");
+      if (this.item(workItemId).runtimePhase === "ready") await this.startItem(workItemId);
+      return { id: workItemId };
+    }
+    const item = this.item(workItemId);
+    if (!item.parentId || item.runtimePhase !== "completed" || item.archivedAt)
+      throw new Error("Only completed delegated work can be corrected");
+    // The completed projection precedes Temporal closing the workflow and releasing its claim.
+    await this.client.workflow.getHandle(processWorkflowId(workItemId)).result();
+    await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+    signal?.throwIfAborted();
+    const first = this.stages(item.processId).find(({ driver }) => ["agent", "discussion"].includes(driver));
+    if (!first) throw new Error("Delegated work has no work stage");
+    transaction(this.database, () => {
+      const current = this.item(workItemId);
+      const parent = this.item(current.parentId);
+      if (["cancelled", "completed", "failed"].includes(parent.runtimePhase) || parent.archivedAt)
+        throw new Error("The parent is no longer running");
+      if (current.runtimePhase !== "completed" || current.attempt !== item.attempt || current.archivedAt)
+        throw new Error("This child already received a correction; inspect its current result");
+      const prior = this.database.prepare(`
+        SELECT e.execution_id AS executionId FROM execution_links e JOIN bees_stage_results r
+          ON r.execution_id = e.execution_id
+        WHERE e.work_item_id = ? AND r.purpose = 'worker' ORDER BY e.created_at DESC, e.rowid DESC LIMIT 1
+      `).get(workItemId);
+      const correction = { workItemId, attempt: Number(item.attempt) + 1, feedback,
+        candidateExecutionId: prior?.executionId ?? null };
+      this.database.prepare(`INSERT INTO dsh_audit_events
+        (id, event_type, metadata_json, created_at) VALUES (?, 'peer-work-correction', ?, ?)
+      `).run(receiptId, JSON.stringify(correction), iso());
+      this.database.prepare(`UPDATE work_items SET stage_id = ?, runtime_phase = 'ready',
+        runtime_attempt = ?, runtime_error = NULL, updated_at = ? WHERE id = ?
+      `).run(first.id, correction.attempt, iso(), workItemId);
+    });
+    await this.startItem(workItemId);
+    return { id: workItemId };
+  }
+
   watchClaim(key, claim, handle) {
     if (claim.local || !this.claims || typeof handle?.result !== "function") return;
     let renewing = false;
@@ -451,14 +485,15 @@ export class ProcessRuntime {
       } finally { renewing = false; }
     }, 20_000);
     heartbeat.unref();
-    this.claimWatchers.set(key, { claim, heartbeat });
-    void handle.result().catch(() => undefined).finally(async () => {
+    const watcher = { claim, heartbeat, settled: null };
+    this.claimWatchers.set(key, watcher);
+    watcher.settled = handle.result().catch(() => undefined).finally(async () => {
       const current = this.claimWatchers.get(key);
       if (current?.claim !== claim) return;
       clearInterval(heartbeat);
-      this.claimWatchers.delete(key);
       await this.claims.release(claim).catch((error) =>
         this.logger.warn?.(`bees: execution claim release failed: ${message(error)}`));
+      this.claimWatchers.delete(key);
     });
   }
 
@@ -475,9 +510,9 @@ export class ProcessRuntime {
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     if (type === "cancel") {
-      // Temporal only accepts the request here; the activity keeps running until it checks the
-      // signal. Writing "cancelled" now would claim the work stopped while an agent is still
-      // acting in the person's name, so the workflow's own project() records it when it really has.
+      // Stop local model/tool execution now, without waiting for Temporal's next heartbeat.
+      // Temporal still owns the workflow's final cancellation projection.
+      if (item.executionId) this.abortAgent?.(item.executionId);
       await handle.cancel();
       return item;
     }

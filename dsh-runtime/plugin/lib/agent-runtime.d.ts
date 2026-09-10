@@ -25,6 +25,7 @@ export declare class AgentRuntime {
   setKnowledgeReader(read: (resultId: string, workspaceId: string) => unknown | Promise<unknown>): void;
   setSubitemStore(store: {
     create(input: Record<string, unknown>): Promise<Array<{ id: string }>>;
+    revise?(input: Record<string, unknown>): Promise<{ id: string }>;
     cancel(workItemId: string): Promise<unknown>;
   }): void;
   setWorkStarter(start: (input: Record<string, unknown>) => unknown): void;
@@ -37,6 +38,7 @@ export declare class AgentRuntime {
   resumeQueued(): void;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
   waitForPeers(ids: string[], signal?: AbortSignal): Promise<Array<Record<string, unknown>>>;
+  workResult(workItemId: string, evidenceOffset?: number): Promise<Record<string, unknown>>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;
   abort(executionId: string): boolean;
   purge(executionId: string): Promise<void>;

@@ -227,6 +227,50 @@ describe("Bees DSH product plugin", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it("forwards stable retry identities only after an explicit process retry", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-explicit-retry-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
+      const initial = await product.snapshot();
+      const process = initial.processes.find((row: any) => row.kind === "goals");
+      const stage = initial.stages.find((row: any) => row.processId === process.id && row.driver === "agent");
+      const goal = await product.command({ action: "create_goal", workspaceId: process.workspaceId, title: "Retry work" });
+      const input = { executionId: "same-stage", workItemId: goal.id, stageId: stage.id, purpose: "worker" };
+      await product.runProcessStage({ ...input, retryRequest: 0 });
+      expect(execute.mock.calls[0]![1]).not.toHaveProperty("retryId");
+      await product.runProcessStage({ ...input, retryRequest: 1 });
+      await product.runProcessStage({ ...input, retryRequest: 1 });
+      expect(execute.mock.calls.slice(1).map((call: any) => call[1].retryId))
+        .toEqual(["process:same-stage:retry:1", "process:same-stage:retry:1"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("does not recover a failed manual item in the background", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-manual-recovery-"));
+    try {
+      const database = new NodeDatabase();
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const admit = vi.spyOn(agents, "admit").mockResolvedValue({} as any);
+      const product: any = new BeesProduct(database.connection, agents, {
+        startItem: async () => ({}), isAutomatic: () => false,
+      }, root);
+      const initial = await product.snapshot();
+      const process = await product.command({ action: "create_process", workspaceId: initial.workspaces[0].id,
+        name: "Manual work", stages: ["Draft", "Done"] });
+      const work = await product.command({ action: "create_item", processId: process.id, title: "Continue work" });
+      database.connection.prepare("UPDATE work_items SET runtime_phase = 'failed' WHERE id = ?").run(work.id);
+      const run = { executionId: "manual-run", workItemId: work.id, recoveryCount: 0, configJson: "{}" };
+      expect(product.recovery(run)).toEqual([]);
+      expect(admit).not.toHaveBeenCalled();
+      database.connection.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = ?").run(work.id);
+      await Promise.all(product.recovery(run));
+      expect(admit).toHaveBeenCalledOnce();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("uses generic scoped references and lets leading $agents start a discussion", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-references-"));
     try {

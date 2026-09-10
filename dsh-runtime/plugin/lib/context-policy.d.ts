@@ -1,6 +1,7 @@
 export const TOOL_PREVIEW_CHARS: number;
 export const TOOL_RECEIPT_CHARS: number;
 export const TOOL_READ_CHARS: number;
+export const TOOL_CONTEXT_CHARS: number;
 export function pruneToolResults(session: any, tokenMeter: any): { pruned: number; charsRemoved: number };
 export function readToolResult(session: any, args: { call_id: string; offset?: number; find?: string }): {
   call_id: string;

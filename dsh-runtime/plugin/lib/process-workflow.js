@@ -26,8 +26,8 @@ const dshActivities = proxyActivities({
   // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
   startToCloseTimeout: "36500 days",
   heartbeatTimeout: "30 seconds",
-  // Only the retryable failures get here; nonRetryable still stops on the first one.
-  retry: { maximumAttempts: 3 }
+  // Failed agent work waits for the user's explicit retry signal.
+  retry: { maximumAttempts: 1 }
 });
 
 function failureMessage(error) {
@@ -49,16 +49,18 @@ export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
   let paused = false;
   let retryRequested = false;
+  let retryRequests = 0;
   deprecatePatch("bees-durable-human-waits-v1");
-  let candidateExecutionId = null;
+  let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
   let capacityWaits = 0;
-  let feedback = "";
+  let feedback = input.correction?.feedback ?? "";
   const state = {
     workItemId: input.workItemId,
     processId: input.processId,
     stageId: input.stages[index].id,
     phase: "running",
-    attempt: 1,
+    attempt: input.correction?.attempt ?? 1,
+    retryRequest: 0,
     reviewCycle: 0,
     // attempt keeps climbing so every session id stays unique; this one is what maxAttempts means
     revisions: 0,
@@ -81,6 +83,7 @@ export async function processWorkflow(input) {
     await project("failed", error);
     await condition(() => retryRequested);
     retryRequested = false;
+    state.retryRequest = ++retryRequests;
     if (!recoverInterruptedWait) state.attempt += 1;
     state.error = null;
   };
@@ -97,6 +100,12 @@ export async function processWorkflow(input) {
         state.executionId = null;
         await project("completed", null);
         return state;
+      }
+      // The parent evaluates delegated outputs. Explicit human approval stages still run.
+      // New input flag leaves already-recorded workflow histories on their original path.
+      if (input.parentReview && stage.driver === "review" && !stage.requiresHumanApproval) {
+        index += 1;
+        continue;
       }
       if (!["agent", "discussion", "review"].includes(stage.driver)) {
         await waitForRetry(`Automatic workflow cannot run the ${stage.name} stage`);
@@ -146,6 +155,7 @@ export async function processWorkflow(input) {
         state.error = null;
         continue;
       }
+      state.retryRequest = 0;
       capacityWaits = 0;
       if (purpose !== "reviewer" && result.outcome === "blocked") {
         await waitForRetry(result.summary || `${stage.name} is blocked`);

@@ -99,6 +99,35 @@ describe("executive team", () => {
     expect(startItem).toHaveBeenCalledTimes(2);
   }, 1_000);
 
+  it("gives an inherited child the original request and lets only its parent request corrections", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bees-parent-instructions-"));
+    try {
+      const db = new NodeDatabase().connection;
+      const runtime: any = new AgentRuntime({ on: () => () => undefined }, db);
+      const execute = vi.spyOn(runtime, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const reviseItem = vi.fn(async () => ({ id: "child" }));
+      const product = new BeesProduct(db, runtime, { startItem: async () => ({}), reviseItem }, root);
+      const initial = await product.snapshot();
+      const parent = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id,
+        title: "News brief", description: "Google and Yahoo only; business, finance and technology." });
+      const other = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id, title: "Unrelated" });
+      const [child] = await product.createSubitems({ parentId: parent.id,
+        items: [{ title: "Yahoo portion", description: "Gather Yahoo stories and preserve dates when exposed." }] });
+      const work = initial.stages.find((s: any) => s.name === "Work")!;
+      await product.runProcessStage({ workItemId: child.id, stageId: work.id, executionId: "child-work", purpose: "worker" });
+      const config: any = execute.mock.calls.at(-1)![1];
+      expect(config.body).toContain("Google and Yahoo only; business, finance and technology.");
+      expect(config.body).toContain("Gather Yahoo stories and preserve dates when exposed.");
+      expect(config.body).toContain("The parent owns the combined outcome and reviews your result");
+      expect(config.initialData.discussionMembers).toEqual([]);
+      await expect(Promise.resolve().then(() => runtime.subitemStore.revise({ parentId: other.id,
+        workItemId: child.id, feedback: "Wrong owner", requestId: "wrong" }))).rejects.toThrow("Only this child's parent");
+      await runtime.subitemStore.revise({ parentId: parent.id, workItemId: child.id,
+        feedback: "Use existing dates", requestId: "correct" });
+      expect(reviseItem).toHaveBeenCalledWith(child.id, "Use existing dates", "correct", undefined);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("validates the entire delegated batch before starting any peer", async () => {
     const db = new NodeDatabase().connection;
     const startItem = vi.fn(async () => ({}));

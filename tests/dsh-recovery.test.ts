@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AgentRuntime,
   LATEST_SOL_MODEL,
@@ -585,7 +585,26 @@ describe("DSH-owned desktop and recovery", () => {
     rmSync(runDirectory, { recursive: true });
   });
 
-  it("preserves the original DSH failure across activity retries", async () => {
+  it.each([undefined, "TRANSPORT"])("does not resubmit a failed delivery with code %s", async (code) => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database, "failed");
+    const admit = vi.spyOn(runtime, "admit").mockRejectedValue(new Error("unexpected resubmission"));
+    database.connection.prepare(`
+      INSERT INTO dsh_deliveries
+        (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
+      VALUES ('delivery', 'run', 'submission', 'failed', ?, '2026-01-01', '2026-01-01')
+    `).run(JSON.stringify({ code, message: "configured model is unavailable" }));
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const execution = runtime.executeStage("run", {});
+      await expect(execution).rejects.toThrow("configured model is unavailable");
+      await expect(execution).rejects.not.toHaveProperty("retryable", true);
+    }
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  it("starts one continuation per explicit retry and reuses its failed delivery on replay", async () => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
     insertRun(database, "failed");
@@ -593,12 +612,98 @@ describe("DSH-owned desktop and recovery", () => {
       INSERT INTO dsh_deliveries
         (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
       VALUES ('delivery', 'run', 'submission', 'failed', ?, '2026-01-01', '2026-01-01')
-    `).run(JSON.stringify({ message: "configured model is unavailable" }));
+    `).run(JSON.stringify({ code: "TRANSPORT", message: "original provider failure" }));
+    const followup = vi.fn();
+    const newHandle = vi.spyOn(runtime as any, "newHandle").mockResolvedValue({
+      sessionId: "session",
+      handle: {
+        agent: {
+          session: {
+            seq: 0,
+            snapshotEvents: () => [{
+              type: "turn/end", seq: 1,
+              data: { reason: { kind: "error", error: { code: "TRANSPORT", message: "retry provider failure" } } }
+            }]
+          },
+          followup,
+          whenIdle: async () => undefined
+        },
+        dispose: async () => undefined
+      }
+    });
+    const payload = { body: "Do the work", retryId: "process:run:retry:1" };
 
-    await expect(runtime.executeStage("run", {})).rejects.toThrow("configured model is unavailable");
+    await expect(runtime.executeStage("run", payload)).rejects.toThrow("retry provider failure");
+    expect(newHandle).toHaveBeenCalledTimes(1);
+    expect(followup).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      content: [{ type: "text", text: "The user requested a retry. Continue from the work already completed.\n\nDo the work" }]
+    }));
+
+    await expect(runtime.executeStage("run", payload)).rejects.toThrow("retry provider failure");
+    expect(newHandle).toHaveBeenCalledTimes(1);
+    expect(followup).toHaveBeenCalledTimes(1);
+
+    await expect(runtime.executeStage("run", { ...payload, retryId: "process:run:retry:2" }))
+      .rejects.toThrow("retry provider failure");
+    expect(newHandle).toHaveBeenCalledTimes(2);
+    expect(followup).toHaveBeenCalledTimes(2);
+    expect(database.connection.prepare(`
+      SELECT delivery_id AS deliveryId, outcome FROM dsh_deliveries ORDER BY delivery_id
+    `).all()).toEqual([
+      { deliveryId: "delivery", outcome: "failed" },
+      { deliveryId: "process:run:retry:1", outcome: "failed" },
+      { deliveryId: "process:run:retry:2", outcome: "failed" }
+    ]);
   });
 
-  it("only reports an explicit Temporal cancellation as a user stop", async () => {
+  it.each([
+    {
+      outcome: "failed",
+      failure: { code: "TRANSPORT", message: "provider connection failed" },
+      message: "provider connection failed"
+    },
+    {
+      outcome: "completed",
+      failure: null,
+      message: "The agent runtime completed without calling bees_submit_stage_result"
+    }
+  ])("does not mark a fresh $outcome delivery without a stage result as retryable", async ({ outcome, failure, message }) => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    const payload = { body: "Do the work", idempotencyKey: "start:run" };
+    const admit = vi.spyOn(runtime, "admit").mockImplementation(async () => {
+      insertRun(database, outcome);
+      database.connection.prepare(`
+        INSERT INTO dsh_deliveries
+          (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
+        VALUES ('delivery', 'run', 'submission', ?, ?, '2026-01-01', '2026-01-01')
+      `).run(outcome, failure ? JSON.stringify(failure) : null);
+      return { submissionId: "submission" };
+    });
+
+    const execution = runtime.executeStage("run", payload);
+    await expect(execution).rejects.toThrow(message);
+    await expect(execution).rejects.not.toHaveProperty("retryable", true);
+    expect(admit).toHaveBeenCalledExactlyOnceWith("bees-run", "run", payload);
+  });
+
+  it("returns a completed stage result without starting another delivery", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database, "completed");
+    const admit = vi.spyOn(runtime, "admit").mockRejectedValue(new Error("unexpected resubmission"));
+    database.connection.prepare(`
+      INSERT INTO bees_stage_results (execution_id, purpose, outcome, summary, created_at)
+      VALUES ('run', 'worker', 'candidate', 'Finished the work', '2026-01-01')
+    `).run();
+
+    await expect(runtime.executeStage("run", {})).resolves.toEqual({
+      outcome: "candidate", summary: "Finished the work"
+    });
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  it.each(["CANCELLED", "NOT_FOUND"])("stops an agent for Temporal %s while keeping worker shutdown recoverable", async (reason) => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
     insertRun(database);
@@ -619,9 +724,20 @@ describe("DSH-owned desktop and recovery", () => {
     expect(cancellations).toEqual([]);
 
     const cancelled = new AbortController();
-    cancelled.abort(new Error("CANCELLED"));
+    cancelled.abort(new Error(reason));
     await expect((runtime as any).waitForDelivery("run", "submission", cancelled.signal))
-      .rejects.toThrow("CANCELLED");
+      .rejects.toThrow(reason);
     expect(cancellations).toEqual([{ kind: "user" }]);
+
+    // The heartbeat arrives while the activity is waiting, after the workflow has already closed.
+    const heartbeat = new AbortController();
+    const waiting = (runtime as any).waitForDelivery("run", "submission", heartbeat.signal);
+    const rejected = expect(waiting).rejects.toThrow(reason);
+    heartbeat.abort(new Error(reason));
+    await rejected;
+    expect(cancellations).toHaveLength(2);
+
+    database.connection.prepare("UPDATE dsh_deliveries SET outcome = 'completed' WHERE submission_id = 'submission'").run();
+    await expect((runtime as any).waitForDelivery("run", "submission", cancelled.signal)).rejects.toThrow(reason);
   });
 });
