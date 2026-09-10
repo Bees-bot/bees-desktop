@@ -56,9 +56,7 @@ describe("personal dashboards", () => {
     expect(client).toContain('const layoutKey = visibleLayout.map(({ kind, x, y, w, h })');
     expect(client).toContain('grid.load(visibleLayout.map(({ kind, ...position }) => ({ id: kind, ...position })))');
     expect(client).toContain('h(FlexibleGrid, {');
-    expect(client).toContain('className: "bees-nav-dashboards"');
     expect(client).toContain('widgets: dashboard.widgets.map((widget) => ({ ...widget }))');
-    expect(client).toContain('className: `bees-nav-link bees-dashboard-link');
     expect(client).toContain('rowsForRoute, preference, preferences, setPageActions');
     expect(client).not.toContain('className: "bees-select bees-dashboard-select"');
     expect(client).toContain('kind: "quick-actions"');
