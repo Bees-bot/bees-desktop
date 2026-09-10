@@ -170,11 +170,13 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
                WHERE event_type = 'run-started' GROUP BY execution_id) starts
       ON starts.execution_id = e.execution_id
     WHERE t.organization_id = ?
-  `).all(organizationId)) records.push(record("team_run", row, {
+  `).all(organizationId)) records.push(record("team_run", { ...row, id: stableUuid(`run:${row.id}`) }, {
+    executionId: row.id,
     teamId: row.teamId, workItemId: row.workItemId, stageId: row.stageId,
     agentId: row.agentId, agentIds: json(row.agentIds), status: row.status,
     mode: row.mode, reason: row.reason, agentRevision: row.agentRevision,
-    outcome: row.outcome, summary: row.summary, startedAt: timestamp(row.startedAt),
+    outcome: row.outcome, summary: row.summary?.slice(0, 20_000) ?? null,
+    startedAt: timestamp(row.startedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }));
 
@@ -455,8 +457,8 @@ function applyItem(database, record) {
 }
 
 function applyRun(database, record) {
-  if (!newer(database, "bees_remote_runs", record.recordId, record.version, "execution_id")) return;
   const p = record.payload;
+  if (!newer(database, "bees_remote_runs", p.executionId, record.version, "execution_id")) return;
   database.prepare(`
     INSERT INTO bees_remote_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(execution_id) DO UPDATE SET work_item_id = excluded.work_item_id,
@@ -465,7 +467,7 @@ function applyRun(database, record) {
       reason = excluded.reason, agent_revision = excluded.agent_revision,
       outcome = excluded.outcome, summary = excluded.summary, started_at = excluded.started_at,
       updated_at = excluded.updated_at
-  `).run(record.recordId, p.workItemId, p.stageId, p.agentId, JSON.stringify(p.agentIds), p.status,
+  `).run(p.executionId, p.workItemId, p.stageId, p.agentId, JSON.stringify(p.agentIds), p.status,
     p.mode, p.reason, p.agentRevision, p.outcome, p.summary, p.startedAt,
     p.createdAt, p.updatedAt);
 }

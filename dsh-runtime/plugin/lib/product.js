@@ -450,7 +450,10 @@ export class BeesProduct {
     // Runs from another device: no local session, no run directory, so no transcript and no files.
     const elsewhere = workspaceIds.length ? this.database.prepare(`
       SELECT r.execution_id AS id, p.workspace_id AS workspaceId, r.work_item_id AS workItemId,
-             r.status, r.mode, r.stage_id AS dispatchStageId,
+             CASE WHEN r.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')
+                  AND i.runtime_phase IN ('completed', 'failed', 'cancelled')
+                  THEN i.runtime_phase ELSE r.status END AS status,
+             r.mode, r.stage_id AS dispatchStageId,
              r.agent_assignment_id AS resolvedAgentId, r.agent_ids_json AS resolvedAgentIds,
              r.reason AS dispatchReason, r.agent_revision AS agentRevision,
              r.outcome AS resultOutcome, r.summary AS resultSummary,
@@ -460,7 +463,6 @@ export class BeesProduct {
       JOIN processes p ON p.id = i.process_id
       WHERE p.workspace_id IN (SELECT value FROM json_each(?))
         AND i.archived_at IS NULL AND i.deleted_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM execution_links e WHERE e.execution_id = r.execution_id)
       ORDER BY r.updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map((run) => ({
       ...run, resolvedAgentIds: JSON.parse(run.resolvedAgentIds || "[]"),
@@ -485,7 +487,8 @@ export class BeesProduct {
       processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
-      presets, runs: [...runs, ...elsewhere].sort((left, right) =>
+      presets, runs: [...runs, ...elsewhere.filter(({ id }) => !runs.some((run) => run.id === id))]
+        .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
       proposals, agentBrowser: agentBrowserRunning()
     };

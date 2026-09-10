@@ -192,7 +192,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
   // Use the latest run that has a sessionId for sending messages (not just pending ones)
-  const activeRun = run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
+  const activeRun = run?.ranElsewhere ? null
+    : run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
   const activeBinding = activeRun ? ctx.sessions.binding(activeRun.sessionId) : null;
   const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : activeBinding;
   const session = useSnapshot(binding?.session);
@@ -315,7 +316,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
           event.preventDefault();
           const text = composerText.trim();
-          if (!text || isAgentBusy) return;
+          if (!text || isAgentBusy || run?.ranElsewhere) return;
           isScrolledUpRef.current = false;
           setSendError("");
           const sessionBinding = activeBinding;
@@ -359,7 +360,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.target.form.requestSubmit(); }
           }
         }),
-        h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")
+        h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || run?.ranElsewhere || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")
       ));
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },
