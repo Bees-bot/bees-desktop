@@ -1907,8 +1907,12 @@ export class AgentRuntime {
     const executions = [];
     for (const run of runs) {
       const config = JSON.parse(run.configJson);
+      // Every earlier attempt at the same item lands here too. Carried in full they bury the run
+      // under review, and a reviewer pages the file instead of judging it, so the others keep only
+      // what a procedural check needs: that they happened, and what was approved in them.
+      const reviewed = run.executionId === executionId;
       const sessions = [];
-      for (const sessionId of [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))]) {
+      for (const sessionId of reviewed ? [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))] : []) {
         // One pruned session must not stop every review; say so rather than reporting no tool calls.
         const events = await this.sessionEvents(run.executionId, sessionId)
           .catch((error) => { this.ctx.logger.warn(`bees: review evidence for ${sessionId} is unavailable: ${message(error)}`); });
@@ -1920,16 +1924,20 @@ export class AgentRuntime {
         SELECT outcome, summary, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?
       `).get(run.executionId) ?? null;
+
       const audit = this.database.prepare(`
         SELECT event_type AS type, session_id AS sessionId, metadata_json AS metadata,
                created_at AS createdAt
         FROM dsh_audit_events WHERE execution_id = ? ORDER BY created_at
       `).all(run.executionId).map((row) => ({ ...row, metadata: excerpt(row.metadata) }));
-      executions.push({
+      executions.push(reviewed ? {
         executionId: run.executionId, agentName: run.agentName, status: run.status,
         mode: config.mode ?? null, stagePurpose: config.stagePurpose ?? null,
         mcpAccess: config.mcpAccess ?? "all", mcpServers: config.mcpServers ?? [],
         createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit
+      } : {
+        executionId: run.executionId, status: run.status, mode: config.mode ?? null,
+        createdAt: run.createdAt, audit: audit.map(({ type, createdAt }) => ({ type, createdAt }))
       });
     }
     return {
