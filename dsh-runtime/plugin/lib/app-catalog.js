@@ -57,8 +57,14 @@ export class AppCatalog {
       return { ...catalog, fetchedAt, stale: false };
     } catch (error) {
       const cached = this.db.prepare('SELECT * FROM app_catalog_cache WHERE url=?').get(this.url);
-      if (!cached) return { apps: [], stale: true, error: `App directory unavailable. ${error.message}` };
-      return { ...this.validate(JSON.parse(cached.body)), fetchedAt: cached.fetched_at, stale: true, error: 'Showing the last downloaded directory. Reconnect to install.' };
+      // A cache an older build wrote may not parse or validate here, and an outage must not become
+      // a crash because the fallback itself threw.
+      try {
+        if (!cached) throw error;
+        return { ...this.validate(JSON.parse(cached.body)), fetchedAt: cached.fetched_at, stale: true, error: 'Showing the last downloaded directory. Reconnect to install.' };
+      } catch {
+        return { apps: [], stale: true, error: `App directory unavailable. ${error.message}` };
+      }
     }
   }
 
