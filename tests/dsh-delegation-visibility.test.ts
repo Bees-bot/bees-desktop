@@ -48,12 +48,14 @@ it("hides and denies preset delegation even when DSH registers it in the agent s
     expect(names).not.toContain("subagent");
     expect(names).not.toContain("subagent_fork");
     expect(names).toContain("bees_find_tools");
-    expect(names).not.toContain("bees_delegate_work");
+    // The deny message for the preset tools names bees_delegate_work, so it has to be visible.
+    expect(names).toContain("bees_delegate_work");
+    expect(names).not.toContain("bees_list_execution_agents");
     const found = await tools.execute({ agent, callId: "find-delegation", name: "bees_find_tools",
-      arguments: { query: "bees_delegate_work" }, signal: new AbortController().signal });
+      arguments: { query: "bees_list_execution_agents" }, signal: new AbortController().signal });
     expect(found.isError).not.toBe(true);
     expect((await prompt.assemble({ scope: agent })).tools.map(({ name }: any) => name))
-      .toContain("bees_delegate_work");
+      .toContain("bees_list_execution_agents");
     expect((await prompt.assemble({ scope: other })).tools.map(({ name }: any) => name))
       .toEqual(expect.arrayContaining(["subagent", "subagent_fork"]));
 
