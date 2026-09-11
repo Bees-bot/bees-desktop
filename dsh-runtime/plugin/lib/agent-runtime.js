@@ -1276,6 +1276,12 @@ export class AgentRuntime {
           .map(([path]) => path.replace(/[.,;:]+$/, ""))
           .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
         if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
+        // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
+        // at all and costs a whole cycle. This only fires on a file that is really there.
+        const stray = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
+          .map(([name]) => name.replace(/[.,;:]+$/, ""))
+          .find((name) => existsSync(resolve(workspace, name)) && !existsSync(resolve(workspace, "outputs", name))) : null;
+        if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
