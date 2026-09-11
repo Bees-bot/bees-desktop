@@ -53,6 +53,11 @@ You must call bees_propose_changes with reviewable changes. Do not claim that a 
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
 
+/** The harness describes itself to an agent it owns: its own checkout path, the local GUI address
+ *  and how to rebuild its bundle. A seated teammate has none of that and no shell to use it with. */
+const HARNESS_SECTIONS = new Set(["harness:identity", "app:web-surface"]);
+const TEAMMATE_PERSONA = `You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect.`;
+
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
@@ -882,6 +887,16 @@ export class AgentRuntime {
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx);
+    // Only a stage agent runs setup() and gets a persona. A teammate seated for a discussion keeps
+    // the harness's, so it was told it ran the harness GUI and could read the checkout at a path
+    // from this machine. Replace that, and leave a stage agent's own persona alone.
+    agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
+      const assembly = await next();
+      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona"))
+        return assembly;
+      return { ...assembly, sections: [{ name: "bees:teammate", text: TEAMMATE_PERSONA },
+        ...assembly.sections.filter(({ name }) => !HARNESS_SECTIONS.has(name))] };
+    });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter);
     mountPageFetch(agentCtx, this.ctx.web);
