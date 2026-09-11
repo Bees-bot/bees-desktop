@@ -3,17 +3,12 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const MAX_CHARS = 20_000;
 
 const ENTITIES = { lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", amp: "&" };
-// One pass, so nothing a decode produces is decoded again. Numbered entities used to become a
-// space, which is how "Tom&#8217;s" read as "Tom s"; a surrogate half stays text, it cannot serialise.
 const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
   .replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
-    const code = decimal ? Number(decimal) : hex ? parseInt(hex, 16) : 0;
-    if (!code) return ENTITIES[name.toLowerCase()] ?? match;
-    return code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
+    if (name) return ENTITIES[name.toLowerCase()] ?? match;
+    const code = decimal ? Number(decimal) : parseInt(hex, 16);
+    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
   }).trim();
-// Tags go before decoding so a revealed delimiter stays text; excluding "<" keeps a run of
-// unclosed brackets from rescanning on every one.
-const plainText = (html) => unescape(html.replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
 const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 const readable = (body) => {
@@ -29,9 +24,7 @@ function newsItems(xml) {
   return [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map(([, item]) => {
     const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
     const title = field("title");
-    // Google News writes the title and publisher back as a link, punctuated differently, so compare
-    // on letters alone; an empty comparison is nothing to compare, not an echo.
-    const summary = plainText(field("description") || field("content:encoded"));
+    const summary = unescape((field("description") || field("content:encoded")).replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
     const echoed = letters(summary);
     return { title, url: field("link"), publisher: field("source") || field("dc:creator"),
       published_at: field("pubDate") || null,

@@ -55,10 +55,8 @@ export class AppPlatform {
     if (!actionColumns.includes("reviewed_digest")) this.db.exec("ALTER TABLE app_actions ADD COLUMN reviewed_digest TEXT");
     if (!actionColumns.includes("execution")) this.db.exec("ALTER TABLE app_actions ADD COLUMN execution TEXT NOT NULL DEFAULT '{}'");
     if (!this.db.prepare("PRAGMA table_info(app_portfolios)").all().some((column) => column.name === "approver_user_id")) this.db.exec("ALTER TABLE app_portfolios ADD COLUMN approver_user_id TEXT");
-    // This runs before the web server, so one unreadable row must not stop the app booting at all.
     for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all())
-      try { for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id); }
-      catch { /* import() refuses these at the door; an older row is for the Apps view to report */ }
+      try { for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id); } catch {}
     this.shared = connected ? new AppSharedState(this, connected) : null;
     this.actionConnector = actionConnector;
     this.dispatcher = new AppActionDispatcher({ connector: actionConnector,
@@ -353,7 +351,6 @@ export class AppPlatform {
       clauses.push(`r.${column}=?`); values.push(bounded(input[field], field, max));
     }
     if (input.query) {
-      // A record holding "50% off" is a search for "50%", not a wildcard: escape what LIKE reads.
       const query = bounded(input.query, "record search", 1000).replace(/[\\%_]/g, "\\$&");
       clauses.push("(r.title LIKE ? ESCAPE '\\' OR r.body LIKE ? ESCAPE '\\' OR r.data LIKE ? ESCAPE '\\')");
       values.push(...Array(3).fill(`%${query}%`));

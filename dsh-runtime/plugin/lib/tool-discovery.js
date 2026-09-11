@@ -7,8 +7,7 @@ const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
   "ask_user_question", "bees_request_work_review", "bees_wait_for_team", "bees_finish_discussion",
   "web_search", "web_fetch", "bees_fetch_page", "bees_search_news", "read", "write",
-  "bees_control", "bees_publish_outputs", "bees_delegate_work", "bees_revise_work", "bees_read_work_evidence",
-  "bees_search_knowledge", "bees_read_knowledge"
+  "bees_control", "bees_publish_outputs", "bees_delegate_work", "bees_revise_work", "bees_read_work_evidence", "bees_search_knowledge", "bees_read_knowledge"
 ]);
 const HIDDEN_TOOLS = new Set(["subagent", "subagent_fork", "list_agents", "wait_agent"]);
 const PAGE_SIZE = 4;
@@ -23,15 +22,9 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    const offered = new Set(assembly.tools.map(({ name }) => name));
-    const tools = assembly.tools.filter(({ name }) =>
-      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name)));
-    const visible = new Set(tools.map(({ name }) => name));
-    // The harness writes a prompt section per tool. Dropping the tool and keeping its guidance
-    // left a seated teammate reading how to use ralph, glob and subagent, none of which it has.
-    const sections = assembly.sections.filter(({ name }) => !name.startsWith("tool:")
-      || !offered.has(name.slice(5)) || visible.has(name.slice(5)));
-    return { ...assembly, tools, sections };
+    const shown = ({ name }) => !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name));
+    const dropped = new Set(assembly.tools.filter((tool) => !shown(tool)).map(({ name }) => `tool:${name}`));
+    return { ...assembly, tools: assembly.tools.filter(shown), sections: assembly.sections.filter(({ name }) => !dropped.has(name)) };
   });
   agentCtx.tools.register(defineTool({
     name: "bees_find_tools",

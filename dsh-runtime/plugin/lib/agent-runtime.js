@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -53,11 +53,6 @@ You must call bees_propose_changes with reviewable changes. Do not claim that a 
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
 
-/** The harness describes itself to an agent it owns: its own checkout path, the local GUI address
- *  and how to rebuild its bundle. A seated teammate has none of that and no shell to use it with. */
-const HARNESS_SECTIONS = new Set(["harness:identity", "app:web-surface"]);
-const TEAMMATE_PERSONA = `You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect.`;
-
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
@@ -68,8 +63,6 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
-// Extensions Bees actually ships as deliverables, so a bare "yahoo.com" is not read as one.
-const DELIVERABLE = /\.(txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)$/i;
 const reviewQuestions = (summary) => [{
   id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
   options: [
@@ -550,9 +543,6 @@ export class AgentRuntime {
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
       if (exec.name !== "ask_user_question") return;
-      // The protocol already forbids approval choices, and models write them anyway: a run turned
-      // its own instructions into five one-option prompts and stalled on a human who was not there.
-      // No options at all is an open question and stays allowed.
       let asked = exec.arguments;
       if (typeof asked === "string") { try { asked = JSON.parse(asked); } catch { asked = null; } }
       if (asked?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
@@ -859,19 +849,11 @@ export class AgentRuntime {
     }
   }
 
-  /** One local model serves every seat in turn, so a peer only moves while the lead sits inside a
-   *  tool. Failing at once cost the lead a turn each time, and the repeat guard then ended the run. */
   async awaitDiscussion(agentCtx, agent, signal, members, executionId) {
-    if (members?.length) {
-      const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, agent, signal, members.map(({ name }) => name));
-      if (reason === "no-progress")
-        throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
-    }
-    this.assertDiscussionReady(agent, members, executionId);
-  }
-
-  assertDiscussionReady(agent, members, executionId) {
     if (!members?.length) return;
+    const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, agent, signal, members.map(({ name }) => name));
+    if (reason === "no-progress")
+      throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
     if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
@@ -908,17 +890,12 @@ export class AgentRuntime {
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx);
-    // Only a stage agent runs setup() and gets a persona, so a seated teammate kept the harness's:
-    // that it drives the harness GUI and can read its checkout, at a path from this machine.
     agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
       const assembly = await next();
-      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona"))
-        return assembly;
-      // The guard below refuses a teammate ask_user_question, so listing it only bought a failed
-      // call and a wasted turn, twenty six of them in the runs on this machine.
+      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona")) return assembly;
       return { ...assembly, tools: assembly.tools.filter(({ name }) => name !== "ask_user_question"),
-        sections: [{ name: "bees:teammate", text: TEAMMATE_PERSONA },
-          ...assembly.sections.filter(({ name }) => !HARNESS_SECTIONS.has(name))] };
+        sections: [{ name: "bees:teammate", text: "You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect." },
+          ...assembly.sections.filter(({ name }) => !["harness:identity", "app:web-surface"].includes(name))] };
     });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter);
@@ -1044,9 +1021,7 @@ export class AgentRuntime {
       },
       execute: async (args, exec) => {
         let input;
-        // Saying only "must be valid JSON" left a run guessing; one stray brace cost it the whole stage.
-        try { input = JSON.parse(args.input_json || "{}"); }
-        catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
+        try { input = JSON.parse(args.input_json || "{}"); } catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
@@ -1153,10 +1128,7 @@ export class AgentRuntime {
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
           await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
-          // A model that re-issues the same batch next turn spawned a second set of children and
-          // waited on them again. A partial repeat is progress, so only a wholly repeated batch stops.
-          const settled = this.database.prepare(`SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
-            AND runtime_phase IN ('completed','failed','cancelled') AND lower(trim(title)) = lower(trim(?))`);
+          const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase IN ('completed','failed','cancelled') AND lower(trim(title)) = lower(trim(?))");
           if (items.every(({ title }) => settled.get(data.workItemId, String(title ?? ""))))
             throw new Error("These peers already ran. Read their results with bees_read_work_evidence, correct one with bees_revise_work, or send different assignments.");
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
@@ -1294,29 +1266,19 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
-        // A run will happily report a file it never wrote, and review then judges a fiction. An empty
-        // file passed a plain existsSync, so a bounced run made one to get past this.
+        // A small model will happily report a file it never wrote, and review then judges a fiction.
         const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
         const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
           .map(([path]) => path.replace(/[.,;:]+$/, ""))
           .filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
-        // The extension filter keeps a domain in a news summary from reading as a deliverable.
-        const named = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
-          .map(([name]) => name.replace(/[.,;:]+$/, "")).filter((name) => DELIVERABLE.test(name)) : [];
-        // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
-        // at all and costs a whole cycle.
+        const named = workspace ? result.summary.match(/[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
         const stray = named.find((name) => real(resolve(workspace, name)) && !real(resolve(workspace, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) =>
-          !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
+        const absent = missing[0] ?? named.find((name) => !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
-        // A run reported fifteen tool calls it never made to justify giving up. A worker summary that
-        // names a tool this session never called is fiction, whatever the outcome says.
         const called = this.live.get(executionId)?.called;
-        const invented = called && data.stagePurpose !== "reviewer"
-          ? [...result.summary.matchAll(/\b(?:bees_[a-z_]+|web_(?:search|fetch))\b(?!\.[a-z0-9]{1,5}\b)/g)].map(([name]) => name)
-            .find((name) => name !== "bees_submit_stage_result" && !called.has(name))
-          : null;
+        const invented = called && data.stagePurpose !== "reviewer" && result.summary.match(/\b(?:bees_[a-z_]+|web_(?:search|fetch))\b(?!\.[a-z0-9]{1,5}\b)/g)
+          ?.find((name) => name !== "bees_submit_stage_result" && !called.has(name));
         if (invented) throw new Error(`${invented} was never called in this run. Report only what you actually did, or call it first.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
@@ -2010,7 +1972,6 @@ export class AgentRuntime {
           ? { sessionId, toolCalls: toolCallCounts(events), timeline: reviewTimeline(events) }
           : { sessionId, unavailable: true });
       }
-      // The reviewer already has the candidate summary in its brief; repeating it here only doubles the file.
       const result = this.database.prepare(`
         SELECT outcome, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?

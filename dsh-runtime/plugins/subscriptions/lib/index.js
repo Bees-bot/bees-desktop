@@ -211,23 +211,16 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       stdio: ["pipe", "pipe", "pipe"]
     });
     const decoder = new StringDecoder("utf8");
-    let pending = "";
-    let bytes = 0;
+    let pending = "", bytes = 0, early = null, final = null;
     let stderr = "";
     let overflow = false;
     let timedOut = false;
-    // --json-schema is a hidden StructuredOutput tool. The CLI answers it "provided successfully" and
-    // keeps the conversation going, so the model played out a whole agent loop against that string:
-    // 31k output tokens and ten minutes for one step, then a summary of calls that never ran. The
-    // first structured answer is the answer; nothing after it is real.
-    let early = null;
-    let final = null;
+    // the cli keeps its loop going after a structured answer, so the first one is the answer
     const consume = (line) => {
       let event;
       try { event = JSON.parse(line); } catch { return; }
       if (event.type === "result") final = event;
-      const block = event.type === "assistant" && event.message?.content?.find?.((part) =>
-        part.type === "tool_use" && part.name === "StructuredOutput" && typeof part.input?.tool === "string");
+      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use" && part.name === "StructuredOutput" && typeof part.input?.tool === "string");
       if (block && !early) { early = { structured: block.input, usage: event.message.usage ?? {} }; stop(); }
     };
     const stop = () => child.kill("SIGKILL");
@@ -238,15 +231,11 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     const settled = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
     child.stdout.on("data", (chunk) => {
       if ((bytes += chunk.byteLength) > OUTPUT_LIMIT) { overflow = true; return stop(); }
-      pending += decoder.write(chunk);
-      const lines = pending.split("\n");
+      const lines = (pending + decoder.write(chunk)).split("\n");
       pending = lines.pop();
-      for (const line of lines) consume(line);
+      lines.forEach(consume);
     });
-    child.stderr.on("data", (chunk) => {
-      if ((bytes += chunk.byteLength) > OUTPUT_LIMIT) { overflow = true; return stop(); }
-      stderr += chunk.toString();
-    });
+    child.stderr.on("data", (chunk) => { if ((bytes += chunk.byteLength) > OUTPUT_LIMIT) { overflow = true; stop(); } else stderr += chunk.toString(); });
     child.on("error", (error) => { settled(); reject(error); });
     child.on("close", (code) => {
       settled();
@@ -255,7 +244,7 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
       if (early) return resolve({ text: String(early.structured.text ?? ""), structured: early.structured, usage: early.usage });
       try {
-        if (pending.trim()) consume(pending);
+        consume(pending);
         if (!final) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
         const structured = schema ? structuredOutput(final) : null;
         if (code !== 0 || final.is_error || (schema ? !structured : !String(final.result ?? "").trim())) {
@@ -271,15 +260,11 @@ function runClaude(command, model, effort, prompt, signal, schema) {
 }
 
 export function claudeChunks(result, tools) {
-  // input_tokens is the uncached remainder only, and this adapter replays the whole conversation
-  // every call, so dropping the cache counts logged a few tokens for a call that replayed 39k.
-  const cacheWrite = Number(result.usage?.cache_creation_input_tokens ?? 0);
-  const cacheRead = Number(result.usage?.cache_read_input_tokens ?? 0);
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
     outputTokens: Number(result.usage.output_tokens ?? 0),
-    ...cacheRead > 0 ? { cacheReadTokens: cacheRead } : {},
-    ...cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}
+    ...result.usage.cache_read_input_tokens > 0 ? { cacheReadTokens: Number(result.usage.cache_read_input_tokens) } : {},
+    ...result.usage.cache_creation_input_tokens > 0 ? { cacheWriteTokens: Number(result.usage.cache_creation_input_tokens) } : {}
   } };
   if (result.structured?.tool) {
     const name = String(result.structured.tool);

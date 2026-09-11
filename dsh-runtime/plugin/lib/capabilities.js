@@ -263,7 +263,6 @@ export class Capabilities {
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    // A proxy answering 200 with a login page must read as an empty registry, not a parser crash.
     const { servers = [] } = await response.json().catch(() => ({}));
     const seen = new Set();
     return servers.flatMap(({ server }) => {

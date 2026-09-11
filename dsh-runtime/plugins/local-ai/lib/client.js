@@ -18,9 +18,6 @@ window.__ModuleLoader__.load({
         sha256: "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
       },
       {
-        // Measured on this hardware against a five-way delegation task: it batches the five items
-        // into one call and then reads the file back to check, four runs out of four. Granite
-        // batches correctly too but relaunches the same five on its next turn.
         id: "lfm2-5-2-6b-q4-k-m", name: "LFM2.5 2.6B (Q4_K_M)",
         runsProcesses: true,
         fileName: "LFM2.5-2.6B-Q4_K_M.gguf",
@@ -328,8 +325,6 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
-                  // Off deletes the file, and the confirm never says the model is live. Cancelling
-                  // a download stays available; only deleting one that is serving is refused.
                   disabled: running,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),

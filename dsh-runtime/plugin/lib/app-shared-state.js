@@ -5,8 +5,6 @@ import { validateApp } from './app-contract.js';
 
 const tables = ['app_installations','app_records','app_sources','app_actions','app_portfolios','app_admissions','app_process_owners','app_agent_owners','app_suppressions'];
 const scoped = new Set(['app_installations', 'app_portfolios', 'app_suppressions']);
-/** Columns every reader parses. A peer that sends text instead reaches those parsers, and the one
- *  in the platform constructor runs before the web server, so the app stops booting at all. */
 const jsonColumns = new Set(['agent_ids','manifest','config','data','evidence','payload','execution','result']);
 
 // ponytail: revisioned workspace snapshots keep the two stores compatible. At 16 MB,
@@ -48,8 +46,7 @@ export class AppSharedState {
         const insert = this.db.prepare(`INSERT ${table.endsWith('_owners') ? 'OR IGNORE ' : ''}INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`);
         for (const raw of source[table]) {
           if (!raw || Object.keys(raw).some((key) => !columns.includes(key) || key === 'workspace_id')) throw new Error('Invalid shared app row');
-          try { for (const [key, value] of Object.entries(raw)) if (jsonColumns.has(key) && value != null) JSON.parse(value); }
-          catch { throw new Error('Invalid shared app row'); }
+          try { for (const [key, value] of Object.entries(raw)) if (jsonColumns.has(key) && value != null) JSON.parse(value); } catch { throw new Error('Invalid shared app row'); }
           if (!scoped.has(table) && !ids.has(raw.installation_id)) throw new Error('Shared app row is outside its installation');
           const row = scoped.has(table) ? { ...raw, workspace_id: workspace.id } : raw;
           // The server is authoritative, including legacy absence. Never retain rejected local mutations on rollback.
