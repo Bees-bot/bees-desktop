@@ -1140,7 +1140,7 @@ export class AgentRuntime {
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
           await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
-          const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase IN ('completed','failed','cancelled') AND lower(trim(title)) = lower(trim(?))");
+          const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
           if (items.every(({ title }) => settled.get(data.workItemId, String(title ?? ""))))
             throw new Error("These peers already ran. Read their results with bees_read_work_evidence, correct one with bees_revise_work, or send different assignments.");
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
@@ -1280,11 +1280,13 @@ export class AgentRuntime {
         if (!result.summary) throw new Error("Stage result evidence is required");
         // A small model will happily report a file it never wrote, and review then judges a fiction.
         const real = (path) => { try { const stat = statSync(path); return stat.isDirectory() || stat.size > 0; } catch { return false; } };
-        const missing = workspace ? (result.summary.match(/outputs\/[\w.\-/]*[\w-]/g) ?? []).filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
-        const named = workspace ? result.summary.match(/(?<![\w./-])[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
-        const stray = named.find((name) => real(resolve(workspace, name)) && !real(resolve(workspace, "outputs", name)));
+        // a reviewer cites the candidate's files and delivers none of its own
+        const workdir = data.stagePurpose === "reviewer" ? null : workspace;
+        const missing = workdir ? (result.summary.match(/outputs\/[\w.\-/]*[\w-]/g) ?? []).filter((path) => !path.includes("..") && !real(resolve(workdir, path))) : [];
+        const named = workdir ? result.summary.match(/(?<![\w./-])[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
+        const stray = named.find((name) => real(resolve(workdir, name)) && !real(resolve(workdir, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) => !["outputs", "inputs", "."].some((dir) => real(resolve(workspace, dir, name))));
+        const absent = missing[0] ?? named.find((name) => !["outputs", "inputs", "."].some((dir) => real(resolve(workdir, dir, name))));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
