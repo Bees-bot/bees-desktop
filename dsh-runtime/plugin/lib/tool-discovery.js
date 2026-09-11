@@ -22,8 +22,15 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    return { ...assembly, tools: assembly.tools.filter(({ name }) =>
-      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name))) };
+    const offered = new Set(assembly.tools.map(({ name }) => name));
+    const tools = assembly.tools.filter(({ name }) =>
+      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name)));
+    const visible = new Set(tools.map(({ name }) => name));
+    // The harness writes a prompt section per tool. Dropping the tool and keeping its guidance
+    // left a seated teammate reading how to use ralph, glob and subagent, none of which it has.
+    const sections = assembly.sections.filter(({ name }) => !name.startsWith("tool:")
+      || !offered.has(name.slice(5)) || visible.has(name.slice(5)));
+    return { ...assembly, tools, sections };
   });
   agentCtx.tools.register(defineTool({
     name: "bees_find_tools",
