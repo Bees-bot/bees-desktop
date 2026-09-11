@@ -5,7 +5,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 // the run has no tools. Reading, writing and the web are what most work needs, so they stay visible.
 const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
-  "ask_user_question", "bees_request_work_review", "bees_wait_for_team",
+  "ask_user_question", "bees_request_work_review", "bees_wait_for_team", "bees_finish_discussion",
   "web_search", "web_fetch", "bees_fetch_page", "bees_search_news", "read", "write",
   "bees_control", "bees_publish_outputs", "bees_revise_work", "bees_read_work_evidence"
 ]);

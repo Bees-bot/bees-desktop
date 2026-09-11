@@ -39,8 +39,8 @@ export function assertFolderOutsideBees(directory, root, label) {
     throw new Error(`${label} needs a folder the person named, not one inside Bees`);
 }
 
-export function assertAgentHasTools({ mcpAccess, mcpServers, name }) {
-  if (mcpAccess === "none" || (mcpAccess === "listed" && !(mcpServers ?? []).length))
+export function assertAgentHasTools({ mcpAccess, name }) {
+  if (mcpAccess === "none")
     throw new Error(`${name || "That agent"} would have no tool at all; list the servers its work needs, or all`);
 }
 
@@ -58,7 +58,6 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
   const servers = access === "listed"
     ? [...new Set((Array.isArray(input.mcpServers) ? input.mcpServers : []).map(String).filter(Boolean))]
     : [];
-  if (access === "listed" && !servers.length) throw new Error("Choose at least one MCP server, or pick none");
   return { access, servers };
 }
 
@@ -683,7 +682,7 @@ export async function executeProductCommand(action, input) {
 
       // Duplicate the process
       const newProcessId = randomUUID();
-      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, process.kind, name, process.description, process.outputLocationId, at, at);
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, at, at);
       this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
 
       // Duplicate the stages and routes
@@ -717,6 +716,16 @@ export async function executeProductCommand(action, input) {
         INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, process.workspaceId, required(input.name || source.name, "Template name"),
         source.description, JSON.stringify(stages), at, at);
+      return { id };
+    });
+    if (["restore_process", "restore_process_template"].includes(action)) return transaction(this.database, () => {
+      const template = action === "restore_process_template";
+      const table = template ? "process_templates" : "processes";
+      const id = required(template ? input.templateId : input.processId, "Process template");
+      const row = this.database.prepare(`SELECT workspace_id AS workspaceId FROM ${table} WHERE id = ?`).get(id);
+      if (!row) throw new Error("Process template not found");
+      workspaceContext(this.database, row.workspaceId, ["admin", "member"]);
+      this.database.prepare(`UPDATE ${table} SET archived_at = NULL, updated_at = ? WHERE id = ?`).run(at, id);
       return { id };
     });
     if (action === "archive_process_template") return transaction(this.database, () => {
@@ -823,6 +832,35 @@ export async function executeProductCommand(action, input) {
       this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
       return { id: stage.id };
     });
+    if (["archive_agent_assignment", "restore_agent_assignment", "copy_agent_assignment"].includes(action)) return transaction(this.database, () => {
+      const id = required(input.agentAssignmentId, "Agent");
+      const agent = this.database.prepare("SELECT * FROM agent_assignments WHERE id = ?").get(id);
+      if (!agent) throw new Error("Agent not found");
+      workspaceContext(this.database, agent.workspace_id, ["admin", "member"]);
+      if (this.database.prepare("SELECT 1 FROM app_agent_owners WHERE agent_id = ?").get(id))
+        throw new Error("Manage app agents through Apps to preserve their permission boundary");
+      if (action === "copy_agent_assignment") {
+        if (agent.archived_at) throw new Error("Restore this agent before duplicating it");
+        const copiedId = randomUUID();
+        this.database.prepare(`
+          INSERT INTO agent_assignments (id, workspace_id, preset_id, name, description, instructions,
+            model, reasoning_effort, system_role, capabilities_json, enabled, max_concurrency,
+            created_at, updated_at, mcp_access, mcp_servers_json)
+          SELECT ?, workspace_id, preset_id, ?, description, instructions, model, reasoning_effort,
+            NULL, capabilities_json, enabled, max_concurrency, ?, ?, mcp_access, mcp_servers_json
+          FROM agent_assignments WHERE id = ?
+        `).run(copiedId, required(input.name, "New agent name"), at, at, id);
+        this.database.prepare(`INSERT INTO agent_locations (agent_assignment_id, location_id, relative_path)
+          SELECT ?, location_id, relative_path FROM agent_locations WHERE agent_assignment_id = ?`).run(copiedId, id);
+        return { id: copiedId };
+      }
+      if (agent.system_role) throw new Error("The built-in Bees agents cannot be archived");
+      const restoring = action === "restore_agent_assignment";
+      if (restoring && !agent.archived_at) return { id };
+      this.database.prepare("UPDATE agent_assignments SET archived_at = ?, enabled = ?, updated_at = ? WHERE id = ?")
+        .run(restoring ? null : at, restoring ? 1 : 0, at, id);
+      return { id };
+    });
     if (action === "add_agent_assignment") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const presetId = required(input.presetId, "agent preset");
@@ -864,7 +902,7 @@ export async function executeProductCommand(action, input) {
                system_role AS systemRole, reasoning_effort AS reasoningEffort, capabilities_json AS capabilities,
                enabled, max_concurrency AS maxConcurrency,
                mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
-        FROM agent_assignments WHERE id = ?
+        FROM agent_assignments WHERE id = ? AND archived_at IS NULL
       `).get(required(id, "Agent"));
       if (!assignment) throw new Error("Agent not found");
       // A run editing the agent that reviews it could tell that reviewer to pass everything.

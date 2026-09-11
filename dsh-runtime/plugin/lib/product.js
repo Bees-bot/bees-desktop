@@ -180,8 +180,8 @@ export class BeesProduct {
       reasoningEffort: Object.hasOwn(item.runSettings, "model") ? item.runSettings.reasoningEffort : peer.reasoningEffort,
       planningReviewer: goalPlanning,
       prompt: `Participate as ${peer.name}. ${peer.description || ""}\n\n${peer.instructions || ""}\n\nGoal: ${item.title}\n\n${item.description}${parentBrief}${referenceBrief}\n\nDiscussion stage: ${stage.stageName || "Discussion"}.\n\n${goalPlanning
-        ? "You are the plan reviewer in Work. Independently inspect the goal for missing requirements, risks, and unnecessary complexity. Wait for the lead's proposal, challenge it once, and send concrete improvements to lead with send_message. Then become idle so the lead can reconcile your critique and execute the goal. Do not implement the goal, publish, or create delegated work. Do not initiate extra rounds."
-        : `The expected peer seats are ${seatNames.join(", ")}. Begin independent analysis immediately; peers may still be joining. Exchange ideas and challenges with lead and available participants using send_message or followup_task. If an expected peer is unavailable, send your current analysis to lead and let lead coordinate follow-up. You may initiate a new round whenever it could improve the decision. Before becoming idle, send your current recommendation and reasoning to lead. This seat is for discussion only: do not implement, publish, or create work. The lead assigns execution as tracked child work after discussion.`} ${DISCUSSION_WAIT_PROTOCOL} Do not call bees_submit_stage_result; the lead submits the completed work.`
+        ? "You are the plan reviewer in Work. Independently inspect the goal for missing requirements, risks, and unnecessary complexity. Wait for the lead's proposal, challenge it once, and call bees_finish_discussion with your concrete improvements. This sends your report and ends your turn so the lead can reconcile your critique and execute the goal. Do not implement the goal, publish, or create delegated work. Do not initiate extra rounds."
+        : `The expected peer seats are ${seatNames.join(", ")}. Begin independent analysis immediately; peers may still be joining. Exchange ideas and challenges with lead and available participants using send_message or followup_task. If an expected peer is unavailable, send your current analysis to lead and let lead coordinate follow-up. You may initiate a new round whenever it could improve the decision. When your discussion contribution is complete, call bees_finish_discussion with your recommendation and reasoning. This sends your report and ends your turn. Use send_message only for interim discussion; it does not finish your turn. This seat is for discussion only: do not implement, publish, or create work. The lead assigns execution as tracked child work after discussion.`} ${DISCUSSION_WAIT_PROTOCOL} Do not call bees_submit_stage_result; the lead submits the completed work.`
     }));
     const locations = stageInputs(this.database, item.id, runDirectory, assignment.id);
     const manifest = inputManifest(locations);
@@ -223,7 +223,7 @@ export class BeesProduct {
       ? "\n\nThis stage cannot finish until the human approves the completed result through bees_request_work_review."
       : "";
     const discussionProtocol = discussion
-      ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. They can message anyone without waiting for you. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported. ${DISCUSSION_WAIT_PROTOCOL}`
+      ? `\n\nThis is a DSH Agent Teams discussion. Bees has already seated ${discussionMembers.length} peers: ${discussionMembers.map(({ name, description }) => `${name} (${description})`).join(", ")}. They can message anyone without waiting for you. Participants finish with bees_finish_discussion, which sends their recommendation and ends their turn. Do not use followup_task merely to ask a participant to become idle; it queues another turn. bees_delegate_work waits for discussion completion automatically. Read every participant's pitch, challenge weak assumptions, use followup_task for another round when useful, and synthesize a coherent decision only after all participants have reported. ${DISCUSSION_WAIT_PROTOCOL}`
       : "";
     const delegationProtocol = discussion
       ? "Use the seated DSH Agent Team to agree on the approach. Once all participants have reported and are idle, execute the requested outcome. Do small, tightly coupled work yourself: a few lookups, page reads or file edits are faster done than handed out. Use bees_delegate_work only for substantial independent work a peer can own end to end, including an agent who participated in discussion. Honor the requested delegation count and execution order, inspect returned deliverables, and complete the combined result. Do not ask discussion seats to implement the same assignments. If the request is advice only, finish with the requested advice."
@@ -322,6 +322,14 @@ export class BeesProduct {
              account_user_id AS accountUserId FROM processes
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
     `).all(JSON.stringify(workspaceIds)) : [];
+    const archivedProcessTemplates = workspaceIds.length ? this.database.prepare(`
+      SELECT id, workspace_id AS workspaceId, name, description, archived_at AS archivedAt, 'process' AS sourceKind
+      FROM processes WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NOT NULL
+      UNION ALL
+      SELECT id, workspace_id AS workspaceId, name, description, archived_at AS archivedAt, 'template' AS sourceKind
+      FROM process_templates WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NOT NULL
+      ORDER BY archivedAt DESC
+    `).all(JSON.stringify(workspaceIds), JSON.stringify(workspaceIds)) : [];
     const templates = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description, stages_json AS stages
       FROM process_templates
@@ -389,7 +397,7 @@ export class BeesProduct {
       SELECT id, workspace_id AS workspaceId, preset_id AS presetId, name, description,
              instructions, model, reasoning_effort AS reasoningEffort,
              system_role AS systemRole, capabilities_json AS capabilities,
-             enabled, max_concurrency AS maxConcurrency, updated_at AS updatedAt,
+             enabled, archived_at AS archivedAt, max_concurrency AS maxConcurrency, updated_at AS updatedAt,
              mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
       FROM agent_assignments WHERE workspace_id IN (SELECT value FROM json_each(?)) ORDER BY name
     `).all(JSON.stringify(workspaceIds)).map((row) => ({
@@ -499,7 +507,7 @@ export class BeesProduct {
     return {
       currentUserId: userId, currentDeviceId: deviceId,
       accounts, organizations, connections, connectionTeams, directory, teams, workspaces,
-      processes, templates, stages, items, locations, attachments, processAttachments, agentAttachments,
+      processes, templates, archivedProcessTemplates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
       presets, runs: [...runs, ...elsewhere.filter(({ id }) => !runs.some((run) => run.id === id))]

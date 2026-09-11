@@ -15,8 +15,8 @@ function members(teams, agent) {
   }));
 }
 
-/** Keep one tool pending until the caller has information it can act on. */
-function waitForTeam(agentCtx, teams, agent, signal) {
+/** Wait for actionable discussion updates, or for all named participants to stop working. */
+export function waitForTeam(agentCtx, teams, agent, signal, requiredNames) {
   signal.throwIfAborted();
   const { root } = teams.membership(agent);
   let waiting = waitingByTeam.get(root);
@@ -44,6 +44,13 @@ function waitForTeam(agentCtx, teams, agent, signal) {
     const check = () => {
       if (settled) return;
       try {
+        if (requiredNames) {
+          const required = teams.listMembers(agent).filter(({ name }) => requiredNames.includes(name));
+          if (!required.some(({ status }) => ACTIVE.has(status))) return finish("member-settled");
+          if (required.filter(({ status }) => ACTIVE.has(status)).every(({ id }) => waiting.has(id)))
+            return finish("no-progress");
+          return;
+        }
         if (agent.inbox.hasPending) return finish("message");
         const roster = teams.listMembers(agent);
         if ([...active].some((id) => !roster.some((member) => member.id === id && ACTIVE.has(member.status))))
@@ -60,7 +67,7 @@ function waitForTeam(agentCtx, teams, agent, signal) {
     }, { global: true }));
     disposers.push(agentCtx.on("agent/disposed", ({ agent: target }) => {
       if (target === agent) finish(undefined, new Error("Team wait agent disposed"));
-      else if (active.has(target.id)) finish("member-settled");
+      else if (active.has(target.id)) check();
     }, { global: true }));
     disposers.push(agentCtx.on("session/event", (session, event) => {
       // Failed provisioning may never create a live agent. Recheck after projection applies.
@@ -95,8 +102,28 @@ export function mountTeamCoordination(agentCtx, teams) {
     if (context.scope !== owner) return assembly;
     const hasTeam = members(teams, owner).length > 1;
     return { ...assembly, tools: assembly.tools.filter(({ name }) =>
-      !POLLING_TOOLS.has(name) && (name !== "bees_wait_for_team" || hasTeam)) };
+      !POLLING_TOOLS.has(name) && (name !== "bees_wait_for_team" || hasTeam) &&
+      (name !== "bees_finish_discussion" || teams.tryMembership(owner)?.root !== owner && hasTeam)) };
   });
+  agentCtx.tools.register(defineTool({
+    name: "bees_finish_discussion",
+    description: "Send your completed discussion recommendation to the lead and end this turn in one operation. Use send_message only for interim discussion. Do not keep researching after your contribution is complete.",
+    parameters: { summary: { type: "string", required: true, description: "Your complete recommendation and reasoning." } },
+    output: {
+      schema: { type: "object", additionalProperties: false, properties: { reported: { type: "boolean", required: true } } },
+      render: () => [{ type: "text", text: "Discussion contribution sent; ending this turn." }]
+    },
+    execute: async ({ summary }, exec) => {
+      if (exec.agent !== owner || teams.membership(owner).root === owner)
+        throw new Error("Only a discussion participant can finish its contribution");
+      if (typeof summary !== "string" || !summary.trim()) throw new Error("A discussion recommendation is required");
+      await teams.sendMessage(owner, {
+        target: "lead", content: [{ type: "text", text: summary }], delivery: "quiet", signal: exec.signal
+      });
+      exec.concludeTurn();
+      return { reported: true };
+    }
+  }));
   agentCtx.tools.register(defineTool({
     name: "bees_wait_for_team",
     description: "Wait once for a teammate result or an incoming message. Runtime checks status without polling or additional model turns. Returns no-progress when no teammate can continue, including teammates also waiting. Use existing results or give an idle teammate a concrete follow-up then.",

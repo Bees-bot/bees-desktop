@@ -653,6 +653,7 @@ export function initializeProductDatabase(database) {
     "ALTER TABLE bees_accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
   );
   const assignmentColumns = new Set(database.prepare("PRAGMA table_info(agent_assignments)").all().map(({ name }) => name));
+  if (!assignmentColumns.has("archived_at")) database.exec("ALTER TABLE agent_assignments ADD COLUMN archived_at TEXT");
   if (!assignmentColumns.has("instructions")) database.exec("ALTER TABLE agent_assignments ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
   if (!assignmentColumns.has("model")) database.exec("ALTER TABLE agent_assignments ADD COLUMN model TEXT");
   if (!assignmentColumns.has("reasoning_effort")) database.exec("ALTER TABLE agent_assignments ADD COLUMN reasoning_effort TEXT");
@@ -928,7 +929,6 @@ export function normalizeRunSettings(value = {}) {
       throw new Error("Choose valid MCP server identifiers");
     settings.mcpAccess = value.mcpAccess;
     settings.mcpServers = value.mcpAccess === "listed" ? [...new Set(value.mcpServers ?? [])] : [];
-    if (value.mcpAccess === "listed" && !settings.mcpServers.length) throw new Error("Choose at least one MCP server, or pick none");
   } else if (value.mcpServers !== undefined) throw new Error("Choose a tool access policy");
   return settings;
 }

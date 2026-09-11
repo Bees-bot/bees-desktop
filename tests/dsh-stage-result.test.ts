@@ -298,7 +298,11 @@ describe("DSH stage results", () => {
       id: "peer", title: "Write first", status: "completed", settledAt: "2026-01-02",
     }]);
     const tools: any[] = [];
+    const listeners = new Map<string, (...args: any[]) => void>();
+    runtime.installPolicies = () => undefined;
     await runtime.setup({
+      on: (event: string, handler: (...args: any[]) => void) => { listeners.set(event, handler); return () => listeners.delete(event); },
+      effect: () => () => undefined,
       systemPrompt: { section: () => undefined, context: () => undefined },
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
@@ -306,21 +310,21 @@ describe("DSH stage results", () => {
       workItemId: "parent", grants: [], workspaceId: workspace.id, discussionMembers: [{ name: "participant-1", description: "CTO" }],
     }, "run", "/tmp");
     let peerStatus = "running";
-    runtime.ctx.agentTeams = { listMembers: () => [{ id: "cto-seat", name: "participant-1", status: peerStatus }] };
-    const lead = { agent: { session: { id: "session", header: {}, snapshotEvents: () => [{
+    runtime.ctx.agentTeams = { tryMembership: () => ({ root: lead.agent }), membership: () => ({ root: lead.agent }), listMembers: () => [{ id: "cto-seat", name: "participant-1", status: peerStatus }] };
+    const lead = { signal: new AbortController().signal, agent: { id: "session", inbox: { hasPending: false }, session: { id: "session", header: {}, snapshotEvents: () => [{
       type: "team/message/queued", data: { message: { senderId: "cto-seat", targetId: "session" } }
     }] } } };
     const delegate = tools.find(({ name }) => name === "bees_delegate_work");
-    await expect(delegate.execute({ items_json: '[{"title":"Write first"}]' }, lead)).rejects.toThrow("still working");
+    await expect(delegate.execute({ items_json: '[{"title":"Write first","}]' }, lead)).rejects.toThrow("valid JSON");
+    const pending = delegate.execute({ items_json: '[{"title":"Write first"}]' }, lead);
     expect(create).not.toHaveBeenCalled();
     peerStatus = "idle";
+    listeners.get("agent/status")!({ agent: { id: "cto-seat" } });
+    const result = await pending;
+    expect(create).toHaveBeenCalledTimes(1);
     await expect(delegate.execute({ items_json: '[{"title":"Write first"}]' }, {
       agent: { session: { header: { parentSession: "session" } } }
     })).rejects.toThrow("Only the lead");
-
-    const result = await tools.find(({ name }) => name === "bees_delegate_work").execute({
-      items_json: JSON.stringify([{ title: "Write first" }]),
-    }, lead);
 
     expect(create).toHaveBeenCalledWith({
       parentId: "parent", items: [{ title: "Write first" }],

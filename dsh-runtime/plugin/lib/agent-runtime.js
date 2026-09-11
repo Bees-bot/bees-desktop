@@ -14,7 +14,7 @@ import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles } from "./product-files.js";
 import { mountPageFetch } from "./web-page.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
-import { mountTeamCoordination } from "./team-coordination.js";
+import { mountTeamCoordination, waitForTeam } from "./team-coordination.js";
 import { currentIdentity, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
@@ -1088,7 +1088,7 @@ export class AgentRuntime {
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, wait for all participants to report and become idle before delegating.`
+            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, this tool waits for all participants to finish before launching peers.`
           }
         },
         output: {
@@ -1102,7 +1102,6 @@ export class AgentRuntime {
         },
         execute: async (args, exec) => {
           if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead work agent can delegate tracked work");
-          this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
           let items;
           try { items = JSON.parse(args.items_json); }
@@ -1113,6 +1112,13 @@ export class AgentRuntime {
             throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
+          if (data.discussionMembers?.length) {
+            const discussion = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal,
+              data.discussionMembers.map(({ name }) => name));
+            if (discussion.reason === "no-progress")
+              throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
+            this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+          }
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");

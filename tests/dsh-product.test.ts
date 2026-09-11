@@ -220,7 +220,7 @@ describe("Bees DSH product plugin", () => {
         .toEqual({ model: null, reasoningEffort: null });
       const count = snapshot.items.length + 2;
       for (const runSettings of [[], { model: "bad-route" }, { model: 42 }, { mcpAccess: "invalid" },
-        { mcpAccess: "listed", mcpServers: [] }, { reasoningEffort: "high" }, { grants: [output.id] }]) {
+        { reasoningEffort: "high" }, { grants: [output.id] }]) {
         await expect(product.command({ action: "create_goal", workspaceId, title: "Invalid", runSettings })).rejects.toThrow();
       }
       expect((await product.snapshot()).items).toHaveLength(count);
@@ -319,6 +319,24 @@ describe("Bees DSH product plugin", () => {
         action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"
       })).rejects.toThrow('The agent reference "missing" is unavailable');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("saves empty selected MCP lists for agents and goals without granting servers", async () => {
+    const database = new NodeDatabase();
+    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, "/tmp");
+    const initial = await product.snapshot();
+    const policy = { mcpAccess: "listed", mcpServers: [] };
+    const created = await product.command({ action: "add_agent_assignment", workspaceId: initial.workspaces[0].id,
+      name: "Empty selection", presetId: "standard", ...policy });
+    await product.command({ action: "edit_agent_assignment", agentAssignmentId: created.id, ...policy, viaAgent: true });
+    const goal = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id,
+      title: "Empty selection", runSettings: policy });
+    const snapshot = await product.snapshot();
+    expect(snapshot.assignments.find((row: any) => row.id === created.id)).toMatchObject(policy);
+    expect(snapshot.items.find((row: any) => row.id === goal.id).runSettings).toEqual(policy);
+    const { mcpGrantFor } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-database.js");
+    expect(mcpGrantFor(database.connection, created.id)).toEqual(policy);
   });
 
   it("intersects a goal's selected connections with the agent policy", async () => {
@@ -447,6 +465,18 @@ describe("Bees DSH product plugin", () => {
     ]));
     const reviewer = initial.assignments.find(({ systemRole }: any) => systemRole === "reviewer");
     const worker = initial.assignments.find(({ systemRole }: any) => systemRole === "worker");
+    const agentCopy = await product.command({ action: "copy_agent_assignment", agentAssignmentId: worker.id, name: "Worker Copy" });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({
+      ...worker, id: agentCopy.id, name: "Worker Copy", systemRole: null, updatedAt: expect.any(String)
+    }));
+    await expect(product.command({ action: "archive_agent_assignment", agentAssignmentId: worker.id }))
+      .rejects.toThrow("built-in");
+    await product.command({ action: "archive_agent_assignment", agentAssignmentId: agentCopy.id });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({ id: agentCopy.id, enabled: false, archivedAt: expect.any(String) }));
+    await expect(product.command({ action: "edit_agent_assignment", agentAssignmentId: agentCopy.id, enabled: true }))
+      .rejects.toThrow("Agent not found");
+    await product.command({ action: "restore_agent_assignment", agentAssignmentId: agentCopy.id });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({ id: agentCopy.id, enabled: true, archivedAt: null }));
     await product.command({
       action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
       presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
@@ -690,6 +720,27 @@ describe("Bees DSH product plugin", () => {
     });
     await product.command({ action: "archive_process", processId: oldProcess.id });
     expect((await product.snapshot()).processes).not.toContainEqual(expect.objectContaining({ id: oldProcess.id }));
+    expect((await product.snapshot()).archivedProcessTemplates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: oldProcess.id, archivedAt: expect.any(String) }),
+      expect.objectContaining({ id: savedTemplate.id, archivedAt: expect.any(String) })
+    ]));
+    const goalsCopy = await product.command({ action: "copy_process", processId: goals.id, name: "Goals Copy" });
+    const copiedSnapshot = await product.snapshot();
+    expect(copiedSnapshot.processes).toContainEqual(expect.objectContaining({ id: goalsCopy.id, kind: "standard" }));
+    expect(copiedSnapshot.processes.filter((row: any) => row.workspaceId === workspace.id && row.kind === "goals"))
+      .toEqual([expect.objectContaining({ id: goals.id })]);
+    expect(copiedSnapshot.stages.filter((row: any) => row.processId === goalsCopy.id).map((row: any) => row.name))
+      .toEqual(copiedSnapshot.stages.filter((row: any) => row.processId === goals.id).map((row: any) => row.name));
+    await product.command({ action: "archive_process", processId: goalsCopy.id });
+    for (const command of [
+      { action: "restore_process", processId: oldProcess.id },
+      { action: "restore_process_template", templateId: savedTemplate.id }
+    ]) await product.command(command);
+    const restoredSnapshot = await product.snapshot();
+    expect(restoredSnapshot.processes).toContainEqual(expect.objectContaining({ id: oldProcess.id }));
+    expect(restoredSnapshot.templates).toContainEqual(expect.objectContaining({ id: savedTemplate.id }));
+    expect(restoredSnapshot.archivedProcessTemplates.map((row: any) => row.id)).not.toContain(oldProcess.id);
+    expect(restoredSnapshot.archivedProcessTemplates.map((row: any) => row.id)).not.toContain(savedTemplate.id);
 
     await product.command({
       action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"

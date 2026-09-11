@@ -237,7 +237,7 @@ describe("Bees work cockpit UI", () => {
     expect(empty).toMatchObject({ tag: "empty", children: ["No active work matches these filters"] });
   });
 
-  it("labels owners and filters by identity alongside search, status, and type", () => {
+  it("labels owners and filters by identity alongside search, status, and process template", () => {
     const states: any[] = [];
     let cursor = 0;
     const { WorkPage } = workUi({ useState: (initial: any) => {
@@ -246,7 +246,7 @@ describe("Bees work cockpit UI", () => {
       return [states[index], (value: any) => { states[index] = value; }];
     } });
     const items = [
-      { id: "alice-run", accountUserId: "alice", kind: "run", runtimePhase: "failed" },
+      { id: "alice-run", accountUserId: "alice", processId: "other-template", kind: "run", runtimePhase: "failed" },
       { id: "alice-work", accountUserId: "alice", runtimePhase: "failed" },
       { id: "alice-waiting", accountUserId: "alice", runtimePhase: "waiting" },
       { id: "alice-other", accountUserId: "alice", title: "Other", runtimePhase: "failed" },
@@ -257,7 +257,10 @@ describe("Bees work cockpit UI", () => {
       { id: "outside", accountUserId: "outside", processId: "other-process" }
     ].map((item) => ({ title: "Report", processId: "process", kind: "work", ...item }));
     const props = { route: "all-work", workspaceIds: ["workspace"], workspaceId: "workspace",
-      data: { items, stages: [], processes: [{ id: "process", workspaceId: "workspace" }],
+      data: { items, stages: [], processes: [
+        { id: "process", name: "Reports", workspaceId: "workspace" },
+        { id: "other-template", name: "Other template", workspaceId: "workspace" }
+      ],
         connections: [{ accountUserId: "alice", accountName: "Alice" }, { accountUserId: "alice-twin", accountName: "Alice" }],
         directory: [{ accountUserId: "bob", email: "bob@example.com" }] } };
     const render = () => { cursor = 0; return WorkPage(props); };
@@ -281,13 +284,13 @@ describe("Bees work cockpit UI", () => {
     expect(rowIds()).toEqual(["alice-run", "alice-work", "alice-waiting", "alice-other"]);
     change("Search work items by task name", " report ");
     change("Filter by status", "failed");
-    change("Filter by type", "work");
+    change("Filter by process template", "process");
     expect(rowIds()).toEqual(["alice-work"]);
     change("Filter by owner", "alice-twin");
     expect(rowIds()).toEqual(["other-alice"]);
     change("Search work items by task name", "");
     change("Filter by status", "all");
-    change("Filter by type", "all");
+    change("Filter by process template", "all");
     change("Filter by owner", "");
     expect(rowIds()).toEqual(["unknown"]);
     change("Filter by owner", "all");
@@ -399,7 +402,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)');
     expect(client).toContain('placeholder: "Search by task name"');
     expect(client).toContain('"Filter by status"');
-    expect(client).toContain('"Filter by type"');
+    expect(client).toContain('"Filter by process template"');
+    expect(client).toContain('"Filter by work item scope"');
+    expect(client).not.toContain('"Filter by type"');
     expect(client).toContain('`Plan outcome: ${planLabel(run.purpose)}`');
   });
 
@@ -511,7 +516,7 @@ describe("Bees work cockpit UI", () => {
 
   it("puts creation actions in widget headers and uses ordered stage participants", () => {
     expect(client).toContain('panel.actions ? h("div", { className: "bees-flex-widget-actions"');
-    expect(client).toContain('agents: { label: "Agents", actions: h(Button');
+    expect(client).toContain('agents: { label: "Agents", actions: h(React.Fragment');
     expect(client).toContain('h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees")');
     expect(client).toContain('"Add participant"');
     expect(client).toContain('" · Discussion lead"');

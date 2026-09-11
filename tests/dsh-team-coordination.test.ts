@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 // @ts-expect-error Plain JS runtime boundary.
-import { mountTeamCoordination } from "../dsh-runtime/plugin/lib/team-coordination.js";
+import { mountTeamCoordination, waitForTeam } from "../dsh-runtime/plugin/lib/team-coordination.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const { Context } = require("@deepseek-ai/cordis");
@@ -18,6 +18,7 @@ function harness() {
   const roots = new Map<any, any>();
   const roster: any[] = [];
   const teams = {
+    sendMessage: vi.fn(async () => ({ status: "accepted" })),
     tryMembership: (agent: any) => roots.has(agent) ? { root: roots.get(agent) } : undefined,
     membership: (agent: any) => ({ root: roots.get(agent) }),
     listMembers: (agent: any) => roster.filter((member) => roots.get(member) === roots.get(agent))
@@ -42,6 +43,10 @@ function harness() {
       roster.push(agent);
       if (managed) mountTeamCoordination(scope.ctx, teams);
       return agent;
+    },
+    finish(agent: any, summary = "Recommendation") {
+      return tools.execute({ agent, callId: `finish-${agent.id}`, name: "bees_finish_discussion",
+        arguments: { summary }, signal: new AbortController().signal });
     },
     wait(agent: any, signal = new AbortController().signal) {
       return tools.execute({ agent, callId: `wait-${agent.id}`, name: "bees_wait_for_team", arguments: {}, signal });
@@ -212,5 +217,66 @@ it("cancels pending calls, disposes listeners, and clears waiting bookkeeping", 
     await lead.disposeScope();
     expect((await disposed).isError).toBe(true);
     expect(h.listeners()).toEqual([0, 0, 0]);
+  } finally { await h.close(); }
+});
+
+it("waits for every required discussion turn, ignoring interim messages", async () => {
+  const h = harness();
+  try {
+    const lead = h.agent("lead");
+    const first = h.agent("first", lead);
+    const second = h.agent("second", lead);
+    let settled = false;
+    const pending = waitForTeam(lead.ctx, h.teams, lead, new AbortController().signal, ["first", "second"])
+      .then((result: any) => { settled = true; return result; });
+    h.message(lead);
+    h.status(first, "idle");
+    await tick();
+    expect(settled).toBe(false);
+    h.status(second, "idle");
+    expect((await pending).reason).toBe("member-settled");
+    expect(h.listeners()).toEqual([0, 0, 0]);
+  } finally { await h.close(); }
+});
+
+it("releases a discussion gate on cancellation and detects participants waiting for the lead", async () => {
+  const h = harness();
+  try {
+    const lead = h.agent("lead");
+    const peer = h.agent("peer", lead);
+    const abort = new AbortController();
+    const pending = waitForTeam(lead.ctx, h.teams, lead, abort.signal, ["peer"]);
+    abort.abort(new Error("Canceled"));
+    await expect(pending).rejects.toThrow("Canceled");
+    expect(h.listeners()).toEqual([0, 0, 0]);
+    const gate = waitForTeam(lead.ctx, h.teams, lead, new AbortController().signal, ["peer"]);
+    const peerWait = h.wait(peer);
+    expect((await gate).reason).toBe("no-progress");
+    h.status(lead, "idle");
+    await peerWait;
+    expect(h.listeners()).toEqual([0, 0, 0]);
+  } finally { await h.close(); }
+});
+
+it("sends a final contribution and concludes the participant turn only after delivery succeeds", async () => {
+  const h = harness();
+  try {
+    const lead = h.agent("lead");
+    const peer = h.agent("peer", lead);
+    expect((await h.prompt.assemble({ scope: peer })).tools.map(({ name }: any) => name))
+      .toContain("bees_finish_discussion");
+    expect((await h.finish(lead)).isError).toBe(true);
+    expect((await h.finish(peer, " ")).isError).toBe(true);
+    expect(h.teams.sendMessage).not.toHaveBeenCalled();
+    h.teams.sendMessage.mockRejectedValueOnce(new Error("Delivery failed"));
+    const failed = await h.finish(peer);
+    expect(failed.isError).toBe(true);
+    expect(failed.concludesTurn).toBeFalsy();
+    const completed = await h.finish(peer, "Use two independent source agents.");
+    expect(completed.isError).toBe(false);
+    expect(completed.concludesTurn).toBe(true);
+    expect(h.teams.sendMessage).toHaveBeenLastCalledWith(peer, expect.objectContaining({
+      target: "lead", delivery: "quiet", content: [{ type: "text", text: "Use two independent source agents." }]
+    }));
   } finally { await h.close(); }
 });

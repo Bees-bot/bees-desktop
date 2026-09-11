@@ -1,5 +1,5 @@
 import { h, React, useEffect, useRef, useState } from "./runtime.js";
-import { Button, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
+import { ask, confirmAction, Button, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 import { CatalogReview } from "./skills.js";
@@ -282,16 +282,41 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
   return dialog ? h(AgentDialog, { onClose: onCancel }, form) : form;
 }
 
+export function AgentListActions({ agent, act }) {
+  const [error, setError] = useState("");
+  const [busy, submit] = useSubmit(async (_event, action) => {
+    setError("");
+    try {
+      const input = { action, agentAssignmentId: agent.id };
+      if (action === "copy_agent_assignment") {
+        const name = await ask("New agent name", `${agent.name} Copy`);
+        if (!name?.trim()) return;
+        input.name = name.trim();
+      }
+      if (action === "archive_agent_assignment" && !await confirmAction(`Archive agent “${agent.name}”? It will stop receiving new work. Its history will be preserved.`)) return;
+      await act(input);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  });
+  return h("div", null,
+    h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${agent.name}` },
+      agent.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore_agent_assignment") }, "Restore")
+        : h(React.Fragment, null,
+          h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_agent_assignment") }, "Duplicate"),
+          agent.systemRole ? null : h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_agent_assignment") }, "Archive"))),
+    error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
+}
+
 export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions }) {
-  const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
+  const [agentStatus, setAgentStatus] = useState("active");
+  const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId) && Boolean(row.archivedAt) === (agentStatus === "archived"));
   const [selectedId, setSelectedId] = useState("");
-  const selected = assignments.find(({ id }) => id === selectedId);
+  const selected = data.assignments.find((row) => row.id === selectedId && !row.archivedAt && workspaceIds.includes(row.workspaceId));
   const editor = creating === "agent" ? h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, dialog: true,
     onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } })
     : selected ? h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected, act, dialog: true,
       onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") }) : null;
   const agents = h("div", null,
-      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"))) : [h(Empty, { key: "empty" }, "No agents assigned to this scope") ]));
+      ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, agent.archivedAt ? null : h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"), h(AgentListActions, { agent, act }))) : [h(Empty, { key: "empty" }, agentStatus === "archived" ? "No archived agents" : "No agents assigned to this scope") ]));
   const presets = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
@@ -303,7 +328,10 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
     h(GridStackPage, {
       layoutId: "agents", defaults: AGENTS_LAYOUT, preference, preferences, setPageActions,
       panels: {
-        agents: { label: "Agents", actions: h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent"), minW: 4, minH: 4, content: agents },
+        agents: { label: "Agents", actions: h(React.Fragment, null,
+          h("select", { className: "bees-select", value: agentStatus, "aria-label": "Agent status", onChange: (event) => setAgentStatus(event.target.value) },
+            h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
+          h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")), minW: 4, minH: 4, content: agents },
         presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
       }
     }), editor);
