@@ -19,7 +19,7 @@ const acceptedPayloadKeys: Record<string, string[]> = {
   team_location: ["teamId", "logicalId", "name", "kind", "description", "archivedAt", "createdAt", "updatedAt"],
   agent: ["appInstallationId", "teamId", "name", "description", "instructions", "presetId", "model", "reasoningEffort",
     "systemRole", "capabilities", "enabled", "maxConcurrency", "mcpAccess", "mcpServers",
-    "inputLocations", "createdAt", "updatedAt"],
+    "inputLocations", "createdAt", "updatedAt", "archivedAt"],
   team_process: ["appInstallationId", "teamId", "name", "description", "kind", "outputLocationId", "inputLocations",
     "stages", "archivedAt", "createdAt", "updatedAt"],
   process_template: ["teamId", "name", "description", "stages", "archivedAt", "createdAt", "updatedAt"],
@@ -212,6 +212,15 @@ describe("team coordination projection", () => {
     ).get(itemId)!.agentIds))).toEqual([agentId, peerAgentId]);
     expect(JSON.parse(String(target.connection.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?").get(itemId)!.settings)))
       .toEqual(runSettings);
+    for (const archived of [true, false]) {
+      const updatedAt = new Date(Date.parse(at) + (archived ? 1000 : 2000)).toISOString();
+      source.connection.prepare("UPDATE agent_assignments SET archived_at = ?, enabled = ?, updated_at = ? WHERE id = ?")
+        .run(archived ? updatedAt : null, archived ? 0 : 1, updatedAt, agentId);
+      const agentRecord = teamRecords(source.connection, organizationId).find((record) => record.recordId === agentId)!;
+      applyTeamRecords(target.connection, organizationId, [agentRecord]);
+      expect(target.connection.prepare("SELECT archived_at AS archivedAt, enabled FROM agent_assignments WHERE id = ?").get(agentId))
+        .toEqual({ archivedAt: archived ? updatedAt : null, enabled: archived ? 0 : 1 });
+    }
     const invalid = structuredClone(records.find((record) => record.recordType === "team_work_item")!);
     invalid.version += 1000;
     invalid.payload.updatedAt = new Date(invalid.version).toISOString();

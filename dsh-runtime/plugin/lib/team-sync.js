@@ -43,7 +43,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   for (const row of database.prepare(`
     SELECT a.id, w.team_id AS teamId, a.name, a.description, a.instructions,
            a.preset_id AS presetId, a.model, a.reasoning_effort AS reasoningEffort,
-           a.system_role AS systemRole, a.capabilities_json AS capabilities, a.enabled,
+           a.system_role AS systemRole, a.capabilities_json AS capabilities, a.enabled, a.archived_at AS archivedAt,
            a.max_concurrency AS maxConcurrency, a.mcp_access AS mcpAccess,
            a.mcp_servers_json AS mcpServers, a.created_at AS createdAt, a.updated_at AS updatedAt
     FROM agent_assignments a JOIN workspaces w ON w.id = a.workspace_id
@@ -52,7 +52,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     ...owner('app_agent_owners', 'agent_id', row.id),
     teamId: row.teamId, name: row.name, description: row.description, instructions: row.instructions,
     presetId: row.presetId, model: row.model, reasoningEffort: row.reasoningEffort,
-    systemRole: row.systemRole, capabilities: json(row.capabilities), enabled: Boolean(row.enabled),
+    systemRole: row.systemRole, capabilities: json(row.capabilities), enabled: Boolean(row.enabled), archivedAt: timestamp(row.archivedAt),
     maxConcurrency: row.maxConcurrency, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
     inputLocations: inputLocations(database, "agent_locations", "agent_assignment_id", row.id),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
@@ -288,17 +288,17 @@ function applyAgent(database, record, authoritativeApps = false) {
     INSERT INTO agent_assignments
       (id, workspace_id, preset_id, name, description, instructions, model, reasoning_effort,
        system_role, capabilities_json, enabled, max_concurrency, mcp_access, mcp_servers_json,
-       created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       created_at, updated_at, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET preset_id = excluded.preset_id, name = excluded.name,
       description = excluded.description, instructions = excluded.instructions, model = excluded.model,
       reasoning_effort = excluded.reasoning_effort, system_role = excluded.system_role,
       capabilities_json = excluded.capabilities_json, enabled = excluded.enabled,
       max_concurrency = excluded.max_concurrency, mcp_access = excluded.mcp_access,
-      mcp_servers_json = excluded.mcp_servers_json, updated_at = excluded.updated_at
+      mcp_servers_json = excluded.mcp_servers_json, updated_at = excluded.updated_at, archived_at = excluded.archived_at
   `).run(record.recordId, workspaceId, p.presetId, p.name, p.description, p.instructions,
     p.model, p.reasoningEffort, p.systemRole, JSON.stringify(p.capabilities), p.enabled ? 1 : 0,
-    p.maxConcurrency, p.mcpAccess, JSON.stringify(p.mcpServers), p.createdAt, p.updatedAt);
+    p.maxConcurrency, p.mcpAccess, JSON.stringify(p.mcpServers), p.createdAt, p.updatedAt, p.archivedAt ?? null);
   for (const { id } of collisions) {
     database.prepare(`
       INSERT OR IGNORE INTO agent_locations

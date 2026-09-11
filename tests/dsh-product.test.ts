@@ -33,7 +33,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 25 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 26 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -58,7 +58,85 @@ describe("Bees DSH product plugin", () => {
     initializeProductDatabase(database);
     expect(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }: any) => name))
       .toContain("enabled");
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 25 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 26 });
+  });
+
+  it("migrates untouched Goals instructions and preserves owner edits and cleared defaults", () => {
+    const legacy = "Autonomous outcomes executed and independently reviewed by agents";
+    for (const description of [legacy, "Use my own acceptance criteria.", ""]) {
+      const database = new NodeDatabase().connection;
+      try {
+        const defaults = database.prepare("SELECT id, description FROM processes WHERE kind = 'goals'").get()!;
+        expect(String(defaults.description)).toContain("Work:");
+        expect(String(defaults.description)).toContain("Review:");
+        expect(String(defaults.description).length).toBeLessThanOrEqual(2_000);
+        const previous = "2099-01-01T00:00:00.000Z";
+        database.prepare("UPDATE processes SET description = ?, updated_at = ? WHERE id = ?")
+          .run(description, previous, String(defaults.id));
+        database.exec("PRAGMA user_version = 25");
+        initializeProductDatabase(database);
+        const saved = database.prepare("SELECT description, updated_at AS updatedAt FROM processes WHERE id = ?")
+          .get(String(defaults.id))!;
+        expect(saved.description).toBe(description === legacy ? defaults.description : description);
+        if (description === legacy) expect(String(saved.updatedAt) > previous).toBe(true);
+        else expect(saved.updatedAt).toBe(previous);
+        database.prepare("UPDATE processes SET description = '' WHERE id = ?").run(String(defaults.id));
+        initializeProductDatabase(database);
+        expect(database.prepare("SELECT description FROM processes WHERE id = ?").get(String(defaults.id))!.description).toBe("");
+      } finally { database.close(); }
+    }
+  });
+
+  it.each(["goals", "standard"])("shares editable %s process instructions across workers, peers, children and review", async (kind) => {
+    const root = mkdtempSync(join(tmpdir(), "bees-process-instructions-"));
+    const database = new NodeDatabase().connection;
+    try {
+      const agents = new AgentRuntime({ on: () => () => undefined }, database);
+      const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const product = new BeesProduct(database, agents, { startItem: async () => ({}), isAutomatic: () => false }, root);
+      const initial = await product.snapshot();
+      const workspaceId = initial.workspaces[0].id;
+      const process = kind === "goals" ? initial.processes.find(({ kind }: any) => kind === "goals")
+        : await product.command({ action: "create_process", workspaceId, name: "Custom process", stages: ["Work", "Review", "Done"] });
+      const criteria = "Return a table with Evidence and Outcome columns.\nUse only supplied inputs and state unknown values as unknown.";
+      await product.command({ action: "edit_process", processId: process.id, name: "Configured process",
+        description: criteria, stages: ["Work", "Review", "Done"] });
+      const stages = (await product.snapshot()).stages.filter(({ processId }: any) => processId === process.id);
+      const work = stages.find(({ name }: any) => name === "Work");
+      const review = stages.find(({ name }: any) => name === "Review");
+      await product.command({ action: "set_stage_route", stageId: work.id, agentIds: [
+        initial.assignments.find(({ systemRole }: any) => systemRole === "worker").id,
+        initial.assignments.find(({ systemRole }: any) => systemRole === "reviewer").id
+      ] });
+      const parent = await product.command({ action: "create_item", processId: process.id,
+        title: "Summarize supplied notes", description: "Cover every supplied input." });
+      const run = async (item: any, stage: any, executionId: string) => {
+        await product.runProcessStage({ workItemId: item.id, stageId: stage.id, stageName: stage.name,
+          executionId, purpose: stage.driver === "review" ? "reviewer" : "worker" });
+        return execute.mock.calls.at(-1)![1];
+      };
+      const worker = await run(parent, work, "parent-work");
+      expect(worker.body).toContain(criteria);
+      expect(worker.initialData.instructions).toBe("");
+      expect(worker.initialData.discussionMembers).toHaveLength(1);
+      expect(worker.initialData.discussionMembers[0]).toMatchObject({ planningReviewer: true });
+      expect(worker.initialData.discussionMembers[0].prompt).toContain(criteria);
+      const child = await product.command({ action: "create_item", processId: process.id, parentId: parent.id,
+        title: "Inspect one input", description: "Report its contents." });
+      const delegated = await run(child, work, "child-work");
+      expect(delegated.body).toContain(criteria);
+      expect(delegated.body).toContain("Cover every supplied input.");
+      expect(delegated.initialData.discussionMembers).toEqual([]);
+      expect(delegated.body).not.toContain("dates when exposed");
+      const reviewer = await run(parent, review, "parent-review");
+      expect(reviewer.body).toContain(criteria);
+      expect(reviewer.initialData.instructions).toBe("");
+      await product.command({ action: "edit_process", processId: process.id, name: "Configured process",
+        description: "", stages: ["Work", "Review", "Done"] });
+      const cleared = await run(parent, work, "cleared-work");
+      expect(cleared.body).not.toContain(criteria);
+      expect(cleared.body).not.toContain("A plan alone does not complete Work");
+    } finally { database.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
@@ -220,7 +298,7 @@ describe("Bees DSH product plugin", () => {
         .toEqual({ model: null, reasoningEffort: null });
       const count = snapshot.items.length + 2;
       for (const runSettings of [[], { model: "bad-route" }, { model: 42 }, { mcpAccess: "invalid" },
-        { mcpAccess: "listed", mcpServers: [] }, { reasoningEffort: "high" }, { grants: [output.id] }]) {
+        { reasoningEffort: "high" }, { grants: [output.id] }]) {
         await expect(product.command({ action: "create_goal", workspaceId, title: "Invalid", runSettings })).rejects.toThrow();
       }
       expect((await product.snapshot()).items).toHaveLength(count);
@@ -319,6 +397,24 @@ describe("Bees DSH product plugin", () => {
         action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"
       })).rejects.toThrow('The agent reference "missing" is unavailable');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("saves empty selected MCP lists for agents and goals without granting servers", async () => {
+    const database = new NodeDatabase();
+    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, "/tmp");
+    const initial = await product.snapshot();
+    const policy = { mcpAccess: "listed", mcpServers: [] };
+    const created = await product.command({ action: "add_agent_assignment", workspaceId: initial.workspaces[0].id,
+      name: "Empty selection", presetId: "standard", ...policy });
+    await product.command({ action: "edit_agent_assignment", agentAssignmentId: created.id, ...policy, viaAgent: true });
+    const goal = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id,
+      title: "Empty selection", runSettings: policy });
+    const snapshot = await product.snapshot();
+    expect(snapshot.assignments.find((row: any) => row.id === created.id)).toMatchObject(policy);
+    expect(snapshot.items.find((row: any) => row.id === goal.id).runSettings).toEqual(policy);
+    const { mcpGrantFor } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-database.js");
+    expect(mcpGrantFor(database.connection, created.id)).toEqual(policy);
   });
 
   it("intersects a goal's selected connections with the agent policy", async () => {
@@ -447,6 +543,18 @@ describe("Bees DSH product plugin", () => {
     ]));
     const reviewer = initial.assignments.find(({ systemRole }: any) => systemRole === "reviewer");
     const worker = initial.assignments.find(({ systemRole }: any) => systemRole === "worker");
+    const agentCopy = await product.command({ action: "copy_agent_assignment", agentAssignmentId: worker.id, name: "Worker Copy" });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({
+      ...worker, id: agentCopy.id, name: "Worker Copy", systemRole: null, updatedAt: expect.any(String)
+    }));
+    await expect(product.command({ action: "archive_agent_assignment", agentAssignmentId: worker.id }))
+      .rejects.toThrow("built-in");
+    await product.command({ action: "archive_agent_assignment", agentAssignmentId: agentCopy.id });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({ id: agentCopy.id, enabled: false, archivedAt: expect.any(String) }));
+    await expect(product.command({ action: "edit_agent_assignment", agentAssignmentId: agentCopy.id, enabled: true }))
+      .rejects.toThrow("Agent not found");
+    await product.command({ action: "restore_agent_assignment", agentAssignmentId: agentCopy.id });
+    expect((await product.snapshot()).assignments).toContainEqual(expect.objectContaining({ id: agentCopy.id, enabled: true, archivedAt: null }));
     await product.command({
       action: "edit_agent_assignment", agentAssignmentId: reviewer.id, name: reviewer.name,
       presetId: "standard", description: "Review independently", instructions: "Challenge every claim",
@@ -690,6 +798,27 @@ describe("Bees DSH product plugin", () => {
     });
     await product.command({ action: "archive_process", processId: oldProcess.id });
     expect((await product.snapshot()).processes).not.toContainEqual(expect.objectContaining({ id: oldProcess.id }));
+    expect((await product.snapshot()).archivedProcessTemplates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: oldProcess.id, archivedAt: expect.any(String) }),
+      expect.objectContaining({ id: savedTemplate.id, archivedAt: expect.any(String) })
+    ]));
+    const goalsCopy = await product.command({ action: "copy_process", processId: goals.id, name: "Goals Copy" });
+    const copiedSnapshot = await product.snapshot();
+    expect(copiedSnapshot.processes).toContainEqual(expect.objectContaining({ id: goalsCopy.id, kind: "standard" }));
+    expect(copiedSnapshot.processes.filter((row: any) => row.workspaceId === workspace.id && row.kind === "goals"))
+      .toEqual([expect.objectContaining({ id: goals.id })]);
+    expect(copiedSnapshot.stages.filter((row: any) => row.processId === goalsCopy.id).map((row: any) => row.name))
+      .toEqual(copiedSnapshot.stages.filter((row: any) => row.processId === goals.id).map((row: any) => row.name));
+    await product.command({ action: "archive_process", processId: goalsCopy.id });
+    for (const command of [
+      { action: "restore_process", processId: oldProcess.id },
+      { action: "restore_process_template", templateId: savedTemplate.id }
+    ]) await product.command(command);
+    const restoredSnapshot = await product.snapshot();
+    expect(restoredSnapshot.processes).toContainEqual(expect.objectContaining({ id: oldProcess.id }));
+    expect(restoredSnapshot.templates).toContainEqual(expect.objectContaining({ id: savedTemplate.id }));
+    expect(restoredSnapshot.archivedProcessTemplates.map((row: any) => row.id)).not.toContain(oldProcess.id);
+    expect(restoredSnapshot.archivedProcessTemplates.map((row: any) => row.id)).not.toContain(savedTemplate.id);
 
     await product.command({
       action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"
