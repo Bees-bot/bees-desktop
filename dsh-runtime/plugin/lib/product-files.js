@@ -154,7 +154,11 @@ function walk(root, limit, keep = () => true) {
   const stack = [root];
   while (stack.length && files.length < limit) {
     const directory = stack.pop();
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    // Agents write these folders while we read them. One unreadable subfolder must cost that
+    // subfolder, not every file already found, which reached a reviewer as "produced nothing".
+    let entries = [];
+    try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
       if (entry.isSymbolicLink()) continue;
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(path);
@@ -176,7 +180,11 @@ export function outputFiles(runDirectory) {
 
 export function previewFiles(runDirectory) {
   const files = [];
-  const text = (path) => TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000;
+  // A file replaced between listing it and sizing it is one file to skip, not a failed preview.
+  const text = (path) => {
+    if (!TEXT_EXTENSIONS.has(extname(path).toLowerCase())) return false;
+    try { return lstatSync(path).size <= 1_000_000; } catch { return false; }
+  };
   for (const rootName of ["inputs", "outputs"]) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));
