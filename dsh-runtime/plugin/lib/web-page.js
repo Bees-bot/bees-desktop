@@ -11,15 +11,28 @@ const readable = (body) => {
     : content;
 };
 
+// Feeds escape their markup, so a description arrives as &lt;a href=...&gt; and reads as noise to a
+// model. Ampersand decodes last: decoding it first would turn a literal &amp;lt; into a delimiter.
 const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
-  .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
+  .replace(/&#(\d{1,7});/g, (match, code) => (Number(code) <= 0x10ffff ? String.fromCodePoint(Number(code)) : match))
+  .replace(/&amp;/g, "&").trim();
+// Strip before decoding again: a feed escapes its markup twice, and a tag revealed by the second
+// pass is text, not a tag.
+const plainText = (html) => unescape(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+const letters = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 function newsItems(xml) {
   return [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map(([, item]) => {
     const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
-    return { title: field("title"), url: field("link"), publisher: field("source") || field("dc:creator"),
+    const title = field("title");
+    // Google News writes the title and publisher back as a link, punctuated differently, so compare
+    // on letters alone. Repeating them cost half the payload and told the model nothing new.
+    const summary = plainText(field("description") || field("content:encoded"));
+    return { title, url: field("link"), publisher: field("source") || field("dc:creator"),
       published_at: field("pubDate") || null,
-      description: field("description") || field("content:encoded") || null };
+      description: summary && !letters(title).includes(letters(summary)) ? summary : null };
   }).filter(({ title, url }) => title && /^https?:\/\//i.test(url));
 }
 
