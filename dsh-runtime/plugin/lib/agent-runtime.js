@@ -1136,6 +1136,12 @@ export class AgentRuntime {
               throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
             this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           }
+          // A model that re-issues the same batch next turn spawned a second set of children and
+          // waited on them again. A partial repeat is progress, so only a wholly repeated batch stops.
+          const settled = this.database.prepare(`SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
+            AND runtime_phase IN ('completed','failed','cancelled') AND lower(trim(title)) = lower(trim(?))`);
+          if (items.every(({ title }) => settled.get(data.workItemId, String(title ?? ""))))
+            throw new Error("These peers already ran. Read their results with bees_read_work_evidence, correct one with bees_revise_work, or send different assignments.");
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
