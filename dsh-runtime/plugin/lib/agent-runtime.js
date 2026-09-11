@@ -1734,6 +1734,9 @@ export class AgentRuntime {
         await handle.dispose().catch(() => undefined);
         if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
         else this.setStatus(executionId, previousStatus);
+        // an unsettled delivery row makes the next executeStage poll it for ever
+        this.database.prepare("UPDATE dsh_deliveries SET outcome = 'failed', error_json = ?, settled_at = ? WHERE submission_id = ?")
+          .run(JSON.stringify({ message: message(error) }), new Date().toISOString(), submissionId);
         throw error;
       }
       this.recovery.delete(executionId);
@@ -1895,7 +1898,7 @@ export class AgentRuntime {
     if (signal?.aborted) throw signal.reason ?? new Error("The Temporal activity was cancelled");
 
     let submission = run ? this.database.prepare(`
-      SELECT submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
+      SELECT delivery_id AS deliveryId, submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
       WHERE execution_id = ? ORDER BY created_at DESC LIMIT 1
     `).get(executionId) : null;
     if (!run) {
@@ -1924,8 +1927,9 @@ export class AgentRuntime {
     }
 
     let delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
-    if (delivery.outcome === "completed" && !this.stageResult(executionId)) {
-      // a small model ends its turn with the answer in prose; one reminder gets the protocol call
+    // a small model ends its turn with the answer in prose; one reminder gets the protocol call.
+    // an activity re-entry that waited on the reminder itself must not send another
+    if (delivery.outcome === "completed" && !this.stageResult(executionId) && !submission.deliveryId?.endsWith(":submit")) {
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
