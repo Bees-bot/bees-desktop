@@ -1288,24 +1288,21 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
-        // A small model will happily report a file it never wrote, and review then judges a fiction.
+        // A run will happily report a file it never wrote, and review then judges a fiction. An empty
+        // file passed a plain existsSync, so a bounced run made one to get past this.
+        const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
         const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
           .map(([path]) => path.replace(/[.,;:]+$/, ""))
-          .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
-        if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
+          .filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
         // The extension filter keeps a domain in a news summary from reading as a deliverable.
         const named = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
           .map(([name]) => name.replace(/[.,;:]+$/, "")).filter((name) => DELIVERABLE.test(name)) : [];
-        // An empty file satisfied existsSync, so a bounced run created one to get past this check.
-        const where = (name) => [resolve(workspace, "outputs", name), resolve(workspace, name)]
-          .filter((path) => { try { return statSync(path).isFile() && statSync(path).size > 0; } catch { return false; } });
         // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
         // at all and costs a whole cycle.
-        const stray = named.find((name) => where(name).length === 1 && !existsSync(resolve(workspace, "outputs", name)));
+        const stray = named.find((name) => real(resolve(workspace, name)) && !real(resolve(workspace, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        // A bare filename escaped the outputs/ check above, so a run reported five entries in a file
-        // it never opened and review judged the fiction.
-        const absent = named.find((name) => !where(name).length);
+        const absent = missing[0] ?? named.find((name) =>
+          !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
