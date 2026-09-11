@@ -317,6 +317,9 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
+                  // Off deletes the file, and the confirm never says the model is live. Cancelling
+                  // a download stays available; only deleting one that is serving is refused.
+                  disabled: running,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
               h("td", null, h("label", { className: "bees-local-toggle" },
