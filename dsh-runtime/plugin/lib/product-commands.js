@@ -274,7 +274,10 @@ function learnedPlaybook(current, feedback) {
   const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
   const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
-  return lines.slice(-12).join("\n").slice(0, 6_000);
+  // Room decides what survives, not a bullet count: twelve short corrections dropped the thirteenth
+  // while the budget sat empty, and cutting the joined text lost the newest bullet, not the stalest.
+  while (lines.join("\n").length > 6_000) lines.shift();
+  return lines.join("\n");
 }
 
 export async function executeProductCommand(action, input) {
