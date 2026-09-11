@@ -548,6 +548,13 @@ export class AgentRuntime {
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
       if (exec.name !== "ask_user_question") return;
+      // The protocol already forbids approval choices, and models write them anyway: a run turned
+      // its own instructions into five one-option prompts and stalled on a human who was not there.
+      // No options at all is an open question and stays allowed.
+      let asked = exec.arguments;
+      if (typeof asked === "string") { try { asked = JSON.parse(asked); } catch { asked = null; } }
+      if (asked?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
+        return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";
       const parentSession = exec.agent?.session.header.parentSession;
       if (!parentSession) return;
       if (database.prepare("SELECT 1 FROM execution_links WHERE current_session_id = ?").get(String(parentSession)))
