@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,7 +28,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Results people will read go in markdown files under outputs/; the summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -53,11 +53,6 @@ You must call bees_propose_changes with reviewable changes. Do not claim that a 
 
 const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
 
-/** The harness describes itself to an agent it owns: its own checkout path, the local GUI address
- *  and how to rebuild its bundle. A seated teammate has none of that and no shell to use it with. */
-const HARNESS_SECTIONS = new Set(["harness:identity", "app:web-surface"]);
-const TEAMMATE_PERSONA = `You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect.`;
-
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
@@ -68,8 +63,6 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
-// Extensions Bees actually ships as deliverables, so a bare "yahoo.com" is not read as one.
-const DELIVERABLE = /\.(txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)$/i;
 const reviewQuestions = (summary) => [{
   id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
   options: [
@@ -194,6 +187,8 @@ const MAX_DELEGATION_DEPTH = 1;
 // Peers delegated together run at once and share the caller's workspace. Four keeps a fan-out
 // useful without a lead spawning a swarm that competes for the same model and the same files.
 const MAX_PARALLEL_PEERS = 4;
+/** A candidate summary is the chat update; anything longer is content that belongs in outputs/. */
+const SUMMARY_UPDATE_CHARS = 1_200;
 
 /** Stage completion is recorded explicitly by bees_submit_stage_result. */
 const STAGE_RESULT_COLUMNS = `
@@ -549,13 +544,14 @@ export class AgentRuntime {
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
+      // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
+      const target = !exec.name.startsWith("mcp__") && ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).find((value) => typeof value === "string");
+      const run = target && database.prepare("SELECT run_directory AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
+        .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
+      if (run && !`${resolve(run.directory, target)}${sep}`.startsWith(`${resolve(run.directory)}${sep}`))
+        return `${target} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       if (exec.name !== "ask_user_question") return;
-      // The protocol already forbids approval choices, and models write them anyway: a run turned
-      // its own instructions into five one-option prompts and stalled on a human who was not there.
-      // No options at all is an open question and stays allowed.
-      let asked = exec.arguments;
-      if (typeof asked === "string") { try { asked = JSON.parse(asked); } catch { asked = null; } }
-      if (asked?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
+      if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
         return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";
       const parentSession = exec.agent?.session.header.parentSession;
       if (!parentSession) return;
@@ -582,6 +578,11 @@ export class AgentRuntime {
 
   setWorkStarter(start) {
     this.workStarter = start;
+  }
+
+  setStatus(executionId, status, at = new Date().toISOString()) {
+    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?").run(status, at, executionId);
+    this.notify({ type: "run/status", executionId, status, at });
   }
 
   audit(eventType, executionId, sessionId, metadata = {}) {
@@ -679,8 +680,7 @@ export class AgentRuntime {
         questions: String(event.data.arguments ?? "").slice(0, 8_000)
       };
       const at = new Date().toISOString();
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_input', updated_at = ? WHERE execution_id = ?")
-        .run(at, executionId);
+      this.setStatus(executionId, "waiting_for_input", at);
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -701,8 +701,7 @@ export class AgentRuntime {
         callId: event.data.callId ?? null,
         reason: event.data.reason ?? null
       };
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_approval', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "waiting_for_approval");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -717,8 +716,7 @@ export class AgentRuntime {
     }
     if (event.type === "approval/decided") {
       const transition = event.data.outcome === "allowed-once" ? "approved" : "rejected";
-      this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "running");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'running', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -739,8 +737,7 @@ export class AgentRuntime {
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "running", at);
         this.database.prepare(`
           UPDATE work_items SET runtime_phase = 'running', updated_at = ?
           WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -858,6 +855,13 @@ export class AgentRuntime {
     }
   }
 
+  async awaitDiscussion(agentCtx, agent, signal, members, executionId) {
+    if (!members?.length) return;
+    const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, agent, signal, members.map(({ name }) => name));
+    if (reason === "no-progress") throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
+    this.assertDiscussionReady(agent, members, executionId);
+  }
+
   assertDiscussionReady(agent, members, executionId) {
     if (!members?.length) return;
     const roster = this.ctx.agentTeams.listMembers(agent);
@@ -896,17 +900,12 @@ export class AgentRuntime {
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx);
-    // Only a stage agent runs setup() and gets a persona, so a seated teammate kept the harness's:
-    // that it drives the harness GUI and can read its checkout, at a path from this machine.
     agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
       const assembly = await next();
-      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona"))
-        return assembly;
-      // The guard below refuses a teammate ask_user_question, so listing it only bought a failed
-      // call and a wasted turn, twenty six of them in the runs on this machine.
+      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona")) return assembly;
       return { ...assembly, tools: assembly.tools.filter(({ name }) => name !== "ask_user_question"),
-        sections: [{ name: "bees:teammate", text: TEAMMATE_PERSONA },
-          ...assembly.sections.filter(({ name }) => !HARNESS_SECTIONS.has(name))] };
+        sections: [{ name: "bees:teammate", text: "You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect." },
+          ...assembly.sections.filter(({ name }) => !["harness:identity", "app:web-surface"].includes(name))] };
     });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter);
@@ -999,7 +998,7 @@ export class AgentRuntime {
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
         // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
-        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
@@ -1033,9 +1032,7 @@ export class AgentRuntime {
       },
       execute: async (args, exec) => {
         let input;
-        // Saying only "must be valid JSON" left a run guessing; one stray brace cost it the whole stage.
-        try { input = JSON.parse(args.input_json || "{}"); }
-        catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
+        try { input = JSON.parse(args.input_json || "{}"); } catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
@@ -1141,17 +1138,8 @@ export class AgentRuntime {
             throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
-          if (data.discussionMembers?.length) {
-            const discussion = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal,
-              data.discussionMembers.map(({ name }) => name));
-            if (discussion.reason === "no-progress")
-              throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
-            this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
-          }
-          // A model that re-issues the same batch next turn spawned a second set of children and
-          // waited on them again. A partial repeat is progress, so only a wholly repeated batch stops.
-          const settled = this.database.prepare(`SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
-            AND runtime_phase IN ('completed','failed','cancelled') AND lower(trim(title)) = lower(trim(?))`);
+          await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
+          const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
           if (items.every(({ title }) => settled.get(data.workItemId, String(title ?? ""))))
             throw new Error("These peers already ran. Read their results with bees_read_work_evidence, correct one with bees_revise_work, or send different assignments.");
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
@@ -1289,22 +1277,20 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
-        // A run will happily report a file it never wrote, and review then judges a fiction. An empty
-        // file passed a plain existsSync, so a bounced run made one to get past this.
-        const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
-        const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
-          .map(([path]) => path.replace(/[.,;:]+$/, ""))
-          .filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
-        // The extension filter keeps a domain in a news summary from reading as a deliverable.
-        const named = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
-          .map(([name]) => name.replace(/[.,;:]+$/, "")).filter((name) => DELIVERABLE.test(name)) : [];
-        // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
-        // at all and costs a whole cycle.
-        const stray = named.find((name) => real(resolve(workspace, name)) && !real(resolve(workspace, "outputs", name)));
+        // A small model will happily report a file it never wrote, and review then judges a fiction.
+        const real = (path) => { try { const stat = statSync(path); return stat.isDirectory() || stat.size > 0; } catch { return false; } };
+        // a reviewer cites the candidate's files and delivers none of its own
+        const workdir = data.stagePurpose === "reviewer" ? null : workspace;
+        const missing = workdir ? (result.summary.match(/outputs\/[\w.\-/]*[\w-]/g) ?? []).filter((path) => !path.includes("..") && !real(resolve(workdir, path))) : [];
+        const named = workdir ? result.summary.match(/(?<![\w./-])[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
+        const stray = named.find((name) => real(resolve(workdir, name)) && !real(resolve(workdir, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) =>
-          !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
+        const absent = missing[0] ?? named.find((name) => !["outputs", "inputs", "."].some((dir) => real(resolve(workdir, dir, name))));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
+        // A stage handed a 4 KB project table to the conversation and wrote no file; the person wanted
+        // a document to open and a line in the chat. Blocked reports and reviewer feedback stay uncapped.
+        if (data.stagePurpose === "worker" && args.outcome === "candidate" && result.summary.length > SUMMARY_UPDATE_CHARS)
+          throw new Error(`Keep the summary under ${SUMMARY_UPDATE_CHARS} characters: what you produced, where it is, and what is needed next. Put the content itself in a markdown file under outputs/.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
@@ -1324,7 +1310,7 @@ export class AgentRuntime {
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
           throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
-        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        if (["candidate", "pass"].includes(args.outcome)) await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
@@ -1589,8 +1575,7 @@ export class AgentRuntime {
       const run = this.run(executionId);
       if (run?.status === "queued") {
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'failed', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "failed", at);
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
         this.checkpoint(executionId, run.currentSessionId, "failed", {
           idempotencyKey: `start-failed:${executionId}`
@@ -1692,8 +1677,7 @@ export class AgentRuntime {
         INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
         VALUES (?, ?, ?, ?)
       `).run(payload.idempotencyKey, executionId, submissionId, at);
-      this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-        .run(activeStatus, at, executionId);
+      this.setStatus(executionId, activeStatus, at);
       this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
     });
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
@@ -1740,8 +1724,7 @@ export class AgentRuntime {
         this.live.delete(executionId);
         await handle.dispose().catch(() => undefined);
         if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
-        else this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-          .run(previousStatus, new Date().toISOString(), executionId);
+        else this.setStatus(executionId, previousStatus);
         throw error;
       }
       this.recovery.delete(executionId);
@@ -1845,8 +1828,7 @@ export class AgentRuntime {
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
     `).run(result.outcome, result.error ? JSON.stringify(result.error) : null, at, submissionId);
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-      .run(result.outcome, at, executionId);
+    this.setStatus(executionId, result.outcome, at);
     this.checkpoint(executionId, sessionId, result.outcome, {
       pendingInteraction: null,
       idempotencyKey: `settled:${submissionId}`
@@ -1998,7 +1980,7 @@ export class AgentRuntime {
           : { sessionId, unavailable: true });
       }
       const result = this.database.prepare(`
-        SELECT outcome, summary, created_at AS createdAt
+        SELECT outcome, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?
       `).get(run.executionId) ?? null;
       const audit = this.database.prepare(`

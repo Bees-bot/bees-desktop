@@ -154,8 +154,6 @@ function walk(root, limit, keep = () => true) {
   const stack = [root];
   while (stack.length && files.length < limit) {
     const directory = stack.pop();
-    // Agents write these folders while we read them. One unreadable subfolder must cost that
-    // subfolder, not every file already found, which reached a reviewer as "produced nothing".
     let entries;
     try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
@@ -180,9 +178,7 @@ export function outputFiles(runDirectory) {
 
 export function previewFiles(runDirectory) {
   const files = [];
-  // A file replaced between listing it and sizing it is one file to skip, not a failed preview.
-  const text = (path) => { try { return TEXT_EXTENSIONS.has(extname(path).toLowerCase())
-    && lstatSync(path).size <= 1_000_000; } catch { return false; } };
+  const text = (path) => { try { return TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000; } catch { return false; } };
   for (const rootName of ["inputs", "outputs"]) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));

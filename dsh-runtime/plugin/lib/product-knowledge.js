@@ -36,10 +36,8 @@ function indexedLocation(location) {
 
 function frontmatter(body) {
   if (!body.startsWith("---\n") && !body.startsWith("---\r\n")) return {};
-  // The fence is a line of its own. Matching any line that merely starts with --- ended the block
-  // early on a value like "---> see docs" and dropped every field under it.
-  const end = body.slice(0, 10_001).search(/\n---[ \t]*(?:\r?\n|$)/);
-  if (end < 0) return {};
+  const end = body.search(/\n---[ \t]*(?:\r?\n|$)/);
+  if (end < 0 || end > 10_000) return {};
   const values = {};
   for (const line of body.slice(4, end).split(/\r?\n/)) {
     const match = /^([a-zA-Z][a-zA-Z0-9_-]*):\s*(.*?)\s*$/.exec(line);

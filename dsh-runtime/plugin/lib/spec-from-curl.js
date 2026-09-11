@@ -82,11 +82,6 @@ function requestBodyFor(request) {
   }
 }
 
-/** A webhook carries its whole credential in the path. The route stays in `paths` because the call
- *  needs it, but the name and summary a tool list shows the model must not repeat it. */
-const masked = (path) => path.split("/")
-  .map((segment) => (/^(?=.*[a-z])(?=.*\d)[\w-]{16,}$/i.test(segment) ? "***" : segment)).join("/");
-
 function operationId(method, path) {
   const parts = path.split("/").filter(Boolean)
     .map((part) => part.replace(/[{}]/g, "").replace(/[^A-Za-z0-9]+/g, " ").trim())
@@ -101,6 +96,7 @@ export function specFromCurl(command) {
   const request = parseCurl(command);
   const host = new URL(request.origin).hostname.replace(/^www\./, "");
   const body = requestBodyFor(request);
+  const shown = request.path.replace(/[^/]+/g, (segment) => (/^(?=.*[a-z])(?=.*\d)[\w.%-]{16,}$/i.test(segment) ? "***" : segment));
   const spec = {
     openapi: "3.0.3",
     info: {
@@ -112,8 +108,8 @@ export function specFromCurl(command) {
     paths: {
       [request.path]: {
         [request.method]: {
-          operationId: operationId(request.method, masked(request.path)),
-          summary: `${request.method.toUpperCase()} ${masked(request.path)}`,
+          operationId: operationId(request.method, shown),
+          summary: `${request.method.toUpperCase()} ${shown}`,
           description: `Taken from a working request. Only this endpoint is described.`,
           // No example: a key pasted in the query string would otherwise land in the spec file.
           parameters: request.query.map(([name, value]) => ({
