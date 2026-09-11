@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
         fileName: "LFM2.5-2.6B-Q4_K_M.gguf",
         url: "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/main/LFM2.5-2.6B-Q4_K_M.gguf?download=true",
         bytes: 1674455040,
-        sha256: "06be29a7a518eb44b9630e0ad805ed10a86fc2390e69a8ebf5e939b02b5688d9"
+        sha256: "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed"
       },
       {
         id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
