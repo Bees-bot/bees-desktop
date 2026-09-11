@@ -919,7 +919,7 @@ export class AgentRuntime {
     removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
-    if (installedApp) mountAppTools(agentCtx, this.apps, installedApp, data);
+    const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
     this.installPolicies(agentCtx, { discovery: !installedApp });
     const agent = agentCtx.on ? scopeOf(agentCtx) : null;
     if (agent?.session?.id) this.policySessions.add(String(agent.session.id));
@@ -934,7 +934,8 @@ export class AgentRuntime {
         !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
-        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)])
+        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
+        appInstructions
       ].filter(Boolean).join("\n\n"), complete: true
     });
     if (!installedApp) agentCtx.tools.register(defineTool({
