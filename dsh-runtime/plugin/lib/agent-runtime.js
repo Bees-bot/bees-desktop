@@ -28,7 +28,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Results people will read go in markdown files under outputs/; the summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -187,6 +187,8 @@ const MAX_DELEGATION_DEPTH = 1;
 // Peers delegated together run at once and share the caller's workspace. Four keeps a fan-out
 // useful without a lead spawning a swarm that competes for the same model and the same files.
 const MAX_PARALLEL_PEERS = 4;
+/** A candidate summary is the chat update; anything longer is content that belongs in outputs/. */
+const SUMMARY_UPDATE_CHARS = 1_200;
 
 /** Stage completion is recorded explicitly by bees_submit_stage_result. */
 const STAGE_RESULT_COLUMNS = `
@@ -542,13 +544,10 @@ export class AgentRuntime {
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
-      // The sandbox confines writes to the run, not reads: an agent globbed the whole Desktop for a
-      // resume and read a file out of a personal project. A run's files are its own directory; team
-      // files come through the knowledge tools.
-      const target = ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).find((value) => typeof value === "string");
-      const session = target ? exec.agent?.session : null;
-      const run = session && database.prepare(`SELECT run_directory AS directory FROM execution_links
-        WHERE current_session_id IN (?, ?)`).get(String(session.id), String(session.header?.parentSession ?? ""));
+      // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
+      const target = !exec.name.startsWith("mcp__") && ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).find((value) => typeof value === "string");
+      const run = target && database.prepare("SELECT run_directory AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
+        .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
       if (run && !`${resolve(run.directory, target)}${sep}`.startsWith(`${resolve(run.directory)}${sep}`))
         return `${target} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       if (exec.name !== "ask_user_question") return;
@@ -581,7 +580,6 @@ export class AgentRuntime {
     this.workStarter = start;
   }
 
-  /** Every status write pushes a change; the panel once learned a run had finished only from the 30 s poll. */
   setStatus(executionId, status, at = new Date().toISOString()) {
     this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?").run(status, at, executionId);
     this.notify({ type: "run/status", executionId, status, at });
@@ -1288,6 +1286,10 @@ export class AgentRuntime {
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
         const absent = missing[0] ?? named.find((name) => !["outputs", "inputs", "."].some((dir) => real(resolve(workdir, dir, name))));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
+        // A stage handed a 4 KB project table to the conversation and wrote no file; the person wanted
+        // a document to open and a line in the chat. Blocked reports and reviewer feedback stay uncapped.
+        if (data.stagePurpose === "worker" && args.outcome === "candidate" && result.summary.length > SUMMARY_UPDATE_CHARS)
+          throw new Error(`Keep the summary under ${SUMMARY_UPDATE_CHARS} characters: what you produced, where it is, and what is needed next. Put the content itself in a markdown file under outputs/.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;

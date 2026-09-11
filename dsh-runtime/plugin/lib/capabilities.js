@@ -37,7 +37,6 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
-/** A pasted `-H 'Name: value'` whose name says it carries a credential, and the reference that replaces it. */
 const PASTED_SECRET = /(-H\s+['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)([^'"]+)(['"])/gi;
 const STASHED = /^\{\{credential:([A-Z0-9_]+)\}\}$/;
 
@@ -375,8 +374,7 @@ export class Capabilities {
     return { id: server.id };
   }
 
-  /** Secrets live in the credential store, never in the product database. A pasted header moves
-   *  there on the way in; the text keeps a reference the from-curl path resolves in insert(). */
+  // a pasted credential header moves to the credential store; the text keeps a reference insert() resolves
   async stash(value) {
     if (Array.isArray(value)) return Promise.all(value.map((entry) => this.stash(entry)));
     if (value && typeof value === "object")

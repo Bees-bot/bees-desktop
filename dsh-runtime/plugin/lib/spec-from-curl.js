@@ -96,7 +96,7 @@ export function specFromCurl(command) {
   const request = parseCurl(command);
   const host = new URL(request.origin).hostname.replace(/^www\./, "");
   const body = requestBodyFor(request);
-  const shown = request.path.replace(/[^/]+/g, (segment) => (/^(?=.*[a-z])(?=.*\d)[\w-]{16,}$/i.test(segment) ? "***" : segment));
+  const shown = request.path.replace(/[^/]+/g, (segment) => (/^(?=.*[a-z])(?=.*\d)[\w.%-]{16,}$/i.test(segment) ? "***" : segment));
   const spec = {
     openapi: "3.0.3",
     info: {
