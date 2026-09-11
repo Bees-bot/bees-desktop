@@ -2,24 +2,28 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
 
-// Markup reaches us escaped, once in a page and twice in a feed. Ampersand decodes last, or a
-// literal &amp;lt; would become a delimiter. Numbered entities used to decode to a space, which is
-// how "Tom&#8217;s" reached the model as "Tom s".
+const ENTITIES = { lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", amp: "&" };
+// Markup reaches us escaped, once in a page and twice in a feed. One pass, so nothing a decode
+// produces is decoded again: "&#38;amp;" is the text "&amp;", not "&". Numbered entities used to
+// become a space, which is how "Tom&#8217;s" reached the model as "Tom s". A surrogate half is
+// left alone because a lone one cannot be serialised.
 const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
-  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-  .replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
-  .replace(/&#(\d{1,7});/g, (match, code) => (Number(code) <= 0x10ffff ? String.fromCodePoint(Number(code)) : match))
-  .replace(/&amp;/g, "&").trim();
-// Tags come out before decoding, so a delimiter the decode reveals stays text.
-const plainText = (html) => unescape(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
-const letters = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  .replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
+    const code = decimal ? Number(decimal) : hex ? parseInt(hex, 16) : 0;
+    if (!code) return ENTITIES[name.toLowerCase()] ?? match;
+    return code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
+  }).trim();
+// Tags come out before decoding, so a delimiter the decode reveals stays text. The class excludes
+// "<" as well, or a run of unclosed brackets costs a rescan each and turns the strip quadratic.
+const plainText = (html) => unescape(html.replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
+const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 const readable = (body) => {
   // Blank lines are the only page structure worth keeping, so this does not use plainText.
   const content = body.kind === "html"
     ? unescape(body.content
       .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<[^>]+>/g, " "))
+      .replace(/<[^<>]*>/g, " "))
       .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim()
     : body.content;
   return content.length > MAX_CHARS
@@ -32,11 +36,13 @@ function newsItems(xml) {
     const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
     const title = field("title");
     // Google News writes the title and publisher back as a link, punctuated differently, so compare
-    // on letters alone. Repeating them cost half the payload and told the model nothing new.
+    // on letters alone. Repeating them cost half the payload and told the model nothing new. An
+    // empty comparison means there was nothing to compare, not that the summary was an echo.
     const summary = plainText(field("description") || field("content:encoded"));
+    const echoed = letters(summary);
     return { title, url: field("link"), publisher: field("source") || field("dc:creator"),
       published_at: field("pubDate") || null,
-      description: summary && !letters(title).includes(letters(summary)) ? summary : null };
+      description: echoed && letters(title).includes(echoed) ? null : summary || null };
   }).filter(({ title, url }) => title && /^https?:\/\//i.test(url));
 }
 
