@@ -1032,7 +1032,9 @@ export class AgentRuntime {
       },
       execute: async (args, exec) => {
         let input;
-        try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
+        // Saying only "must be valid JSON" left a run guessing; one stray brace cost it the whole stage.
+        try { input = JSON.parse(args.input_json || "{}"); }
+        catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
