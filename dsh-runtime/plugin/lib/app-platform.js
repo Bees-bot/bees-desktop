@@ -56,7 +56,7 @@ export class AppPlatform {
     if (!actionColumns.includes("execution")) this.db.exec("ALTER TABLE app_actions ADD COLUMN execution TEXT NOT NULL DEFAULT '{}'");
     if (!this.db.prepare("PRAGMA table_info(app_portfolios)").all().some((column) => column.name === "approver_user_id")) this.db.exec("ALTER TABLE app_portfolios ADD COLUMN approver_user_id TEXT");
     for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all())
-      try { for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id); } catch {}
+      for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id);
     this.shared = connected ? new AppSharedState(this, connected) : null;
     this.actionConnector = actionConnector;
     this.dispatcher = new AppActionDispatcher({ connector: actionConnector,

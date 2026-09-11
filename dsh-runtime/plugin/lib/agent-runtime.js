@@ -542,10 +542,17 @@ export class AgentRuntime {
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
+      // The sandbox confines writes to the run, not reads: an agent globbed the whole Desktop for a
+      // resume and read a file out of a personal project. A run's files are its own directory; team
+      // files come through the knowledge tools.
+      const target = ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).find((value) => typeof value === "string");
+      const session = target ? exec.agent?.session : null;
+      const run = session && database.prepare(`SELECT run_directory AS directory FROM execution_links
+        WHERE current_session_id IN (?, ?)`).get(String(session.id), String(session.header?.parentSession ?? ""));
+      if (run && !`${resolve(run.directory, target)}${sep}`.startsWith(`${resolve(run.directory)}${sep}`))
+        return `${target} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       if (exec.name !== "ask_user_question") return;
-      let asked = exec.arguments;
-      if (typeof asked === "string") { try { asked = JSON.parse(asked); } catch { asked = null; } }
-      if (asked?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
+      if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
         return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";
       const parentSession = exec.agent?.session.header.parentSession;
       if (!parentSession) return;
@@ -1273,14 +1280,12 @@ export class AgentRuntime {
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
         // A small model will happily report a file it never wrote, and review then judges a fiction.
-        const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
-        const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
-          .map(([path]) => path.replace(/[.,;:]+$/, ""))
-          .filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
-        const named = workspace ? result.summary.match(/[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
+        const real = (path) => { try { const stat = statSync(path); return stat.isDirectory() || stat.size > 0; } catch { return false; } };
+        const missing = workspace ? (result.summary.match(/outputs\/[\w.\-/]*[\w-]/g) ?? []).filter((path) => !path.includes("..") && !real(resolve(workspace, path))) : [];
+        const named = workspace ? result.summary.match(/(?<![\w./-])[\w.\-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/gi) ?? [] : [];
         const stray = named.find((name) => real(resolve(workspace, name)) && !real(resolve(workspace, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) => !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
+        const absent = missing[0] ?? named.find((name) => !["outputs", "inputs", "."].some((dir) => real(resolve(workspace, dir, name))));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         const called = this.live.get(executionId)?.called;
         const invented = called && data.stagePurpose !== "reviewer" && result.summary.match(/\b(?:bees_[a-z_]+|web_(?:search|fetch))\b(?!\.[a-z0-9]{1,5}\b)/g)

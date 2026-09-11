@@ -263,7 +263,7 @@ export class Capabilities {
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    const { servers = [] } = await response.json().catch(() => ({}));
+    const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
     const seen = new Set();
     return servers.flatMap(({ server }) => {
       const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
