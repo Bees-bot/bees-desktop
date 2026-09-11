@@ -105,7 +105,7 @@ export function readToolResult(session, args, visited = new Set()) {
     // JSON leaves a call id here for ever. Say which one is unusable instead of throwing raw.
     let source = null;
     try { source = typeof call.arguments === "string" ? JSON.parse(call.arguments) : call.arguments; }
-    catch { source = null; }
+    catch { /* recorded as text, so it stays null */ }
     if (!source?.call_id) throw new Error(`Call ${call_id} did not record which result it read; ask for the original call_id.`);
     const prior = readToolResult(session, { call_id: source.call_id, offset: source.offset, find: source.find }, visited);
     if (prior.found === false) return prior;

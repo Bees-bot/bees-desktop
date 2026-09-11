@@ -1,28 +1,31 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
-const readable = (body) => {
-  // Numbered entities used to become a space, so every apostrophe and dash in a page turned into
-  // a hole: "Tom&#8217;s" read as "Tom s". Strip the tags first, then decode what is left.
-  const content = body.kind === "html" ? unescape(body.content
-    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " "))
-  .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
-  return content.length > MAX_CHARS
-    ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
-    : content;
-};
 
-// Feeds escape their markup, so a description arrives as &lt;a href=...&gt; and reads as noise to a
-// model. Ampersand decodes last: decoding it first would turn a literal &amp;lt; into a delimiter.
+// Markup reaches us escaped, once in a page and twice in a feed. Ampersand decodes last, or a
+// literal &amp;lt; would become a delimiter. Numbered entities used to decode to a space, which is
+// how "Tom&#8217;s" reached the model as "Tom s".
 const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
   .replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
   .replace(/&#(\d{1,7});/g, (match, code) => (Number(code) <= 0x10ffff ? String.fromCodePoint(Number(code)) : match))
   .replace(/&amp;/g, "&").trim();
-// Strip before decoding again: a feed escapes its markup twice, and a tag revealed by the second
-// pass is text, not a tag.
+// Tags come out before decoding, so a delimiter the decode reveals stays text.
 const plainText = (html) => unescape(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 const letters = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+const readable = (body) => {
+  // Blank lines are the only page structure worth keeping, so this does not use plainText.
+  const content = body.kind === "html"
+    ? unescape(body.content
+      .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<[^>]+>/g, " "))
+      .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim()
+    : body.content;
+  return content.length > MAX_CHARS
+    ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
+    : content;
+};
 
 function newsItems(xml) {
   return [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map(([, item]) => {
