@@ -63,7 +63,7 @@ describe("executive team", () => {
       const review = initial.stages.find((s: any) => s.name === "Review")!;
       await product.runProcessStage({ workItemId: child.id, stageId: review.id, executionId: "review", purpose: "reviewer", candidateExecutionId: "cto" });
       expect(execute.mock.calls.at(-1)![1].initialData.agentId).not.toBe(cto.id);
-      await expect(product.createSubitems({ parentId: goal.id, items: [{ title: "Invalid", agentAssignmentId: "foreign-or-missing" }] })).rejects.toThrow("belong to this team");
+      await expect(product.createSubitems({ parentId: goal.id, items: [{ title: "Invalid", agentAssignmentId: "foreign-or-missing" }] })).rejects.toThrow("is not an enabled agent in this team");
       await expect(product.createSubitems({ parentId: goal.id, items: [{ title: "Build page" }] })).rejects.toThrow("another agent");
       db.prepare("UPDATE agent_assignments SET enabled = 0 WHERE id = ?").run(cto.id);
       await expect(product.createSubitems({ parentId: goal.id, items: [{ title: "Disabled", agentAssignmentId: cto.id }] })).rejects.toThrow("enabled");
@@ -139,7 +139,7 @@ describe("executive team", () => {
 
     await expect(product.createSubitems({ parentId: goal.id, items: [
       { title: "Valid" }, { title: "Invalid", agentAssignmentId: "foreign-or-missing" }
-    ] })).rejects.toThrow("belong to this team");
+    ] })).rejects.toThrow("is not an enabled agent in this team");
     await expect(product.createSubitems({ parentId: goal.id, items: [
       { title: "Duplicate" }, { title: "Duplicate" }
     ] })).rejects.toThrow("distinct titles");

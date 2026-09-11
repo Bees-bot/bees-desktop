@@ -32,6 +32,7 @@ it("hides and denies preset delegation even when DSH registers it in the agent s
   });
   preset.ctx.tools.register(delegationTool("subagent_fork"));
   ctx.agentPresets = { mount: async () => undefined };
+  ctx.credentials = { resolve: async () => undefined };
   const runtime: any = new AgentRuntime(ctx, database.connection);
   try {
     await runtime.setup(run.ctx, {

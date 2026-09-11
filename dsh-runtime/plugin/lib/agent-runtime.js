@@ -902,7 +902,7 @@ export class AgentRuntime {
     const owner = scopeOf(agentCtx);
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
-    if (discovery) mountToolDiscovery(agentCtx);
+    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials);
     agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
       const assembly = await next();
       if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona")) return assembly;
@@ -1923,7 +1923,18 @@ export class AgentRuntime {
       });
     }
 
-    const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    let delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    if (delivery.outcome === "completed" && !this.stageResult(executionId)) {
+      // a small model ends its turn with the answer in prose; one reminder gets the protocol call
+      submission = await this.admit("bees-run", executionId, {
+        ...payload,
+        initialData: undefined,
+        uid: this.run(executionId).instanceUid,
+        idempotencyKey: `${submission.submissionId}:submit`,
+        body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
+      });
+      delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    }
     if (delivery.outcome !== "completed") {
       const failure = delivery.errorJson ? JSON.parse(delivery.errorJson) : null;
       throw new Error(failure?.message || `Agent stage ${delivery.outcome}`);

@@ -31,7 +31,7 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
     ctx.tools.register(tool("mcp__private__read", "Read an unauthorized server"));
     run.ctx.tools.restrict({ deny: ["mcp__private__read"] });
     run.ctx.tools.guard(({ name }: any) => ["guarded_send", "subagent", "subagent_fork"].includes(name) ? "denied" : undefined);
-    mountToolDiscovery(run.ctx);
+    mountToolDiscovery(run.ctx, { resolve: async () => undefined });
     // Simulate the standard preset's agent/created registrations after Bees setup.
     run.ctx.tools.register(tool("bees_submit_stage_result"));
     run.ctx.tools.register(tool("bees_read_tool_result"));

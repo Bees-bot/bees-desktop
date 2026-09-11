@@ -874,7 +874,7 @@ export class BeesProduct {
         : required(item.agentAssignmentId, "Delegated agent");
       if (agentId) {
         const agent = findAssignment(this.database, agentId, parent.workspaceId);
-        if (!agent?.enabled) throw new Error("Delegated agent must be enabled and belong to this team");
+        if (!agent?.enabled) throw new Error(`${agentId} is not an enabled agent in this team. Omit agentAssignmentId to run the work as yourself, or take an id from bees_list_execution_agents.`);
       }
       const existing = this.database.prepare(`
         SELECT id, agent_assignment_id AS agentAssignmentId, runtime_phase AS phase FROM work_items WHERE parent_id = ? AND title = ?

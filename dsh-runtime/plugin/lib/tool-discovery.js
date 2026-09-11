@@ -1,3 +1,4 @@
+import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
@@ -14,7 +15,7 @@ const PAGE_SIZE = 4;
 const RETAINED_TOOLS = 8;
 
 /** Present a small native toolkit; actual registrations and execution guards remain authoritative. */
-export function mountToolDiscovery(agentCtx) {
+export function mountToolDiscovery(agentCtx, credentials) {
   if (!agentCtx.on || !agentCtx.tools.schemas) return;
   const owner = scopeOf(agentCtx);
   const loaded = new Set();
@@ -22,7 +23,9 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    const shown = ({ name }) => !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name));
+    // web_search is DeepSeek-backed and errors on every call without its key
+    const searchable = Boolean((await credentials.resolve(credentialRef("DEEPSEEK_API_KEY")))?.value);
+    const shown = ({ name }) => !HIDDEN_TOOLS.has(name) && (searchable || name !== "web_search") && (BASE_TOOLS.has(name) || loaded.has(name));
     return { ...assembly, tools: assembly.tools.filter(shown), sections: assembly.sections.filter(({ name }) => !assembly.tools.some((tool) => !shown(tool) && name === `tool:${tool.name}`)) };
   });
   agentCtx.tools.register(defineTool({
