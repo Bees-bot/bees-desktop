@@ -351,8 +351,9 @@ export class AppPlatform {
       clauses.push(`r.${column}=?`); values.push(bounded(input[field], field, max));
     }
     if (input.query) {
-      const query = bounded(input.query, "record search", 1000);
-      clauses.push("(r.title LIKE ? OR r.body LIKE ? OR r.data LIKE ?)");
+      // A record holding "50% off" is a search for "50%", not a wildcard: escape what LIKE reads.
+      const query = bounded(input.query, "record search", 1000).replace(/[\\%_]/g, "\\$&");
+      clauses.push("(r.title LIKE ? ESCAPE '\\' OR r.body LIKE ? ESCAPE '\\' OR r.data LIKE ? ESCAPE '\\')");
       values.push(...Array(3).fill(`%${query}%`));
     }
     const from = `FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE ${clauses.join(" AND ")}`;
