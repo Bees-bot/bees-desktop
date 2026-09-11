@@ -4,6 +4,7 @@ description = "Allows the Bees interface to manage its bundled local runtimes."
 commands.allow = [
   "ensure_dsh_runtime",
   "local_model_status",
+  "local_model_hardware",
   "ensure_local_model",
   "start_local_model",
   "stop_local_model",
