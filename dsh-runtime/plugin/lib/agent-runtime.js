@@ -669,6 +669,7 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
+    if (event.type === "tool/call") this.live.get(executionId)?.called.add(String(event.data.name));
     this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
     // History projections are not another tool execution or human decision.
     if (event.type === "tool/result" && event.surfaceOp?.op === "replace") return;
@@ -1304,6 +1305,14 @@ export class AgentRuntime {
         const absent = missing[0] ?? named.find((name) =>
           !real(resolve(workspace, "outputs", name)) && !real(resolve(workspace, name)));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
+        // A run reported fifteen tool calls it never made to justify giving up. A worker summary that
+        // names a tool this session never called is fiction, whatever the outcome says.
+        const called = this.live.get(executionId)?.called;
+        const invented = called && data.stagePurpose !== "reviewer"
+          ? [...result.summary.matchAll(/\b(?:bees_[a-z_]+|web_(?:search|fetch))\b(?!\.[a-z0-9]{1,5}\b)/g)].map(([name]) => name)
+            .find((name) => name !== "bees_submit_stage_result" && !called.has(name))
+          : null;
+        if (invented) throw new Error(`${invented} was never called in this run. Report only what you actually did, or call it first.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
@@ -1704,7 +1713,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, approvalAbort });
+    this.live.set(executionId, { handle, approvalAbort, called: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
