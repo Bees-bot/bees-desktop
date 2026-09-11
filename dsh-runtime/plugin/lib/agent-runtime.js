@@ -859,6 +859,17 @@ export class AgentRuntime {
     }
   }
 
+  /** One local model serves every seat in turn, so a peer only moves while the lead sits inside a
+   *  tool. Failing at once cost the lead a turn each time, and the repeat guard then ended the run. */
+  async awaitDiscussion(agentCtx, agent, signal, members, executionId) {
+    if (members?.length) {
+      const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, agent, signal, members.map(({ name }) => name));
+      if (reason === "no-progress")
+        throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
+    }
+    this.assertDiscussionReady(agent, members, executionId);
+  }
+
   assertDiscussionReady(agent, members, executionId) {
     if (!members?.length) return;
     const roster = this.ctx.agentTeams.listMembers(agent);
@@ -999,7 +1010,7 @@ export class AgentRuntime {
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
         // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
-        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
@@ -1141,13 +1152,7 @@ export class AgentRuntime {
             throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
-          if (data.discussionMembers?.length) {
-            const discussion = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal,
-              data.discussionMembers.map(({ name }) => name));
-            if (discussion.reason === "no-progress")
-              throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
-            this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
-          }
+          await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
           // A model that re-issues the same batch next turn spawned a second set of children and
           // waited on them again. A partial repeat is progress, so only a wholly repeated batch stops.
           const settled = this.database.prepare(`SELECT id FROM work_items WHERE parent_id = ? AND deleted_at IS NULL
@@ -1332,7 +1337,7 @@ export class AgentRuntime {
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
           throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
-        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        if (["candidate", "pass"].includes(args.outcome)) await this.awaitDiscussion(agentCtx, exec.agent, exec.signal, data.discussionMembers, executionId);
         this.database.prepare(`
           INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
         `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
@@ -2005,8 +2010,9 @@ export class AgentRuntime {
           ? { sessionId, toolCalls: toolCallCounts(events), timeline: reviewTimeline(events) }
           : { sessionId, unavailable: true });
       }
+      // The reviewer already has the candidate summary in its brief; repeating it here only doubles the file.
       const result = this.database.prepare(`
-        SELECT outcome, summary, created_at AS createdAt
+        SELECT outcome, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?
       `).get(run.executionId) ?? null;
       const audit = this.database.prepare(`
