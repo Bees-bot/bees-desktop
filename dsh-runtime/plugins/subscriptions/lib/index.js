@@ -239,12 +239,12 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     child.on("error", (error) => { settled(); reject(error); });
     child.on("close", (code) => {
       settled();
+      consume(pending + decoder.end());
+      if (early) return resolve({ text: String(early.structured.text ?? ""), structured: early.structured, usage: early.usage });
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
-      if (early) return resolve({ text: String(early.structured.text ?? ""), structured: early.structured, usage: early.usage });
       try {
-        consume(pending);
         if (!final) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
         const structured = schema ? structuredOutput(final) : null;
         if (code !== 0 || final.is_error || (schema ? !structured : !String(final.result ?? "").trim())) {

@@ -37,6 +37,9 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
+/** A pasted `-H 'Name: value'` whose name says it carries a credential, and the reference that replaces it. */
+const PASTED_SECRET = /(-H\s+['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)([^'"]+)(['"])/gi;
+const STASHED = /^\{\{credential:([A-Z0-9_]+)\}\}$/;
 
 function rowToServer(row) {
   return {
@@ -363,11 +366,31 @@ export class Capabilities {
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
-    for (const [name, value] of Object.entries(secrets)) {
+    for (const [name, raw] of Object.entries(secrets)) {
+      const stashed = STASHED.exec(String(raw ?? "").trim());
+      const value = stashed ? (await this.ctx.credentials.resolve(credentialRef(stashed[1])))?.value : raw;
       if (value) await this.ctx.credentials.set(secretRef(server, name), value);
     }
     await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
     return { id: server.id };
+  }
+
+  /** Secrets live in the credential store, never in the product database. A pasted header moves
+   *  there on the way in; the text keeps a reference the from-curl path resolves in insert(). */
+  async stash(value) {
+    if (Array.isArray(value)) return Promise.all(value.map((entry) => this.stash(entry)));
+    if (value && typeof value === "object")
+      return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [key, await this.stash(entry)])));
+    if (typeof value !== "string") return value;
+    let text = value;
+    for (const [whole, open, name, secret, close] of [...value.matchAll(PASTED_SECRET)]) {
+      if (STASHED.test(secret.trim())) continue;
+      const key = `BEES_PASTED_${name.split(":")[0]}_${createHash("sha256").update(secret.trim()).digest("hex").slice(0, 8)}`
+        .replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
+      await this.ctx.credentials.set(credentialRef(key), secret.trim());
+      text = text.replace(whole, `${open}${name}{{credential:${key}}}${close} (stored in Bees; call this API through its MCP server)`);
+    }
+    return text;
   }
 
   async install(input) {

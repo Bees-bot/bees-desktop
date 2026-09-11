@@ -2,13 +2,12 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
 
-const ENTITIES = { lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", amp: "&" };
-const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
-  .replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
-    if (name) return ENTITIES[name.toLowerCase()] ?? match;
-    const code = decimal ? Number(decimal) : parseInt(hex, 16);
-    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
-  }).trim();
+const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["quot", '"'], ["apos", "'"], ["nbsp", " "], ["amp", "&"]]);
+const unescape = (text) => text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
+  if (name) return ENTITIES.get(name.toLowerCase()) ?? match;
+  const code = decimal ? Number(decimal) : parseInt(hex, 16);
+  return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
+}).trim();
 const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 const readable = (body) => {
@@ -22,8 +21,9 @@ const readable = (body) => {
 
 function newsItems(xml) {
   return [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map(([, item]) => {
-    const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
-    const title = field("title");
+    // CDATA is literal html; anything else is xml-escaped and decodes once here
+    const field = (name) => { const raw = item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? ""; return raw.includes("<![CDATA[") ? raw.replace(/<!\[CDATA\[|\]\]>/g, "").trim() : unescape(raw); };
+    const title = unescape(field("title"));
     const summary = unescape((field("description") || field("content:encoded")).replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
     const echoed = letters(summary);
     return { title, url: field("link"), publisher: field("source") || field("dc:creator"),

@@ -322,7 +322,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     try {
       if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
-      reply(res, 200, await capabilities.command(await body(req)));
+      reply(res, 200, await capabilities.command(await capabilities.stash(await body(req))));
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
@@ -394,7 +394,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {
-      reply(res, 200, await product.command(await body(req)));
+      reply(res, 200, await product.command(await capabilities.stash(await body(req))));
       void connected.syncCoordination().catch((error) =>
         ctx.logger.warn?.(`bees: team sync after change failed: ${userMessage(error)}`));
     }
