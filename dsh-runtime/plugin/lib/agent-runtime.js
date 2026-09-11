@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -1296,8 +1296,9 @@ export class AgentRuntime {
         // The extension filter keeps a domain in a news summary from reading as a deliverable.
         const named = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
           .map(([name]) => name.replace(/[.,;:]+$/, "")).filter((name) => DELIVERABLE.test(name)) : [];
+        // An empty file satisfied existsSync, so a bounced run created one to get past this check.
         const where = (name) => [resolve(workspace, "outputs", name), resolve(workspace, name)]
-          .filter((path) => existsSync(path));
+          .filter((path) => { try { return statSync(path).isFile() && statSync(path).size > 0; } catch { return false; } });
         // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
         // at all and costs a whole cycle.
         const stray = named.find((name) => where(name).length === 1 && !existsSync(resolve(workspace, "outputs", name)));
@@ -1305,7 +1306,7 @@ export class AgentRuntime {
         // A bare filename escaped the outputs/ check above, so a run reported five entries in a file
         // it never opened and review judged the fiction.
         const absent = named.find((name) => !where(name).length);
-        if (absent) throw new Error(`${absent} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
+        if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
