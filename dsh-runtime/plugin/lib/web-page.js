@@ -3,29 +3,23 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 const MAX_CHARS = 20_000;
 
 const ENTITIES = { lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", amp: "&" };
-// Markup reaches us escaped, once in a page and twice in a feed. One pass, so nothing a decode
-// produces is decoded again: "&#38;amp;" is the text "&amp;", not "&". Numbered entities used to
-// become a space, which is how "Tom&#8217;s" reached the model as "Tom s". A surrogate half is
-// left alone because a lone one cannot be serialised.
+// One pass, so nothing a decode produces is decoded again. Numbered entities used to become a
+// space, which is how "Tom&#8217;s" read as "Tom s"; a surrogate half stays text, it cannot serialise.
 const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
   .replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
     const code = decimal ? Number(decimal) : hex ? parseInt(hex, 16) : 0;
     if (!code) return ENTITIES[name.toLowerCase()] ?? match;
     return code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
   }).trim();
-// Tags come out before decoding, so a delimiter the decode reveals stays text. The class excludes
-// "<" as well, or a run of unclosed brackets costs a rescan each and turns the strip quadratic.
+// Tags go before decoding so a revealed delimiter stays text; excluding "<" keeps a run of
+// unclosed brackets from rescanning on every one.
 const plainText = (html) => unescape(html.replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
 const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 const readable = (body) => {
-  // Blank lines are the only page structure worth keeping, so this does not use plainText.
-  const content = body.kind === "html"
-    ? unescape(body.content
-      .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<[^<>]*>/g, " "))
-      .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim()
-    : body.content;
+  const content = body.kind === "html" ? unescape(body.content
+    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^<>]*>/g, " "))
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
   return content.length > MAX_CHARS
     ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
     : content;
@@ -36,8 +30,7 @@ function newsItems(xml) {
     const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
     const title = field("title");
     // Google News writes the title and publisher back as a link, punctuated differently, so compare
-    // on letters alone. Repeating them cost half the payload and told the model nothing new. An
-    // empty comparison means there was nothing to compare, not that the summary was an echo.
+    // on letters alone; an empty comparison is nothing to compare, not an echo.
     const summary = plainText(field("description") || field("content:encoded"));
     const echoed = letters(summary);
     return { title, url: field("link"), publisher: field("source") || field("dc:creator"),

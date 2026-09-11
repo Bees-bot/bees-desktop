@@ -101,11 +101,10 @@ export function readToolResult(session, args, visited = new Set()) {
   // Resolve old receipts pointing to recall pages back to the underlying source.
   const call = events.find((event) => event.type === "tool/call" && event.data.callId === call_id)?.data;
   if (call?.name === "bees_read_tool_result") {
-    // The loop records a call before its arguments are validated, and a model that emitted broken
-    // JSON leaves a call id here for ever. Say which one is unusable instead of throwing raw.
+    // A call is recorded before its arguments are validated, so broken JSON from the model leaves a
+    // call id here for ever. Name the unusable one instead of throwing SyntaxError at it.
     let source = null;
-    try { source = typeof call.arguments === "string" ? JSON.parse(call.arguments) : call.arguments; }
-    catch { /* recorded as text, so it stays null */ }
+    try { source = typeof call.arguments === "string" ? JSON.parse(call.arguments) : call.arguments; } catch { /* stays null */ }
     if (!source?.call_id) throw new Error(`Call ${call_id} did not record which result it read; ask for the original call_id.`);
     const prior = readToolResult(session, { call_id: source.call_id, offset: source.offset, find: source.find }, visited);
     if (prior.found === false) return prior;

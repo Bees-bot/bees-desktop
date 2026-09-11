@@ -887,9 +887,8 @@ export class AgentRuntime {
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx);
-    // Only a stage agent runs setup() and gets a persona. A teammate seated for a discussion keeps
-    // the harness's, so it was told it ran the harness GUI and could read the checkout at a path
-    // from this machine. Replace that, and leave a stage agent's own persona alone.
+    // Only a stage agent runs setup() and gets a persona, so a seated teammate kept the harness's:
+    // that it drives the harness GUI and can read its checkout, at a path from this machine.
     agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
       const assembly = await next();
       if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona"))
