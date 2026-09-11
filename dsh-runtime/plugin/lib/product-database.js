@@ -92,7 +92,8 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
            w.owner, w.priority, w.run_settings_json AS runSettingsJson,
            w.account_user_id AS accountUserId,
            w.output_location_id AS outputLocationId, w.recurring_work_id AS recurringWorkId,
-           p.workspace_id AS workspaceId, p.kind AS processKind
+           p.workspace_id AS workspaceId, p.kind AS processKind,
+           p.name AS processName, p.description AS processDescription
     FROM work_items w JOIN processes p ON p.id = w.process_id
     WHERE w.id = ? AND w.deleted_at IS NULL
   `).get(required(itemId, "Work item"));
@@ -312,6 +313,15 @@ function stageDriver(stage, position, count) {
           : position > 0 && /review/i.test(name) ? "review" : "agent");
 }
 
+// Seed editable process configuration. Runtime reads it like any other process description.
+const GOALS_DESCRIPTION = `Autonomous outcomes completed in Work and independently checked in Review.
+
+Work: Complete the requested outcome and any explicit stop condition before submitting. Do small tasks directly. For larger work, plan the next actionable steps using the assigned team, then execute and verify the deliverables. A plan alone does not complete Work. When creating a reusable workflow, include the supplied requirements and context in its configuration.
+
+Planning within Work: If planning is useful, the lead proposes an approach, the planning reviewer critiques it, and the lead reconciles the feedback before executing. Use one proposal, one critique and one reconciliation by default; record unresolved decisions instead of repeating rounds.
+
+Review: Check the deliverables and supporting evidence against the task and these process instructions. Verify requested research using the available source evidence. Pass only when the requested outcome and stop conditions are satisfied; otherwise return specific correction feedback. Review checks the work; Done closes the process.`;
+
 /** An empty Templates screen gives a new user nowhere to start, so ship a few worth copying. */
 const STARTER_TEMPLATES = [
   ["Research and report", "Gather sources, draft the findings, get them checked",
@@ -323,7 +333,7 @@ const STARTER_TEMPLATES = [
 ];
 
 function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
-  insertProcess(database, workspaceId, "Goals", "Autonomous outcomes executed and independently reviewed by agents", [
+  insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION, [
     { name: "Work", driver: "agent" },
     { name: "Review", driver: "review" },
     { name: "Done", driver: "terminal" }
@@ -842,6 +852,18 @@ export function initializeProductDatabase(database) {
       DROP TABLE IF EXISTS bees_app_sync_versions;
       PRAGMA user_version = 25;
     `);
+  });
+  if (version < 26) transaction(database, () => {
+    // Upgrade only the untouched default; preserve descriptions customized by the owner.
+    for (const row of database.prepare(`
+      SELECT id, updated_at AS updatedAt FROM processes
+      WHERE kind = 'goals' AND description = 'Autonomous outcomes executed and independently reviewed by agents'
+    `).all()) {
+      const at = new Date(Math.max(Date.now(), (Date.parse(row.updatedAt) || 0) + 1)).toISOString();
+      database.prepare("UPDATE processes SET description = ?, updated_at = ? WHERE id = ?")
+        .run(GOALS_DESCRIPTION, at, row.id);
+    }
+    database.exec("PRAGMA user_version = 26");
   });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
