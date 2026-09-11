@@ -37,6 +37,7 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
+const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 
 function rowToServer(row) {
   return {
@@ -263,7 +264,7 @@ export class Capabilities {
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    const { servers = [] } = await response.json();
+    const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
     const seen = new Set();
     return servers.flatMap(({ server }) => {
       const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
@@ -363,11 +364,31 @@ export class Capabilities {
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
-    for (const [name, value] of Object.entries(secrets)) {
+    for (const [name, raw] of Object.entries(secrets)) {
+      const stashed = STASHED.exec(String(raw ?? "").trim());
+      const value = stashed ? (await this.ctx.credentials.resolve(credentialRef(stashed[1])))?.value : raw;
+      if (stashed && !value) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
       if (value) await this.ctx.credentials.set(secretRef(server, name), value);
     }
     await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
     return { id: server.id };
+  }
+
+  // a pasted credential header moves to the credential store; the text keeps a reference insert() resolves
+  async stash(value) {
+    if (Array.isArray(value)) return Promise.all(value.map((entry) => this.stash(entry)));
+    if (value && typeof value === "object")
+      return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [key, await this.stash(entry)])));
+    if (typeof value !== "string") return value;
+    let text = value;
+    for (const [whole, flag, quote, name, secret] of [...value.matchAll(/((?:-H|--header)\s*)(['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)(.+?)\2/gi)]) {
+      if (STASHED.test(secret.trim())) continue;
+      const key = `BEES_PASTED_${name.split(":")[0]}_${createHash("sha256").update(secret.trim()).digest("hex").slice(0, 8)}`
+        .replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
+      await this.ctx.credentials.set(credentialRef(key), secret.trim());
+      text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
+    }
+    return text;
   }
 
   async install(input) {

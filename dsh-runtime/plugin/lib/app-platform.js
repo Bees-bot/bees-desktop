@@ -55,8 +55,11 @@ export class AppPlatform {
     if (!actionColumns.includes("reviewed_digest")) this.db.exec("ALTER TABLE app_actions ADD COLUMN reviewed_digest TEXT");
     if (!actionColumns.includes("execution")) this.db.exec("ALTER TABLE app_actions ADD COLUMN execution TEXT NOT NULL DEFAULT '{}'");
     if (!this.db.prepare("PRAGMA table_info(app_portfolios)").all().some((column) => column.name === "approver_user_id")) this.db.exec("ALTER TABLE app_portfolios ADD COLUMN approver_user_id TEXT");
-    for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all())
-      for (const id of JSON.parse(row.agent_ids)) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id);
+    for (const row of this.db.prepare('SELECT id, agent_ids FROM app_installations').all()) {
+      // one corrupt row must not keep the app from booting; imports validate json on the way in
+      let ids; try { ids = JSON.parse(row.agent_ids); } catch { console.warn(`bees: app installation ${row.id} has unreadable agent_ids and was skipped`); continue; }
+      for (const id of ids) this.db.prepare('INSERT OR IGNORE INTO app_agent_owners VALUES (?,?)').run(id, row.id);
+    }
     this.shared = connected ? new AppSharedState(this, connected) : null;
     this.actionConnector = actionConnector;
     this.dispatcher = new AppActionDispatcher({ connector: actionConnector,
@@ -351,8 +354,8 @@ export class AppPlatform {
       clauses.push(`r.${column}=?`); values.push(bounded(input[field], field, max));
     }
     if (input.query) {
-      const query = bounded(input.query, "record search", 1000);
-      clauses.push("(r.title LIKE ? OR r.body LIKE ? OR r.data LIKE ?)");
+      const query = bounded(input.query, "record search", 1000).replace(/[\\%_]/g, "\\$&");
+      clauses.push("(r.title LIKE ? ESCAPE '\\' OR r.body LIKE ? ESCAPE '\\' OR r.data LIKE ? ESCAPE '\\')");
       values.push(...Array(3).fill(`%${query}%`));
     }
     const from = `FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE ${clauses.join(" AND ")}`;
