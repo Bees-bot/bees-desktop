@@ -274,7 +274,8 @@ function learnedPlaybook(current, feedback) {
   const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
   const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
-  return lines.slice(-12).join("\n").slice(0, 6_000);
+  while (lines.length > 1 && lines.join("\n").length > 6_000) lines.shift();
+  return lines.join("\n");
 }
 
 export async function executeProductCommand(action, input) {
