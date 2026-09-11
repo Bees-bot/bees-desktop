@@ -574,6 +574,12 @@ export class AgentRuntime {
     this.workStarter = start;
   }
 
+  /** Every status write pushes a change; the panel once learned a run had finished only from the 30 s poll. */
+  setStatus(executionId, status, at = new Date().toISOString()) {
+    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?").run(status, at, executionId);
+    this.notify({ type: "run/status", executionId, status, at });
+  }
+
   audit(eventType, executionId, sessionId, metadata = {}) {
     const createdAt = new Date().toISOString();
     this.database.prepare(`
@@ -670,8 +676,7 @@ export class AgentRuntime {
         questions: String(event.data.arguments ?? "").slice(0, 8_000)
       };
       const at = new Date().toISOString();
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_input', updated_at = ? WHERE execution_id = ?")
-        .run(at, executionId);
+      this.setStatus(executionId, "waiting_for_input", at);
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -692,8 +697,7 @@ export class AgentRuntime {
         callId: event.data.callId ?? null,
         reason: event.data.reason ?? null
       };
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_approval', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "waiting_for_approval");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -708,8 +712,7 @@ export class AgentRuntime {
     }
     if (event.type === "approval/decided") {
       const transition = event.data.outcome === "allowed-once" ? "approved" : "rejected";
-      this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "running");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'running', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -730,8 +733,7 @@ export class AgentRuntime {
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "running", at);
         this.database.prepare(`
           UPDATE work_items SET runtime_phase = 'running', updated_at = ?
           WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -852,8 +854,12 @@ export class AgentRuntime {
   async awaitDiscussion(agentCtx, agent, signal, members, executionId) {
     if (!members?.length) return;
     const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, agent, signal, members.map(({ name }) => name));
-    if (reason === "no-progress")
-      throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
+    if (reason === "no-progress") throw new Error("Discussion participants are waiting for input. Resolve their questions before continuing; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
+    this.assertDiscussionReady(agent, members, executionId);
+  }
+
+  assertDiscussionReady(agent, members, executionId) {
+    if (!members?.length) return;
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
     if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
@@ -1564,8 +1570,7 @@ export class AgentRuntime {
       const run = this.run(executionId);
       if (run?.status === "queued") {
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'failed', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "failed", at);
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
         this.checkpoint(executionId, run.currentSessionId, "failed", {
           idempotencyKey: `start-failed:${executionId}`
@@ -1667,8 +1672,7 @@ export class AgentRuntime {
         INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
         VALUES (?, ?, ?, ?)
       `).run(payload.idempotencyKey, executionId, submissionId, at);
-      this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-        .run(activeStatus, at, executionId);
+      this.setStatus(executionId, activeStatus, at);
       this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
     });
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
@@ -1715,8 +1719,7 @@ export class AgentRuntime {
         this.live.delete(executionId);
         await handle.dispose().catch(() => undefined);
         if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
-        else this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-          .run(previousStatus, new Date().toISOString(), executionId);
+        else this.setStatus(executionId, previousStatus);
         throw error;
       }
       this.recovery.delete(executionId);
@@ -1820,8 +1823,7 @@ export class AgentRuntime {
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
     `).run(result.outcome, result.error ? JSON.stringify(result.error) : null, at, submissionId);
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-      .run(result.outcome, at, executionId);
+    this.setStatus(executionId, result.outcome, at);
     this.checkpoint(executionId, sessionId, result.outcome, {
       pendingInteraction: null,
       idempotencyKey: `settled:${submissionId}`
