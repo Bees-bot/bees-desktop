@@ -18,6 +18,14 @@ window.__ModuleLoader__.load({
         sha256: "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
       },
       {
+        id: "lfm2-5-2-6b-q4-k-m", name: "LFM2.5 2.6B (Q4_K_M)",
+        runsProcesses: true,
+        fileName: "LFM2.5-2.6B-Q4_K_M.gguf",
+        url: "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/main/LFM2.5-2.6B-Q4_K_M.gguf?download=true",
+        bytes: 1674455040,
+        sha256: "06be29a7a518eb44b9630e0ad805ed10a86fc2390e69a8ebf5e939b02b5688d9"
+      },
+      {
         id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
         runsProcesses: false,
         fileName: "granite-4.2-3b-Q4_K_M.gguf",
@@ -317,6 +325,7 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
+                  disabled: running && !downloading,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
               h("td", null, h("label", { className: "bees-local-toggle" },
