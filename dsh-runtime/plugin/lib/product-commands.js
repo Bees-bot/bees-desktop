@@ -274,7 +274,7 @@ function learnedPlaybook(current, feedback) {
   const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
   const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
-  while (lines.join("\n").length > 6_000) lines.shift();
+  while (lines.length > 1 && lines.join("\n").length > 6_000) lines.shift();
   return lines.join("\n");
 }
 

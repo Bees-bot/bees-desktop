@@ -6,6 +6,7 @@ import { validateApp } from './app-contract.js';
 const tables = ['app_installations','app_records','app_sources','app_actions','app_portfolios','app_admissions','app_process_owners','app_agent_owners','app_suppressions'];
 const scoped = new Set(['app_installations', 'app_portfolios', 'app_suppressions']);
 const jsonColumns = new Set(['agent_ids','manifest','config','data','evidence','payload','execution','result']);
+const json = (value) => { try { JSON.parse(value); return typeof value === 'string'; } catch { return false; } };
 
 // ponytail: revisioned workspace snapshots keep the two stores compatible. At 16 MB,
 // split source receipts/history into paged storage instead of increasing the payload indefinitely.
@@ -45,8 +46,7 @@ export class AppSharedState {
         const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
         const insert = this.db.prepare(`INSERT ${table.endsWith('_owners') ? 'OR IGNORE ' : ''}INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`);
         for (const raw of source[table]) {
-          if (!raw || Object.keys(raw).some((key) => !columns.includes(key) || key === 'workspace_id')) throw new Error('Invalid shared app row');
-          try { for (const [key, value] of Object.entries(raw)) if (jsonColumns.has(key) && value != null) JSON.parse(value); } catch { throw new Error('Invalid shared app row'); }
+          if (!raw || Object.entries(raw).some(([key, value]) => !columns.includes(key) || key === 'workspace_id' || (jsonColumns.has(key) && value != null && !json(value)))) throw new Error('Invalid shared app row');
           if (!scoped.has(table) && !ids.has(raw.installation_id)) throw new Error('Shared app row is outside its installation');
           const row = scoped.has(table) ? { ...raw, workspace_id: workspace.id } : raw;
           // The server is authoritative, including legacy absence. Never retain rejected local mutations on rollback.

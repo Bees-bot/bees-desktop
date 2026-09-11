@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
-                  disabled: running,
+                  disabled: running && !downloading,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
               h("td", null, h("label", { className: "bees-local-toggle" },
