@@ -68,6 +68,8 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
 
 const WORK_REVIEW_TOOL = "bees_request_work_review";
+// Extensions Bees actually ships as deliverables, so a bare "yahoo.com" is not read as one.
+const DELIVERABLE = /\.(txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)$/i;
 const reviewQuestions = (summary) => [{
   id: "work-review", header: "Work review", question: "Approve this work?", detail: summary,
   options: [
@@ -1289,12 +1291,19 @@ export class AgentRuntime {
           .map(([path]) => path.replace(/[.,;:]+$/, ""))
           .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
         if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
+        // The extension filter keeps a domain in a news summary from reading as a deliverable.
+        const named = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
+          .map(([name]) => name.replace(/[.,;:]+$/, "")).filter((name) => DELIVERABLE.test(name)) : [];
+        const where = (name) => [resolve(workspace, "outputs", name), resolve(workspace, name)]
+          .filter((path) => existsSync(path));
         // Review only ever sees outputs/, so a deliverable written beside it arrives as no evidence
-        // at all and costs a whole cycle. This only fires on a file that is really there.
-        const stray = workspace ? [...result.summary.matchAll(/[\w.\-]+\.[a-z0-9]{1,5}\b/gi)]
-          .map(([name]) => name.replace(/[.,;:]+$/, ""))
-          .find((name) => existsSync(resolve(workspace, name)) && !existsSync(resolve(workspace, "outputs", name))) : null;
+        // at all and costs a whole cycle.
+        const stray = named.find((name) => where(name).length === 1 && !existsSync(resolve(workspace, "outputs", name)));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
+        // A bare filename escaped the outputs/ check above, so a run reported five entries in a file
+        // it never opened and review judged the fiction.
+        const absent = named.find((name) => !where(name).length);
+        if (absent) throw new Error(`${absent} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
