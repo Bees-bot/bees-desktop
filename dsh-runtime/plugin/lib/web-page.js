@@ -2,9 +2,10 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
 const readable = (body) => {
-  const content = body.kind === "html" ? body.content
-  .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ")
-  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#\d+;/g, " ")
+  // Numbered entities used to become a space, so every apostrophe and dash in a page turned into
+  // a hole: "Tom&#8217;s" read as "Tom s". Strip the tags first, then decode what is left.
+  const content = body.kind === "html" ? unescape(body.content
+    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " "))
   .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
   return content.length > MAX_CHARS
     ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
