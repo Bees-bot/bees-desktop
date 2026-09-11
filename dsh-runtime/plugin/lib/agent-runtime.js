@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { mkdir } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
@@ -554,7 +554,7 @@ export class AgentRuntime {
       const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
       const run = targets.length && database.prepare("SELECT run_directory AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
         .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
-      const actual = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+      const actual = (path) => { try { return realpathSync(path); } catch { return resolve(actual(dirname(path)), basename(path)); } };
       const inside = (path, root) => `${actual(path)}${sep}`.startsWith(`${actual(root)}${sep}`);
       // dsh writes a big tool result under its temp root and tells the model to read it from there
       const spill = (path) => exec.name === "read" && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
@@ -1148,8 +1148,8 @@ export class AgentRuntime {
             this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           }
           const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
-          if (items.every(({ title }) => settled.get(data.workItemId, String(title ?? ""))))
-            throw new Error("These peers already ran. Read their results with bees_read_work_evidence, correct one with bees_revise_work, or send different assignments.");
+          const done = items.find(({ title }) => settled.get(data.workItemId, String(title ?? "")));
+          if (done) throw new Error(`"${done.title}" already ran. Read its result with bees_read_work_evidence, correct it with bees_revise_work, or send only new assignments.`);
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
@@ -1291,8 +1291,8 @@ export class AgentRuntime {
         const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
         // a name in prose stops at a space or a non-ascii letter, so a real file that starts with it counts
         const present = (path) => real(resolve(workspace, path)) || files.some((file) => file.startsWith(path));
-        const missing = files ? (result.summary.match(/outputs\/[^\s"'`,;:)\]]+/g) ?? []).map((path) => path.replace(/[.,;:]+$/, ""))
-          .filter((path) => !/(^|\/)\.\.(\/|$)/.test(path) && !present(path)) : [];
+        const missing = files ? (result.summary.match(/outputs\/[\w.\-/]+/g) ?? []).map((path) => path.replace(/[.,;:]+$/, ""))
+          .filter((path) => /(^|\/)\.\.(\/|$)/.test(path) || !present(path)) : [];
         const named = files ? result.summary.match(/(?<![\p{L}\p{N}./_-])[\p{L}\p{N}._-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/giu) ?? [] : [];
         const stray = named.find((name) => real(resolve(workspace, name)) && !present(`outputs/${name}`));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);

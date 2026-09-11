@@ -2,7 +2,8 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
 
-const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["quot", '"'], ["apos", "'"], ["nbsp", " "], ["amp", "&"]]);
+const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["quot", '"'], ["apos", "'"], ["nbsp", " "], ["amp", "&"], ["hellip", "…"], ["mdash", "—"], ["ndash", "–"],
+  ["lsquo", "‘"], ["rsquo", "’"], ["ldquo", "“"], ["rdquo", "”"], ["copy", "©"], ["reg", "®"], ["trade", "™"], ["bull", "•"], ["middot", "·"], ["laquo", "«"], ["raquo", "»"], ["euro", "€"], ["pound", "£"]]);
 const unescape = (text) => text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
   if (name) return ENTITIES.get(name.toLowerCase()) ?? match;
   const code = decimal ? Number(decimal) : parseInt(hex, 16);
