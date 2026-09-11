@@ -250,9 +250,16 @@ function runClaude(command, model, effort, prompt, signal, schema) {
 }
 
 export function claudeChunks(result, tools) {
+  // input_tokens is the uncached remainder only, and this adapter replays the whole conversation
+  // every call, so nearly all of the prompt lands in the two cache counts. Dropping them reported
+  // a few tokens a call for runs that were replaying tens of thousands.
+  const cacheWrite = Number(result.usage?.cache_creation_input_tokens ?? 0);
+  const cacheRead = Number(result.usage?.cache_read_input_tokens ?? 0);
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
-    outputTokens: Number(result.usage.output_tokens ?? 0)
+    outputTokens: Number(result.usage.output_tokens ?? 0),
+    ...cacheRead > 0 ? { cacheReadTokens: cacheRead } : {},
+    ...cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}
   } };
   if (result.structured?.tool) {
     const name = String(result.structured.tool);
