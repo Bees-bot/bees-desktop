@@ -75,9 +75,12 @@ describe("DSH Agent Teams discussions", () => {
       expect(payload.initialData.model).toBeNull();
       expect(payload.initialData.discussionMembers).toHaveLength(1);
       expect(payload.initialData.discussionMembers[0]).toMatchObject({ model: null, planningReviewer: true });
-      expect(payload.initialData.instructions).toContain("A plan alone does not complete Work");
-      expect(payload.body).not.toContain("A plan alone does not complete Work");
-      expect(payload.initialData.discussionMembers[0].prompt).toContain("Do not implement the goal");
+      const instructions = initial.processes.find(({ id }: any) => id === work.processId).description;
+      expect(payload.initialData.instructions).toBe("");
+      expect(payload.body).toContain(instructions);
+      expect(payload.initialData.discussionMembers[0].prompt).toContain(instructions);
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("Do not implement the work");
+      expect(payload.initialData.discussionMembers[0].prompt).toContain("bees_finish_discussion");
       expect(payload.initialData.discussionMembers[0].prompt).toContain("call bees_wait_for_team once");
       expect(payload.body).toContain("Bees supplies current team status automatically");
       await run("goal-work", work); // Replayed dispatch preserves the planning role.

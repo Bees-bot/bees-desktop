@@ -3,6 +3,8 @@ import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalC
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { NeedsYouWidget } from "./work.js";
+import { ProcessListActions } from "./processes.js";
+import { AgentListActions } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
 export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
@@ -78,12 +80,18 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
   );
 }
 
-function ListWidget({ definition, rowsForRoute, navigate }) {
+function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkItem }) {
   const rows = rowsForRoute(definition.route).slice(0, definition.limit ?? 20);
   return h("div", { className: "bees-dashboard-list" },
-    rows.length ? rows.map((row) => h("button", {
+    rows.length ? rows.map((row) => {
+      const process = definition.route === "all-processes" ? data.processes.find(({ id }) => id === row.id) : null;
+      const agent = definition.route === "all-agents" ? data.assignments.find(({ id }) => id === row.id) : null;
+      const link = h("button", {
       className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label
-    }, row.label)) : h(Empty, null, definition.empty ?? "Nothing here yet."),
+      }, row.label);
+      return process || agent ? h("div", { className: "bees-row", key: row.id, style: { flexWrap: "wrap" } },
+        h("div", { className: "bees-row-main" }, link), process ? h(ProcessListActions, { process, act, openWorkItem }) : h(AgentListActions, { agent, act })) : link;
+    }) : h(Empty, null, definition.empty ?? "Nothing here yet."),
     h(Button, { className: "bees-dashboard-view-all", onClick: () => navigate(definition.route) }, "View all")
   );
 }
@@ -100,9 +108,9 @@ function MetricsWidget({ rowsForRoute }) {
       h("strong", null, String(value)), h("span", null, label))));
 }
 
-function QuickActionsWidget({ workspaceId, createWork, createGoal, createProcess, createRun, createAgent }) {
+function QuickActionsWidget({ workspaceId, createWork, createProcess, createRun, createAgent }) {
   const actions = [
-    ["New goal", createGoal], ["New work item", createWork], ["New process template", createProcess],
+    ["New work item", createWork], ["New process template", createProcess],
     ["Start process run", createRun], ["New agent", createAgent]
   ];
   return h("div", { className: "bees-dashboard-list" }, ...actions.map(([label, action]) =>
@@ -162,7 +170,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createGoal, createProcess, createRun, createAgent, capabilities }) {
+export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createProcess, createRun, createAgent, capabilities }) {
   const [outcome, setOutcome] = useState("");
   const [setup, setSetup] = useState(false);
   const dashboards = dashboardsFrom(preference.dashboards);
@@ -199,7 +207,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createGoal, createProcess, createRun, createAgent,
+  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configureGoal: () => setSetup(true) };
 
   useEffect(() => {

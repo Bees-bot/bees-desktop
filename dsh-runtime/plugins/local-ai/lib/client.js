@@ -67,7 +67,7 @@ window.__ModuleLoader__.load({
 
     function invokeLocal(command, args = {}) {
       const invoke = window.__TAURI__?.core?.invoke;
-      if (!invoke) throw new Error("Local AI controls are available in the Bees desktop app.");
+      if (!invoke) throw new Error("Bees AI controls are available in the Bees desktop app.");
       return invoke(command, args);
     }
 
@@ -81,7 +81,7 @@ window.__ModuleLoader__.load({
     ];
 
     const providerId = (model) => `local-openai-${model.id.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
-    const providerProfile = (model, connection, displayName = `Local AI · ${model.name}`) => ({
+    const providerProfile = (model, connection, displayName = `Bees AI · ${model.name}`) => ({
       displayName, api: "openai-completions", baseURL: connection.baseUrl,
       // llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
       headers: { authorization: "Bearer local" },
@@ -102,7 +102,7 @@ window.__ModuleLoader__.load({
       if (routes.length) {
         const active = await invokeLocal("local_model_connection");
         const model = routes.find(([, connection]) => connection.baseUrl === active.baseUrl)?.[0] ?? routes.at(-1)[0];
-        providers["local-openai"] = providerProfile(model, active, "Local AI");
+        providers["local-openai"] = providerProfile(model, active, "Bees AI");
       }
       await modelSettings.set("providers", providers);
     }
@@ -128,8 +128,15 @@ window.__ModuleLoader__.load({
         const config = settingValue(preferences);
         const models = allModels(config);
         const wanted = wantedModelIds(config);
-        if (!wanted.length) return;
         void (async () => {
+          const providers = settingValue(modelSettings).providers ?? {};
+          const renamed = Object.fromEntries(Object.entries(providers).map(([id, profile]) => {
+            if (id !== "local-openai" && !id.startsWith("local-openai-")) return [id, profile];
+            const displayName = profile.displayName?.replace(/^Local AI(?= ·|$)|^Local OpenAI-compatible$/, "Bees AI");
+            return [id, displayName !== profile.displayName ? { ...profile, displayName } : profile];
+          }));
+          if (Object.keys(providers).some((id) => renamed[id] !== providers[id]))
+            await modelSettings.set("providers", renamed);
           for (const id of wanted) {
             const model = models.find(({ id: modelId }) => modelId === id);
             if (!model) continue;
@@ -138,10 +145,10 @@ window.__ModuleLoader__.load({
               const message = reason instanceof Error ? reason.message : String(reason);
               await updateWantedModels(preferences, (ids) => ids.filter((candidate) => candidate !== model.id));
               if (!["Model download cancelled", "Model start cancelled"].includes(message))
-                onError?.(`Local AI could not start ${model.name}: ${message}`);
+                onError?.(`Bees AI could not start ${model.name}: ${message}`);
             }
           }
-        })();
+        })().catch((reason) => onError?.(String(reason?.message ?? reason)));
       }, []);
       return null;
     }
@@ -260,7 +267,7 @@ window.__ModuleLoader__.load({
       const recommendedStatus = recommended && statuses[recommended.id];
       return h("div", { className: "bees-stack" },
         h("section", { className: "bees-callout" },
-          h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Local model setup"),
+          h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
           h("p", { className: "bees-muted" }, hardware
             ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} currently available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
             : `Bees could not read this computer's memory${hardwareError ? `: ${hardwareError}` : ""}. Choose an installed model or review the sizes below.`),
@@ -310,7 +317,6 @@ window.__ModuleLoader__.load({
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
-                  disabled: running || modelBusy,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
               h("td", null, h("label", { className: "bees-local-toggle" },
@@ -328,7 +334,7 @@ window.__ModuleLoader__.load({
 
     function LocalAiSettings({ modelSettings, preferences, systemDefault, ask, confirmAction, Button }) {
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
-        h("h2", { className: "bees-section-title" }, "Local AI"),
+        h("h2", { className: "bees-section-title" }, "Bees AI"),
         h("p", { className: "bees-muted" }, "Bees downloads and starts GGUF models for you. Use the switches to keep a model downloaded or run it."),
         h(LocalModels, { modelSettings, preferences, systemDefault, ask, Button, confirmAction }));
     }

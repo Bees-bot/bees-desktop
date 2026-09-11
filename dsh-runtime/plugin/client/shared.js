@@ -974,15 +974,16 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
     const title = document.createElement("label");
     title.textContent = label;
     form.append(title);
-    const input = confirmOnly ? null : document.createElement(options ? "select" : "input");
+    const input = confirmOnly ? null : document.createElement(options ? "select" : inputType === "textarea" ? "textarea" : "input");
     if (input) {
-      input.className = "bees-input";
+      input.className = inputType === "textarea" ? "bees-textarea" : "bees-input";
       if (options) for (const option of options) {
         const element = document.createElement("option");
         element.value = option.value;
         element.textContent = option.label;
         input.append(element);
       }
+      else if (inputType === "textarea") input.rows = 10;
       else input.type = inputType;
       input.value = initial || options?.[0]?.value || "";
       input.setAttribute("aria-label", label.split("\n")[0]);

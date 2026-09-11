@@ -309,7 +309,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const createWork = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
-  const createGoal = () => { setRoute("goals"); setWorkItemId(""); setCreating("goal"); };
   const createProcess = () => { setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
   const createRun = async () => {
     const processes = data.processes.filter((row) => row.workspaceId === parts.workspaceId && row.kind === "standard");
@@ -353,7 +352,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         .map((row) => ({ id: row.id, label: row.name, open: () => { setRoute("all-processes"); setProcessId(row.id); } }));
     }
     if (target.id === "agents") {
-      const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId));
+      const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId) && !row.archivedAt);
       if (targetRoute === "skills") return [];
       if (targetRoute === "presets") return data.presets.map((row) => ({ id: row.id, label: row.name, open: openRoute }));
       if (targetRoute === "mcp") return (capabilities.data?.servers ?? [])
@@ -448,7 +447,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const page = route === "home" ? h(Home, {
     key: parts.workspaceId, capabilities,
     ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
-    rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createGoal, createProcess, createRun, createAgent
+    rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createProcess, createRun, createAgent
   })
     : route === "getting-started" ? h(GettingStarted, { ctx, data, parts, state: onboarding, update: updateOnboarding, saveAgentModel: savePlanningAi,
         aiReady, aiStatus: aiReady ? aiStatus : setupBusy ? aiStatus : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {

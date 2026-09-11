@@ -943,10 +943,11 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
 export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
-  const [type, setType] = useState("all");
+  const [processFilter, setProcessFilter] = useState("all");
+  const [itemScope, setItemScope] = useState("primary");
   const [owner, setOwner] = useState("all");
-  useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); setType("all"); }, [route]);
-  useEffect(() => { setOwner("all"); }, [route, workspaceId]);
+  useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); }, [route]);
+  useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
   if (workItemId) return h(WorkItemCockpit, {
     ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
@@ -968,13 +969,16 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       (route !== "goals" || process?.kind === "goals");
   });
   const statuses = [...new Set(items.map(workItemStatus))].sort();
-  const types = [...new Set(items.map(({ kind }) => kind))].sort();
+  const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
+    .sort((left, right) => left.name.localeCompare(right.name));
   const owners = [...new Set(items.map((item) => item.accountUserId || ""))]
     .map((id) => ({ id, label: accountLabel(data, id) || "Unknown owner" }))
     .sort((left, right) => left.label.localeCompare(right.label));
   const needle = query.trim().toLocaleLowerCase();
   const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
-    (status === "all" || workItemStatus(item) === status) && (type === "all" || item.kind === type) &&
+    (status === "all" || workItemStatus(item) === status) &&
+    (processFilter === "all" || item.processId === processFilter) &&
+    (itemScope === "all" || !item.parentId) &&
     (owner === "all" || (item.accountUserId || "") === owner));
   const renderRows = (records, empty, showColumns = false) => {
     if (!records.length) return h(Empty, null, empty);
@@ -1011,13 +1015,15 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },
         h("option", { value: "all" }, "All statuses"),
         ...statuses.map((value) => h("option", { value, key: value }, value))),
-      h("select", { className: "bees-select", value: type, onChange: (event) => setType(event.target.value), "aria-label": "Filter by type" },
-        h("option", { value: "all" }, "All types"),
-        ...types.map((value) => h("option", { value, key: value }, value === "goal" ? "Goals" : value === "work" ? "Work items" : value))),
+      h("select", { className: "bees-select", value: processFilter, onChange: (event) => setProcessFilter(event.target.value), "aria-label": "Filter by process template" },
+        h("option", { value: "all" }, "All process templates"),
+        ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name))),
+      h("select", { className: "bees-select", value: itemScope, onChange: (event) => setItemScope(event.target.value), "aria-label": "Filter by work item scope" },
+        h("option", { value: "primary" }, "Primary only"),
+        h("option", { value: "all" }, "All work items")),
       h("select", { className: "bees-select bees-owner-filter", value: owner, onChange: (event) => setOwner(event.target.value), "aria-label": "Filter by owner" },
         h("option", { value: "all" }, "All owners"),
         ...owners.map(({ id, label }) => h("option", { value: id, key: id }, label))),
-      route !== "schedules" ? h(Button, { disabled: !workspaceId, onClick: () => setCreating("goal") }, "New goal") : null,
       route !== "schedules" ? h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("work") }, "New work") : null),
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,

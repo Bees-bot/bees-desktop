@@ -47,14 +47,14 @@
   config:
     providers:
       local-openai:
-        displayName: Local OpenAI-compatible
+        displayName: Bees AI
         api: openai-completions
         baseURL: http://127.0.0.1:1234/v1
         # llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
         headers: { authorization: "Bearer local" }
         models:
           - id: active
-            name: Local model
+            name: Bees AI model
             contextWindow: 8192
             maxTokens: 4096
 - insert:

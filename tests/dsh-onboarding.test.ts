@@ -141,3 +141,37 @@ it("recommends only models within memory and disk budgets, preferring installed 
   expect(plugin.recommendedLocalModel(noDisk, [...plugin.LOCAL_MODELS, chatOnly],
     { [chatOnly.id]: { state: "ready" } })).toBeNull();
 });
+
+it("renames saved Bees AI providers without changing routes or external providers", async () => {
+  let plugin: any;
+  const invoke = vi.fn();
+  runInNewContext(readFileSync(new URL("../dsh-runtime/plugins/local-ai/lib/client.js", import.meta.url), "utf8"), {
+    window: {
+      __TAURI__: { core: { invoke } },
+      __ModuleLoader__: { load: ({ factory }: any) => {
+        plugin = factory(() => ({ ...React, useRef: () => ({ current: false }), useEffect: (effect: any) => effect() }));
+      } }
+    }
+  });
+  const providers = {
+    "local-openai": { displayName: "Local AI", baseURL: "http://127.0.0.1:1234/v1" },
+    "local-openai-granite": { displayName: "Local AI · Granite", models: [{ id: "active" }] },
+    "local-openai-legacy": { displayName: "Local OpenAI-compatible" },
+    "external-local-ai": { displayName: "Another local AI server" },
+    custom: { displayName: "Local AI" }
+  };
+  const modelSettings = { getSnapshot: () => ({ value: { providers } }), set: vi.fn(async () => {}) };
+  const onError = vi.fn();
+  plugin.LocalAiController({ modelSettings, preferences: { getSnapshot: () => ({ value: {} }) }, onError });
+  await vi.waitFor(() => expect(modelSettings.set).toHaveBeenCalledOnce());
+  const renamed = modelSettings.set.mock.calls[0] as any[];
+  expect(renamed[0]).toBe("providers");
+  expect(renamed[1]).toEqual({
+    ...providers,
+    "local-openai": { ...providers["local-openai"], displayName: "Bees AI" },
+    "local-openai-granite": { ...providers["local-openai-granite"], displayName: "Bees AI · Granite" },
+    "local-openai-legacy": { displayName: "Bees AI" }
+  });
+  expect(invoke).not.toHaveBeenCalled();
+  expect(onError).not.toHaveBeenCalled();
+});
