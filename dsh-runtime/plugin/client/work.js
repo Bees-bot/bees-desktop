@@ -504,7 +504,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
     setPageHeader && setPageHeader(
       h(React.Fragment, null,
         h(Button, { onClick: onBack }, "← Process Runs"),
-        h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0, flex: 1 } },
+        h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0 } },
           h("div", { className: "bees-title", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title),
           h("div", { className: "bees-context", style: { marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
         )
