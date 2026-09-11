@@ -893,8 +893,11 @@ export class AgentRuntime {
       const assembly = await next();
       if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona"))
         return assembly;
-      return { ...assembly, sections: [{ name: "bees:teammate", text: TEAMMATE_PERSONA },
-        ...assembly.sections.filter(({ name }) => !HARNESS_SECTIONS.has(name))] };
+      // The guard below refuses a teammate ask_user_question, so listing it only bought a failed
+      // call and a wasted turn, twenty six of them in the runs on this machine.
+      return { ...assembly, tools: assembly.tools.filter(({ name }) => name !== "ask_user_question"),
+        sections: [{ name: "bees:teammate", text: TEAMMATE_PERSONA },
+          ...assembly.sections.filter(({ name }) => !HARNESS_SECTIONS.has(name))] };
     });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter);
