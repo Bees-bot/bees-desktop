@@ -24,6 +24,7 @@ function harness() {
   const scopes: any[] = [];
   const database = new NodeDatabase();
   ctx.agentPresets = { mount: async () => undefined };
+  ctx.credentials = { resolve: async () => undefined };
   const runtime: any = new AgentRuntime(ctx, database.connection);
   const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
   for (const name of ["fetch_sample", "shell_sample"]) tools.register(defineTool({

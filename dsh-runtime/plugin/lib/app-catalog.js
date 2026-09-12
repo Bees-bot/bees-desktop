@@ -32,7 +32,7 @@ export class AppCatalog {
     if (!value || value.schemaVersion !== 1 || !Array.isArray(value.apps) || value.apps.length > 1000) throw new Error('Unsupported app directory format');
     const ids = new Set();
     for (const app of value.apps) {
-      if (!app || !/^[a-z][a-z0-9-]{1,63}$/.test(app.id) || ids.has(app.id) || !/^\d+\.\d+\.\d+$/.test(app.version) ||
+      if (!app || ![1, 2].includes(app.schemaVersion) || !/^[a-z][a-z0-9-]{1,63}$/.test(app.id) || ids.has(app.id) || !/^\d+\.\d+\.\d+$/.test(app.version) ||
         !/^[a-f0-9]{64}$/.test(app.sha256) || app.path !== `packages/${app.sha256}.json` ||
         !Array.isArray(app.sources) || app.sources.length > 12 ||
         app.sources.some((s) => !s || typeof s.label !== 'string' || typeof s.url !== 'string') ||

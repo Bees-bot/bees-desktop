@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
@@ -37,6 +37,7 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
+const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 
 function rowToServer(row) {
   return {
@@ -114,6 +115,10 @@ export class Capabilities {
         const hit = await this.ctx.credentials.resolve(secretRef(server, name));
         if (hit?.value) env[name] = hit.value;
       }
+      // the openapi bridge takes request headers as one env value; args are stored, so no secret goes there
+      const headers = await Promise.all(server.headerNames.map(async (name) =>
+        `${name}:${(await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""}`));
+      if (headers.length) env.API_HEADERS = headers.join(",");
       // The row keeps a placeholder so one server definition works wherever the state directory lives.
       return {
         transport: "stdio",
@@ -263,7 +268,7 @@ export class Capabilities {
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    const { servers = [] } = await response.json();
+    const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
     const seen = new Set();
     return servers.flatMap(({ server }) => {
       const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
@@ -300,16 +305,20 @@ export class Capabilities {
     return file;
   }
 
-  /** For an API that publishes nothing: one request that already works describes one endpoint. */
-  async specFromRequest(command) {
-    const { spec, request, host } = specFromCurl(command);
-    return {
-      kind: "from-curl",
-      specUrl: await this.writeSpec(host, spec),
-      apiBaseUrl: request.origin,
-      how: `described ${request.method.toUpperCase()} ${request.path} from your request`,
-      endpointCount: 1
-    };
+  /** For an API that publishes nothing: each working request describes one endpoint, several describe several. */
+  specFromRequest(command) {
+    const parsed = String(command).split(/(?=^\s*curl\b)/m).map((one) => one.trim()).filter(Boolean).map(specFromCurl);
+    const [{ request, host }] = parsed;
+    if (parsed.some((entry) => entry.request.origin !== request.origin))
+      throw new Error("Paste requests to one API at a time; each host gets its own server");
+    const spec = JSON.parse(parsed[0].spec);
+    for (const entry of parsed.slice(1))
+      for (const [path, ops] of Object.entries(JSON.parse(entry.spec).paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
+    const secret = /auth|token|key|secret|cookie|session|oauth/i;
+    const headers = Object.fromEntries(parsed.flatMap(({ request: one }) => Object.entries(one.headers)).filter(([name]) => secret.test(name)));
+    const count = Object.keys(spec.paths).length;
+    return { kind: "from-curl", spec, host, headers, apiBaseUrl: request.origin, endpointCount: count,
+      how: `described ${count} endpoint${count === 1 ? "" : "s"} from your request${parsed.length === 1 ? "" : "s"}` };
   }
 
   async command(input) {
@@ -363,11 +372,51 @@ export class Capabilities {
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
-    for (const [name, value] of Object.entries(secrets)) {
-      if (value) await this.ctx.credentials.set(secretRef(server, name), value);
-    }
+    await this.storeSecrets(server, secrets);
     await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
     return { id: server.id };
+  }
+
+  async storeSecrets(server, secrets) {
+    for (const [name, raw] of Object.entries(secrets)) {
+      const stashed = STASHED.exec(String(raw ?? "").trim());
+      const value = stashed ? (await this.ctx.credentials.resolve(credentialRef(stashed[1])))?.value : raw;
+      if (stashed && !value) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
+      if (value) await this.ctx.credentials.set(secretRef(server, name), value);
+    }
+  }
+
+  /** A request for a host the bridge already serves adds its endpoints there: one server per API. */
+  async mergeIntoHost(entry, found, secrets) {
+    const server = this.servers().find((row) => row.catalogId === entry.id && row.args[row.args.indexOf("--api-base-url") + 1] === found.apiBaseUrl);
+    if (!server) return null;
+    const at = server.args.indexOf("--openapi-spec");
+    const spec = JSON.parse(await readFile(server.args[at + 1], "utf8"));
+    for (const [path, ops] of Object.entries(found.spec.paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
+    server.args[at + 1] = await this.writeSpec(found.host, JSON.stringify(spec, null, 2));
+    server.headerNames = [...new Set([...server.headerNames, ...Object.keys(secrets)])];
+    this.database.prepare("UPDATE mcp_servers SET args_json = ?, header_names_json = ? WHERE id = ?")
+      .run(JSON.stringify(server.args), JSON.stringify(server.headerNames), server.id);
+    await this.storeSecrets(server, secrets);
+    await this.serialize(server.id, () => this.remount(server));
+    return { id: server.id };
+  }
+
+  // a pasted credential header moves to the credential store; the text keeps a reference insert() resolves
+  async stash(value) {
+    if (Array.isArray(value)) return Promise.all(value.map((entry) => this.stash(entry)));
+    if (value && typeof value === "object")
+      return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [key, await this.stash(entry)])));
+    if (typeof value !== "string") return value;
+    let text = value;
+    for (const [whole, flag, quote, name, secret] of [...value.matchAll(/((?:-H|--header)\s*)(['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)(.+?)\2/gi)]) {
+      if (STASHED.test(secret.trim())) continue;
+      const key = `BEES_PASTED_${name.split(":")[0]}_${createHash("sha256").update(secret.trim()).digest("hex").slice(0, 8)}`
+        .replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
+      await this.ctx.credentials.set(credentialRef(key), secret.trim());
+      text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
+    }
+    return text;
   }
 
   async install(input) {
@@ -383,10 +432,18 @@ export class Capabilities {
       if (value) secrets[secret.name] = value;
     }
     const given = { ...(input.inputs ?? {}) };
-    // Nobody knows their spec URL. Ask the API, or read one working request.
+    const headerNames = entry.headers.map(({ name }) => name);
+    // Nobody knows their spec URL. Ask the API, or read the working requests.
     if (entry.inputs.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
       const curl = String(given.curl ?? "").trim();
-      const found = curl ? await this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
+      const found = curl ? this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
+      if (found.kind === "from-curl") {
+        Object.assign(secrets, found.headers);
+        headerNames.push(...Object.keys(found.headers));
+        const merged = await this.mergeIntoHost(entry, found, found.headers);
+        if (merged) return merged;
+        found.specUrl = await this.writeSpec(found.host, JSON.stringify(found.spec, null, 2));
+      }
       if (!found.specUrl) throw new Error(`${found.how}. Paste its OpenAPI spec URL instead.`);
       given.openapiSpec = found.specUrl;
       if (found.apiBaseUrl) given.apiBaseUrl = found.apiBaseUrl;
@@ -410,7 +467,7 @@ export class Capabilities {
       args,
       url: entry.url,
       envNames: entry.env.map(({ name }) => name),
-      headerNames: entry.headers.map(({ name }) => name),
+      headerNames,
       catalogId: entry.id,
       source: "catalog"
     }, secrets);

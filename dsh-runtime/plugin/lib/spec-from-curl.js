@@ -20,8 +20,8 @@ function parseCurl(command) {
     throw new Error("Form uploads are not supported. Use an OpenAPI document for multipart endpoints.");
 
   const headers = {};
-  for (const match of text.matchAll(/-H\s+['"]([^'"]+)['"]/g)) {
-    const raw = match[1] ?? "";
+  for (const match of text.matchAll(/(?:-H|--header)\s*(['"])(.+?)\1/g)) {
+    const raw = match[2] ?? "";
     const at = raw.indexOf(":");
     if (at > 0) headers[raw.slice(0, at).trim()] = raw.slice(at + 1).trim();
   }
@@ -96,6 +96,7 @@ export function specFromCurl(command) {
   const request = parseCurl(command);
   const host = new URL(request.origin).hostname.replace(/^www\./, "");
   const body = requestBodyFor(request);
+  const shown = request.path.replace(/[^/]+/g, (segment) => (/^(?=.*[a-z])(?=.*\d)[\w.%-]{16,}$/i.test(segment) ? "***" : segment));
   const spec = {
     openapi: "3.0.3",
     info: {
@@ -107,8 +108,8 @@ export function specFromCurl(command) {
     paths: {
       [request.path]: {
         [request.method]: {
-          operationId: operationId(request.method, request.path),
-          summary: `${request.method.toUpperCase()} ${request.path}`,
+          operationId: operationId(request.method, shown),
+          summary: `${request.method.toUpperCase()} ${shown}`,
           description: `Taken from a working request. Only this endpoint is described.`,
           // No example: a key pasted in the query string would otherwise land in the spec file.
           parameters: request.query.map(([name, value]) => ({

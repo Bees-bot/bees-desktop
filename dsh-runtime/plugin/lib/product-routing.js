@@ -86,9 +86,9 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     }
     ids = agentIds(ids);
     if (!ids.length) throw new Error(`The team ${purpose === "reviewer" ? "reviewer" : "worker"} agent is unavailable`);
-    const discussion = purpose === "discussion" || ids.length > 1;
+    // the planner writes discussion stages with one agent to seat; one agent is agent work
+    const discussion = ids.length > 1;
     if (purpose === "reviewer" && ids.length > 1) throw new Error("A review stage must use one independent agent");
-    if (discussion && ids.length < 2) throw new Error(`The ${stage.name} discussion needs at least two agents`);
     const agents = ids.map((id) => assignment(database, id, stage.workspaceId));
     if (agents.some((agent) => !accepts(agent)))
       throw new Error(`An agent assigned to ${stage.name} is disabled, incompatible, or not independent`);

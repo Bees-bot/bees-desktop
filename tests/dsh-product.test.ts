@@ -700,8 +700,8 @@ describe("Bees DSH product plugin", () => {
     });
     expect(stageRuns.at(-1)[1].body).toContain("use bees_delegate_work only for a large separate piece");
     expect(stageRuns.at(-1)[1].body).toContain("Honor the requested delegation count and execution order");
-    expect(stageRuns.at(-1)[1].body).toContain("For a text-only answer, put the complete answer in bees_submit_stage_result.summary");
-    expect(stageRuns.at(-1)[1].body).toContain("Create files only when requested or needed");
+    expect(stageRuns.at(-1)[1].body).toContain("keep bees_submit_stage_result.summary to a short update");
+    expect(stageRuns.at(-1)[1].body).toContain("goes in a markdown file under outputs/");
     expect(stageRuns.at(-1)[1].body).toContain("MUST publish the file deliverables using bees_publish_outputs");
     expect(stageRuns.at(-1)[1].body).toContain("omit agentAssignmentId to inherit your configuration");
     expect(stageRuns.at(-1)[1].body).toContain("bees_list_execution_agents");

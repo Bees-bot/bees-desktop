@@ -130,7 +130,9 @@ function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan }) {
       else setError("Bees could not start planning this. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  const run = runId ? data.runs.find(({ id }) => id === runId) : null;
+  // a planning run outlives this panel: coming back to the page picks the workspace's live one up again
+  const run = runId ? data.runs.find(({ id }) => id === runId) : data.runs.find((row) => row.workspaceId === workspaceId && row.mode === "planning"
+    && !row.workItemId && ["queued", "running", "waiting_for_input", "waiting_for_approval"].includes(row.status)) ?? null;
   const planning = run && ["queued", "running"].includes(run.status);
   const asking = run && ["waiting_for_input", "waiting_for_approval"].includes(run.status);
   const stopped = run && ["failed", "cancelled"].includes(run.status);
@@ -138,7 +140,7 @@ function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan }) {
   return h("div", { className: "bees-stack" },
     h("form", { className: "bees-composer", onSubmit: submit },
       h("textarea", {
-        className: "bees-composer-input", value: outcome, disabled: busy || planning || !workspaceId,
+        className: "bees-composer-input", value: outcome || run?.purpose || "", disabled: busy || planning || !workspaceId,
         "aria-label": "What should this process do?",
         placeholder: workspaceId ? "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each" : "Choose a team first",
         onInput: (event) => setOutcome(event.target.value)
@@ -152,7 +154,8 @@ function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan }) {
           : planning ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
           : "Bees proposes the stages, agents and schedule. Approve it and the process is yours to run whenever you need it."),
         h("div", { className: "bees-detail-actions" },
-          h(Button, { disabled: busy || planning, onClick: onClose }, "Cancel"),
+          h(Button, { disabled: busy, onClick: planning || asking ? () => void act({ action: "stop_run", executionId: run.id }) : onClose },
+            planning || asking ? "Stop planning" : "Cancel"),
           h("button", { type: "submit", className: "bees-btn primary",
             disabled: busy || planning || asking || !workspaceId || !outcome.trim() },
             busy || planning ? "Planning…" : asking ? "Waiting for you" : "Build this process")))),

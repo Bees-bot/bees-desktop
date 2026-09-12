@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { mkdir } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
@@ -28,7 +29,7 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Return text-only answers directly in bees_submit_stage_result.summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Results people will read go in markdown files under outputs/; the summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -132,9 +133,16 @@ export function latestCodexModel(models, family) {
     .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))[0];
 }
 
+function assertConnected(ctx, selection, agentName) {
+  const connected = ctx.llm?.listProviders?.();
+  if (connected && !connected.some(({ id }) => id === selection.provider))
+    throw new Error(`${agentName ?? "This agent"} is set to ${selection.provider}/${selection.model}, which is not connected. Connect it under Settings → AI or change the agent's model.`);
+}
+
 export async function resolveRunModel(ctx, data) {
   let selection = data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
   if (!selection?.provider || !selection?.model) throw new Error("Choose a system default model first.");
+  assertConnected(ctx, selection, data.agentName ?? data.name);
   const channel = CODEX_CHANNELS.get(selection.model);
   if (channel) {
     const name = `${channel[0].toUpperCase()}${channel.slice(1)}`;
@@ -154,6 +162,7 @@ function runAgentOptions(ctx, data) {
   const selection = data.resolvedModel
     ? modelRef(data.resolvedModel)
     : data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
+  assertConnected(ctx, selection, data.agentName ?? data.name);
   const effort = data.resolvedModel ? data.resolvedReasoningEffort : data.reasoningEffort;
   if (effort !== null && effort !== undefined) selection.reasoningEffort = effort;
   return selection;
@@ -421,7 +430,6 @@ export function copyOutputs(workspace, location, executionId) {
   return { files: pending.length, bytes, destination: ".", existing: false };
 }
 
-
 export class AgentRuntime {
   constructor(ctx, database, settings = null, notify = () => {}, subscribe = null, capabilities = null) {
     this.ctx = ctx;
@@ -542,7 +550,19 @@ export class AgentRuntime {
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
+      // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
+      const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
+      const run = targets.length && database.prepare("SELECT run_directory AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
+        .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
+      const actual = (path) => { try { return realpathSync(path); } catch { return resolve(actual(dirname(path)), basename(path)); } };
+      const inside = (path, root) => `${actual(path)}${sep}`.startsWith(`${actual(root)}${sep}`);
+      // dsh writes a big tool result under its temp root and tells the model to read it from there
+      const spill = (path) => exec.name === "read" && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
+      const outside = run && targets.find((target) => !inside(resolve(run.directory, target), run.directory) && !spill(resolve(run.directory, target)));
+      if (outside) return `${outside} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       if (exec.name !== "ask_user_question") return;
+      if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
+        return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";
       const parentSession = exec.agent?.session.header.parentSession;
       if (!parentSession) return;
       if (database.prepare("SELECT 1 FROM execution_links WHERE current_session_id = ?").get(String(parentSession)))
@@ -568,6 +588,11 @@ export class AgentRuntime {
 
   setWorkStarter(start) {
     this.workStarter = start;
+  }
+
+  setStatus(executionId, status, at = new Date().toISOString()) {
+    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?").run(status, at, executionId);
+    this.notify({ type: "run/status", executionId, status, at });
   }
 
   audit(eventType, executionId, sessionId, metadata = {}) {
@@ -665,8 +690,7 @@ export class AgentRuntime {
         questions: String(event.data.arguments ?? "").slice(0, 8_000)
       };
       const at = new Date().toISOString();
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_input', updated_at = ? WHERE execution_id = ?")
-        .run(at, executionId);
+      this.setStatus(executionId, "waiting_for_input", at);
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -687,8 +711,7 @@ export class AgentRuntime {
         callId: event.data.callId ?? null,
         reason: event.data.reason ?? null
       };
-      this.database.prepare("UPDATE execution_links SET status = 'waiting_for_approval', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "waiting_for_approval");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -703,8 +726,7 @@ export class AgentRuntime {
     }
     if (event.type === "approval/decided") {
       const transition = event.data.outcome === "allowed-once" ? "approved" : "rejected";
-      this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-        .run(new Date().toISOString(), executionId);
+      this.setStatus(executionId, "running");
       this.database.prepare(`
         UPDATE work_items SET runtime_phase = 'running', updated_at = ?
         WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -725,8 +747,7 @@ export class AgentRuntime {
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'running', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "running", at);
         this.database.prepare(`
           UPDATE work_items SET runtime_phase = 'running', updated_at = ?
           WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?)
@@ -849,7 +870,7 @@ export class AgentRuntime {
     const roster = this.ctx.agentTeams.listMembers(agent);
     const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
     if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
-      throw new Error("Discussion participants are still working. Do the work now and submit once they are idle.");
+      throw new Error("Discussion participants are still working. Call bees_wait_for_team, read what they report, then submit.");
     const leadId = String(agent.session.id);
     if (expected.some((entry) => !entry || entry.status === "failed")) {
       if (!executionId || !members.every((member) => member.planningReviewer))
@@ -881,7 +902,14 @@ export class AgentRuntime {
     const owner = scopeOf(agentCtx);
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
-    if (discovery) mountToolDiscovery(agentCtx);
+    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials);
+    agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
+      const assembly = await next();
+      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona")) return assembly;
+      return { ...assembly, tools: assembly.tools.filter(({ name }) => name !== "ask_user_question"),
+        sections: [{ name: "bees:teammate", text: "You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect." },
+          ...assembly.sections.filter(({ name }) => !["harness:identity", "app:web-surface"].includes(name))] };
+    });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter);
     mountPageFetch(agentCtx, this.ctx.web);
@@ -893,7 +921,7 @@ export class AgentRuntime {
     removeDshOneShotDelegationTools(agentCtx);
     this.restrictMcp(agentCtx, data);
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
-    if (installedApp) mountAppTools(agentCtx, this.apps, installedApp, data);
+    const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
     this.installPolicies(agentCtx, { discovery: !installedApp });
     const agent = agentCtx.on ? scopeOf(agentCtx) : null;
     if (agent?.session?.id) this.policySessions.add(String(agent.session.id));
@@ -908,7 +936,8 @@ export class AgentRuntime {
         !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
         data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
         installedApp ? "" : "Team knowledge is available independently of attached inputs. When requested information may be in a mapped team source, call bees_search_knowledge and then bees_read_knowledge; do not search only the session workspace or report the source missing first.",
-        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)])
+        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
+        appInstructions
       ].filter(Boolean).join("\n\n"), complete: true
     });
     if (!installedApp) agentCtx.tools.register(defineTool({
@@ -1006,10 +1035,10 @@ export class AgentRuntime {
       },
       execute: async (args, exec) => {
         let input;
-        try { input = JSON.parse(args.input_json || "{}"); } catch { throw new Error("input_json must be valid JSON"); }
+        try { input = JSON.parse(args.input_json || "{}"); } catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
-        const payload = { ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true };
+        const payload = await this.capabilities.stash({ ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
@@ -1113,12 +1142,14 @@ export class AgentRuntime {
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
           if (data.discussionMembers?.length) {
-            const discussion = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal,
-              data.discussionMembers.map(({ name }) => name));
-            if (discussion.reason === "no-progress")
+            const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal, data.discussionMembers.map(({ name }) => name));
+            if (reason === "no-progress")
               throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
             this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
           }
+          const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
+          const done = items.find(({ title }) => settled.get(data.workItemId, String(title ?? "")));
+          if (done) throw new Error(`"${done.title}" already ran. Read its result with bees_read_work_evidence, correct it with bees_revise_work, or send only new assignments.`);
           const created = await this.subitemStore.create({ parentId: data.workItemId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
@@ -1237,7 +1268,7 @@ export class AgentRuntime {
         } : {}),
         summary: { type: "string", required: true, description: data.stagePurpose === "reviewer"
           ? "Concise review evidence or specific revision feedback against the requested scope."
-          : "Complete text answer or concise file-deliverable summary. Include artifact paths, relevant supporting evidence and any unresolved limitations." }
+          : "A short update under 1200 characters: what you produced, its outputs/ paths, and what is needed next. The content itself goes in a markdown file under outputs/." }
       },
       output: {
         schema: {
@@ -1254,11 +1285,21 @@ export class AgentRuntime {
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
-        // A small model will happily report a file it never wrote, and review then judges a fiction.
-        const missing = workspace ? [...result.summary.matchAll(/outputs\/[\w.\-/]+/g)]
-          .map(([path]) => path.replace(/[.,;:]+$/, ""))
-          .filter((path) => !path.includes("..") && !existsSync(resolve(workspace, path))) : [];
-        if (missing.length) throw new Error(`${missing[0]} is not there. Write the file you named, or drop it from the summary and give the answer there.`);
+        // a model may claim files it never wrote; only a candidate's claims are checked, not blocked reports or reviewers
+        const files = workspace && !installedApp && data.stagePurpose !== "reviewer" && args.outcome === "candidate"
+          ? outputFiles(workspace, 1000).map((path) => `outputs/${path}`) : null;
+        const real = (path) => { try { const stat = statSync(path); return stat.isFile() && stat.size > 0; } catch { return false; } };
+        // a name in prose stops at a space or a non-ascii letter, so a real file that starts with it counts
+        const present = (path) => real(resolve(workspace, path)) || files.some((file) => file.startsWith(path));
+        const missing = files ? (result.summary.match(/outputs\/[\w.\-/]+/g) ?? []).map((path) => path.replace(/[.,;:]+$/, ""))
+          .filter((path) => /(^|\/)\.\.(\/|$)/.test(path) || !present(path)) : [];
+        const named = files ? result.summary.match(/(?<![\p{L}\p{N}./_-])[\p{L}\p{N}._-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/giu) ?? [] : [];
+        const stray = named.find((name) => real(resolve(workspace, name)) && !present(`outputs/${name}`));
+        if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
+        const absent = missing[0] ?? named.find((name) => !["inputs", "."].some((dir) => real(resolve(workspace, dir, name))) && !present(`outputs/${name}`));
+        if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
+        if (files && result.summary.length > 1_200)
+          throw new Error("Keep the summary under 1200 characters: what you produced, where it is, and what is needed next. Put the content itself in a markdown file under outputs/.");
         if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
           WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
         `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
@@ -1543,8 +1584,7 @@ export class AgentRuntime {
       const run = this.run(executionId);
       if (run?.status === "queued") {
         const at = new Date().toISOString();
-        this.database.prepare("UPDATE execution_links SET status = 'failed', updated_at = ? WHERE execution_id = ?")
-          .run(at, executionId);
+        this.setStatus(executionId, "failed", at);
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
         this.checkpoint(executionId, run.currentSessionId, "failed", {
           idempotencyKey: `start-failed:${executionId}`
@@ -1646,8 +1686,7 @@ export class AgentRuntime {
         INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
         VALUES (?, ?, ?, ?)
       `).run(payload.idempotencyKey, executionId, submissionId, at);
-      this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-        .run(activeStatus, at, executionId);
+      this.setStatus(executionId, activeStatus, at);
       this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
     });
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
@@ -1694,8 +1733,10 @@ export class AgentRuntime {
         this.live.delete(executionId);
         await handle.dispose().catch(() => undefined);
         if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
-        else this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-          .run(previousStatus, new Date().toISOString(), executionId);
+        else this.setStatus(executionId, previousStatus);
+        // an unsettled delivery row makes the next executeStage poll it for ever
+        this.database.prepare("UPDATE dsh_deliveries SET outcome = 'failed', error_json = ?, settled_at = ? WHERE submission_id = ?")
+          .run(JSON.stringify({ message: message(error) }), new Date().toISOString(), submissionId);
         throw error;
       }
       this.recovery.delete(executionId);
@@ -1799,8 +1840,7 @@ export class AgentRuntime {
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
     `).run(result.outcome, result.error ? JSON.stringify(result.error) : null, at, submissionId);
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?")
-      .run(result.outcome, at, executionId);
+    this.setStatus(executionId, result.outcome, at);
     this.checkpoint(executionId, sessionId, result.outcome, {
       pendingInteraction: null,
       idempotencyKey: `settled:${submissionId}`
@@ -1858,7 +1898,7 @@ export class AgentRuntime {
     if (signal?.aborted) throw signal.reason ?? new Error("The Temporal activity was cancelled");
 
     let submission = run ? this.database.prepare(`
-      SELECT submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
+      SELECT delivery_id AS deliveryId, submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
       WHERE execution_id = ? ORDER BY created_at DESC LIMIT 1
     `).get(executionId) : null;
     if (!run) {
@@ -1886,7 +1926,19 @@ export class AgentRuntime {
       });
     }
 
-    const delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    let delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    // a small model ends its turn with the answer in prose; one reminder gets the protocol call.
+    // an activity re-entry that waited on the reminder itself must not send another
+    if (delivery.outcome === "completed" && !this.stageResult(executionId) && !submission.deliveryId?.endsWith(":submit")) {
+      submission = await this.admit("bees-run", executionId, {
+        ...payload,
+        initialData: undefined,
+        uid: this.run(executionId).instanceUid,
+        idempotencyKey: `${submission.submissionId}:submit`,
+        body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
+      });
+      delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    }
     if (delivery.outcome !== "completed") {
       const failure = delivery.errorJson ? JSON.parse(delivery.errorJson) : null;
       throw new Error(failure?.message || `Agent stage ${delivery.outcome}`);
@@ -1952,7 +2004,7 @@ export class AgentRuntime {
           : { sessionId, unavailable: true });
       }
       const result = this.database.prepare(`
-        SELECT outcome, summary, created_at AS createdAt
+        SELECT outcome, created_at AS createdAt
         FROM bees_stage_results WHERE execution_id = ?
       `).get(run.executionId) ?? null;
       const audit = this.database.prepare(`

@@ -54,7 +54,7 @@ async function treeOf(repo) {
     signal: AbortSignal.timeout(20_000)
   });
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
-  const { tree = [], truncated } = await response.json();
+  const { tree = [], truncated } = await response.json().catch(() => { throw new Error(`GitHub did not answer with JSON for ${url}`); });
   if (truncated) throw new Error(`${repo} is too large for GitHub to list in one call`);
   trees.set(repo, { tree, at: Date.now() });
   return tree;

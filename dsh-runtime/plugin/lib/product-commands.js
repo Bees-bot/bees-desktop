@@ -62,11 +62,11 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
 }
 
 /** Work that is still moving; a schedule's definition item only describes future runs. */
-const hasActiveWork = (database, processId) => Boolean(database.prepare(`
+const hasActiveWork = (database, processId, settled = ["completed", "cancelled"]) => Boolean(database.prepare(`
   SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
-    AND runtime_phase NOT IN ('completed', 'cancelled')
+    AND runtime_phase NOT IN (${settled.map(() => "?").join(", ")})
     AND id NOT IN (SELECT source_work_item_id FROM recurring_work) LIMIT 1
-`).get(processId));
+`).get(processId, ...settled));
 
 /** An agent may name a server by its id, its server name, its label or its catalog id. */
 export function enabledServers(database) {
@@ -274,7 +274,8 @@ function learnedPlaybook(current, feedback) {
   const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
   const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
   if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
-  return lines.slice(-12).join("\n").slice(0, 6_000);
+  while (lines.length > 1 && lines.join("\n").length > 6_000) lines.shift();
+  return lines.join("\n");
 }
 
 export async function executeProductCommand(action, input) {
@@ -744,7 +745,8 @@ export async function executeProductCommand(action, input) {
       if (row.kind === "goals") throw new Error("The built-in Goals process cannot be archived");
       if (this.database.prepare("SELECT 1 FROM recurring_work WHERE process_id = ? AND status = 'active' LIMIT 1").get(process.id))
         throw new Error("Pause this process's schedules before archiving it");
-      if (this.processes.isAutomatic(process.id) && hasActiveWork(this.database, process.id))
+      // archiving keeps runs and history, so only work in flight blocks it; a failed run is not
+      if (this.processes.isAutomatic(process.id) && hasActiveWork(this.database, process.id, ["completed", "cancelled", "failed"]))
         throw new Error("Finish or cancel active work before archiving this process");
       this.database.prepare("UPDATE processes SET archived_at = ?, updated_at = ? WHERE id = ?").run(at, at, process.id);
       // A schedule's definition item goes with its process, or the Schedules screen keeps listing it.

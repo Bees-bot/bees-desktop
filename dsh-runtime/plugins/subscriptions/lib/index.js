@@ -4,6 +4,7 @@ import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
@@ -195,7 +196,7 @@ function structuredOutput(parsed) {
 
 function runClaude(command, model, effort, prompt, signal, schema) {
   const args = [
-    "--print", "--output-format", "json", "--safe-mode", "--no-session-persistence",
+    "--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--no-session-persistence",
     "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
     "--tools", "", "--permission-mode", "dontAsk",
     ...(schema ? ["--json-schema", JSON.stringify(schema)] : []),
@@ -209,15 +210,18 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       env: safeEnvironment(),
       stdio: ["pipe", "pipe", "pipe"]
     });
-    let stdout = "";
+    const decoder = new StringDecoder("utf8");
+    let pending = "", bytes = 0, early = null, final = null;
     let stderr = "";
     let overflow = false;
     let timedOut = false;
-    const append = (current, chunk) => {
-      const left = OUTPUT_LIMIT - Buffer.byteLength(current);
-      if (left <= 0) { overflow = true; return current; }
-      if (chunk.byteLength > left) overflow = true;
-      return current + chunk.subarray(0, Math.max(0, left)).toString();
+    // the cli keeps its loop going after a structured answer, so the first one is the answer
+    const consume = (line) => {
+      let event;
+      try { event = JSON.parse(line); } catch { return; }
+      if (event.type === "result") final = event;
+      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use" && part.name === "StructuredOutput" && typeof part.input?.tool === "string");
+      if (block && !early) { early = { structured: block.input, usage: event.message.usage ?? {} }; stop(); }
     };
     const stop = () => child.kill("SIGKILL");
     const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
@@ -225,22 +229,28 @@ function runClaude(command, model, effort, prompt, signal, schema) {
     signal?.addEventListener("abort", abort, { once: true });
     // "close" may never arrive after "error", so the timer and listener are cleared on both.
     const settled = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
-    child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); if (overflow) stop(); });
-    child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); if (overflow) stop(); });
+    child.stdout.on("data", (chunk) => {
+      const lines = (pending + decoder.write(chunk)).split("\n");
+      pending = lines.pop();
+      lines.forEach(consume);
+      if (!early && (bytes += chunk.byteLength) > OUTPUT_LIMIT) { overflow = true; stop(); }
+    });
+    child.stderr.on("data", (chunk) => { if ((bytes += chunk.byteLength) > OUTPUT_LIMIT) { overflow = true; stop(); } else stderr += chunk.toString(); });
     child.on("error", (error) => { settled(); reject(error); });
     child.on("close", (code) => {
       settled();
+      consume(pending + decoder.end());
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
+      if (early) return resolve({ text: String(early.structured.text ?? ""), structured: early.structured, usage: early.usage });
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
       try {
-        if (!stdout.trim()) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
-        const parsed = JSON.parse(stdout);
-        const structured = schema ? structuredOutput(parsed) : null;
-        if (code !== 0 || parsed.is_error || (schema ? !structured : !String(parsed.result ?? "").trim())) {
-          throw new Error(parsed.result || stderr.trim() || `Claude Code exited with code ${code}`);
+        if (!final) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
+        const structured = schema ? structuredOutput(final) : null;
+        if (code !== 0 || final.is_error || (schema ? !structured : !String(final.result ?? "").trim())) {
+          throw new Error(final.result || stderr.trim() || `Claude Code exited with code ${code}`);
         }
-        resolve({ text: String(parsed.result ?? ""), structured, usage: parsed.usage ?? {} });
+        resolve({ text: String(final.result ?? ""), structured, usage: final.usage ?? {} });
       } catch (error) {
         reject(error instanceof LlmError ? error : new LlmError(error.message, "CLAUDE_CODE"));
       }
@@ -252,7 +262,9 @@ function runClaude(command, model, effort, prompt, signal, schema) {
 export function claudeChunks(result, tools) {
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
-    outputTokens: Number(result.usage.output_tokens ?? 0)
+    outputTokens: Number(result.usage.output_tokens ?? 0),
+    ...result.usage.cache_read_input_tokens > 0 ? { cacheReadTokens: Number(result.usage.cache_read_input_tokens) } : {},
+    ...result.usage.cache_creation_input_tokens > 0 ? { cacheWriteTokens: Number(result.usage.cache_creation_input_tokens) } : {}
   } };
   if (result.structured?.tool) {
     const name = String(result.structured.tool);

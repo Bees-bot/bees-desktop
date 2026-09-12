@@ -154,7 +154,9 @@ function walk(root, limit, keep = () => true) {
   const stack = [root];
   while (stack.length && files.length < limit) {
     const directory = stack.pop();
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    let entries;
+    try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
       if (entry.isSymbolicLink()) continue;
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(path);
@@ -165,10 +167,10 @@ function walk(root, limit, keep = () => true) {
   return files;
 }
 
-export function outputFiles(runDirectory) {
+export function outputFiles(runDirectory, limit = 100) {
   try {
     const root = realpathSync(resolve(runDirectory, "outputs"));
-    return walk(root, 100).map((path) => relative(root, path));
+    return walk(root, limit).map((path) => relative(root, path));
   } catch { /* a run may not have created this directory yet */
     return [];
   }
@@ -176,7 +178,7 @@ export function outputFiles(runDirectory) {
 
 export function previewFiles(runDirectory) {
   const files = [];
-  const text = (path) => TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000;
+  const text = (path) => { try { return TEXT_EXTENSIONS.has(extname(path).toLowerCase()) && lstatSync(path).size <= 1_000_000; } catch { return false; } };
   for (const rootName of ["inputs", "outputs"]) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));

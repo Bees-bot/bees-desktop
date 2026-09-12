@@ -180,9 +180,9 @@ deduplication.
 - **The execution-agent roster is paginated.** It is no longer copied into
   every stage brief. Delegation inherits the caller unless a specific assignment
   is needed. Connected-source hints include only granted servers.
-- **Text answers need no intermediate files.** Their complete answer goes into
-  the stage-result summary and directly into the reviewer's brief. Requested
-  file deliverables and publication requirements still apply.
+- **Anything a person will read goes in a markdown file under outputs/.** The
+  stage-result summary is a short update: what was produced, where it is, and
+  what is needed next. Publication requirements still apply.
 - **Team waiting is event-driven.** Bees supplies a compact live team roster.
   Managed agents use `bees_wait_for_team` for a pending wait that wakes on a
   teammate message or status change. `list_agents` and `wait_agent` are hidden

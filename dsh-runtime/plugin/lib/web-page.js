@@ -1,25 +1,35 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const MAX_CHARS = 20_000;
+
+const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["quot", '"'], ["apos", "'"], ["nbsp", " "], ["amp", "&"], ["hellip", "…"], ["mdash", "—"], ["ndash", "–"],
+  ["lsquo", "‘"], ["rsquo", "’"], ["ldquo", "“"], ["rdquo", "”"], ["copy", "©"], ["reg", "®"], ["trade", "™"], ["bull", "•"], ["middot", "·"], ["laquo", "«"], ["raquo", "»"], ["euro", "€"], ["pound", "£"]]);
+const unescape = (text) => text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
+  if (name) return ENTITIES.get(name.toLowerCase()) ?? match;
+  const code = decimal ? Number(decimal) : parseInt(hex, 16);
+  return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : match;
+}).trim();
+const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
 const readable = (body) => {
-  const content = body.kind === "html" ? body.content
-  .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ")
-  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#\d+;/g, " ")
-  .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
+  const content = body.kind === "html" ? unescape(body.content
+    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^<>]*>/g, " "))
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
   return content.length > MAX_CHARS
     ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
     : content;
 };
 
-const unescape = (text) => text.replace(/<!\[CDATA\[|\]\]>/g, "")
-  .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
-
 function newsItems(xml) {
   return [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map(([, item]) => {
-    const field = (name) => unescape(item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? "");
-    return { title: field("title"), url: field("link"), publisher: field("source") || field("dc:creator"),
+    // cdata is literal html; anything else is xml-escaped and decodes once here, then once more as html
+    const field = (name) => { const raw = item.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] ?? ""; return raw.includes("<![CDATA[") ? raw.replace(/<!\[CDATA\[|\]\]>/g, "").trim() : unescape(raw); };
+    const title = unescape(field("title"));
+    const summary = unescape((field("description") || field("content:encoded")).replace(/<[^<>]*>/g, " ")).replace(/\s+/g, " ").trim();
+    const echoed = letters(summary);
+    return { title, url: field("link"), publisher: field("source") || field("dc:creator"),
       published_at: field("pubDate") || null,
-      description: field("description") || field("content:encoded") || null };
+      description: echoed && letters(title).includes(echoed) ? null : summary || null };
   }).filter(({ title, url }) => title && /^https?:\/\//i.test(url));
 }
 

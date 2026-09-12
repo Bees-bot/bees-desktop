@@ -391,6 +391,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
+      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
     // tab content
@@ -419,6 +420,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onArchived, onScheduleC
         itemRuns.length ? h("div", { className: "bees-run-list" }, ...itemRuns.map((row) => h("button", { className: `bees-run-row ${row.id === run?.id ? "active" : ""}`, key: row.id, onClick: () => setSelectedRun(row.id) },
           h("span", { className: `bees-status bees-${row.status}` }, row.status), h("span", null, new Date(row.updatedAt).toLocaleString()), h("span", { className: "bees-grow" }), h("span", { className: "bees-muted" }, `${(row.outputs?.length ?? 0)} outputs`)))) : h(Empty, null, "No executions yet")
       ) : activeTab === "recurring" ? h(RecurringWorkPanel, { data, item, recurringWork, act, onEdit: onEditSchedule })
+      : activeTab === "audit" ? h("div", { style: { height: "100%", display: "flex", flexDirection: "column" } },
+        run ? h("iframe", {
+          src: `/?session=${encodeURIComponent(run.sessionId ?? run.id)}`,
+          style: { width: "100%", flex: 1, border: "none", borderRadius: "8px", minHeight: "500px" },
+          title: "Runtime traces"
+        }) : h("p", { className: "bees-muted" }, "No active run to show traces for.")
+      )
       : null
     )
   );
@@ -496,9 +504,9 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onNewWork, on
     setPageHeader && setPageHeader(
       h(React.Fragment, null,
         h(Button, { onClick: onBack }, "← Process Runs"),
-        h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12 } },
-          h("div", { className: "bees-title" }, root.title),
-          h("div", { className: "bees-context", style: { marginTop: 4 } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
+        h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0 } },
+          h("div", { className: "bees-title", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title),
+          h("div", { className: "bees-context", style: { marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
         )
       )
     );

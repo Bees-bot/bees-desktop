@@ -671,20 +671,26 @@ describe("DSH-owned desktop and recovery", () => {
     const database = new NodeDatabase();
     const runtime = new AgentRuntime(context(), database.connection);
     const payload = { body: "Do the work", idempotencyKey: "start:run" };
-    const admit = vi.spyOn(runtime, "admit").mockImplementation(async () => {
-      insertRun(database, outcome);
+    const admit = vi.spyOn(runtime, "admit").mockImplementation(async (_agent, _id, { idempotencyKey }) => {
+      if (!database.connection.prepare("SELECT 1 FROM execution_links WHERE execution_id = 'run'").get()) insertRun(database, outcome);
       database.connection.prepare(`
         INSERT INTO dsh_deliveries
           (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
-        VALUES ('delivery', 'run', 'submission', ?, ?, '2026-01-01', '2026-01-01')
-      `).run(outcome, failure ? JSON.stringify(failure) : null);
-      return { submissionId: "submission" };
+        VALUES (?, 'run', ?, ?, ?, '2026-01-01', '2026-01-01')
+      `).run(idempotencyKey, idempotencyKey, outcome, failure ? JSON.stringify(failure) : null);
+      return { submissionId: idempotencyKey };
     });
 
     const execution = runtime.executeStage("run", payload);
     await expect(execution).rejects.toThrow(message);
     await expect(execution).rejects.not.toHaveProperty("retryable", true);
-    expect(admit).toHaveBeenCalledExactlyOnceWith("bees-run", "run", payload);
+    expect(admit).toHaveBeenNthCalledWith(1, "bees-run", "run", payload);
+    // a completed turn with no result gets one reminder, then fails; a failed one gets none
+    expect(admit).toHaveBeenCalledTimes(outcome === "completed" ? 2 : 1);
+    if (outcome === "completed") expect(admit).toHaveBeenLastCalledWith("bees-run", "run", expect.objectContaining({
+      uid: "uid", idempotencyKey: "start:run:submit",
+      body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
+    }));
   });
 
   it("returns a completed stage result without starting another delivery", async () => {

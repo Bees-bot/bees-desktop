@@ -1,3 +1,4 @@
+import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
@@ -7,14 +8,14 @@ const BASE_TOOLS = new Set([
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes",
   "ask_user_question", "bees_request_work_review", "bees_wait_for_team", "bees_finish_discussion",
   "web_search", "web_fetch", "bees_fetch_page", "bees_search_news", "read", "write",
-  "bees_control", "bees_publish_outputs", "bees_revise_work", "bees_read_work_evidence"
+  "bees_control", "bees_publish_outputs", "bees_delegate_work", "bees_revise_work", "bees_read_work_evidence", "bees_search_knowledge", "bees_read_knowledge"
 ]);
 const HIDDEN_TOOLS = new Set(["subagent", "subagent_fork", "list_agents", "wait_agent"]);
 const PAGE_SIZE = 4;
 const RETAINED_TOOLS = 8;
 
 /** Present a small native toolkit; actual registrations and execution guards remain authoritative. */
-export function mountToolDiscovery(agentCtx) {
+export function mountToolDiscovery(agentCtx, credentials) {
   if (!agentCtx.on || !agentCtx.tools.schemas) return;
   const owner = scopeOf(agentCtx);
   const loaded = new Set();
@@ -22,8 +23,10 @@ export function mountToolDiscovery(agentCtx) {
     const assembly = await next();
     // Scoped listeners also receive descendant events. Each run owns its own selection.
     if (context.scope !== owner || agentCtx.tools.modeFor?.(owner) === "ptc") return assembly;
-    return { ...assembly, tools: assembly.tools.filter(({ name }) =>
-      !HIDDEN_TOOLS.has(name) && (BASE_TOOLS.has(name) || loaded.has(name))) };
+    // web_search is DeepSeek-backed and errors on every call without its key
+    const searchable = Boolean((await credentials.resolve(credentialRef("DEEPSEEK_API_KEY")))?.value);
+    const shown = ({ name }) => !HIDDEN_TOOLS.has(name) && (searchable || name !== "web_search") && (BASE_TOOLS.has(name) || loaded.has(name));
+    return { ...assembly, tools: assembly.tools.filter(shown), sections: assembly.sections.filter(({ name }) => !assembly.tools.some((tool) => !shown(tool) && name === `tool:${tool.name}`)) };
   });
   agentCtx.tools.register(defineTool({
     name: "bees_find_tools",
