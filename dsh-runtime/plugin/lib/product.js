@@ -139,6 +139,15 @@ export class BeesProduct {
 
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
+    const existing = stage.durableWaits ? this.agents.run(stage.executionId) : null;
+    if (existing?.workItemId === item.id && !this.agents.needsRecovery(stage.executionId)) {
+      // Reattach after a wait or lost activity reply without copying inputs or admitting a new run.
+      return this.agents.executeStage(stage.executionId, {
+        idempotencyKey: `process:${stage.executionId}:start`, durableWaits: true,
+        ...(stage.retryRequest > 0 ? { retryId: `process:${stage.executionId}:retry:${stage.retryRequest}` } : {}),
+        body: `Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
+      }, signal);
+    }
     const parent = item.parentId ? itemContext(this.database, item.parentId, ["admin", "member"]) : null;
     const parentBrief = parent
       ? `\n\nOriginal parent request:\n${parent.title}\n${parent.description}\n\nComplete only your assigned portion. The parent owns the combined outcome and reviews your result. Return the completed work, supporting evidence needed to verify your assigned requirements, and any limitations.`
@@ -228,6 +237,7 @@ export class BeesProduct {
       : `Complete only the ${stage.stageName || "current"} stage of this goal; do not perform later stages. ${delegationProtocol} Anything a person will read, a list, a table, a report, a draft, goes in a markdown file under outputs/; keep bees_submit_stage_result.summary to a short update: what you produced, where it is, and what is needed next. If you are granted publication targets, you MUST publish the file deliverables using bees_publish_outputs. Call bees_submit_stage_result with candidate only when this stage is genuinely ready for the next stage.\n\nGoal: ${item.title}\n\n${item.description}\n\nCurrent stage: ${stage.stageName || "Work"}.${handoff}${feedback}${inputs}${discussionProtocol}${approval}`;
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
+      durableWaits: Boolean(stage.durableWaits),
       ...(stage.retryRequest > 0 ? { retryId: `process:${executionId}:retry:${stage.retryRequest}` } : {}),
       workspace: runDirectory,
       body: body + parentBrief + processBrief + referenceBrief + (reviewer ? "" : "\n\nFor tracked delegation, omit agentAssignmentId to inherit your configuration. Use bees_list_execution_agents only when a specific agent assignment is needed; discussion seat names are not assignment IDs. You review your children's returned results against the original request. Use bees_revise_work for a specific correction to a completed child; reuse existing evidence instead of restarting research."),
@@ -360,10 +370,24 @@ export class BeesProduct {
       FROM work_items w JOIN stages s ON s.id = w.stage_id
       WHERE w.process_id IN (SELECT value FROM json_each(?)) AND w.deleted_at IS NULL
       ORDER BY w.updated_at DESC
-    `).all(JSON.stringify(processIds)).map(({ runSettingsJson, agentIds, ...row }) => ({
-      ...row, agentIds: JSON.parse(agentIds || "[]"),
-      runSettings: JSON.parse(runSettingsJson), completed: Boolean(row.completed)
-    })) : [];
+    `).all(JSON.stringify(processIds)).map(({ runSettingsJson, agentIds, ...row }) => {
+      // Keep the stored timeout intact: workflow recovery uses it to resume the same execution.
+      if (row.runtimePhase === "failed" && /heartbeat timeout/i.test(row.runtimeError ?? "")) {
+        const last = this.database.prepare(`
+          SELECT event_type AS type, json_extract(metadata_json, '$.error') AS error
+          FROM dsh_audit_events WHERE execution_id = ? AND created_at <= ?
+            AND event_type IN ('run-started', 'run-failed', 'run-completed', 'run-cancelled')
+          ORDER BY created_at DESC, rowid DESC LIMIT 1
+        `).get(row.runtimeExecutionId, row.updatedAt);
+        const stage = stages.find(({ id }) => id === row.stageId);
+        const reason = last?.type === "run-failed" && typeof last.error === "string" && last.error.trim()
+          && !/heartbeat timeout/i.test(last.error) ? `Last recorded failure: ${last.error}`
+          : "Bees could not determine why the worker stopped responding.";
+        row.runtimeError = `Bees did not receive a response from its background worker for 30 seconds${stage ? ` during "${stage.name}"` : ""}. ${reason} Select Retry to try this stage again.`;
+      }
+      return { ...row, agentIds: JSON.parse(agentIds || "[]"),
+        runSettings: JSON.parse(runSettingsJson), completed: Boolean(row.completed) };
+    }) : [];
     const locations = allowedTeams.length ? this.database.prepare(`
       SELECT l.id, l.team_id AS teamId, l.logical_id AS logicalId, l.name, l.kind, l.description,
              l.archived_at AS archivedAt, m.absolute_path AS localPath
@@ -618,10 +642,10 @@ export class BeesProduct {
     return textPreview(path, logical || basename(path));
   }
 
-  runFile(executionId, filePath) {
+  runFile(executionId, filePath, native = false) {
     const id = required(executionId, "Run");
     const row = this.database.prepare(`
-      SELECT workspace_id AS workspaceId, run_directory AS runDirectory
+      SELECT workspace_id AS workspaceId, run_directory AS runDirectory, current_session_id AS sessionId, status
       FROM execution_links WHERE execution_id = ?
     `).get(id);
     if (!row) throw new Error("Run not found");
@@ -629,17 +653,18 @@ export class BeesProduct {
     const logical = logicalRelativePath(required(filePath, "File"));
     const [rootName] = logical.split("/");
     if (!["inputs", "outputs"].includes(rootName)) throw new Error("Only run inputs and outputs can be previewed");
-    if (!TEXT_EXTENSIONS.has(extname(logical).toLowerCase())) throw new Error("This file type cannot be previewed as text");
+    if (!native && !TEXT_EXTENSIONS.has(extname(logical).toLowerCase())) throw new Error("This file type cannot be previewed as text");
     const runsRoot = realpathSync(resolve(this.defaultWorkspace, "runs"));
     const runDirectory = realpathSync(row.runDirectory);
     if (runDirectory !== runsRoot && !runDirectory.startsWith(`${runsRoot}${sep}`))
       throw new Error("The run directory is outside the Bees workspace");
     const root = realpathSync(resolve(runDirectory, rootName));
+    if (!root.startsWith(`${runDirectory}${sep}`)) throw new Error("The file escaped its run directory");
     const path = realpathSync(resolve(runDirectory, logical));
     if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("The file escaped its run directory");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The run file is unavailable");
-    return textPreview(path, logical);
+    return native ? { sessionId: row.sessionId, status: row.status, path: logical } : textPreview(path, logical);
   }
 
   async planningBrief(workspaceId, outcome) {

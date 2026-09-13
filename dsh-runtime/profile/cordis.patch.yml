@@ -18,11 +18,11 @@
     provider: local-openai
     model: active
 
-# DSH rc.1 Agent Teams replaces the old parent/child control surface with a
+# DSH Agent Teams replaces the old parent/child control surface with a
 # durable peer mailbox and shared task board. One-shot delegation remains mounted
 # for non-Bees sessions; the Bees plugin scopes it out of managed work runs.
 - id: tool-subagent-control
-  disabled: true
+  disabled: false
 
 - id: tool-subagent-list-agents
   disabled: true
@@ -81,4 +81,4 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments]

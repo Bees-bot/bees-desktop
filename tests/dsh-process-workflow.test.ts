@@ -3,11 +3,11 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 // Execute the real workflow with deterministic activity/signal boundaries, without a Temporal server.
-function harness(outcomes: (string | Error)[], patched = true) {
+function harness(outcomes: (string | Error)[], patched = true, answerBeforeSuspension = false) {
   const projections: any[] = [];
   const calls: any[] = [];
   const activityOptions: any[] = [];
-  const handlers = new Map<string, () => void>();
+  const handlers = new Map<string, (...args: any[]) => void>();
   let wake: (() => void) | undefined;
   const temporal = {
     CancellationScope: { nonCancellable: (fn: () => unknown) => fn() },
@@ -26,10 +26,12 @@ function harness(outcomes: (string | Error)[], patched = true) {
         const outcome = outcomes.shift();
         if (outcome instanceof Error) throw outcome;
         if (!outcome) throw new Error("Unexpected extra model stage");
+        if (outcome === "suspended" && answerBeforeSuspension)
+          handlers.get("stageChanged")!(stage.executionId);
         return { outcome, summary: outcome === "revise" ? "Fix the candidate" : "Verified" };
       },
     }; },
-    setHandler: (name: string, handler: () => void) => handlers.set(name, handler),
+    setHandler: (name: string, handler: (...args: any[]) => void) => handlers.set(name, handler),
   };
   const source = readFileSync(new URL("../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url), "utf8")
     .replace(/import\s*\{([\s\S]*?)\}\s*from "@temporalio\/workflow";/, "const {$1} = temporal;")
@@ -38,6 +40,7 @@ function harness(outcomes: (string | Error)[], patched = true) {
   return {
     run, calls, projections, activityOptions,
     retry: () => { handlers.get("retry")!(); wake?.(); },
+    changed: (executionId: string) => { handlers.get("stageChanged")!(executionId); wake?.(); },
   };
 }
 
@@ -75,6 +78,7 @@ describe("Process review budget", () => {
     expect(state.activityOptions).toEqual([
       expect.objectContaining({ retry: { maximumAttempts: 5 } }),
       expect.objectContaining({ retry: { maximumAttempts: 1 } }),
+      expect.objectContaining({ retry: { initialInterval: "1 second", maximumInterval: "30 seconds" } }),
     ]);
     const completed = state.run(input);
     await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
@@ -91,7 +95,7 @@ describe("Process review budget", () => {
   });
 
   it("assigns one stable retry request to each explicit heartbeat retry while preserving the execution id", async () => {
-    const state = harness([new Error("activity Heartbeat timeout"), new Error("activity Heartbeat timeout"), "candidate", "pass"]);
+    const state = harness([new Error("activity Heartbeat timeout"), new Error("activity Heartbeat timeout"), "candidate", "pass"], false);
     const completed = state.run(input);
     await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
       phase: "failed", attempt: 1, retryRequest: 0,
@@ -122,6 +126,35 @@ describe("Process review budget", () => {
     state.retry();
     await expect(completed).resolves.toMatchObject({ phase: "completed", revisions: 0 });
     expect(state.calls).toHaveLength(8);
+  });
+
+  it("recovers heartbeat loss in Review without another review identity or a user retry", async () => {
+    const state = harness(["candidate", new Error("activity Heartbeat timeout"), "pass"]);
+    await expect(state.run(input)).resolves.toMatchObject({ phase: "completed", attempt: 1, reviewCycle: 1 });
+    expect(state.calls[2]).toEqual(state.calls[1]);
+    expect(state.projections.some(({ phase }) => phase === "failed")).toBe(false);
+    expect(state.calls[2]).toMatchObject({ durableWaits: true, retryRequest: 0 });
+  });
+
+  it("releases the Review activity during a human wait and resumes only the matching execution", async () => {
+    const state = harness(["candidate", "suspended", "pass"]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
+      phase: "waiting", waitingForInput: true, reviewCycle: 1,
+    }));
+    const review = state.calls[1];
+    state.changed("unrelated-execution");
+    await Promise.resolve();
+    expect(state.calls).toHaveLength(2);
+    state.changed(review.executionId);
+    await expect(completed).resolves.toMatchObject({ phase: "completed", reviewCycle: 1 });
+    expect(state.calls[2].executionId).toBe(review.executionId);
+  });
+
+  it("does not lose an answer that arrives before the suspended activity reply", async () => {
+    const state = harness(["candidate", "suspended", "pass"], true, true);
+    await expect(state.run(input)).resolves.toMatchObject({ phase: "completed", reviewCycle: 1 });
+    expect(state.calls[2].executionId).toBe(state.calls[1].executionId);
   });
 
   it("clears the budget after a pass before reviewing the next stage", async () => {

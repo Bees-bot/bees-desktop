@@ -8,6 +8,7 @@ import {
   copyOutputs,
   latestCodexModel,
   safeRecoverySeed,
+  recoveryToolContext,
   typedReferences
 } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { clientSource as client } from "./client-source.js";
@@ -29,6 +30,76 @@ function insertRun(database: NodeDatabase, status = "running", workItemId: strin
 }
 
 describe("DSH-owned desktop and recovery", () => {
+  it("shares an in-flight admission when a replacement activity arrives during startup", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    let finish!: (value: any) => void;
+    const open = vi.spyOn(runtime as any, "admitOnce").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const payload = { idempotencyKey: "start:run", body: "Do the work" };
+    const first = runtime.admit("bees-run", "run", payload);
+    const replacement = runtime.admit("bees-run", "run", payload);
+    expect(open).toHaveBeenCalledTimes(1);
+    finish({ submissionId: "same-delivery" });
+    expect(await first).toEqual(await replacement);
+  });
+
+  it("suspends a checkpointed question and reattaches to the same delivery after the answer", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    insertRun(database);
+    database.connection.exec(`INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+      VALUES ('start:run', 'run', 'submission', '2026-01-01')`);
+    runtime.onSessionEvent({ id: "session" }, { type: "tool/call", seq: 1,
+      data: { name: "ask_user_question", callId: "question", arguments: '{"questions":[]}' } });
+    const admit = vi.spyOn(runtime, "admit");
+    await expect(runtime.executeStage("run", { durableWaits: true })).resolves.toEqual({ outcome: "suspended" });
+    expect(admit).not.toHaveBeenCalled();
+    runtime.onSessionEvent({ id: "session" }, { type: "tool/result", seq: 2,
+      data: { message: { source: { callId: "question" }, content: [{ type: "text", text: "Approved" }] } } });
+    database.connection.exec(`UPDATE dsh_deliveries SET outcome = 'completed' WHERE submission_id = 'submission';
+      UPDATE execution_links SET status = 'completed' WHERE execution_id = 'run';
+      INSERT INTO bees_stage_results VALUES ('run', 'worker', 'candidate', 'Done', '2026-01-01')`);
+    await expect(runtime.executeStage("run", { durableWaits: true })).resolves.toMatchObject({ outcome: "candidate" });
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel a live process agent when its old activity expires after sleep", async () => {
+    const database = new NodeDatabase();
+    const runtime = new AgentRuntime(context(), database.connection);
+    const stage = database.connection.prepare("SELECT id, process_id FROM stages LIMIT 1").get()!;
+    database.connection.prepare(`INSERT INTO work_items
+      (id, process_id, stage_id, title, runtime_phase, runtime_execution_id, created_at, updated_at)
+      VALUES ('goal', ?, ?, 'Goal', 'running', 'run', '2026-01-01', '2026-01-01')`)
+      .run(String(stage.process_id), String(stage.id));
+    insertRun(database, "running", "goal");
+    database.connection.exec(`INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+      VALUES ('delivery', 'run', 'submission', '2026-01-01')`);
+    const cancel = vi.fn();
+    (runtime as any).live.set("run", { approvalAbort: new AbortController(), handle: { agent: { cancel } } });
+    const expired = new AbortController();
+    expired.abort(new Error("NOT_FOUND"));
+    await expect(runtime.waitForDelivery("run", "submission", expired.signal)).rejects.toThrow("NOT_FOUND");
+    expect(cancel).not.toHaveBeenCalled();
+    database.connection.exec("UPDATE work_items SET runtime_phase = 'cancelled' WHERE id = 'goal'");
+    await expect(runtime.waitForDelivery("run", "submission", expired.signal)).rejects.toThrow("NOT_FOUND");
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries completed interrupted-turn tools forward and refuses to replay an unknown action", () => {
+    const completed = [
+      { seq: 0, type: "tool/call", data: { name: "send_message", callId: "sent", arguments: "{}" } },
+      { seq: 1, type: "tool/result", data: { message: { source: { callId: "sent" }, content: [{ type: "text", text: "message-id-123" }] } } },
+    ];
+    expect(recoveryToolContext(completed, null)).toContain("message-id-123");
+    expect(recoveryToolContext(completed, null)).toContain("do not repeat");
+    const interrupted = [...completed, { seq: 2, type: "tool/call",
+      data: { name: "send_message", callId: "unknown", arguments: "{}" } }];
+    expect(() => recoveryToolContext(interrupted, null)).toThrow("before its result was recorded");
+    expect(() => recoveryToolContext([...interrupted, { seq: 3, type: "turn/end", data: {} }], null))
+      .toThrow("before its result was recorded");
+    expect(() => recoveryToolContext(interrupted, { kind: "approval", callId: "unknown" })).not.toThrow();
+  });
+
   it("durably queues a run before background agent startup", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-queued-run-"));
     try {
@@ -259,7 +330,7 @@ describe("DSH-owned desktop and recovery", () => {
     ];
     const runtime = new AgentRuntime({
       on: () => () => undefined,
-      sessionPersistence: { inspect: async () => ({ events }) }
+      sessionPersistence: { open: async () => ({ read: async () => ({ events }), close: async () => {} }) }
     }, database.connection);
     insertRun(database, "completed", "goal");
     const workspace = database.connection.prepare("SELECT id FROM workspaces ORDER BY created_at LIMIT 1").get() as { id: string };
@@ -532,7 +603,7 @@ describe("DSH-owned desktop and recovery", () => {
         throw new Error("provider unavailable");
       } },
       approval: { setPolicy: () => undefined },
-      sessionPersistence: { load: async () => ({ events: [] }) }
+      sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) }
     }, database.connection);
     await expect(runtime.admit("bees-run", "retryable", {
       idempotencyKey: "retryable-start",
@@ -570,7 +641,7 @@ describe("DSH-owned desktop and recovery", () => {
         throw new Error("stop after selection");
       } },
       approval: { setPolicy: () => undefined },
-      sessionPersistence: { load: async () => ({ events: [] }) }
+      sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) }
     } as any, database.connection);
     await expect(runtime.admit("bees-run", "latest-sol", {
       idempotencyKey: "latest-sol-start", workspace: runDirectory, body: "Do the work",

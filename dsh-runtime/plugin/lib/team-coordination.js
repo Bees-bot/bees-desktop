@@ -51,7 +51,7 @@ export function waitForTeam(agentCtx, teams, agent, signal, requiredNames) {
             return finish("no-progress");
           return;
         }
-        if (agent.inbox.hasPending) return finish("message");
+        if ((agent.inbox.nextStep.length || agent.inbox.nextTurn.length)) return finish("message");
         const roster = teams.listMembers(agent);
         if ([...active].some((id) => !roster.some((member) => member.id === id && ACTIVE.has(member.status))))
           return finish("member-settled");
@@ -118,7 +118,7 @@ export function mountTeamCoordination(agentCtx, teams) {
         throw new Error("Only a discussion participant can finish its contribution");
       if (typeof summary !== "string" || !summary.trim()) throw new Error("A discussion recommendation is required");
       await teams.sendMessage(owner, {
-        target: "lead", content: [{ type: "text", text: summary }], delivery: "quiet", signal: exec.signal
+        target: "lead", content: [{ type: "text", text: summary }], signal: exec.signal
       });
       exec.concludeTurn();
       return { reported: true };

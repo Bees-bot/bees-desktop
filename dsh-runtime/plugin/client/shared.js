@@ -146,6 +146,10 @@ export const css = `
 .bees-widget-tooltip ul { margin: 0; padding-left: 16px; }
 .bees-widget-tooltip li { margin-bottom: 4px; }
 
+.bees-native-widgets{display:flex;height:65vh;min-height:320px;min-width:0;overflow:hidden;contain:layout paint;isolation:isolate}
+.bees-native-main{flex:1;min-width:0;height:100%}
+@media(max-width:800px){.bees-native-widgets{flex-direction:column}.bees-native-main{min-height:240px}.bees-embedded-rightbar{width:100%!important;flex:1;min-height:0}}
+.bees-native-conversation{min-height:180px;display:flex;flex-direction:column;gap:12px;padding:16px;min-width:0;overflow:auto}
 .bees-app [hidden]{display:none!important}
 .bees-ask-setup{max-width:none;margin:0;padding:4px 0;min-width:0}
 .bees-ask-heading{padding:14px 0 12px}.bees-ask-heading h1{font-size:28px;margin:6px 0 6px}.bees-ask-heading h1:focus{outline:none}
@@ -891,6 +895,8 @@ export const css = `
 .bees-file-preview-head>.bees-editor-action{display:grid;place-items:center;width:30px;height:30px;padding:0;border:0;background:transparent}
 .bees-file-preview-head>.bees-btn{flex-shrink:0}
 .bees-file-preview-body{min-height:0;min-width:0;flex:1;overflow:auto;overflow-wrap:anywhere;padding:16px}
+.bees-file-preview-image{display:block;max-width:100%;max-height:65vh;object-fit:contain;margin:auto}
+.bees-file-preview-document{display:block;width:100%;height:65vh;min-height:300px;border:0;background:white}
 .bees-work-files .bees-resource-list,.bees-file-dialog .bees-resource-list{grid-template-columns:minmax(0,1fr)}
 .bees-editor-open{display:flex;flex-direction:column;flex:1;height:65vh;min-height:360px;gap:0}
 .bees-editor-open>div{display:none}

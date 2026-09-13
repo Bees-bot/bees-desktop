@@ -30,7 +30,7 @@ describe("executive team", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-executives-"));
     try {
       const db = new NodeDatabase().connection;
-      const runtime = new AgentRuntime({ on: () => () => undefined }, db);
+      const runtime = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, db);
       const execute = vi.spyOn(runtime, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const product = new BeesProduct(db, runtime, { startItem: async () => ({}) }, root);
       const initial = await product.snapshot();
@@ -73,7 +73,7 @@ describe("executive team", () => {
   it("starts independent delegated peers together and reuses them on retry", async () => {
     const db = new NodeDatabase().connection;
     const startItem = vi.fn(async (_id: string) => ({}));
-    const runtime = new AgentRuntime({ on: () => () => undefined }, db);
+    const runtime = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, db);
     const product = new BeesProduct(db, runtime, { startItem }, tmpdir());
     const initial = await product.snapshot();
     const workspaceId = initial.workspaces[0].id;
@@ -103,7 +103,7 @@ describe("executive team", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-parent-instructions-"));
     try {
       const db = new NodeDatabase().connection;
-      const runtime: any = new AgentRuntime({ on: () => () => undefined }, db);
+      const runtime: any = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, db);
       const execute = vi.spyOn(runtime, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const reviseItem = vi.fn(async () => ({ id: "child" }));
       const product = new BeesProduct(db, runtime, { startItem: async () => ({}), reviseItem }, root);
@@ -131,7 +131,7 @@ describe("executive team", () => {
   it("validates the entire delegated batch before starting any peer", async () => {
     const db = new NodeDatabase().connection;
     const startItem = vi.fn(async () => ({}));
-    const runtime = new AgentRuntime({ on: () => () => undefined }, db);
+    const runtime = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, db);
     const product = new BeesProduct(db, runtime, { startItem }, tmpdir());
     const initial = await product.snapshot();
     const goal = await product.command({ action: "create_goal", workspaceId: initial.workspaces[0].id, title: "Parallel launch" });

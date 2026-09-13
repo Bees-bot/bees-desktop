@@ -297,12 +297,14 @@ export function AgentListActions({ agent, act }) {
       await act(input);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const deleteUnavailable = "Deleting agents is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${agent.name}` },
       agent.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore_agent_assignment") }, "Restore")
         : h(React.Fragment, null,
           h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_agent_assignment") }, "Duplicate"),
-          agent.systemRole ? null : h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_agent_assignment") }, "Archive"))),
+          agent.systemRole ? null : h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_agent_assignment") }, "Archive"),
+          h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 

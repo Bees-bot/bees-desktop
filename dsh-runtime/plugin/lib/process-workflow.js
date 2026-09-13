@@ -6,6 +6,7 @@ import {
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
+const stageChangedSignal = defineSignal("stageChanged");
 
 const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
@@ -29,6 +30,12 @@ const dshActivities = proxyActivities({
   // Failed agent work waits for the user's explicit retry signal.
   retry: { maximumAttempts: 1 }
 });
+const durableActivities = proxyActivities({
+  startToCloseTimeout: "36500 days",
+  heartbeatTimeout: "30 seconds",
+  // Infrastructure loss retries the same execution. Agent failures are non-retryable.
+  retry: { initialInterval: "1 second", maximumInterval: "30 seconds" }
+});
 
 function failureMessage(error) {
   let current = error;
@@ -51,6 +58,8 @@ export async function processWorkflow(input) {
   let retryRequested = false;
   let retryRequests = 0;
   deprecatePatch("bees-durable-human-waits-v1");
+  let durableStages = patched("bees-durable-stages-v2");
+  let stageChanges = 0;
   let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
   let capacityWaits = 0;
   let feedback = input.correction?.feedback ?? "";
@@ -71,17 +80,25 @@ export async function processWorkflow(input) {
   setHandler(pauseSignal, () => { paused = true; });
   setHandler(resumeSignal, () => { paused = false; });
   setHandler(retrySignal, () => { retryRequested = true; paused = false; });
+  setHandler(stageChangedSignal, (executionId) => {
+    if (executionId === state.executionId) stageChanges += 1;
+  });
 
-  const project = async (phase = state.phase, error = state.error) => {
+  const project = async (phase = state.phase, error = state.error, waitingForInput = false) => {
     state.phase = phase;
     state.error = error;
-    await projectWorkItem({ ...state });
+    await projectWorkItem({ ...state, ...(waitingForInput ? { waitingForInput: true } : {}) });
   };
   const waitForRetry = async (error) => {
     const recoverInterruptedWait = error.toLocaleLowerCase().includes("heartbeat timeout");
     retryRequested = false;
     await project("failed", error);
     await condition(() => retryRequested);
+    // Upgrade histories already waiting on a legacy heartbeat failure without changing replay.
+    if (recoverInterruptedWait && patched("bees-upgrade-interrupted-stage-v2")) {
+      durableStages = true;
+      if (input.stages[index].driver === "review") state.reviewCycle -= 1;
+    }
     retryRequested = false;
     state.retryRequest = ++retryRequests;
     if (!recoverInterruptedWait) state.attempt += 1;
@@ -122,15 +139,35 @@ export async function processWorkflow(input) {
 
       let result;
       try {
-        result = await dshActivities.runDshStage({
-          ...state,
-          purpose,
-          driver: stage.driver,
-          requiresHumanApproval: Boolean(stage.requiresHumanApproval),
-          stageName: stage.name,
-          candidateExecutionId,
-          feedback
-        });
+        while (true) {
+          const observedChanges = stageChanges;
+          try {
+            result = await (durableStages ? durableActivities : dshActivities).runDshStage({
+              ...state, purpose, driver: stage.driver,
+              requiresHumanApproval: Boolean(stage.requiresHumanApproval),
+              stageName: stage.name, candidateExecutionId, feedback,
+              ...(durableStages ? { durableWaits: true } : {})
+            });
+          } catch (error) {
+            // An activity scheduled by an older version still has its one-attempt policy.
+            if (/heartbeat timeout/i.test(failureMessage(error)) && patched("bees-recover-heartbeat-v2")) {
+              durableStages = true;
+              await sleep("1 second");
+              continue;
+            }
+            throw error;
+          }
+          if (result.outcome !== "suspended") break;
+          await project("waiting", null, true);
+          // Signals are recorded by Temporal; no activity or heartbeat stays alive for a human wait.
+          // Capture the counter before the activity so an early answer cannot be lost.
+          await condition(() => stageChanges !== observedChanges);
+          if (paused) {
+            await project("paused", null, true);
+            await condition(() => !paused);
+          }
+          await project("running", null);
+        }
       } catch (error) {
         const message = failureMessage(error);
         if (message === "Stopped by user") {

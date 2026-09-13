@@ -12,4 +12,4 @@ export function readToolResult(session: any, args: { call_id: string; offset?: n
   next_offset: number | null;
   text: string;
 };
-export function installContextPolicy(agentCtx: any, tokenMeter: any): void;
+export function installContextPolicy(agentCtx: any, tokenMeter: any, owner: any): void;
