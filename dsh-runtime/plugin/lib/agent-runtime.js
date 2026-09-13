@@ -15,8 +15,9 @@ import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles } from "./product-files.js";
 import { mountPageFetch } from "./web-page.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
-import { mountTeamCoordination, waitForTeam } from "./team-coordination.js";
-import { currentIdentity, message, transaction } from "./product-database.js";
+import { WorkContext } from "./work-context.js";
+import { assertPeersSettled, mountPeerCollaboration } from "./peer-collaboration.js";
+import { currentIdentity, itemContext, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -29,14 +30,14 @@ const CONTROL_ACTIONS = {
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Results people will read go in markdown files under outputs/; the summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. When Bees has already seated an Agent Team, use its team tools for discussion and follow-up. Once participants have reported and are idle, the lead may assign execution through bees_delegate_work.`;
+Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/. Results people will read go in markdown files under outputs/; the summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. When the task gives an API key, token or URL, use that API over HTTP first and open the browser only when there is no API; never ask a person to sign in to a service whose credential the task already gives. Anything behind a sign-in goes through the browser, never fetch: fetch obeys robots and carries no session, so it answers for a signed-in page with a refusal that is not the real answer. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
 
-const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; that call waits for the entire batch, so separate calls serialize the work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
+const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
 const CATALOG_IDS = MCP_CATALOG.map(({ id }) => id).join(", ");
 const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest set of changes that lets Bees carry out the requested outcome. Inspect the existing resources in the brief before proposing anything new.
 
-Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals already has two agents planning together in Work, followed by independent Review and Done; keep those stages and routes. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
+Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals has automatic agent selection in Work, followed by independent Review and Done; keep those stages. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
 
 Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
 
@@ -72,13 +73,13 @@ const reviewQuestions = (summary) => [{
   ],
   multiSelect: false
 }];
-const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork"];
+const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teammate", "send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent", "team_task_create", "team_task_get", "team_task_list", "team_task_update"];
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
   "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
   "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose",
-  "mcpAccess", "mcpServers", "capabilities", "discussionMembers", "requiresHumanApproval"
+  "mcpAccess", "mcpServers", "capabilities", "participantIds", "contextId", "candidateExecutionId", "requiresHumanApproval"
 ]);
 
 export const LATEST_SOL_MODEL = "__bees_latest_sol__";
@@ -101,8 +102,8 @@ export function validateRunData(value) {
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs an agent preset");
   if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
     throw new Error("Run data needs an MCP access policy");
-  if (!Array.isArray(value.capabilities ?? []) || !Array.isArray(value.discussionMembers ?? []))
-    throw new Error("Run capabilities or discussion members are invalid");
+  if (!Array.isArray(value.capabilities ?? []) || !Array.isArray(value.participantIds ?? []))
+    throw new Error("Run capabilities or participants are invalid");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))
     throw new Error("Run data has an invalid provider/model route");
   if (value.reasoningEffort !== null && value.reasoningEffort !== undefined &&
@@ -461,6 +462,8 @@ export class AgentRuntime {
     this.notify = notify;
     this.subscribe = subscribe;
     this.live = new Map();
+    this.workContext = new WorkContext(database, notify);
+    this.peerWaiters = new Set();
     this.capabilities = capabilities;
     this.starting = new Set();
     this.admissions = new Map();
@@ -603,10 +606,6 @@ export class AgentRuntime {
       if (exec.name !== "ask_user_question") return;
       if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
         return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";
-      const parentSession = exec.agent?.session.header.parentSession;
-      if (!parentSession) return;
-      if (database.prepare("SELECT 1 FROM execution_links WHERE current_session_id = ?").get(String(parentSession)))
-        return "Discussion participants cannot ask the human. Send questions or assumptions to lead, then finish your review.";
     });
   }
 
@@ -889,68 +888,12 @@ export class AgentRuntime {
       .map(({ name, args }) => `Every mcp__${name}__ tool takes a path argument. Always pass ${JSON.parse(args).at(-1)}, never your working directory.`);
   }
 
-  async prepareDiscussion(agent, members, signal) {
-    for (const member of members ?? []) {
-      const resolved = await resolveRunModel(this.ctx, member);
-      const agentOptions = runAgentOptions(this.ctx, resolved);
-      await this.ctx.agentTeams.spawnTeammate(agent, {
-        name: member.name,
-        description: member.description,
-        prompt: [{ type: "text", text: member.prompt }],
-        context: "fresh",
-        provider: "spawn",
-        ...(agentOptions ? { agentOptions } : {}),
-        signal
-      });
-    }
-  }
-
-  assertDiscussionReady(agent, members, executionId) {
-    if (!members?.length) return;
-    const roster = this.ctx.agentTeams.listMembers(agent);
-    const expected = members.map(({ name }) => roster.find((entry) => entry.name === name));
-    if (expected.some((entry) => entry?.status === "running" || entry?.status === "provisioning"))
-      throw new Error("Discussion participants are still working. Call bees_wait_for_team, read what they report, then submit.");
-    const leadId = String(agent.session.id);
-    if (expected.some((entry) => !entry || entry.status === "failed")) {
-      if (!executionId || !members.every((member) => member.planningReviewer))
-        throw new Error("A required discussion participant failed to join");
-      const noted = this.database.prepare(`SELECT 1 FROM dsh_audit_events
-        WHERE execution_id = ? AND session_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
-      `).get(executionId, leadId);
-      if (!noted) {
-        this.audit("goal-planning-fallback", executionId, leadId, { reason: "Plan reviewer unavailable" });
-        throw new Error("The plan reviewer is unavailable. Self-review the approach and completed work for missing requirements, risks, and validation. Disclose the fallback in your summary, then resubmit the completed work.");
-      }
-      return;
-    }
-    const events = agent.session.snapshotEvents();
-    for (const member of expected) {
-      const reported = events.some((event) =>
-        (event.type === "team/message/queued" &&
-          String(event.data.message.senderId) === String(member.id) &&
-          String(event.data.message.targetId) === leadId) ||
-        (event.type === "agent/inbox/spliced" && event.data.inserted?.some((message) =>
-          message.source?.kind === "subagent-settled" &&
-          String(message.source.senderSessionId) === String(member.id))));
-      if (!reported) throw new Error(`${member.description || member.name} has not pitched in yet; ask them to report before submitting`);
-    }
-  }
-
   installPolicies(agentCtx, { discovery = true } = {}) {
     if (!agentCtx?.on) return;
     const owner = scopeOf(agentCtx);
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials);
-    agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
-      const assembly = await next();
-      if (context.scope !== owner || assembly.sections.some(({ name }) => name === "deployment:persona")) return assembly;
-      return { ...assembly, tools: assembly.tools.filter(({ name }) => name !== "ask_user_question"),
-        sections: [{ name: "bees:teammate", text: "You are a Bees teammate seated in a run. The message that seated you carries your role and the work. Answer through the tools you were given; this run has no GUI, shell or source checkout to inspect." },
-          ...assembly.sections.filter(({ name }) => !["harness:identity", "app:web-surface"].includes(name))] };
-    });
-    mountTeamCoordination(agentCtx, this.ctx.agentTeams);
     installContextPolicy(agentCtx, this.ctx.tokenMeter, owner);
     mountPageFetch(agentCtx, this.ctx.web);
   }
@@ -963,9 +906,15 @@ export class AgentRuntime {
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
     this.installPolicies(agentCtx, { discovery: !installedApp });
+    if (data.workItemId && !this.workContext.run(executionId) && this.database.prepare("SELECT 1 FROM work_items WHERE id = ? AND deleted_at IS NULL").get(data.workItemId)) {
+      this.workContext.pin(executionId, itemContext(this.database, data.workItemId), {
+        instructions: data.instructions ?? "", systemInstructions: this.settings?.get?.()?.systemInstructions ?? ""
+      });
+    }
+    mountPeerCollaboration(this, agentCtx, data, executionId, { tools: !installedApp });
     const agent = agentCtx.on ? scopeOf(agentCtx) : null;
     if (agent?.session?.id) this.policySessions.add(String(agent.session.id));
-    const systemInstructions = String(this.settings?.get?.()?.systemInstructions ?? "").trim();
+    const systemInstructions = String(this.workContext.run(executionId)?.content.system.requirements ?? this.settings?.get?.()?.systemInstructions ?? "").trim();
     agentCtx.systemPrompt.section({
       name: "deployment:persona", order: 0,
       text: [
@@ -1041,7 +990,7 @@ export class AgentRuntime {
         const summary = String(args.summary ?? "").trim();
         if (!summary) throw new Error("Work review needs a summary");
         // Asking a person to approve work that has not happened yet is how a stalled lead escapes.
-        this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
+        assertPeersSettled(this, data);
         const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: reviewQuestions(summary) });
         const response = answer.answers.find(({ id }) => id === "work-review");
         if (response?.selected?.includes("Approve")) {
@@ -1152,13 +1101,14 @@ export class AgentRuntime {
     if (!installedApp && data.mode === "work" && data.workItemId)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
-        description: "Delegate self-contained tasks to independent peer agents. Their work returns directly to you for review; they skip automatic child review. Inspect their summaries, artifacts and source evidence before completing your combined answer. Peers in one call run at the same time and the caller waits for all of them. Group parallel assignments in one call; use separate calls when the user requests sequential execution or work depends on an earlier result.",
+        description: "Delegate self-contained tasks to independent peer agents. Their work returns directly to you for review; they skip automatic child review. Inspect their summaries, artifacts and source evidence before completing your combined answer. Peers in one call run at the same time. Use background:true for discussions; otherwise the caller waits for completion or a relevant shared message. A returned running status is not a completed result. Group parallel assignments in one call; use separate calls when the user requests sequential execution or work depends on an earlier result.",
         timeoutMs: 2_147_483_647,
         parameters: {
           items_json: {
             type: "string", required: true,
-            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. After a discussion, this tool waits for all participants to finish before launching peers.`
+            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. Analysis, discussion and execution all use this same peer path.`
           }
+          , background: { type: "boolean", description: "Return peer IDs immediately so you can discuss with them; otherwise wait for results or a shared update." }
         },
         output: {
           schema: {
@@ -1181,12 +1131,6 @@ export class AgentRuntime {
             throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
-          if (data.discussionMembers?.length) {
-            const { reason } = await waitForTeam(agentCtx, this.ctx.agentTeams, exec.agent, exec.signal, data.discussionMembers.map(({ name }) => name));
-            if (reason === "no-progress")
-              throw new Error("Discussion participants are waiting for input. Resolve their questions before delegating; participants finish with bees_finish_discussion. Do not use followup_task merely to ask a participant to become idle.");
-            this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
-          }
           const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
           const done = items.find(({ title }) => settled.get(data.workItemId, String(title ?? "")));
           if (done) throw new Error(`"${done.title}" already ran. Read its result with bees_read_work_evidence, correct it with bees_revise_work, or send only new assignments.`);
@@ -1194,9 +1138,10 @@ export class AgentRuntime {
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
           this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
+          if (args.background === true) return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(created) };
           try {
-            const results = await this.waitForPeers(ids, exec.signal);
-            this.audit("peer-work-settled", executionId, sessionId, { workItemId: data.workItemId, results });
+            const results = await this.waitForPeers(ids, exec.signal, data.workItemId);
+            this.audit(results.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ? "peer-work-settled" : "peer-work-updated", executionId, sessionId, { workItemId: data.workItemId, results });
             return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(results) };
           } catch (error) {
             await Promise.allSettled(ids.map((id) => this.subitemStore.cancel(id)));
@@ -1223,8 +1168,8 @@ export class AgentRuntime {
         await this.subitemStore.revise({ parentId: data.workItemId, workItemId: args.work_item_id,
           feedback: args.feedback, requestId: `${executionId}:${exec.callId}`, signal: exec.signal });
         try {
-          const results = await this.waitForPeers([args.work_item_id], exec.signal);
-          this.audit("peer-work-settled", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, results });
+          const results = await this.waitForPeers([args.work_item_id], exec.signal, data.workItemId);
+          this.audit(results.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ? "peer-work-settled" : "peer-work-updated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, results });
           return { result_json: JSON.stringify(results[0]) };
         } catch (error) {
           await this.subitemStore.cancel(args.work_item_id).catch(() => undefined);
@@ -1306,6 +1251,7 @@ export class AgentRuntime {
             description: "True only for a verified candidate; use false when submitting blocked."
           }
         } : {}),
+        ...(data.stagePurpose === "reviewer" ? { findings_json: { type: "string", description: "Required for revise: JSON array of {criterion: goal|process|system|scope, evidence, change}. Cite the exact violated requirement and a concrete correction." } } : {}),
         summary: { type: "string", required: true, description: data.stagePurpose === "reviewer"
           ? "Concise review evidence or specific revision feedback against the requested scope."
           : "A short update under 1200 characters: what you produced, its outputs/ paths, and what is needed next. The content itself goes in a markdown file under outputs/." }
@@ -1319,12 +1265,16 @@ export class AgentRuntime {
         render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
       },
       execute: async (args, exec) => {
+        try {
         if (exec.agent?.session.header.parentSession)
           throw new Error("Only the lead work agent can submit the stage result");
         const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"];
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
+        const findings = args.outcome === "revise" ? this.workContext.findings(executionId, args.findings_json) : [];
+        if (findings.length) result.summary += "\nRequired corrections: " + JSON.stringify(findings);
+        if (result.summary.length > 6000) throw new Error("Keep review findings and summary within 6000 characters");
         // a model may claim files it never wrote; only a candidate's claims are checked, not blocked reports or reviewers
         const files = workspace && !installedApp && data.stagePurpose !== "reviewer" && args.outcome === "candidate"
           ? outputFiles(workspace, 1000).map((path) => `outputs/${path}`) : null;
@@ -1340,9 +1290,6 @@ export class AgentRuntime {
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (files && result.summary.length > 1_200)
           throw new Error("Keep the summary under 1200 characters: what you produced, where it is, and what is needed next. Put the content itself in a markdown file under outputs/.");
-        if (this.database.prepare(`SELECT 1 FROM dsh_audit_events
-          WHERE execution_id = ? AND event_type = 'goal-planning-fallback' LIMIT 1
-        `).get(executionId)) result.summary = `Planning partner unavailable; lead self-review used. ${result.summary}`;
         const prior = this.database.prepare(`
           SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
         `).get(executionId);
@@ -1359,12 +1306,29 @@ export class AgentRuntime {
             !this.database.prepare(`SELECT 1 FROM dsh_audit_events
               WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
           throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
-        if (["candidate", "pass"].includes(args.outcome)) this.assertDiscussionReady(exec.agent, data.discussionMembers, executionId);
-        this.database.prepare(`
-          INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)
-        `).run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
+        if (args.outcome === "candidate") assertPeersSettled(this, data);
+        const pinned = this.workContext.run(executionId);
+        const evidence = pinned ? this.workContext.resultEvidence(executionId, data, workspace, result, findings) : null;
+        transaction(this.database, () => {
+          this.database.prepare("INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)")
+            .run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
+          if (pinned) this.workContext.recordResult(executionId, data, result, findings, evidence);
+        });
+        if (pinned && args.outcome === "pass" && this.memory) {
+          const candidate = this.stageResult(data.candidateExecutionId);
+          this.memory.remember(data.workspaceId, "Accepted outcome: " + (candidate?.summary ?? result.summary),
+            ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
+          this.track(this.memory.flush(data.workspaceId));
+        }
         exec.concludeTurn();
         return result;
+        } catch (error) {
+          // The result transaction has rolled back. Preserve its real error for the process/UI.
+          try {
+            this.audit("stage-submission-failed", executionId, String(exec.agent?.session.id ?? ""), { error: message(error) });
+          } catch { /* An unavailable audit store must not replace the original error. */ }
+          throw error;
+        }
       }
     }));
     // Read again at publish time: a changed target or a location archived mid-run must take effect.
@@ -1469,7 +1433,7 @@ export class AgentRuntime {
             if (path.startsWith(`outputs${sep}`)) written.add(path.split(sep).join("/"));
           } catch { /* Malformed calls are not artifact claims. */ }
         }
-        if (["bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_wait_for_team", "bees_submit_stage_result", "write"].includes(data.name)) continue;
+        if (["bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_wait_for_peers", "bees_submit_stage_result", "write"].includes(data.name)) continue;
         evidence.push({ session_id: sessionId, call_id: data.callId, tool: data.name });
       }
     }
@@ -1480,7 +1444,12 @@ export class AgentRuntime {
       next_evidence_offset: evidenceOffset + 40 < evidence.length ? evidenceOffset + 40 : null };
   }
 
-  async waitForPeers(ids, signal) {
+  async waitForPeers(ids, signal, callerId) {
+    const pinned = callerId ? this.workContext.latest(callerId) : null;
+    const cursor = pinned ? this.database.prepare("SELECT coalesce(max(seq), 0) AS seq FROM bees_work_updates WHERE root_id = ?").get(pinned.rootId).seq : null;
+    const messageArrived = pinned ? this.database.prepare(`SELECT 1 FROM bees_work_updates
+      WHERE root_id = ? AND seq > ? AND (target_id IS NULL OR target_id = ?)
+        AND (execution_id IS NULL OR execution_id != ?) LIMIT 1`) : null;
     const read = this.database.prepare(`
       SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error,
              w.updated_at AS settledAt
@@ -1492,7 +1461,9 @@ export class AgentRuntime {
       const changed = this.subscribe
         ? new Promise((resolve) => {
             unsubscribe = this.subscribe((change) => {
-              if (wanted.has(change.workItemId)) resolve();
+              if (wanted.has(change.workItemId) || pinned && change.type === "work-context-changed" &&
+                  change.rootId === pinned.rootId && change.executionId !== pinned.executionId &&
+                  (!change.targetId || change.targetId === callerId)) resolve();
             });
           })
         : delay(1_000, undefined, signal ? { signal } : undefined);
@@ -1501,7 +1472,8 @@ export class AgentRuntime {
         unsubscribe();
         throw new Error("Delegated work disappeared");
       }
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status))) {
+      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ||
+          messageArrived?.get(pinned.rootId, cursor, callerId, pinned.executionId)) {
         unsubscribe();
         return Promise.all(rows.map(async (row) => ({
           id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
@@ -1772,19 +1744,10 @@ export class AgentRuntime {
       this.recovery.delete(executionId);
     } else {
       let before;
-      let planningFallback = "";
       try {
-        if (data.discussionMembers?.length && mode !== "resume") {
-          try { await this.prepareDiscussion(handle.agent, data.discussionMembers, approvalAbort.signal); }
-          catch (error) {
-            if (!data.discussionMembers.every((member) => member.planningReviewer) || approvalAbort.signal.aborted) throw error;
-            this.audit("goal-planning-fallback", executionId, sessionId, { reason: message(error) });
-            planningFallback = "\n\nThe planning partner could not start. Self-review your proposed approach for missing requirements, risks, and validation, then execute the goal. Disclose this fallback in your stage summary. Do not wait for the unavailable peer.";
-          }
-        }
         before = handle.agent.session.seq;
         handle.agent.followup(createUserMessage({
-          content: [{ type: "text", text: `${payload.body}${recoveryNotice}${planningFallback}` }],
+          content: [{ type: "text", text: `${payload.body}${recoveryNotice}` }],
           source: { kind: "user" }
         }));
       } catch (error) {
@@ -1964,6 +1927,13 @@ export class AgentRuntime {
   async executeStage(executionId, payload, signal) {
     this.supersede(executionId, payload.initialData?.workItemId);
     let run = this.run(executionId);
+    const submissionError = () => {
+      const row = this.database.prepare("SELECT metadata_json AS metadata FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'stage-submission-failed' ORDER BY rowid DESC LIMIT 1").get(executionId);
+      return row ? JSON.parse(row.metadata).error : null;
+    };
+    const incomplete = () => new Error("Stage completion was not recorded. " +
+      (submissionError() ? "bees_submit_stage_result failed: " + submissionError() : "The agent finished without a successful bees_submit_stage_result.") +
+      " Existing documents are preserved. Retry to continue from this work.");
     const completed = this.stageResult(executionId);
     if (completed && run?.status === "completed") return completed;
     if (signal?.aborted) throw signal.reason ?? new Error("The Temporal activity was cancelled");
@@ -1993,7 +1963,7 @@ export class AgentRuntime {
       if (result && this.run(executionId)?.status === "completed") return result;
       const failure = submission?.errorJson ? JSON.parse(submission.errorJson) : null;
       if (!payload.retryId)
-        throw new Error(failure?.message || "This run ended without a completed stage result. Resolve the issue and retry the work item.");
+        throw failure?.message ? new Error(failure.message) : incomplete();
       // Only an explicit retry signal authorizes another turn. Replaying that signal reuses its delivery.
       submission = await this.admit("bees-run", executionId, {
         ...payload,
@@ -2014,7 +1984,8 @@ export class AgentRuntime {
         initialData: undefined,
         uid: this.run(executionId).instanceUid,
         idempotencyKey: `${submission.submissionId}:submit`,
-        body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
+        body: "You ended without a successful bees_submit_stage_result. Inspect the existing outputs and submit the result of the work already done; do not regenerate finished documents or repeat completed external actions." +
+          (submissionError() ? " Your last submission failed: " + submissionError() : "")
       });
       delivery = await this.waitForDelivery(executionId, submission.submissionId, signal, payload.durableWaits);
       if (delivery.outcome === "suspended") return delivery;
@@ -2024,7 +1995,7 @@ export class AgentRuntime {
       throw new Error(failure?.message || `Agent stage ${delivery.outcome}`);
     }
     const result = this.stageResult(executionId);
-    if (!result) throw new Error("The agent runtime completed without calling bees_submit_stage_result. Retry the work item to continue.");
+    if (!result) throw incomplete();
     return result;
   }
 

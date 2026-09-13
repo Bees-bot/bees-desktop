@@ -1,6 +1,6 @@
 import {
-  CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
-  executeChild, patched, proxyActivities, setHandler, sleep, workflowInfo
+  CancellationScope, condition, defineSignal, isCancellation,
+  executeChild, proxyActivities, setHandler, sleep, workflowInfo
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
@@ -23,13 +23,6 @@ export async function recurringWorkWorkflow(input) {
     args: [work]
   });
 }
-const dshActivities = proxyActivities({
-  // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
-  startToCloseTimeout: "36500 days",
-  heartbeatTimeout: "30 seconds",
-  // Failed agent work waits for the user's explicit retry signal.
-  retry: { maximumAttempts: 1 }
-});
 const durableActivities = proxyActivities({
   startToCloseTimeout: "36500 days",
   heartbeatTimeout: "30 seconds",
@@ -57,8 +50,6 @@ export async function processWorkflow(input) {
   let paused = false;
   let retryRequested = false;
   let retryRequests = 0;
-  deprecatePatch("bees-durable-human-waits-v1");
-  let durableStages = patched("bees-durable-stages-v2");
   let stageChanges = 0;
   let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
   let capacityWaits = 0;
@@ -90,18 +81,14 @@ export async function processWorkflow(input) {
     await projectWorkItem({ ...state, ...(waitingForInput ? { waitingForInput: true } : {}) });
   };
   const waitForRetry = async (error) => {
-    const recoverInterruptedWait = error.toLocaleLowerCase().includes("heartbeat timeout");
+    const recoverInterruptedWait = /heartbeat timeout|Stage completion was not recorded|The agent runtime completed without calling bees_submit_stage_result|This run ended without a completed stage result/i.test(error);
     retryRequested = false;
     await project("failed", error);
     await condition(() => retryRequested);
-    // Upgrade histories already waiting on a legacy heartbeat failure without changing replay.
-    if (recoverInterruptedWait && patched("bees-upgrade-interrupted-stage-v2")) {
-      durableStages = true;
-      if (input.stages[index].driver === "review") state.reviewCycle -= 1;
-    }
     retryRequested = false;
     state.retryRequest = ++retryRequests;
     if (!recoverInterruptedWait) state.attempt += 1;
+    else if (input.stages[index].driver === "review") state.reviewCycle -= 1;
     state.error = null;
   };
 
@@ -142,19 +129,13 @@ export async function processWorkflow(input) {
         while (true) {
           const observedChanges = stageChanges;
           try {
-            result = await (durableStages ? durableActivities : dshActivities).runDshStage({
+            result = await durableActivities.runDshStage({
               ...state, purpose, driver: stage.driver,
               requiresHumanApproval: Boolean(stage.requiresHumanApproval),
               stageName: stage.name, candidateExecutionId, feedback,
-              ...(durableStages ? { durableWaits: true } : {})
+              durableWaits: true
             });
           } catch (error) {
-            // An activity scheduled by an older version still has its one-attempt policy.
-            if (/heartbeat timeout/i.test(failureMessage(error)) && patched("bees-recover-heartbeat-v2")) {
-              durableStages = true;
-              await sleep("1 second");
-              continue;
-            }
             throw error;
           }
           if (result.outcome !== "suspended") break;
@@ -201,9 +182,6 @@ export async function processWorkflow(input) {
       if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
-        // A new candidate is still the same review cycle; only a pass clears its budget.
-        // Preserve the old transition while replaying histories produced before this fix.
-        if (!patched("bees-bounded-review-revisions-v1")) state.revisions = 0;
         index += 1;
         continue;
       }
