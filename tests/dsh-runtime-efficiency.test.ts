@@ -77,7 +77,7 @@ function result(agent: any, step: number, error = false, text = "same failure", 
   const args = name === "fetch_sample" ? '{"url":"https://example.com"}'
     : name === "read" ? '{"path":"outputs/brief.md"}' : '{}';
   session.append("step/start", { turn: 1, step });
-  session.append("assistant/message", { turn: 1, step, message: createAssistantMessage({
+  session.append("assistant/message", { turn: 1, step, stream: [], message: createAssistantMessage({
     source: { provider: "test", model: "test" },
     content: [{ type: "tool-call", id: callId, name, arguments: args }]
   }) }, { surfaceOp: "append" });

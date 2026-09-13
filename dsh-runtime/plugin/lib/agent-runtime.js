@@ -352,7 +352,7 @@ export function safeRecoverySeed(events) {
     const next = kept.filter((event) => {
       const op = event.surfaceOp;
       return (!op?.shadowedSeqs || op.shadowedSeqs.every((seq) => ids.has(seq))) &&
-        (op?.op !== "replace" || op.start === undefined || validRange(op)) &&
+        (op?.op !== "replace" || op.startSeq === undefined || validRange({ start: op.startSeq, end: op.endSeq })) &&
         (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange));
     });
     if (next.length === kept.length) break;
@@ -371,10 +371,33 @@ export function safeRecoverySeed(events) {
       ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : {
         ...surfaceOp,
         ...(surfaceOp.shadowedSeqs ? { shadowedSeqs: seqs(surfaceOp.shadowedSeqs) } : {}),
-        ...(surfaceOp.op === "replace" && surfaceOp.start !== undefined ? range(surfaceOp) : {})
+        ...(surfaceOp.op === "replace" ? { startSeq: renumbered.get(surfaceOp.startSeq), endSeq: renumbered.get(surfaceOp.endSeq) } : {})
       } } : {}),
       ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
   });
+}
+
+/** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
+export function recoveryToolContext(events, pending) {
+  const boundary = [...events].reverse().find((event) => event.type === "turn/end")?.seq ?? -1;
+  const calls = new Map();
+  for (const event of events) {
+    if (event.type === "tool/call") calls.set(String(event.data.callId), { ...event.data, seq: event.seq });
+    if (event.type === "tool/result") {
+      const id = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      const call = calls.get(id);
+      if (call) call.result = event.data;
+    }
+  }
+  const uncertain = [...calls.values()].find((call) => !call.result &&
+    !["ask_user_question", WORK_REVIEW_TOOL].includes(call.name) &&
+    !(pending?.kind === "approval" && pending.callId === call.callId));
+  if (uncertain) throw new Error(`Bees restarted while ${uncertain.name} was executing, before its result was recorded. Check whether the action completed before retrying; Bees will not repeat it automatically.`);
+  const completed = [...calls.values()].filter((call) => call.result && call.seq > boundary).map((call) => ({
+    name: call.name, callId: call.callId, arguments: excerpt(call.arguments, 2_000),
+    result: excerpt(call.result, 4_000)
+  }));
+  return completed.length ? `\n\nThese tools already returned in the interrupted turn. Reuse their results; do not repeat their actions. Full results remain in the previous session's work evidence:\n${JSON.stringify(completed)}` : "";
 }
 
 function outcomeFor(event) {
@@ -440,6 +463,7 @@ export class AgentRuntime {
     this.live = new Map();
     this.capabilities = capabilities;
     this.starting = new Set();
+    this.admissions = new Map();
     this.recovery = new Set();
     this.closing = false;
     this.policyAgents = new WeakSet();
@@ -558,7 +582,23 @@ export class AgentRuntime {
       const inside = (path, root) => `${actual(path)}${sep}`.startsWith(`${actual(root)}${sep}`);
       // dsh writes a big tool result under its temp root and tells the model to read it from there
       const spill = (path) => exec.name === "read" && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
-      const outside = run && targets.find((target) => !inside(resolve(run.directory, target), run.directory) && !spill(resolve(run.directory, target)));
+      // Native uploads are durable, session-admitted references. Grant the exact object for reads,
+      // never its attachment directory or another session's uploads.
+      const uploads = new Set();
+      if (run && ["read", "read_image"].includes(exec.name)) {
+        for (const event of exec.agent.session.snapshotEvents()) {
+          if (event.type !== "user/message") continue;
+          for (const part of event.data.content ?? []) {
+            try {
+              const path = part.type === "file" ? ctx.attachments.fileHostPath(part.attachment)
+                : part.type === "image" ? ctx.attachments.imageHostPath(part.attachment) : undefined;
+              if (path) uploads.add(actual(path));
+            } catch { /* A malformed or unavailable reference grants no access. */ }
+          }
+        }
+      }
+      const outside = run && targets.find((target) => !inside(resolve(run.directory, target), run.directory)
+        && !spill(resolve(run.directory, target)) && !uploads.has(actual(resolve(run.directory, target))));
       if (outside) return `${outside} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       if (exec.name !== "ask_user_question") return;
       if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
@@ -911,7 +951,7 @@ export class AgentRuntime {
           ...assembly.sections.filter(({ name }) => !["harness:identity", "app:web-surface"].includes(name))] };
     });
     mountTeamCoordination(agentCtx, this.ctx.agentTeams);
-    installContextPolicy(agentCtx, this.ctx.tokenMeter);
+    installContextPolicy(agentCtx, this.ctx.tokenMeter, owner);
     mountPageFetch(agentCtx, this.ctx.web);
   }
 
@@ -1482,9 +1522,11 @@ export class AgentRuntime {
   async newHandle(run, data, workspace, mode) {
     let sessionId = run?.currentSessionId ?? run?.executionId;
     let seed;
+    let recoveryContext = "";
     if (mode === "recovery" && run) {
-      const inspection = await this.ctx.sessionPersistence.load(SessionId(run.currentSessionId));
-      seed = safeRecoverySeed(inspection.events);
+      const events = await this.sessionEvents(run.executionId, run.currentSessionId);
+      recoveryContext = recoveryToolContext(events, this.pendingInteraction(run.executionId));
+      seed = safeRecoverySeed(events);
       sessionId = `${run.executionId}-r${Number(run.recoveryCount) + 1}-${randomUUID().slice(0, 8)}`;
     }
     const common = {
@@ -1512,7 +1554,7 @@ export class AgentRuntime {
       await handle.dispose().catch(() => undefined);
       throw error;
     }
-    return { sessionId, handle };
+    return { sessionId, handle, recoveryContext };
   }
 
   async queue(agentName, executionId, payload) {
@@ -1609,6 +1651,20 @@ export class AgentRuntime {
   }
 
   async admit(agentName, executionId, payload) {
+    // A timed-out activity may overlap its replacement during startup. Share admission locally.
+    const active = this.admissions.get(executionId);
+    if (active) {
+      if (active.key === payload?.idempotencyKey) return active.promise;
+      await active.promise;
+      return this.admit(agentName, executionId, payload);
+    }
+    const admission = { key: payload?.idempotencyKey, promise: this.admitOnce(agentName, executionId, payload) };
+    this.admissions.set(executionId, admission);
+    try { return await admission.promise; }
+    finally { if (this.admissions.get(executionId) === admission) this.admissions.delete(executionId); }
+  }
+
+  async admitOnce(agentName, executionId, payload) {
     if (!payload?.idempotencyKey || typeof payload.body !== "string") throw new Error("A message and idempotency key are required");
     if (agentName !== "bees-run") throw new Error("Only the Bees work agent is available");
     const prior = this.database.prepare(`
@@ -1658,7 +1714,10 @@ export class AgentRuntime {
     const workspace = run.runDirectory;
     const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
     const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
-    const mode = recovery ? "recovery" : prepared || !existed ? "create" : "resume";
+    // Each cold continuation gets a fresh writer and client binding. Native history can
+    // own the previous writer or retain its disposed control stream; its log stays readable.
+    const replaceSession = recovery || (!prepared && existed);
+    const mode = replaceSession ? "recovery" : prepared || !existed ? "create" : "resume";
     let opened;
     try {
       opened = await this.newHandle(run, data, workspace, mode);
@@ -1666,13 +1725,13 @@ export class AgentRuntime {
       if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
       throw error;
     }
-    const { sessionId, handle } = opened;
-    if (recovery) {
+    const { sessionId, handle, recoveryContext = "" } = opened;
+    if (replaceSession) {
       this.database.prepare(`
         UPDATE execution_links SET previous_session_id = current_session_id, current_session_id = ?,
           recovery_count = recovery_count + 1, updated_at = ? WHERE execution_id = ?
       `).run(sessionId, new Date().toISOString(), executionId);
-      this.audit("replacement-run-created", executionId, sessionId, { replaces: run.currentSessionId });
+      this.audit("replacement-run-created", executionId, sessionId, { replaces: run.currentSessionId, reason: recovery ? "recovery" : "native-continuation" });
     }
     const submissionId = randomUUID();
     const at = new Date().toISOString();
@@ -1704,7 +1763,7 @@ export class AgentRuntime {
       idempotencyKey: `running:${payload.idempotencyKey}`
     });
     const recoveryNotice = recovery
-      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval before continuing."
+      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval before continuing." + recoveryContext
       : "";
     if (recoveryApproval || recoveryQuestion) {
       this.track(recoveryApproval
@@ -1812,6 +1871,7 @@ export class AgentRuntime {
       const approved = Boolean(response?.selected?.includes("Approve"));
       if (review) this.audit(approved ? "human-work-approved" : "human-work-rejected", executionId, sessionId, { summary: args.summary, feedback: response?.custom ?? "" });
       this.checkpoint(executionId, sessionId, "running", { pendingInteraction: null, idempotencyKey: `${pending.kind}-answered:${sessionId}:${pending.callId}` });
+      this.audit("stage-wait-resolved", executionId, sessionId);
       const outcome = review
         ? `The review you requested before the restart was ${approved ? "approved" : `rejected with this feedback: ${response?.custom ?? ""}`}.`
         : `The user answered the question you asked before the restart:\n${JSON.stringify(answer.answers)}`;
@@ -1868,23 +1928,34 @@ export class AgentRuntime {
       if (id !== executionId && this.run(id)?.workItemId === workItemId) this.abort(id);
   }
 
-  async waitForDelivery(executionId, submissionId, signal) {
+  async waitForDelivery(executionId, submissionId, signal, durableWaits = false) {
+    const cancelIfStopped = () => {
+      if (signal?.reason?.message === "CANCELLED") return this.abort(executionId);
+      if (signal?.reason?.message !== "NOT_FOUND") return;
+      const item = this.database.prepare(`
+        SELECT w.runtime_phase AS phase, w.runtime_execution_id AS executionId, w.archived_at AS archivedAt,
+               w.deleted_at AS deletedAt FROM work_items w JOIN execution_links e ON e.work_item_id = w.id
+        WHERE e.execution_id = ?
+      `).get(executionId);
+      // NOT_FOUND also means this activity timed out. A replacement must be able to reattach.
+      if (!item || item.archivedAt || item.deletedAt || ["completed", "cancelled"].includes(item.phase) ||
+        item.executionId && item.executionId !== executionId) this.abort(executionId);
+    };
     while (true) {
       const delivery = this.database.prepare(`
         SELECT outcome, error_json AS errorJson FROM dsh_deliveries WHERE submission_id = ?
       `).get(submissionId);
       if (!delivery) throw new Error("The agent stage delivery disappeared");
       if (signal?.aborted) {
-        if (["CANCELLED", "NOT_FOUND"].includes(signal.reason?.message)) this.abort(executionId);
+        cancelIfStopped();
         throw signal.reason ?? new Error("The Temporal activity was cancelled");
       }
       if (delivery.outcome) return delivery;
+      if (durableWaits && this.pendingInteraction(executionId)) return { outcome: "suspended" };
       try {
         await delay(250, undefined, signal ? { signal } : undefined);
       } catch (error) {
-        // A workflow can close before its activity receives the cancellation heartbeat.
-        // NOT_FOUND means that execution is gone too; WORKER_SHUTDOWN remains recoverable.
-        if (["CANCELLED", "NOT_FOUND"].includes(signal?.reason?.message)) this.abort(executionId);
+        cancelIfStopped();
         throw signal?.reason ?? error;
       }
     }
@@ -1896,6 +1967,13 @@ export class AgentRuntime {
     const completed = this.stageResult(executionId);
     if (completed && run?.status === "completed") return completed;
     if (signal?.aborted) throw signal.reason ?? new Error("The Temporal activity was cancelled");
+    if (run?.status === "queued") {
+      // Startup may already be draining the persisted queue. Join it instead of failing or duplicating it.
+      this.startQueued(executionId);
+      while (this.run(executionId)?.status === "queued")
+        await delay(250, undefined, signal ? { signal } : undefined);
+      return this.executeStage(executionId, payload, signal);
+    }
 
     let submission = run ? this.database.prepare(`
       SELECT delivery_id AS deliveryId, submission_id AS submissionId, outcome, error_json AS errorJson FROM dsh_deliveries
@@ -1907,7 +1985,7 @@ export class AgentRuntime {
       submission = await this.admit("bees-run", executionId, {
         ...payload,
         initialData: undefined,
-        idempotencyKey: payload.retryId ?? `process:${executionId}:recover:${Number(run.recoveryCount) + 1}`,
+        idempotencyKey: `process:${executionId}:recover:${Number(run.recoveryCount) + 1}`,
         body: `Resume this automatic process stage from its durable runtime checkpoint.\n\n${payload.body}`
       });
     } else if (!submission || submission.outcome) {
@@ -1926,7 +2004,8 @@ export class AgentRuntime {
       });
     }
 
-    let delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+    let delivery = await this.waitForDelivery(executionId, submission.submissionId, signal, payload.durableWaits);
+    if (delivery.outcome === "suspended") return delivery;
     // a small model ends its turn with the answer in prose; one reminder gets the protocol call.
     // an activity re-entry that waited on the reminder itself must not send another
     if (delivery.outcome === "completed" && !this.stageResult(executionId) && !submission.deliveryId?.endsWith(":submit")) {
@@ -1937,7 +2016,8 @@ export class AgentRuntime {
         idempotencyKey: `${submission.submissionId}:submit`,
         body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
       });
-      delivery = await this.waitForDelivery(executionId, submission.submissionId, signal);
+      delivery = await this.waitForDelivery(executionId, submission.submissionId, signal, payload.durableWaits);
+      if (delivery.outcome === "suspended") return delivery;
     }
     if (delivery.outcome !== "completed") {
       const failure = delivery.errorJson ? JSON.parse(delivery.errorJson) : null;
@@ -1954,7 +2034,7 @@ export class AgentRuntime {
     const live = this.live.get(executionId);
     const events = live?.handle.agent.session.snapshotEvents() ??
       (run.status === "queued" ? []
-        : (await this.ctx.sessionPersistence.inspect(SessionId(run.currentSessionId))).events);
+        : await this.sessionEvents(executionId, run.currentSessionId));
     const settlements = this.database.prepare(`
       SELECT submission_id AS submissionId, outcome, error_json AS errorJson
       FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at
@@ -1967,9 +2047,11 @@ export class AgentRuntime {
   }
 
   async sessionEvents(executionId, sessionId) {
-    return String(this.live.get(executionId)?.handle.agent.session.id ?? "") === sessionId
-      ? this.live.get(executionId).handle.agent.session.snapshotEvents()
-      : (await this.ctx.sessionPersistence?.inspect?.(SessionId(sessionId)))?.events ?? [];
+    const live = this.live.get(executionId)?.handle.agent.session;
+    if (String(live?.id ?? "") === sessionId) return live.snapshotEvents();
+    const reader = await this.ctx.sessionPersistence.open(SessionId(sessionId), "read");
+    try { return (await reader.read()).events; }
+    finally { await reader.close(); }
   }
 
   async reviewEvidence(executionId) {

@@ -1,8 +1,9 @@
-import { configureRuntime, h, React } from "./runtime.js";
+import { configureRuntime, h, NativeUi, React } from "./runtime.js";
 import gridstackCss from "gridstack/dist/gridstack.min.css";
 import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
+import { NativeContentHost, nativeEmbedding } from "./native-conversation.js";
 import { installScrollbars } from "./scrollbars.js";
 import brandMark from "../../../src/brand-mark.png";
 
@@ -10,6 +11,10 @@ window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
   factory: (require) => {
     configureRuntime(require);
+    function BeesSurface(props) {
+      const value = React.useMemo(() => ({ ctx: props.ctx }), [props.ctx]);
+      return h(NativeUi.Provider, { value }, h(BeesApp, props));
+    }
     class BeesErrorBoundary extends React.Component {
       state = { error: null, attempt: 0 };
       static getDerivedStateFromError(error) {
@@ -20,7 +25,7 @@ window.__ModuleLoader__.load({
       }
       retry = () => this.setState(({ attempt }) => ({ error: null, attempt: attempt + 1 }));
       render() {
-        if (this.state.error === null) return h(BeesApp, { ...this.props, key: this.state.attempt });
+        if (this.state.error === null) return h(BeesSurface, { ...this.props, key: this.state.attempt });
         return h("div", { className: "bees-app bees-loading", role: "alert" },
           h("div", { className: "bees-stack" },
             h("img", { className: "bees-mark", src: brandMark, alt: "" }),
@@ -33,7 +38,7 @@ window.__ModuleLoader__.load({
     }
     const module = { exports: {} };
     const exports = module.exports;
-    exports.inject = ["slots", "uiWorkspace", "settingsScope", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials"];
+    exports.inject = ["slots", "uiWorkspace", "settingsScope", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation", "sidebarRight"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
@@ -46,14 +51,21 @@ window.__ModuleLoader__.load({
         event.preventDefault();
         event.stopPropagation();
         document.documentElement.toggleAttribute("data-bees-debug-dsh");
+        nativeEmbedding.update({ debug: document.documentElement.hasAttribute("data-bees-debug-dsh") });
       };
       ctx.effect(() => {
         window.addEventListener("keydown", toggleDsh, true);
         return () => {
           window.removeEventListener("keydown", toggleDsh, true);
           document.documentElement.removeAttribute("data-bees-debug-dsh");
+          nativeEmbedding.update({ debug: false });
         };
       }, "bees: DSH debug shortcut");
+      ctx.slots.inject("shell.content", function* () {
+        for (const kind of ["main", "rightbar"]) yield ctx.slots.register({
+          name: "shell.content", key: kind, inject: () => ({ kind })
+        }, NativeContentHost);
+      });
       const preferences = ctx.settingsScope.bind({ namespace: "bees-ui" });
       const modelSettings = ctx.settingsScope.bind({ namespace: "llm-pi-ai" });
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({

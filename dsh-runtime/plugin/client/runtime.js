@@ -1,4 +1,6 @@
 export let React;
+export let NativeUi;
+export let createPortal;
 export let h;
 export let useEffect;
 export let useRef;
@@ -15,7 +17,9 @@ export let SubscriptionSettings;
 
 export function configureRuntime(require) {
   React = require("react");
+  ({ createPortal } = require("react-dom"));
   h = React.createElement;
+  NativeUi = React.createContext(null);
   ({ useEffect, useRef, useState } = React);
   ({ MarkdownText, CodeBlock } = require("@deepseek-ai/dsh-client-ui-primitives"));
   ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai"));
@@ -23,4 +27,3 @@ export function configureRuntime(require) {
   ({ CustomAiSettings } = require("@bees/dsh-custom-ai"));
   ({ SubscriptionSettings } = require("@bees/dsh-subscriptions"));
 }
-

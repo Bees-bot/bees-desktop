@@ -184,12 +184,15 @@ export function ProcessListActions({ process, act, openWorkItem }) {
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const deleteUnavailable = "Deleting process templates is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${process.name}` },
       process.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore") }, "Restore") : h(React.Fragment, null,
       h(Button, { disabled: busy, onClick: (event) => submit(event, "run") }, "Run"),
       h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_process") }, "Duplicate"),
-      process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive") : null)),
+      process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive")
+        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"),
+      h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -266,7 +269,8 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       const pageActions = h(React.Fragment, null,
           h(Button, { onClick: editProcess }, "Edit process template"),
           h(Button, { onClick: copyProcess }, "Duplicate process template"),
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run")
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run"),
+          h(Button, { disabled: true, title: "Deleting process templates is not available here." }, "Delete")
       );
 
       const routingPanel = h("div", null,

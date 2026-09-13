@@ -10,7 +10,8 @@ import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const { Context } = require("@temporalio/activity");
 
-function harness(options: { workerFactory?: (options: any) => Promise<any>; claims?: any } = {}) {
+function harness(options: { workerFactory?: (options: any) => Promise<any>; claims?: any;
+  needsRecovery?: (id: string) => boolean; pendingInteraction?: (id: string) => any } = {}) {
   const database = new NodeDatabase();
   const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
   const starts: any[] = [];
@@ -297,22 +298,74 @@ describe("Temporal process projection", () => {
     ).get()).toEqual({ phase: "ready" });
   });
 
-  it("leaves heartbeat failures for the user while reconciling ready and running work", async () => {
+  it("recovers legacy heartbeat failures while leaving agent errors for explicit retry", async () => {
     const state = harness();
     insertGoal(state);
     insertGoal(state, "ready-goal");
     insertGoal(state, "running-goal");
+    insertGoal(state, "provider-failed");
+    state.database.connection.exec("UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'Provider unavailable' WHERE id = 'provider-failed'");
     state.database.connection.prepare(`
       UPDATE work_items SET runtime_phase = 'failed', runtime_error = 'activity Heartbeat timeout', runtime_attempt = 1
       WHERE id = 'goal'
     `).run();
     state.database.connection.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = 'running-goal'").run();
     await state.runtime.reconcile();
-    expect(state.signals).toEqual([]);
+    expect(state.signals).toEqual([{ workflowId: processWorkflowId("goal"), name: "retry" }]);
     expect(state.starts.map(({ workflowId }) => workflowId).sort())
-      .toEqual([processWorkflowId("ready-goal"), processWorkflowId("running-goal")]);
+      .toEqual([processWorkflowId("goal"), processWorkflowId("ready-goal"), processWorkflowId("running-goal")]);
     expect(state.database.connection.prepare("SELECT runtime_phase, runtime_attempt FROM work_items WHERE id = 'goal'").get())
-      .toEqual({ runtime_phase: "failed", runtime_attempt: 1 });
+      .toEqual({ runtime_phase: "running", runtime_attempt: 1 });
+  });
+
+  it("persists a human wait across restart and retries a lost answer notification", async () => {
+    const state = harness({ pendingInteraction: () => ({ kind: "question" }) });
+    const goal = insertGoal(state);
+    const projection = { workItemId: "goal", processId: goal.processId, stageId: goal.stageId,
+      phase: "waiting", executionId: "execution", waitingForInput: true };
+    state.runtime.project(projection);
+    await state.runtime.reconcile();
+    expect(state.signals).toEqual([]);
+    const restarted = new ProcessRuntime(state.database.connection, {
+      client: state.client, pendingInteraction: () => ({ kind: "question" }), needsRecovery: () => true,
+    });
+    await restarted.reconcile();
+    expect(state.signals).toEqual([{ workflowId: processWorkflowId("goal"), name: "stageChanged" }]);
+    // Answer committed, process exited before sending a signal. The persisted marker recovers it.
+    state.signals.length = 0;
+    state.database.connection.exec("UPDATE work_items SET runtime_phase = 'running' WHERE id = 'goal'");
+    const afterAnswer = new ProcessRuntime(state.database.connection, { client: state.client });
+    await afterAnswer.reconcile();
+    expect(state.signals).toEqual([{ workflowId: processWorkflowId("goal"), name: "stageChanged" }]);
+    afterAnswer.project({ ...projection, phase: "running", waitingForInput: false });
+    state.signals.length = 0;
+    await afterAnswer.wakeStage("execution");
+    expect(state.signals).toEqual([]);
+  });
+
+  it("heartbeats through long asynchronous work and stops heartbeating when it suspends", async () => {
+    let workerOptions: any;
+    const state = harness({ workerFactory: async (options) => {
+      workerOptions = options;
+      return { run: async () => undefined };
+    } });
+    let suspend!: (value: any) => void;
+    await state.runtime.start(() => new Promise((resolve) => { suspend = resolve; }));
+    expect(workerOptions.maxHeartbeatThrottleInterval).toBe("10 seconds");
+    const heartbeat = vi.fn();
+    const activity = vi.spyOn(Context, "current").mockReturnValue({
+      heartbeat, cancellationSignal: new AbortController().signal,
+    });
+    vi.useFakeTimers();
+    try {
+      const running = workerOptions.activities.runDshStage({});
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(heartbeat).toHaveBeenCalledTimes(10);
+      suspend({ outcome: "suspended" });
+      await expect(running).resolves.toEqual({ outcome: "suspended" });
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(heartbeat).toHaveBeenCalledTimes(10);
+    } finally { vi.useRealTimers(); activity.mockRestore(); }
   });
 
   it("signals control to Temporal and never stores a workflow id", async () => {

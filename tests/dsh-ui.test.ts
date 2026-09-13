@@ -76,8 +76,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('window.dispatchEvent(new window.CustomEvent("bees-change"');
     expect(client).toContain('window.addEventListener("bees-change", changed)');
     expect(client).toContain("setInterval(() => void load(), 30_000)");
-    expect(client).toContain('run?.status === "queued" ? "Agent is starting..."');
-    expect(client).toContain('message.pending)?.text ?? "Agent is working..."');
+    expect(client).not.toContain("pollConversation");
   });
 
   it("registers the bundled client module", () => {
@@ -87,7 +86,7 @@ describe("Bees work cockpit UI", () => {
     });
     const noop = (): undefined => undefined;
     const React = {
-      Component: class {}, createElement: noop, useEffect: noop, useMemo: noop, useRef: noop, useState: noop
+      Component: class {}, createContext: noop, createElement: noop, useEffect: noop, useMemo: noop, useRef: noop, useState: noop
     };
     const modules: Record<string, any> = {
       react: React,
@@ -98,7 +97,8 @@ describe("Bees work cockpit UI", () => {
       },
       "@bees/dsh-free-ai": { FreeAiController: noop, FreeAiSettings: noop },
       "@bees/dsh-custom-ai": { CustomAiSettings: noop },
-      "@bees/dsh-subscriptions": { SubscriptionSettings: noop }
+      "@bees/dsh-subscriptions": { SubscriptionSettings: noop },
+      "react-dom": { createPortal: noop }
     };
     const plugin = registration.factory((id: string) => modules[id]);
     expect(plugin.inject).toContain("slots");
@@ -133,11 +133,17 @@ describe("Bees work cockpit UI", () => {
     expect(tabContents).not.toContain('"Files & folders"');
   });
 
-  it("collapses long user messages in work-item details", () => {
-    expect(client).toContain("children.length > 280");
-    expect(client).toContain('expanded ? "Show less" : "Show more"');
-    expect(client).toContain('"aria-expanded": expanded');
-    expect(client.match(/h\(UserMessage,/g)).toHaveLength(2);
+  it("uses DSH conversation rendering and preserves managed continuation", () => {
+    expect(client).toContain('className: "bees-native-widgets"');
+    expect(client).toContain('createPortal(');
+    expect(client).not.toContain('openNative');
+    expect(client).not.toContain('display: native ? "none"');
+    expect(client).not.toContain('src: `/?session=');
+    expect(client).toContain('pendingRun ? h(AgentInteractionPanel');
+    expect(client).toContain('toggleAttribute("data-bees-debug-dsh")');
+    expect(client).toContain('action: "continue_run"');
+    expect(client).toContain('bees-managed-continuation');
+    expect(client).not.toContain("function conversationMessages");
   });
 
   it("keeps work widgets at their chosen dimensions with scrollable content", () => {
@@ -163,8 +169,7 @@ describe("Bees work cockpit UI", () => {
 
   it("uses theme-aware conversation bubbles, expandable tool cards, and a compact composer", () => {
 
-    expect(client).toContain('className: "bees-agent-turn"');
-    expect(client).toContain('className: "bees-composer-send"');
+    expect(client).toContain('className: "bees-native-conversation"');
     expect(client).toContain('background: var(--dsw-alias-interactive-bg-hover) !important;');
     expect(client).not.toContain("#9F8BFF");
   });
@@ -176,9 +181,9 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template"');
   });
 
-  it("uses one agent interaction card in Needs you and the dashboard", () => {
+  it("reuses the agent interaction card in work details, Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(1);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
     expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');
@@ -359,7 +364,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("function WorkReviewPanel");
     expect(client).not.toContain("function ReviewDecisionPanel");
     expect(client).not.toContain("function reviewOptions");
-    expect(client).toContain('pendingRun?.pendingInteraction === "work-review"');
+    expect(client).toContain('run?.pendingInteraction === "work-review"');
     expect(client).toContain('"Reject and send feedback"');
     expect(client).toContain('`Future ${recurring.name} runs`');
     expect(client).toContain('action: "apply_specialist_feedback"');

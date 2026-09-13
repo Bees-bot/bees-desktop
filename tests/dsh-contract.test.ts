@@ -105,10 +105,10 @@ function testContext(
       listMembers: () => []
     },
     sessionPersistence: {
-      inspect: async (id: string) => ({ events: sessions.get(String(id)) ?? [] }),
-      load: async (id: string) => {
+      open: async (id: string, mode: string) => {
+        expect(mode).toBe("read");
         persistenceLoads.push(String(id));
-        return { events: sessions.get(String(id)) ?? [] };
+        return { read: async () => ({ eventState: "shared-frozen", events: sessions.get(String(id)) ?? [] }), close: async () => {} };
       }
     },
     agents: {
@@ -515,17 +515,21 @@ describe("Bees DSH public contract", () => {
       const requiredClientModules = [...client.matchAll(/require\(\"(@bees\/[^\"]+)\"\)/g)]
         .map((match) => match[1]);
       expect(pluginPackage.dsh.client.external).toEqual(requiredClientModules);
-      const release = "0.1.2-rc.1";
-      expect(Object.keys(runtimePackage.dependencies).some((name) => name.startsWith("@deepseek-ai/"))).toBe(false);
-      const bundle = readdirSync(new URL("../dsh-runtime/vendor/dsh-v0.1.2-rc.1", import.meta.url));
-      expect(bundle).toContain(`deepseek-ai-dsh-${release}.tgz`);
-      expect(bundle).toContain(`deepseek-ai-dsh-experimental-agent-team-${release}.tgz`);
+      const release = "0.1.5-rc.2";
+      expect(runtimePackage.dependencies["@deepseek-ai/dsh"]).toBe(release);
+      expect(runtimePackage.dependencies["@deepseek-ai/dsh-experimental-agent-team"]).toBe(release);
       const installer = readFileSync(new URL("../scripts/install-dsh-runtime.mjs", import.meta.url), "utf8");
-      expect(installer).toContain('manifest.version !== "0.1.2-rc.1"');
+      expect(installer).toContain('manifest.version !== "0.1.5-rc.2"');
       expect(installer).toContain("const retiredResponses = new Map()");
       expect(installer).toContain("?? retiredResponses.get(resourceUrl)");
-      for (const [name, version] of Object.entries(pluginPackage.peerDependencies))
-        if (name.startsWith("@deepseek-ai/dsh-")) expect(version).toBe(release);
+      for (const dependency of Object.values(runtimePackage.dependencies)) {
+        if (typeof dependency !== "string" || !dependency.startsWith("file:")) continue;
+        const localPlugin = JSON.parse(readFileSync(new URL(
+          `../dsh-runtime/${dependency.slice(5)}/package.json`, import.meta.url
+        ), "utf8"));
+        for (const [name, version] of Object.entries(localPlugin.peerDependencies ?? {}))
+          if (name.startsWith("@deepseek-ai/dsh-")) expect(version, `${localPlugin.name}: ${name}`).toBe(release);
+      }
     } finally {
       await harness.dispose();
       rmSync(root, { recursive: true, force: true });

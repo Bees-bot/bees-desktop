@@ -276,7 +276,7 @@ it("sends a final contribution and concludes the participant turn only after del
     expect(completed.isError).toBe(false);
     expect(completed.concludesTurn).toBe(true);
     expect(h.teams.sendMessage).toHaveBeenLastCalledWith(peer, expect.objectContaining({
-      target: "lead", delivery: "quiet", content: [{ type: "text", text: "Use two independent source agents." }]
+      target: "lead", content: [{ type: "text", text: "Use two independent source agents." }]
     }));
   } finally { await h.close(); }
 });

@@ -236,6 +236,7 @@ window.__ModuleLoader__.load({
         });
       };
       const remove = async (model) => {
+        if (LOCAL_MODELS.some(({ id }) => id === model.id)) return;
         if (!await confirmAction(`Delete ${model.name} from the model list?`)) return;
         await perform("delete", model, async () => {
           await invokeLocal("delete_local_model", { spec: model });
@@ -295,6 +296,7 @@ window.__ModuleLoader__.load({
           h("tbody", null, ...models.map((model) => {
             const status = statuses[model.id];
             const event = progress[model.id];
+            const isBundledModel = LOCAL_MODELS.some(({ id }) => id === model.id);
             const running = Boolean(status?.running);
             const nativeStarting = status?.state === "starting";
             const complete = status?.state === "ready" || running || nativeStarting;
@@ -314,6 +316,9 @@ window.__ModuleLoader__.load({
             const wanted = wantedModelIds(config).includes(model.id);
             const runChecked = wanted || running;
             const modelBusy = busy.some((key) => key.endsWith(`:${model.id}`));
+            const deleteReason = isBundledModel
+              ? "Keep shipped Bees AI models available for local operations"
+              : `Delete ${model.name} from your model list`;
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
@@ -334,9 +339,9 @@ window.__ModuleLoader__.load({
                   disabled: modelBusy && !runPending,
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
-              h("td", null, h(Button, { className: "danger bees-local-delete", title: `Delete ${model.name}`,
-                "aria-label": `Delete ${model.name}`, disabled: modelBusy,
-                onClick: () => remove(model) }, config.localModels?.some(({ id }) => id === model.id) ? "Remove" : "Delete")));
+              h("td", null, h(Button, { className: "danger bees-local-delete", title: deleteReason,
+                "aria-label": deleteReason, disabled: modelBusy || isBundledModel,
+                onClick: () => remove(model) }, "Delete")));
           })))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
@@ -413,7 +418,7 @@ window.__ModuleLoader__.load({
           h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}` : "Not connected"),
           local.baseURL ? h("div", { className: "bees-local-server-models" },
             ...(local.models ?? []).map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
-              h(Button, { title: protects(model.id) ? defaultGuard : `Remove ${model.id}`, "aria-label": `Remove ${model.id}`,
+              h(Button, { title: protects(model.id) ? defaultGuard : `Delete ${model.id}`, "aria-label": `Delete ${model.id}`,
                 disabled: local.models.length <= 1 || protects(model.id),
                 onClick: () => removeModel(model.id) }, "×"))),
             h(Button, { onClick: addModel }, "Add model")) : null),

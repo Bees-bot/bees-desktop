@@ -27,7 +27,6 @@ it("Stop cancels the real parent agent before Temporal replies and discards a la
   let handle: any;
   try {
     await mountAgentLoopTestDependencies(ctx);
-    await ctx.plugin(SessionProjectionRegistry);
     await ctx.plugin(AgentLoop, { agents: [] });
     ctx.llm.registerAdapter(["test"], new class extends LlmAdapter {
       async *stream({ signal }: { signal: AbortSignal }) {

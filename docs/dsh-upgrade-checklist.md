@@ -1,19 +1,20 @@
 # DSH upgrade checklist
 
 Bees ships one tested DeepSeek Harness release as a unit. The current release is
-`0.1.2-rc.1`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
+`0.1.5-rc.2`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
 use that exact version.
 
 ## Prepare a candidate
 
 1. Read the candidate DSH release notes and public API documentation.
 2. On a branch, change every `@deepseek-ai/dsh*` version in
-   `dsh-runtime/package.json` and `dsh-runtime/plugin/package.json` together.
+   `dsh-runtime/package.json` and all `dsh-runtime/plugins/*/package.json` peers together.
    Keep the old lockfile and package manifests available as the rollback point.
-3. Run `npm install --package-lock-only --ignore-scripts --prefix dsh-runtime`
+3. Run `npm install --package-lock-only --ignore-scripts --legacy-peer-deps --prefix dsh-runtime`
    and inspect `dsh-runtime/package-lock.json`. Reject mixed DSH versions.
-4. Use only documented package exports. Do not copy, patch, or import DSH
-   internals to make the candidate pass.
+4. Use documented package exports for integration. The installer retains two
+   existing, exact-match fixes for Agent Team model routing and HMR response
+   completion; recheck both against each candidate. Add no ABI compatibility shim.
 
 ## Required gate
 
