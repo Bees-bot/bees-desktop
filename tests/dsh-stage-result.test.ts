@@ -42,7 +42,7 @@ describe("DSH stage results", () => {
       expect(result).toMatchObject({ status: "completed", summary, artifacts: ["outputs/yahoo-news.md"],
         evidence: [{ session_id: "child-session", call_id: "rss", tool: "bees_fetch_page" }] });
       const tools: any[] = [];
-      await runtime.setup({ systemPrompt: { section: () => undefined },
+      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
         tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined } }, {
         mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
         workItemId: "parent", workspaceId: stage.workspaceId, grants: []
@@ -138,7 +138,7 @@ describe("DSH stage results", () => {
 
     expect(restrictions.flat()).toEqual(expect.arrayContaining(["subagent", "subagent_fork"]));
     for (const teamTool of ["send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent"])
-      expect(restrictions.flat()).not.toContain(teamTool);
+      expect(restrictions.flat()).toContain(teamTool);
     expect(tools.map(({ name }) => name)).toContain("bees_delegate_work");
     expect(tools.map(({ name }) => name)).toContain("bees_search_knowledge");
     expect(tools.map(({ name }) => name)).toContain("bees_read_knowledge");
@@ -307,7 +307,7 @@ describe("DSH stage results", () => {
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
       mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
-      workItemId: "parent", grants: [], workspaceId: workspace.id, discussionMembers: [{ name: "participant-1", description: "CTO" }],
+      workItemId: "parent", grants: [], workspaceId: workspace.id, participantIds: [],
     }, "run", "/tmp");
     let peerStatus = "running";
     runtime.ctx.agentTeams = { tryMembership: () => ({ root: lead.agent }), membership: () => ({ root: lead.agent }), listMembers: () => [{ id: "cto-seat", name: "participant-1", status: peerStatus }] };
@@ -317,9 +317,8 @@ describe("DSH stage results", () => {
     const delegate = tools.find(({ name }) => name === "bees_delegate_work");
     await expect(delegate.execute({ items_json: '[{"title":"Write first","}]' }, lead)).rejects.toThrow("valid JSON");
     const pending = delegate.execute({ items_json: '[{"title":"Write first"}]' }, lead);
-    expect(create).not.toHaveBeenCalled();
+    // Tracked peers start immediately; there is no separate discussion lifecycle.
     peerStatus = "idle";
-    listeners.get("agent/status")!({ agent: { id: "cto-seat" } });
     const result = await pending;
     expect(create).toHaveBeenCalledTimes(1);
     await expect(delegate.execute({ items_json: '[{"title":"Write first"}]' }, {

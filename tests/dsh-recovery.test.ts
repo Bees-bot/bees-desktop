@@ -736,7 +736,7 @@ describe("DSH-owned desktop and recovery", () => {
     {
       outcome: "completed",
       failure: null,
-      message: "The agent runtime completed without calling bees_submit_stage_result"
+      message: "Stage completion was not recorded"
     }
   ])("does not mark a fresh $outcome delivery without a stage result as retryable", async ({ outcome, failure, message }) => {
     const database = new NodeDatabase();
@@ -760,7 +760,7 @@ describe("DSH-owned desktop and recovery", () => {
     expect(admit).toHaveBeenCalledTimes(outcome === "completed" ? 2 : 1);
     if (outcome === "completed") expect(admit).toHaveBeenLastCalledWith("bees-run", "run", expect.objectContaining({
       uid: "uid", idempotencyKey: "start:run:submit",
-      body: "You ended without calling bees_submit_stage_result. Call it now with the result of the work already done."
+      body: "You ended without a successful bees_submit_stage_result. Inspect the existing outputs and submit the result of the work already done; do not regenerate finished documents or repeat completed external actions."
     }));
   });
 

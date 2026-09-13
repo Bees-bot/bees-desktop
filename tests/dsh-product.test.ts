@@ -154,15 +154,15 @@ describe("Bees DSH product plugin", () => {
       const worker = await run(parent, work, "parent-work");
       expect(worker.body).toContain(criteria);
       expect(worker.initialData.instructions).toBe("");
-      expect(worker.initialData.discussionMembers).toHaveLength(1);
-      expect(worker.initialData.discussionMembers[0]).toMatchObject({ planningReviewer: true });
-      expect(worker.initialData.discussionMembers[0].prompt).toContain(criteria);
+      expect(worker.initialData.participantIds).toHaveLength(1);
+      expect(worker.initialData.contextId).toBeTruthy();
+      expect(worker.body).toContain(criteria);
       const child = await product.command({ action: "create_item", processId: process.id, parentId: parent.id,
         title: "Inspect one input", description: "Report its contents." });
       const delegated = await run(child, work, "child-work");
       expect(delegated.body).toContain(criteria);
       expect(delegated.body).toContain("Cover every supplied input.");
-      expect(delegated.initialData.discussionMembers).toEqual([]);
+      expect(delegated.initialData.participantIds).toEqual([]);
       expect(delegated.body).not.toContain("dates when exposed");
       const reviewer = await run(parent, review, "parent-review");
       expect(reviewer.body).toContain(criteria);
@@ -437,7 +437,7 @@ describe("Bees DSH product plugin", () => {
         executionId: "executive-discussion", workItemId: goal.id, stageId: work.id,
         stageName: work.name, purpose: "worker"
       });
-      expect(execute.mock.calls[0]![1].initialData.discussionMembers).toHaveLength(2);
+      expect(execute.mock.calls[0]![1].initialData.participantIds).toHaveLength(2);
       expect(execute.mock.calls[0]![1].initialData.agentId).toBe(ceo.id);
       await expect(product.command({
         action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"

@@ -6,6 +6,7 @@ import {
   ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, openExternal, request, useSubmit,
   THEME_PRESETS, usePreference
 } from "./shared.js";
+import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
 
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
@@ -606,9 +607,10 @@ export function SettingsPage({
   const organization = rawOrganization
     ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
     : null;
-  if (route === "team-settings") return h(TeamSettings, {
-    team, organization, connectionId, openOrganization
-  });
+  if (route === "team-settings") return h("div", { className: "bees-stack" },
+    h(TeamSettings, { team, organization, connectionId, openOrganization }),
+    ...data.workspaces.filter((workspace) => workspace.teamId === teamId).map((workspace) =>
+      h(MemorySettings, { key: workspace.id, workspace, canManage: team?.role === "admin" })));
   const content = route === "personal-ai"
     ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
     : route === "system-instructions"

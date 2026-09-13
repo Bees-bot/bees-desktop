@@ -42,17 +42,17 @@ describe("executive team", () => {
       const work = initial.stages.find((s: any) => s.name === "Work")!;
       await product.runProcessStage({ workItemId: goal.id, stageId: work.id, executionId: "lead", purpose: "worker" });
       const lead = execute.mock.calls.at(-1)![1];
-      expect(lead.initialData.discussionMembers).toHaveLength(2);
+      expect(lead.initialData.participantIds).toHaveLength(2);
       expect(lead.body).toContain(cto.id);
-      expect(lead.body).toContain("only for substantial independent work");
-      expect(lead.body).toContain("Do small, tightly coupled work yourself");
-      expect(lead.initialData.discussionMembers[0].prompt).toContain("do not implement");
+      expect(lead.body).toContain("substantial independent work");
+      expect(lead.body).toContain("otherwise do the work yourself");
+      expect(lead.initialData.participantIds).toContain(cto.id);
       const input = { parentId: goal.id, items: [{ title: "Build page", description: "Write and test outputs/index.html", agentAssignmentId: cto.id }] };
       const [child] = await product.createSubitems(input);
       expect((await product.createSubitems(input))[0].id).toBe(child.id);
       await product.runProcessStage({ workItemId: child.id, stageId: work.id, executionId: "cto", purpose: "worker" });
       const worker = execute.mock.calls.at(-1)![1].initialData;
-      expect(worker).toMatchObject({ agentId: cto.id, agentName: "CTO", mcpAccess: "none", discussionMembers: [] });
+      expect(worker).toMatchObject({ agentId: cto.id, agentName: "CTO", mcpAccess: "none", participantIds: [] });
       expect(worker.instructions).toContain(cto.instructions);
       writeFileSync(join(root, "runs", "cto", "outputs", "index.html"), "<h1>Launch</h1>");
       db.prepare(`INSERT INTO execution_links
@@ -119,7 +119,7 @@ describe("executive team", () => {
       expect(config.body).toContain("Google and Yahoo only; business, finance and technology.");
       expect(config.body).toContain("Gather Yahoo stories and preserve dates when exposed.");
       expect(config.body).toContain("The parent owns the combined outcome and reviews your result");
-      expect(config.initialData.discussionMembers).toEqual([]);
+      expect(config.initialData.participantIds).toEqual([]);
       await expect(Promise.resolve().then(() => runtime.subitemStore.revise({ parentId: other.id,
         workItemId: child.id, feedback: "Wrong owner", requestId: "wrong" }))).rejects.toThrow("Only this child's parent");
       await runtime.subitemStore.revise({ parentId: parent.id, workItemId: child.id,

@@ -178,4 +178,22 @@ describe("Process review budget", () => {
     expect(state.calls.filter(({ purpose }) => purpose === "reviewer").map(({ revisions }) => revisions))
       .toEqual([0, 0, 0, 0]);
   });
+  it.each(["Stage completion was not recorded. journal unavailable", "The agent runtime completed without calling bees_submit_stage_result"])("resumes worker completion recording in the same execution: %s", async (error) => {
+    const state = harness([new Error(error), "candidate", "pass"]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({ phase: "failed", attempt: 1 }));
+    state.retry();
+    await expect(completed).resolves.toMatchObject({ phase: "completed", attempt: 1 });
+    expect(state.calls[1]).toMatchObject({ executionId: state.calls[0].executionId, retryRequest: 1 });
+  });
+
+  it("resumes reviewer completion recording without creating a new reviewer identity", async () => {
+    const state = harness(["candidate", new Error("Stage completion was not recorded. journal unavailable"), "pass"]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({ phase: "failed", reviewCycle: 1 }));
+    state.retry();
+    await expect(completed).resolves.toMatchObject({ phase: "completed", attempt: 1, reviewCycle: 1 });
+    expect(state.calls[2]).toMatchObject({ executionId: state.calls[1].executionId, candidateExecutionId: state.calls[0].executionId, retryRequest: 1 });
+  });
+
 });
