@@ -71,6 +71,31 @@ Bees is the only visible product surface. New users open Getting started: a resu
 
 ## Data boundary
 
+### Workspace memory
+
+Hindsight is the long-term memory service. Start the pinned local service from
+the sibling `bees-server` repository using its **Hindsight memory** setup, then
+open the workspace's Memory settings in Bees. Enable memory at
+`http://127.0.0.1:8888` and select **Save and connect**. Alternatively configure
+an authenticated HTTPS Hindsight endpoint. The desktop does not bundle or start
+Docker. LLM provider credentials belong on the Hindsight service; the API key
+in Bees authenticates to that service and is kept in DSH's credential store.
+
+Each workspace has its own bank. Newly accepted results are queued atomically
+with their review outcome, retained asynchronously, and marked stored only after
+Hindsight finishes processing. Pending writes resume after a restart and temporary
+failures retry every 15 seconds. Terminal extraction failures require **Retry
+synchronization** after fixing the provider. Corrections and Forget wait for any
+in-flight extraction before replacing/deleting its source, and pending sources
+are excluded from recall. Disabling memory stops new retention and recall; it
+does not erase previously stored sources. Forget them while connected to erase them.
+
+Recalled experience is frozen into the execution's shared context so its peers
+and reviewer use the same memories. Hindsight performs extraction and consolidation.
+Bees keeps exact requirements and the primary work item's discussion in SQLite;
+recalled memories never override those requirements. No separate compactor is
+needed beyond Hindsight's consolidation and DSH's existing context compaction.
+
 Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after approval in the Bees UI. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
 
 ## License

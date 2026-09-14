@@ -12,8 +12,7 @@ const require = createRequire(new URL("../dsh-runtime/package.json", import.meta
 const { Context } = require("@deepseek-ai/cordis");
 const { default: AgentLoop } = require("@deepseek-ai/dsh-agent-loop");
 const { mountAgentLoopTestDependencies } = require("@deepseek-ai/dsh-agent-loop-testkit");
-const { default: SessionProjections } = require("@deepseek-ai/dsh-session-projection");
-const { JsonlSessionPersistence } = require("@deepseek-ai/dsh-session-persistence-jsonl");
+const { default: JsonlSessionPersistence } = require("@deepseek-ai/dsh-session-persistence-jsonl");
 const { LlmAdapter, createUserMessage } = require("@deepseek-ai/dsh-llm");
 
 it("reads only native attachments admitted to the calling run, and never writes them", () => {
@@ -61,7 +60,6 @@ it("drains steering in the current turn and queued follow-ups before becoming id
   let handle: any;
   try {
     await mountAgentLoopTestDependencies(ctx);
-    await ctx.plugin(SessionProjections);
     await ctx.plugin(AgentLoop, { agents: [] });
     ctx.llm.registerAdapter(["test"], new class extends LlmAdapter {
       async *stream() {
@@ -102,7 +100,6 @@ it.each([true, false])("continues persisted history and new input (viewer owns w
   try {
     await mountAgentLoopTestDependencies(ctx);
     await ctx.plugin(JsonlSessionPersistence, { root });
-    await ctx.plugin(SessionProjections);
     await ctx.plugin(AgentLoop, { agents: [] });
     ctx.llm.registerAdapter(["test"], new class extends LlmAdapter {
       async *stream() {
@@ -134,7 +131,7 @@ it.each([true, false])("continues persisted history and new input (viewer owns w
     const messages = continued.filter((event: any) => event.type === "user/message");
     expect(JSON.stringify(messages)).toContain("Original work");
     expect(JSON.stringify(messages)).toContain("More work");
-    expect((await ctx.sessionPersistence.inspect("viewed")).events).toEqual(originalEvents);
+    expect(await runtime.sessionEvents("original-view", "viewed")).toEqual(originalEvents);
     expect(database.connection.prepare("SELECT metadata_json FROM dsh_audit_events WHERE event_type = 'replacement-run-created'").get()!.metadata_json)
       .toContain('"reason":"native-continuation"');
   } finally { await viewed?.dispose(); await ctx.fiber.dispose(); database.connection.close(); rmSync(root, { recursive: true, force: true }); }

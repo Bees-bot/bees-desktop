@@ -231,12 +231,15 @@ describe("Bees work cockpit UI", () => {
     expect(group.props).toMatchObject({ role: "group", "aria-label": "Actions for run" });
     const controls = group.children[0];
     expect(controls.tag).toBe(WorkItemControls);
-    expect(controls.props.showUnavailable).toBe(true);
+    expect(controls.props.showUnavailable).toBe(false);
     await WorkItemControls(controls.props).children[1].props.onClick();
     expect(act).toHaveBeenCalledExactlyOnceWith({ action: "cancel_item", itemId: "run" });
     expect(setWorkItemId).toHaveBeenCalledTimes(1);
-    expect(panels["finished-work"].content.map((entry: any) => [entry.tag, entry.props.key, entry.children.length]))
-      .toEqual([["button", "finished", 2]]);
+    const finished = panels["finished-work"].content;
+    expect(finished.tag).toBe("table");
+    expect(finished.children[1].children.map((entry: any) => entry.props.key)).toEqual(["finished"]);
+    expect(finished.children[1].children[0].children[4].children[0].children[0].props)
+      .toMatchObject({ item: items[3], showUnavailable: false, allowReRun: true });
     const schedules = WorkPage({ ...props, route: "schedules" }).children[1].props.panels["active-work"].content;
     expect(schedules.map((entry: any) => [entry.tag, entry.props.key, entry.children.length]))
       .toEqual([["button", "schedule", 2]]);
@@ -312,7 +315,7 @@ describe("Bees work cockpit UI", () => {
     const props = { item: { id: "item", runtimePhase }, act: vi.fn() };
     const buttons = WorkItemControls({ ...props, showUnavailable: true }).children;
     expect(buttons.map((button: any) => [button.children[0], button.props.disabled]))
-      .toEqual([["Retry", retryDisabled], ["Stop", stopDisabled], ["Archive", false]]);
+      .toEqual([["Retry", retryDisabled], ["Stop", stopDisabled], ["Re-run", true], ["Archive", false]]);
     expect(WorkItemControls(props).children.filter(Boolean).map((button: any) => button.children[0]))
       .toEqual(buttons.filter((button: any) => !button.props.disabled).map((button: any) => button.children[0]));
   });
@@ -327,7 +330,7 @@ describe("Bees work cockpit UI", () => {
     const confirmAction = vi.fn().mockResolvedValue(true);
     const { WorkItemControls } = workUi({ confirmAction,
       useState: () => [busy, (value: string) => { busy = value; }] });
-    const render = () => WorkItemControls({ item: { id: "item", title: "Draft", runtimePhase: "failed" }, act, onDone });
+    const render = () => ({ children: WorkItemControls({ item: { id: "item", title: "Draft", runtimePhase: "failed" }, act, onDone }).children.filter(Boolean) });
     const index = ["retry_item", "cancel_item", "archive_item"].indexOf(action);
     const pending = render().children[index].props.onClick();
     await invoked;
@@ -348,7 +351,7 @@ describe("Bees work cockpit UI", () => {
     const onDone = vi.fn();
     const { WorkItemControls } = workUi({ confirmAction: async () => false,
       useState: () => [busy, (value: string) => { busy = value; }] });
-    const render = () => WorkItemControls({ item: { id: "item", runtimePhase: "failed" }, act, onDone });
+    const render = () => ({ children: WorkItemControls({ item: { id: "item", runtimePhase: "failed" }, act, onDone }).children.filter(Boolean) });
     await render().children[2].props.onClick();
     expect(act).not.toHaveBeenCalled();
     await expect(render().children[0].props.onClick()).rejects.toThrow("offline");
@@ -368,14 +371,14 @@ describe("Bees work cockpit UI", () => {
     expect(client).not.toContain("function reviewOptions");
     expect(client).toContain('run?.pendingInteraction === "work-review"');
     expect(client).toContain('"Reject and send feedback"');
-    expect(client).toContain('`Future ${recurring.name} runs`');
+    expect(client).toContain('`Also apply guidance to future ${recurring.name} runs`');
     expect(client).toContain('action: "apply_specialist_feedback"');
     expect(client).toContain('selected: outcome === "approve" ? ["Approve"] : []');
     expect(client).toContain('...(detail ? { custom: detail } : {})');
     expect(client).toContain("This feedback applies to this goal only");
-    expect(client).toContain('className: "bees-notice"');
-    expect(client).toContain('h("strong", null, "Learned change")');
-    expect(client).toContain('busy === "approve" ? "Approving…" : "Approve"');
+    expect(workSource).toContain('applyToFuture: true, playbook, expectedRevision: guidance.revision');
+    expect(workSource).toContain('setGuidance(value); setPlaybook(value.playbook)');
+    expect(client).toContain('busy === "approve" ? "Approving..." : "Approve"');
   });
 
   it("exposes recurring schedules and editable specialist playbooks", () => {
@@ -518,7 +521,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("onClick: () => setWorkItemId(item.id)");
     expect(client).toContain('type: "button", className: "bees-row bees-work-item-row"');
     expect(client).not.toContain('className: "primary bees-work-item-open"');
-    expect(client).not.toContain("ctx.sessions.open(");
+    expect(workSource).not.toContain("ctx.sessions.open(");
   });
 
   it("puts creation actions in widget headers and uses ordered stage participants", () => {
@@ -526,7 +529,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('agents: { label: "Agents", actions: h(React.Fragment');
     expect(client).toContain('h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees")');
     expect(client).toContain('"Add participant"');
-    expect(client).toContain('" · Discussion lead"');
+    expect(client).toContain('" · Lead"');
   });
 
   it("shows delegated peers only through their ordinary work-item lifecycle", () => {

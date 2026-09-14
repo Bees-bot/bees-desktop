@@ -119,9 +119,11 @@ export function MemorySettings({ workspace, canManage = false }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
-    command("memory_status", { workspaceId: workspace.id }).then((value) => active && setState(value))
+    const load = () => command("memory_status", { workspaceId: workspace.id }).then((value) => active && setState(value))
       .catch((reason) => active && setError(reason.message));
-    return () => { active = false; };
+    void load();
+    const timer = setInterval(load, 10000);
+    return () => { active = false; clearInterval(timer); };
   }, [workspace.id]);
   const act = async (action, input = {}) => {
     setBusy(true);
@@ -134,26 +136,38 @@ export function MemorySettings({ workspace, canManage = false }) {
   const save = async (event) => {
     event.preventDefault();
     const form = event.currentTarget, values = new FormData(form);
-    if (await act("memory_configure", { url: values.get("url"), enabled: values.get("enabled") === "on", apiKey: values.get("apiKey"), clearKey: values.get("clearKey") === "on" })) {
+    if (await act("memory_configure", { url: values.get("url"), model: values.get("model") ?? undefined, enabled: values.get("enabled") === "on", apiKey: values.get("apiKey"), clearKey: values.get("clearKey") === "on" })) {
       form.elements.apiKey.value = "";
       form.elements.clearKey.checked = false;
     }
   };
   return h("section", { className: "bees-box bees-stack" },
     h("h3", null, `${workspace.name} memory`),
-    h("p", { className: "bees-muted" }, "Hindsight recalls past outcomes and consolidates lessons. When enabled, accepted summaries and their evidence are sent to the configured endpoint. Exact task requirements remain in Bees."),
+    h("p", { className: "bees-muted" }, "Hindsight recalls past outcomes and consolidates lessons. When enabled, newly accepted summaries and their evidence are sent to the configured endpoint. Exact task requirements and discussions remain in Bees."),
+    h("p", { className: "bees-muted" }, "Memory is enabled automatically for new workspaces. Bees installs and starts local Hindsight on this device; first setup needs internet to download dependencies. Outcomes queue safely while setup or your local AI is starting. No cloud model or API key is required for local memory."),
+    state?.bank ? h("p", { className: "bees-muted" }, `Memory bank: ${state.bank}`) : null,
     h("p", { role: "status" }, state?.status ?? "Loading memory settings..."),
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
-    canManage && state ? h("form", { key: state.url, className: "bees-form", onSubmit: save },
-      h("label", null, "Hindsight endpoint", h("input", { type: "url", name: "url", required: true, className: "bees-input", defaultValue: state.url || "http://127.0.0.1:8888" })),
+    canManage && state ? h("form", { key: `${state.url}:${state.model ?? ""}:${state.enabled}`, className: "bees-form", onSubmit: save },
+      state.managed ? h(React.Fragment, null,
+        h("label", null, "AI model for Hindsight", h("select", { name: "model", className: "bees-select", defaultValue: state.model || "" },
+          h("option", { value: "" }, "Automatic (running local model)"),
+          ...(state.models ?? []).map((model) => h("option", { key: model.id, value: model.id }, model.name)),
+          state.model && !state.models?.some((model) => model.id === state.model)
+            ? h("option", { value: state.model }, "Selected model (currently unavailable)") : null)),
+        h("p", { className: "bees-muted" }, "Applies to local memory for all workspaces on this device. Models are managed in AI settings. A selected model must be running; Bees never falls back to a cloud model."),
+        state.activeModel ? h("p", null, `Using: ${state.activeModel}`) : null) : null,
+      h("details", null, h("summary", null, "Advanced: custom Hindsight service"),
+      h("label", null, "Hindsight endpoint", h("input", { type: "url", name: "url", required: true, className: "bees-input", defaultValue: state.url || "http://127.0.0.1:8898" })),
       h("label", null, "API key (blank keeps the saved key)", h("input", { type: "password", name: "apiKey", autoComplete: "new-password", className: "bees-input" })),
-      h("label", null, h("input", { type: "checkbox", name: "clearKey" }), " Remove saved API key"),
+      h("label", null, h("input", { type: "checkbox", name: "clearKey" }), " Remove saved API key")),
       h("label", null, h("input", { type: "checkbox", name: "enabled", defaultChecked: state.enabled }), " Enable workspace memory"),
       h("div", { className: "bees-row" },
-        h(Button, { type: "submit", disabled: busy }, "Save"),
+        h(Button, { type: "submit", disabled: busy }, "Save memory settings"),
         h(Button, { type: "button", disabled: busy || !state.enabled, onClick: () => act("memory_test") }, "Test connection"),
-        h(Button, { type: "button", disabled: busy || !state.enabled, onClick: () => act("memory_retry") }, "Synchronize pending changes"))) : null,
+        h(Button, { type: "button", disabled: busy || !state.enabled, onClick: () => act("memory_retry") }, "Retry synchronization"))) : null,
     h("h4", null, "Remembered outcomes"),
+    state && !state.memories?.length ? h("p", { className: "bees-muted" }, "No outcomes yet. Accepted work completed after memory is enabled will appear here.") : null,
     ...(state?.memories ?? []).map((memory) => h("article", { key: memory.id, className: "bees-box" },
       h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, memory.content),
       h("p", { className: "bees-muted" }, memory.evidence),

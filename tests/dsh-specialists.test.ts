@@ -82,7 +82,8 @@ describe("recurring-work specialists", () => {
         '{"stagePurpose":"worker"}', 'waiting_for_approval', ?, ?)
     `).run(childExecutionId, process.workspaceId, child.id, childRunAt, childRunAt);
     await product.command({ action: "apply_specialist_feedback",
-      executionId: childExecutionId, feedback: "Include each source's publication date"
+      executionId: childExecutionId, feedback: "Include each source's publication date", applyToFuture: true,
+      expectedRevision: 1, playbook: "- Prefer primary local sources\n- Include each source's publication date"
     });
     expect(database.prepare("SELECT playbook FROM agent_specializations WHERE id = ?")
       .get(learned.specializationId)).toEqual({

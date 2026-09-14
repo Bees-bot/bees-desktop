@@ -79,7 +79,7 @@ export function pruneToolResults(session, tokenMeter) {
       shadowedTokenCount: tokenMeter.estimateMessage(event.data.message)
     });
     session.append("tool/result", { ...event.data, message }, {
-      surfaceOp: { op: "replace", start: seq, end: seq }, sourceEventSeqs: [seq]
+      surfaceOp: { op: "replace", startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq]
     });
     pruned++;
     charsRemoved += before - after;

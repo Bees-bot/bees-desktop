@@ -357,7 +357,7 @@ export function safeRecoverySeed(events) {
     const validRange = (range) => !range || ids.has(range.start) && ids.has(range.end);
     const next = kept.filter((event) => {
       const op = event.surfaceOp;
-      return (op?.op !== "replace" || validRange(op)) &&
+      return (op?.op !== "replace" || ids.has(op.startSeq) && ids.has(op.endSeq)) &&
         (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange));
     });
     if (next.length === kept.length) break;
@@ -373,7 +373,7 @@ export function safeRecoverySeed(events) {
         ...(event.data.shadowedRange ? { shadowedRange: range(event.data.shadowedRange) } : {}),
         ...(event.data.shadowedSeqs ? { shadowedSeqs: seqs(event.data.shadowedSeqs) } : {})
       } } : {}),
-      ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : range(surfaceOp) } : {}),
+      ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : { ...surfaceOp, startSeq: renumbered.get(surfaceOp.startSeq), endSeq: renumbered.get(surfaceOp.endSeq) } } : {}),
       ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
   });
 }
@@ -1158,7 +1158,7 @@ export class AgentRuntime {
           const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
           const done = items.find(({ title }) => settled.get(data.workItemId, String(title ?? "")));
           if (done) throw new Error(`"${done.title}" already ran. Read its result with bees_read_work_evidence, correct it with bees_revise_work, or send only new assignments.`);
-          const created = await this.subitemStore.create({ parentId: data.workItemId, items });
+          const created = await this.subitemStore.create({ parentId: data.workItemId, executionId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
           this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
@@ -1366,11 +1366,14 @@ export class AgentRuntime {
           this.database.prepare("INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)")
             .run(executionId, data.stagePurpose, result.outcome, result.summary, new Date().toISOString());
           if (pinned) this.workContext.recordResult(executionId, data, result, findings, evidence);
+          if (pinned && args.outcome === "pass" && this.memory) {
+            const candidate = this.stageResult(data.candidateExecutionId);
+            this.memory.remember(data.workspaceId,
+              (`Task: ${pinned.content.goal.title}\nAccepted outcome: ${candidate?.summary ?? result.summary}`).slice(0, 12000),
+              ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
+          }
         });
         if (pinned && args.outcome === "pass" && this.memory) {
-          const candidate = this.stageResult(data.candidateExecutionId);
-          this.memory.remember(data.workspaceId, "Accepted outcome: " + (candidate?.summary ?? result.summary),
-            ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
           this.track(this.memory.flush(data.workspaceId));
         }
         exec.concludeTurn();
@@ -2089,9 +2092,12 @@ export class AgentRuntime {
   }
 
   async sessionEvents(executionId, sessionId) {
-    const live = this.live.get(executionId)?.handle.agent.session;
+    const live = this.live.get(executionId)?.handle.agent.session ??
+      this.ctx.agents?.get?.(SessionId(sessionId))?.session;
     if (String(live?.id ?? "") === sessionId) return live.snapshotEvents();
-    return (await this.ctx.sessionPersistence.inspect(SessionId(sessionId))).events;
+    const handle = await this.ctx.sessionPersistence.open(SessionId(sessionId), "read");
+    try { return (await handle.read()).events; }
+    finally { await handle.close(); }
   }
 
   async reviewEvidence(executionId) {
@@ -2120,7 +2126,7 @@ export class AgentRuntime {
       for (const sessionId of [...new Set([run.previousSessionId, run.currentSessionId].filter(Boolean))]) {
         // One pruned session must not stop every review; say so rather than reporting no tool calls.
         const events = await this.sessionEvents(run.executionId, sessionId)
-          .catch((error) => { this.ctx.logger.warn(`bees: review evidence for ${sessionId} is unavailable: ${message(error)}`); });
+          .catch((error) => { this.ctx.logger?.warn?.(`bees: review evidence for ${sessionId} is unavailable: ${message(error)}`); });
         sessions.push(events
           ? { sessionId, toolCalls: toolCallCounts(events), timeline: reviewTimeline(events) }
           : { sessionId, unavailable: true });

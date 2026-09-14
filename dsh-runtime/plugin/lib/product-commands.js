@@ -411,6 +411,8 @@ export async function executeProductCommand(action, input) {
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
       const recurringWorkId = parent && (parent.kind === "run" || parent.parentId)
         ? parent.recurringWorkId : null;
+      if (input.runSettings !== undefined && (!input.runSettings || typeof input.runSettings !== "object" || Array.isArray(input.runSettings)))
+        throw new Error("Run settings must be an object");
       const settings = normalizeRunSettings({ ...inheritedRunSettings(this.database, parent), ...(input.runSettings ?? {}) });
       if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";

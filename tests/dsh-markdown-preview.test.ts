@@ -13,7 +13,7 @@ it("renders Markdown file contents with code fences and footnotes through the na
   // Bundle the browser renderer with styles omitted for server-rendered regression checks.
   const { outputFiles } = buildSync({
     entryPoints: [fileURLToPath(new URL("../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js", import.meta.url))],
-    bundle: true, write: false, platform: "node", format: "cjs", packages: "external", loader: { ".css": "empty", ".module.css": "empty" }
+    bundle: true, write: false, platform: "node", format: "cjs", external: ["react", "react/*", "react-dom", "react-dom/*"], loader: { ".css": "empty", ".module.css": "empty" }
   });
   const native = { exports: {} };
   new Function("require", "module", "exports", outputFiles[0]!.text)(require, native, native.exports);

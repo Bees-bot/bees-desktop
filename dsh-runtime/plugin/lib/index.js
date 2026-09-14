@@ -1,3 +1,5 @@
+import { dirname, join } from "node:path";
+import { LocalMemory } from "./local-memory.js";
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import z from "@deepseek-ai/schemastery";
@@ -60,6 +62,7 @@ const BeesUiSettings = z.object({
   dashboards: z.array(DashboardPreference).default([]),
   workItemLayout: z.array(DashboardWidget).default([]),
   pageLayouts: z.dict(z.array(DashboardWidget)).default({}),
+  memoryModel: z.string().default(""),
   localModelWantedIds: z.array(z.string()).default([]),
   removedLocalModelIds: z.array(z.string()).default([]),
   themePreset: z.string().default("forest"),
@@ -166,12 +169,13 @@ export async function apply(ctx, _config = {}, internals = {}) {
     return () => changeSubscribers.delete(subscriber);
   };
   // Cordis disposes effects in parallel, so the database is taken down by hand once its users are down.
-  let agents, processes, capabilities, connected, googleDrive;
+  let agents, processes, capabilities, connected, googleDrive, memory;
   ctx.effect(() => async () => {
     agents?.close();
     googleDrive?.close();
     await connected?.close();
     await processes?.close();
+    await memory?.close();
     await capabilities?.close();
     database.close();
   }, "bees shutdown");
@@ -201,6 +205,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
     tools: ctx.tools,
     googleDrive, notify, capabilities
   });
+  memory = product.memory;
+  memory.local = new LocalMemory(ctx.settings, beesSettings, join(dirname(databasePath), "memory"));
+  memory.start();
   // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
   agents.command = (input) => product.command(input);
   const catalog = new AppCatalog(database);

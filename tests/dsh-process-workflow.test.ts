@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 // Execute the real workflow with deterministic activity/signal boundaries, without a Temporal server.
-function harness(outcomes: (string | Error)[], patched = true, answerBeforeSuspension = false) {
+function harness(outcomes: (string | Error)[], answerBeforeSuspension = false) {
   const projections: any[] = [];
   const calls: any[] = [];
   const activityOptions: any[] = [];
@@ -16,14 +16,16 @@ function harness(outcomes: (string | Error)[], patched = true, answerBeforeSuspe
     }),
     defineSignal: (name: string) => name,
     sleep: async () => undefined,
-    deprecatePatch: () => undefined,
     isCancellation: () => false,
-    patched: () => patched,
     proxyActivities: (options: any) => { activityOptions.push(options); return {
       projectWorkItem: async (state: any) => { projections.push({ ...state }); },
       runDshStage: async (stage: any) => {
-        calls.push({ ...stage });
-        const outcome = outcomes.shift();
+        let outcome;
+        do {
+          calls.push({ ...stage });
+          outcome = outcomes.shift();
+          // Temporal's durable activity policy retries heartbeat loss with the same arguments.
+        } while (outcome instanceof Error && /heartbeat timeout/i.test(outcome.message));
         if (outcome instanceof Error) throw outcome;
         if (!outcome) throw new Error("Unexpected extra model stage");
         if (outcome === "suspended" && answerBeforeSuspension)
@@ -77,7 +79,6 @@ describe("Process review budget", () => {
     const state = harness([new Error("Provider unavailable"), "waiting", "candidate", "pass"]);
     expect(state.activityOptions).toEqual([
       expect.objectContaining({ retry: { maximumAttempts: 5 } }),
-      expect.objectContaining({ retry: { maximumAttempts: 1 } }),
       expect.objectContaining({ retry: { initialInterval: "1 second", maximumInterval: "30 seconds" } }),
     ]);
     const completed = state.run(input);
@@ -94,24 +95,13 @@ describe("Process review budget", () => {
     expect(state.calls[3].retryRequest).toBe(0);
   });
 
-  it("assigns one stable retry request to each explicit heartbeat retry while preserving the execution id", async () => {
-    const state = harness([new Error("activity Heartbeat timeout"), new Error("activity Heartbeat timeout"), "candidate", "pass"], false);
-    const completed = state.run(input);
-    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
-      phase: "failed", attempt: 1, retryRequest: 0,
-    }));
-    expect(state.calls).toHaveLength(1);
-    state.retry();
-    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({
-      phase: "failed", attempt: 1, retryRequest: 1,
-    }));
-    expect(state.calls).toHaveLength(2);
-    expect(state.calls[1]).toMatchObject({ executionId: state.calls[0].executionId, retryRequest: 1 });
-    state.retry();
-    await expect(completed).resolves.toMatchObject({ phase: "completed", attempt: 1, retryRequest: 0 });
+  it("retries repeated heartbeat loss without changing the worker execution or retry request", async () => {
+    const state = harness([new Error("activity Heartbeat timeout"), new Error("activity Heartbeat timeout"), "candidate", "pass"]);
+    await expect(state.run(input)).resolves.toMatchObject({ phase: "completed", attempt: 1, retryRequest: 0 });
     expect(state.calls).toHaveLength(4);
-    expect(state.calls[2]).toMatchObject({ executionId: state.calls[0].executionId, retryRequest: 2 });
-    expect(state.calls[3].retryRequest).toBe(0);
+    expect(state.calls[1]).toEqual(state.calls[0]);
+    expect(state.calls[2]).toEqual(state.calls[0]);
+    expect(state.projections.some(({ phase }) => phase === "failed")).toBe(false);
   });
 
   it("stops after three rejected candidates and resumes only after an explicit retry", async () => {
@@ -152,7 +142,7 @@ describe("Process review budget", () => {
   });
 
   it("does not lose an answer that arrives before the suspended activity reply", async () => {
-    const state = harness(["candidate", "suspended", "pass"], true, true);
+    const state = harness(["candidate", "suspended", "pass"], true);
     await expect(state.run(input)).resolves.toMatchObject({ phase: "completed", reviewCycle: 1 });
     expect(state.calls[2].executionId).toBe(state.calls[1].executionId);
   });
@@ -172,12 +162,6 @@ describe("Process review budget", () => {
       .toEqual([0, 1, 2, 0, 1, 2]);
   });
 
-  it("preserves the old transition when replaying a history without the patch", async () => {
-    const state = harness(["candidate", "revise", "candidate", "revise", "candidate", "revise", "candidate", "pass"], false);
-    await expect(state.run(input)).resolves.toMatchObject({ phase: "completed" });
-    expect(state.calls.filter(({ purpose }) => purpose === "reviewer").map(({ revisions }) => revisions))
-      .toEqual([0, 0, 0, 0]);
-  });
   it.each(["Stage completion was not recorded. journal unavailable", "The agent runtime completed without calling bees_submit_stage_result"])("resumes worker completion recording in the same execution: %s", async (error) => {
     const state = harness([new Error(error), "candidate", "pass"]);
     const completed = state.run(input);

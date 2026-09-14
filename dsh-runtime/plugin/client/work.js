@@ -905,21 +905,30 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const statuses = [...new Set(items.map(workItemStatus))].sort();
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
-  const owners = [...new Set(items.map((item) => item.accountUserId || ""))]
-    .map((id) => ({ id, label: accountLabel(data, id) || "Unknown owner" }))
+  const ownerId = (item) => {
+    if (item.accountUserId) return item.accountUserId;
+    const process = data.processes.find(({ id }) => id === item.processId);
+    const workspace = data.workspaces?.find(({ id }) => id === process?.workspaceId);
+    const team = data.teams?.find(({ id }) => id === workspace?.teamId);
+    const organization = data.organizations?.find(({ id }) => id === team?.organizationId);
+    return organization?.personal ? "local" : "";
+  };
+  const ownerLabel = (id) => id === "local" ? "You" : accountLabel(data, id) || "Unknown owner";
+  const owners = [...new Set(items.map(ownerId))]
+    .map((id) => ({ id, label: ownerLabel(id) }))
     .sort((left, right) => left.label.localeCompare(right.label));
   const needle = query.trim().toLocaleLowerCase();
   const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
     (status === "all" || workItemStatus(item) === status) &&
     (processFilter === "all" || item.processId === processFilter) &&
     (itemScope === "all" || !item.parentId) &&
-    (owner === "all" || (item.accountUserId || "") === owner));
+    (owner === "all" || ownerId(item) === owner));
   const renderRows = (records, empty, showColumns = false, includeReRun = false) => {
     if (!records.length) return h(Empty, null, empty);
     const rendered = records.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
-      const initiator = accountLabel(data, item.accountUserId);
+      const initiator = ownerId(item) ? ownerLabel(ownerId(item)) : null;
       const subtitle = [
         item.kind === "run" ? "scheduled run" : item.kind,
         process?.name ?? "Process",
