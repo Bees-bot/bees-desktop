@@ -39,6 +39,7 @@ export class ProcessRuntime {
              w.account_user_id AS accountUserId, w.parent_id AS parentId,
              w.runtime_attempt AS attempt,
              w.runtime_execution_id AS executionId,
+             w.runtime_error AS error,
              p.workspace_id AS workspaceId, ws.team_id AS teamId,
              EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id) AS scheduleDefinition
       FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -498,6 +499,52 @@ export class ProcessRuntime {
     });
     await this.startItem(workItemId);
     return { id: workItemId };
+  }
+
+  /** Recover a failed child explicitly, preserving the failure and replacement in the audit log. */
+  async resolveFailedItem(workItemId, reason, requestId, replacementWorkItemId = null, signal) {
+    signal?.throwIfAborted();
+    const receiptId = `peer-recovery:${requestId}`;
+    const saved = this.database.prepare("SELECT metadata_json AS metadata FROM dsh_audit_events WHERE id = ?").get(receiptId);
+    let receipt = saved ? JSON.parse(saved.metadata) : null;
+    if (receipt && (receipt.workItemId !== workItemId || receipt.replacementWorkItemId !== replacementWorkItemId || receipt.reason !== reason))
+      throw new Error("This recovery request belongs to another resolution");
+    const item = this.item(workItemId);
+    if (!item.parentId || item.archivedAt || (!receipt && item.runtimePhase !== "failed"))
+      throw new Error("Only failed delegated work can be recovered");
+    const parent = this.item(item.parentId);
+    if (["cancelled", "completed", "failed"].includes(parent.runtimePhase) || parent.archivedAt)
+      throw new Error("The parent is no longer running");
+    if (replacementWorkItemId) {
+      const replacement = this.item(replacementWorkItemId);
+      if (replacement.id === item.id || replacement.parentId !== item.parentId ||
+          replacement.workspaceId !== item.workspaceId || replacement.runtimePhase !== "completed" || replacement.archivedAt)
+        throw new Error("The replacement must be a completed sibling of the failed child");
+    }
+    if (!receipt) {
+      receipt = { workItemId, replacementWorkItemId, reason, attempt: item.attempt,
+        executionId: item.executionId, error: item.error, settled: false };
+      this.database.prepare(`INSERT INTO dsh_audit_events (id, event_type, metadata_json, created_at)
+        VALUES (?, 'peer-work-recovery', ?, ?)`).run(receiptId, JSON.stringify(receipt), iso());
+    }
+    if (!receipt.settled) {
+      if (replacementWorkItemId) {
+        if (item.runtimePhase === "failed") await this.signal(workItemId, "cancel");
+        else if (item.runtimePhase !== "cancelled") throw new Error("The failed child has already resumed");
+        // Failed workflows are still open, waiting for retry. Close them and release their claim.
+        await this.client.workflow.getHandle(processWorkflowId(workItemId)).result();
+        await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+        if (this.item(workItemId).runtimePhase !== "cancelled")
+          throw new Error("The failed child has not finished cancellation");
+      } else if (item.runtimePhase === "failed" && item.attempt === receipt.attempt) {
+        await this.signal(workItemId, "retry");
+      }
+      receipt.settled = true;
+      this.database.prepare("UPDATE dsh_audit_events SET metadata_json = ? WHERE id = ?")
+        .run(JSON.stringify(receipt), receiptId);
+      this.notify({ type: "peer-work-recovered", workItemId, replacementWorkItemId });
+    }
+    return { id: workItemId, action: replacementWorkItemId ? "superseded" : "retry", replacementWorkItemId };
   }
 
   watchClaim(key, claim, handle) {
