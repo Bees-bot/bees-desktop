@@ -69,7 +69,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 26 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -94,7 +94,7 @@ describe("Bees DSH product plugin", () => {
     initializeProductDatabase(database);
     expect(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }: any) => name))
       .toContain("enabled");
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 26 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
   });
 
   it("migrates untouched Goals instructions and preserves owner edits and cleared defaults", () => {
@@ -744,8 +744,8 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
     });
-    expect(stageRuns.at(-1)[1].body).toContain("use bees_delegate_work only for a large separate piece");
-    expect(stageRuns.at(-1)[1].body).toContain("Honor the requested delegation count and execution order");
+    expect(stageRuns.at(-1)[1].body).toContain("Use bees_delegate_work for substantial independent work or a discussion contribution");
+    expect(stageRuns.at(-1)[1].body).toContain("Honor requested delegation counts and ordering");
     expect(stageRuns.at(-1)[1].body).toContain("keep bees_submit_stage_result.summary to a short update");
     expect(stageRuns.at(-1)[1].body).toContain("goes in a markdown file under outputs/");
     expect(stageRuns.at(-1)[1].body).toContain("MUST publish the file deliverables using bees_publish_outputs");
@@ -869,18 +869,21 @@ describe("Bees DSH product plugin", () => {
     await product.command({
       action: "attach_location", itemId: automaticItem.id, locationId: location.id, relativePath: "brief.md"
     });
+    await expect(product.createSubitems({ parentId: automaticItem.id, executionId: "unrelated-execution",
+      items: [{ title: "Wrong caller" }] })).rejects.toThrow("does not belong to this work item");
+    // Later review dispatches must not change the agent inherited from the actual caller.
     const [child] = await product.createSubitems({
-      parentId: automaticItem.id, items: [{ title: "Check links" }]
+      parentId: automaticItem.id, executionId, items: [{ title: "Check links" }]
     });
     expect((await product.snapshot()).items).toContainEqual(expect.objectContaining({
-      id: child.id, parentId: automaticItem.id, agentAssignmentId: null,
+      id: child.id, parentId: automaticItem.id, agentAssignmentId: writer.id,
       runtimePhase: "running"
     }));
     expect((await product.snapshot()).attachments).toContainEqual(expect.objectContaining({
       workItemId: child.id, locationId: location.id, relativePath: "brief.md"
     }));
     const [sameChild] = await product.createSubitems({
-      parentId: automaticItem.id, items: [{ title: "Check links", description: "Recovery retry" }]
+      parentId: automaticItem.id, executionId, items: [{ title: "Check links", description: "Recovery retry" }]
     });
     expect(sameChild.id).toBe(child.id);
     database.connection.prepare("UPDATE execution_links SET status = 'running' WHERE execution_id = ?")

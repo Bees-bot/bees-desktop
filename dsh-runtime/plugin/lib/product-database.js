@@ -842,6 +842,18 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 26");
   });
+  if (version < 27) transaction(database, () => {
+    database.exec("UPDATE agent_assignments SET model = NULL WHERE model = 'openai-codex/__bees_latest_luna__'");
+    database.exec("PRAGMA user_version = 27");
+  });
+  // An installed devtools server starts its own Chrome when it has no address to attach to, and
+  // that one is the automated browser Google refuses every sign-in in.
+  if (version < 28) database.exec(`
+    UPDATE mcp_servers
+      SET args_json = '["-y","chrome-devtools-mcp@latest","--browserUrl","http://127.0.0.1:9333"]'
+      WHERE catalog_id = 'chrome-devtools';
+    PRAGMA user_version = 28;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

@@ -326,7 +326,7 @@ describe("DSH stage results", () => {
     })).rejects.toThrow("Only the lead");
 
     expect(create).toHaveBeenCalledWith({
-      parentId: "parent", items: [{ title: "Write first" }],
+      parentId: "parent", executionId: "run", items: [{ title: "Write first" }],
     });
     expect(result).toMatchObject({ count: 1, ids: "peer" });
     expect(database.connection.prepare(`

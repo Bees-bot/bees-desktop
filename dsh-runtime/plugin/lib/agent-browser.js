@@ -1,37 +1,29 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { stateDirectory } from "./product-database.js";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// One browser, always the same address, so the MCP server and every run find the window the person
+// signed in to instead of each opening one of their own.
+const PORT = 9333;
+const base = `http://127.0.0.1:${PORT}`;
 
 /**
- * The one visible Chrome. A person signs in here when a run asks them to; nothing else touches it.
- * Runs browse in their own headless contexts and inherit this browser's cookies through the state
- * file, so a sign-in done once carries to every run without any of them sharing a tab.
+ * The one visible Chrome, started on demand and never per run. It carries its own real profile with
+ * no --enable-automation and no mock keychain, which is what makes Google accept a sign-in here
+ * instead of refusing the browser as automated. Sessions are reachable by any run that is granted
+ * the browser, so signing in once is enough.
  */
 let chrome = null;
 let starting = null;
-let port = 0;
 
-const running = () => chrome?.exitCode === null && chrome.signalCode === null;
-const listening = () => fetch(`http://127.0.0.1:${port}/json/version`).then((reply) => reply.ok, () => false);
-
-/** Chrome needs a debugging port so its cookies can be read out. macOS only, like the binary path. */
-async function reservePort() {
-  if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
-  if (port) return port;
-  const probe = createServer();
-  await new Promise((resolve, reject) => probe.once("error", reject).listen(0, "127.0.0.1", resolve));
-  port = probe.address().port;
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
+const running = () => chrome?.exitCode === null && chrome?.signalCode === null;
+const listening = () => fetch(`${base}/json/version`).then((reply) => reply.ok, () => false);
 
 async function cdp(method, params) {
-  const { webSocketDebuggerUrl } = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json());
+  const { webSocketDebuggerUrl } = await fetch(`${base}/json/version`).then((r) => r.json());
   const socket = new WebSocket(webSocketDebuggerUrl);
   try {
     return await new Promise((resolve, reject) => {
@@ -47,22 +39,10 @@ async function cdp(method, params) {
   }
 }
 
-/**
- * Chrome takes the foreground the moment it starts, before any minimise can land, so a run that
- * browses pulls the person out of whatever they were doing. Hiding the application keeps it off
- * screen through everything the agent does afterwards, including the new tabs Playwright opens.
- */
-function setAppHidden(hidden) {
-  // Unhiding alone leaves Chrome behind whatever the person is looking at, so the sign-in it was
-  // opened for is never seen. Bringing it forward is the whole point of showing it.
-  const script = hidden
-    ? `tell application "System Events" to set visible of (every process whose name is "Google Chrome") to false`
-    : `tell application "Google Chrome" to activate`;
-  return new Promise((resolve) => execFile("osascript", ["-e", script], () => resolve()));
-}
-
+/** Placed on its own window and never by app, so a run starting up cannot pull the person off
+ *  whatever they were doing and cannot move the Chrome they were already using. */
 async function setWindow(windowState) {
-  const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
+  const targets = await fetch(`${base}/json/list`).then((r) => r.json());
   const targetId = targets.find(({ type }) => type === "page")?.id;
   if (!targetId) return;
   const { windowId } = await cdp("Browser.getWindowForTarget", { targetId });
@@ -71,11 +51,11 @@ async function setWindow(windowState) {
 }
 
 async function launch() {
-  await reservePort();
+  if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   if (!existsSync(CHROME)) throw new Error("Google Chrome is not installed");
   const child = spawn(CHROME, [
     `--user-data-dir=${join(stateDirectory(), "browser-profile")}`,
-    `--remote-debugging-port=${port}`,
+    `--remote-debugging-port=${PORT}`,
     "--no-first-run",
     "--no-default-browser-check",
     "about:blank"
@@ -89,14 +69,13 @@ async function launch() {
     await delay(100);
   }
   chrome = child;
-  await setAppHidden(true);
   await setWindow("minimized");
 }
 
 /**
- * Where each run's browser reads its cookies from, in playwright's storageState shape. It has to
- * exist before a run starts or every navigation fails on ENOENT, and on a fresh install nobody has
- * signed in yet, so an empty file stands in for "no cookies".
+ * Where a run reads its cookies from, in playwright's storageState shape. It has to exist before a
+ * run starts or every navigation fails on ENOENT, and on a fresh install nobody has signed in yet,
+ * so an empty file stands in for "no cookies".
  */
 export function browserStatePath() {
   const path = join(stateDirectory(), "browser-state.json");
@@ -108,12 +87,14 @@ export function browserStatePath() {
 }
 
 /**
- * Copy this browser's cookies out so the next run starts signed in to whatever a person just used.
+ * Copy the browser's cookies out so a run that browses in its own headless session starts signed in.
  * Throws when Chrome cannot answer, and the caller logs it: a run that starts signed out is not
  * fatal, but it must not be silent.
  */
 export async function saveBrowserState() {
-  if (!running()) return;
+  // listening, not running: a Chrome started by an earlier Bees is still the browser holding the
+  // cookies, and its process handle died with the old Bees.
+  if (!(await listening())) return;
   const { cookies } = await cdp("Storage.getCookies", {});
   writeFileSync(browserStatePath(), JSON.stringify({
     cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
@@ -126,26 +107,30 @@ export async function saveBrowserState() {
   }));
 }
 
-/** Bring Chrome up minimised on the promised port. Cheap once it runs; one launch at a time. */
+/** Bring the browser up minimised. Cheap once it runs; one launch at a time, however many ask. */
 export function startAgentBrowser() {
-  if (running()) return Promise.resolve();
-  starting ??= launch().finally(() => { starting = null; });
+  if (running() || starting) return starting ?? Promise.resolve();
+  starting = launch().finally(() => { starting = null; });
   return starting;
 }
 
 export const agentBrowserRunning = () => running();
 
-/** Put the window on screen so a person can sign in to the tab the agent is reading. */
+/** Put the window on screen so a person can sign in, and land on the tab the agent is reading. */
 export async function showAgentBrowser() {
   await startAgentBrowser();
-  await setAppHidden(false);
   await setWindow("normal");
+  await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
 }
 
 /** Back out of the way once the person has answered. */
 export async function hideAgentBrowser() {
   if (!running()) return;
   await setWindow("minimized");
-  await setAppHidden(true);
 }
 
+/** Bees is going away and the browser has no owner left, so it would sit there as an orphan window. */
+export function closeAgentBrowser() {
+  if (running()) chrome.kill();
+  chrome = null;
+}

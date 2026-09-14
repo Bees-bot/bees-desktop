@@ -25,32 +25,40 @@ export function NativeConversation({ ctx, run, item = {}, act }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [opening, setOpening] = useState(true);
   const main = React.useRef(null);
   const rightbar = React.useRef(null);
   const sessionId = run?.ranElsewhere ? null : run?.sessionId;
   const live = liveStatuses.has(run?.status) && !item.archivedAt;
   useEffect(() => {
     setError("");
+    setOpening(true);
     if (!sessionId) return;
     let disposed = false, refreshing = false, selected = sessionId, opened = false;
     const target = { main: main.current, rightbar: rightbar.current };
-    const open = async () => {
-      if (refreshing) return;
+    const open = async (refresh = true) => {
+      if (disposed || refreshing) return;
       refreshing = true;
       try {
-        await ctx.sessions.refresh();
-        if (disposed) return;
-        ctx.uiWorkspace.openSession(selected);
+        if (refresh) await ctx.sessions.refresh();
+        if (disposed || !ctx.sessions.list.getSnapshot().byId[selected]) return;
+        ctx.sessions.open(selected);
         opened = true;
+        setError(""); setOpening(false);
         nativeEmbedding.update({ target });
       } catch (reason) { if (!disposed) setError(reason instanceof Error ? reason.message : String(reason)); }
       finally { refreshing = false; }
     };
     const unsubscribe = ctx.sessions.list.subscribe(() => {
-      if (!opened) return;
+      if (disposed || refreshing) return;
       const current = ctx.sessions.list.getSnapshot().current;
-      if (current) selected = current;
-      else void open(); // Keep durable history visible when Bees releases a completed writer.
+      if (opened && current) selected = current;
+      else if (opened) {
+        // Refresh durable history once when Bees releases a completed writer.
+        opened = false; setOpening(true);
+        nativeEmbedding.update({ target: null });
+        void open();
+      } else void open(false); // A queued retry may be listed only after the initial refresh.
     });
     void open();
     return () => {
@@ -61,6 +69,7 @@ export function NativeConversation({ ctx, run, item = {}, act }) {
   if (run?.ranElsewhere) return h("p", null, "This run's conversation and files are on its original device.");
   if (!sessionId) return h("p", { role: "status" }, "The conversation will appear when this run starts.");
   return h(React.Fragment, null,
+    opening && !error ? h("p", { role: "status" }, "Waiting for this run's conversation…") : null,
     h("div", { className: "bees-native-widgets", "aria-label": "Work conversation" },
       h("div", { ref: main, className: "bees-native-main" }),
       h("div", { ref: rightbar, style: { display: "contents" } })),

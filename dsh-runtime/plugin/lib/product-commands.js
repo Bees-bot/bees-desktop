@@ -68,6 +68,31 @@ const hasActiveWork = (database, processId, settled = ["completed", "cancelled"]
     AND id NOT IN (SELECT source_work_item_id FROM recurring_work) LIMIT 1
 `).get(processId, ...settled));
 
+function inheritedRunSettings(database, parent) {
+  const settings = parent?.runSettings && typeof parent.runSettings === "object"
+    ? { ...parent.runSettings }
+    : {};
+  if (Object.hasOwn(settings, "model")) return settings;
+  const execution = parent?.id ? database.prepare(`
+    SELECT json_extract(config_json, '$.model') AS model,
+           json_extract(config_json, '$.reasoningEffort') AS reasoningEffort
+    FROM execution_links
+    WHERE work_item_id = ? AND json_extract(config_json, '$.model') IS NOT NULL
+    ORDER BY updated_at DESC LIMIT 1
+  `).get(parent.id) : null;
+  if (execution?.model) {
+    settings.model = execution.model;
+    if (execution.reasoningEffort) settings.reasoningEffort = execution.reasoningEffort;
+    return settings;
+  }
+  if (!parent?.agentAssignmentId) return settings;
+  const agent = assignment(database, parent.agentAssignmentId, parent.workspaceId);
+  if (!agent?.model) return settings;
+  settings.model = agent.model;
+  if (agent.reasoningEffort) settings.reasoningEffort = agent.reasoningEffort;
+  return settings;
+}
+
 /** An agent may name a server by its id, its server name, its label or its catalog id. */
 export function enabledServers(database) {
   return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
@@ -236,7 +261,9 @@ function specializationContext(database, specializationId) {
 
 function savePlaybook(database, specialization, playbook, source, feedback = null, executionId = null) {
   const next = Number(specialization.revision) + 1;
-  const text = String(playbook ?? "").trim().slice(0, 6_000);
+  const text = String(playbook ?? "").trim();
+  if (text.length > 6_000) throw new Error("Consolidate the playbook to at most 6000 characters; existing guidance will not be silently dropped");
+  if (feedback && String(feedback).length > 2_000) throw new Error("Rejection feedback must be at most 2000 characters");
   const at = iso();
   database.prepare(`
     UPDATE agent_specializations SET playbook = ?, revision = ?, updated_at = ? WHERE id = ?
@@ -246,36 +273,23 @@ function savePlaybook(database, specialization, playbook, source, feedback = nul
       (id, specialization_id, revision, playbook, source, feedback, execution_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(randomUUID(), specialization.id, next, text, source,
-    feedback ? String(feedback).slice(0, 2_000) : null, executionId, at);
+    feedback ? String(feedback) : null, executionId, at);
   return { id: specialization.id, name: specialization.name, revision: next, playbook: text };
 }
 
 function producerSpecialization(database, executionId, itemId) {
   const current = database.prepare(`
     SELECT d.specialization_id AS specializationId, d.created_at AS createdAt,
-           json_extract(e.config_json, '$.stagePurpose') AS purpose
+           json_extract(e.config_json, '$.stagePurpose') AS purpose,
+           json_extract(e.config_json, '$.candidateExecutionId') AS candidateExecutionId
     FROM agent_dispatches d JOIN execution_links e ON e.execution_id = d.execution_id
     WHERE d.execution_id = ? AND d.work_item_id = ?
   `).get(executionId, itemId);
   if (!current) throw new Error("This run has no agent assignment");
   if (current.purpose !== "reviewer") return current.specializationId;
-  return database.prepare(`
-    SELECT d.specialization_id AS specializationId
-    FROM agent_dispatches d JOIN execution_links e ON e.execution_id = d.execution_id
-    WHERE d.work_item_id = ? AND d.created_at <= ?
-      AND json_extract(e.config_json, '$.stagePurpose') = 'worker'
-    ORDER BY d.created_at DESC LIMIT 1
-  `).get(itemId, current.createdAt)?.specializationId;
-}
-
-function learnedPlaybook(current, feedback) {
-  const guidance = required(feedback, "Rejection reason").replace(/\s+/g, " ").slice(0, 800);
-  if (guidance.length < 3) throw new Error("Add a specific rejection reason");
-  const bullet = `- ${guidance.replace(/^[-•]\s*/, "")}`;
-  const lines = String(current ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
-  if (!lines.some((line) => line.toLocaleLowerCase() === bullet.toLocaleLowerCase())) lines.push(bullet);
-  while (lines.length > 1 && lines.join("\n").length > 6_000) lines.shift();
-  return lines.join("\n");
+  if (!current.candidateExecutionId) throw new Error("The reviewed candidate could not be identified");
+  return database.prepare("SELECT specialization_id AS specializationId FROM agent_dispatches WHERE work_item_id = ? AND execution_id = ?")
+    .get(itemId, current.candidateExecutionId)?.specializationId;
 }
 
 export async function executeProductCommand(action, input) {
@@ -397,7 +411,9 @@ export async function executeProductCommand(action, input) {
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
       const recurringWorkId = parent && (parent.kind === "run" || parent.parentId)
         ? parent.recurringWorkId : null;
-      const settings = normalizeRunSettings(parent?.runSettings ?? input.runSettings ?? {});
+      if (input.runSettings !== undefined && (!input.runSettings || typeof input.runSettings !== "object" || Array.isArray(input.runSettings)))
+        throw new Error("Run settings must be an object");
+      const settings = normalizeRunSettings({ ...inheritedRunSettings(this.database, parent), ...(input.runSettings ?? {}) });
       if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       const rawTitle = resolvedTitle.text;
@@ -573,7 +589,8 @@ export async function executeProductCommand(action, input) {
         .run(paused ? "paused" : "active", iso(), id);
       return { id, status: paused ? "paused" : "active" };
     }
-    if (action === "apply_specialist_feedback") return transaction(this.database, () => {
+    if (["specialist_feedback_context", "apply_specialist_feedback"].includes(action)) return transaction(this.database, () => {
+      if (input.viaAgent) throw new Error("Only a human can approve future-run guidance");
       const executionId = required(input.executionId, "Execution");
       const { item } = runContext(this.database, executionId);
       if (!item?.recurringWorkId) throw new Error("Future-run feedback is only available for scheduled runs");
@@ -582,8 +599,24 @@ export async function executeProductCommand(action, input) {
       const specialization = specializationContext(this.database, specializationId);
       if (specialization.recurringWorkId !== item.recurringWorkId)
         throw new Error("The specialist does not belong to this recurring work");
-      const result = savePlaybook(this.database, specialization,
-        learnedPlaybook(specialization.playbook, input.feedback), "feedback", input.feedback, executionId);
+      if (action === "specialist_feedback_context") return {
+        id: specialization.id, name: specialization.name, revision: specialization.revision,
+        playbook: specialization.playbook, recurringWorkId: specialization.recurringWorkId
+      };
+      if (input.applyToFuture !== true) throw new Error("Explicitly choose to apply guidance to future runs");
+      const feedback = required(input.feedback, "Rejection reason");
+      const playbook = required(input.playbook, "Reusable future-run guidance");
+      if (feedback.length < 3 || feedback.length > 2000) throw new Error("Provide 3 to 2000 characters of rejection feedback");
+      if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
+        throw new Error("Load the current playbook before editing future guidance");
+      // Retrying the same human action must not create duplicate playbook revisions.
+      if (playbook.trim() === specialization.playbook) return {
+        id: specialization.id, name: specialization.name, revision: specialization.revision,
+        playbook: specialization.playbook, learnedChange: specialization.playbook
+      };
+      if (input.expectedRevision !== specialization.revision)
+        throw new Error("The playbook changed while you were editing. Reload its latest version before saving");
+      const result = savePlaybook(this.database, specialization, playbook, "feedback", feedback, executionId);
       return { ...result, learnedChange: result.playbook };
     });
     if (action === "edit_specialist_playbook") return transaction(this.database, () => {
@@ -935,7 +968,7 @@ export async function executeProductCommand(action, input) {
           mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name ?? assignment.name, "Agent name"),
         String(input.description ?? assignment.description ?? ""), String(input.instructions ?? assignment.instructions ?? ""),
-        optionalModelRoute(input.model ?? assignment.model),
+        optionalModelRoute(Object.hasOwn(input, "model") ? input.model : assignment.model),
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);
@@ -945,7 +978,7 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "add_location") {
       const teamId = required(input.teamId, "Team");
-      requireTeam(this.database, teamId, ["admin"]);
+      requireTeam(this.database, teamId, ["admin", "member"]);
       const kind = input.kind === "file" ? "file" : "folder";
       const canonical = input.path ? canonicalMapping(input.path, kind) : null;
       return transaction(this.database, () => {
@@ -984,7 +1017,7 @@ export async function executeProductCommand(action, input) {
     if (action === "archive_location") {
       const location = mappedLocation(this.database, required(input.locationId, "Location"));
       if (!location) throw new Error("Location not found");
-      requireTeam(this.database, location.teamId, ["admin"]);
+      requireTeam(this.database, location.teamId, ["admin", "member"]);
       this.database.prepare("UPDATE team_locations SET archived_at = ?, updated_at = ? WHERE id = ?")
         .run(at, at, location.id);
       return {};

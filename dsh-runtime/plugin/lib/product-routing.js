@@ -26,7 +26,7 @@ function specializationFor(database, recurringWorkId, agent) {
   return row;
 }
 
-export function resolveStageAgent(database, { executionId, item, stageId, purpose, candidateExecutionId }) {
+export function resolveStageAgent(database, { executionId, item, stageId, purpose, candidateExecutionId, recurringGuidance }) {
   const prior = database.prepare(`
     SELECT d.agent_assignment_id AS agentAssignmentId, d.target_type AS targetType,
            d.target_id AS targetId, d.reason, d.agent_revision AS agentRevision,
@@ -99,7 +99,11 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     const busy = agents.filter((agent) => agent.maxConcurrency && activeAgentRuns(database, agent.id) >= agent.maxConcurrency);
     if (busy.length) throw new AgentCapacityError(`${busy.map(({ name }) => name).join(", ")} ${busy.length === 1 ? "is" : "are"} at capacity`);
     let selected = agents[0];
-    const specialization = specializationFor(database, item.recurringWorkId, selected);
+    const storedSpecialization = specializationFor(database, item.recurringWorkId, selected);
+    const frozen = recurringGuidance?.find((entry) => entry.agentAssignmentId === selected.id);
+    const specialization = storedSpecialization && recurringGuidance !== undefined
+      ? { ...storedSpecialization, playbook: frozen?.playbook ?? "", revision: frozen?.revision ?? 0 }
+      : storedSpecialization;
     if (Object.hasOwn(item.runSettings ?? {}, "model")) selected = {
       ...selected, model: item.runSettings.model, reasoningEffort: item.runSettings.reasoningEffort
     };

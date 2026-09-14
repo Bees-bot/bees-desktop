@@ -16,7 +16,7 @@ export class BeesProduct {
     name: string; path: string; format: "markdown" | "text"; content: string; size: number; truncated: boolean;
   };
   storeProposal(input: Record<string, any>): any;
-  createSubitems(input: { parentId: string; items: Array<{ title: string; description?: string; agentAssignmentId?: string }> }): Promise<any[]>;
+  createSubitems(input: { parentId: string; executionId?: string; items: Array<{ title: string; description?: string; agentAssignmentId?: string }> }): Promise<any[]>;
   startWork(input: Record<string, any>): Promise<any>;
   command(input: Record<string, any>): Promise<any>;
 }

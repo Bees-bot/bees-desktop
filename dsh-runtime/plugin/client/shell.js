@@ -164,7 +164,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const setPageActions = (actions) => headerEmitter.setActions(actions);
   const setPageHeader = (header) => headerEmitter.setHeader(header);
   const load = async () => {
-    try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
+    try { const value = await request("/bees-api/snapshot"); setData(value); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   useEffect(() => ctx.slots.inject("conversation.composer", () => ctx.slots.register({
@@ -399,7 +399,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const [provider, ...rest] = String(model?.model ?? "").split("/");
     if (rest.length) await request("/bees-api/system-default-model", { method: "POST",
       body: JSON.stringify({ provider, model: rest.join("/"), reasoningEffort: model.reasoningEffort ?? "" }) });
-    const result = await act({ ...agent, ...model, action: "edit_agent_assignment", agentAssignmentId: agent.id });
+    const result = await act({ ...agent, action: "edit_agent_assignment", agentAssignmentId: agent.id, model: "", reasoningEffort: "" });
     if (!result?.id) throw new Error("Could not save the agent's AI");
     setAiTest(null);
     return { ...agent, ...model };
@@ -536,7 +536,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     h("section", { className: "bees-main" },
       h(AppHeader, { route, routeLabel, parts, ctx, preferences }),
       onboarding.active && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
-      error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+      error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
+        h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
+        h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
       h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )

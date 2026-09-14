@@ -817,4 +817,114 @@ describe("DSH-owned desktop and recovery", () => {
     database.connection.prepare("UPDATE dsh_deliveries SET outcome = 'completed' WHERE submission_id = 'submission'").run();
     await expect((runtime as any).waitForDelivery("run", "submission", cancelled.signal)).rejects.toThrow(reason);
   });
+
+  it("re-resolves the model on an explicit retry so a model change made before retrying takes effect", async () => {
+    const database = new NodeDatabase();
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+    ).get() as { id: string };
+    const runDirectory = mkdtempSync(join(tmpdir(), "bees-retry-model-"));
+
+    // User has since switched away from Codex to a different provider.
+    const resolvedOptions: any[] = [];
+    const runtime = new AgentRuntime({
+      on: () => () => undefined,
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
+      agentDefaultModel: {
+        currentSelection: () => ({ provider: "anthropic", model: "claude-sonnet-4-5" })
+      },
+      agents: {
+        create: async (options: any) => {
+          resolvedOptions.push(options.agentOptions);
+          throw new Error("stop after selection");
+        }
+      },
+      approval: { setPolicy: () => undefined },
+      sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }), inspect: async () => ({ events: [] }) }
+    } as any, database.connection);
+
+    // Simulate: run previously started with Codex and has a locked resolvedModel.
+    const at = "2026-01-01T00:00:00.000Z";
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('retry-run', ?, NULL, 'bees-run', 'session', 'uid', ?, ?, 'failed', ?, ?)
+    `).run(workspace.id, runDirectory, JSON.stringify({
+      version: 1, model: null, resolvedModel: "openai-codex/gpt-5.9-sol",
+      resolvedReasoningEffort: null, mode: "planning", executionId: "retry-run",
+      workItemId: null, agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome",
+      instructions: "", workspaceId: workspace.id, agentPresetId: "standard",
+      mcpAccess: "all", mcpServers: [], grants: []
+    }), at, at);
+    database.connection.prepare(`
+      INSERT INTO dsh_deliveries
+        (delivery_id, execution_id, submission_id, outcome, error_json, created_at, settled_at)
+      VALUES ('first-delivery', 'retry-run', 'first-submission', 'failed', ?, ?, ?)
+    `).run(JSON.stringify({ code: "TRANSPORT", message: "Codex connection failed" }), at, at);
+
+    // Retry the failed run — should use the new model, not the locked Codex model.
+    await expect(runtime.executeStage("retry-run", {
+      body: "Retry the work", retryId: "process:retry-run:retry:1"
+    })).rejects.toThrow("stop after selection");
+
+    expect(resolvedOptions).toHaveLength(1);
+    expect(resolvedOptions[0]).toEqual({ provider: "anthropic", model: "claude-sonnet-4-5" });
+
+    rmSync(runDirectory, { recursive: true });
+  });
+
+  it("re-resolves the model on crash-recovery so a model change made before recovery takes effect", async () => {
+    const database = new NodeDatabase();
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
+    ).get() as { id: string };
+    const runDirectory = mkdtempSync(join(tmpdir(), "bees-recovery-model-"));
+
+    // User has switched to a different provider while the crashed run was sitting there.
+    const resolvedOptions: any[] = [];
+    const runtime = new AgentRuntime({
+      on: () => () => undefined,
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
+      agentDefaultModel: {
+        currentSelection: () => ({ provider: "anthropic", model: "claude-sonnet-4-5" })
+      },
+      agents: {
+        create: async (options: any) => {
+          resolvedOptions.push(options.agentOptions);
+          throw new Error("stop after selection");
+        }
+      },
+      approval: { setPolicy: () => undefined },
+      sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }), inspect: async () => ({ events: [] }) }
+    } as any, database.connection);
+
+    // Simulate: run previously started with Codex and crashed (heartbeat timeout).
+    const at = "2026-01-01T00:00:00.000Z";
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('recovery-run', ?, NULL, 'bees-run', 'session', 'uid', ?, ?, 'cancelled', ?, ?)
+    `).run(workspace.id, runDirectory, JSON.stringify({
+      version: 1, model: null, resolvedModel: "openai-codex/gpt-5.9-sol",
+      resolvedReasoningEffort: null, mode: "planning", executionId: "recovery-run",
+      workItemId: null, agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome",
+      instructions: "", workspaceId: workspace.id, agentPresetId: "standard",
+      mcpAccess: "all", mcpServers: [], grants: []
+    }), at, at);
+
+    // Force recovery without needing a real work_items row
+    runtime.needsRecovery = () => true;
+
+    // Recovery should use the new model, not the locked Codex model.
+    await expect(runtime.admit("bees-run", "recovery-run", {
+      idempotencyKey: "recovery-run:recover:1", body: "Resume the work"
+    })).rejects.toThrow("stop after selection");
+
+    expect(resolvedOptions).toHaveLength(1);
+    expect(resolvedOptions[0]).toEqual({ provider: "anthropic", model: "claude-sonnet-4-5" });
+
+    rmSync(runDirectory, { recursive: true });
+  });
 });

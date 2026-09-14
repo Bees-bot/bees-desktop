@@ -37,7 +37,8 @@ it("runs the selected template, duplicates by name, and confirms archiving", asy
   act.mockRejectedValue(new Error("Pause schedules first"));
   await click("Archive");
   expect(setError).toHaveBeenLastCalledWith("Pause schedules first");
-  expect(render("goals").filter((node) => node.tag === "button").map((node) => node.children[0])).toEqual(["Run", "Duplicate"]);
+  expect(render("goals").filter((node) => node.tag === "button").map((node) => [node.children[0], node.props.disabled]))
+    .toEqual([["Run", false], ["Duplicate", false], ["Archive", true], ["Delete", true]]);
   act.mockReset();
   for (const sourceKind of ["process", "template"]) {
     const buttons = flatten(Actions({ process: { ...process, archivedAt: "2026-09-10", sourceKind }, act, openWorkItem }))

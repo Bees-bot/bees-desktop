@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";
+// @ts-expect-error Plain JavaScript command boundary.
+import { executeProductCommand } from "../dsh-runtime/plugin/lib/product-commands.js";
 import { AgentRuntime } from "../dsh-runtime/plugin/lib/agent-runtime.js";
 import { NodeDatabase } from "./node-database.js";
 
@@ -10,6 +12,7 @@ const require = createRequire(new URL("../dsh-runtime/package.json", import.meta
 const { Context } = require("@deepseek-ai/cordis");
 const { default: AgentLoop } = require("@deepseek-ai/dsh-agent-loop");
 const { mountAgentLoopTestDependencies } = require("@deepseek-ai/dsh-agent-loop-testkit");
+const { default: JsonlSessionPersistence } = require("@deepseek-ai/dsh-session-persistence-jsonl");
 const { LlmAdapter, createUserMessage } = require("@deepseek-ai/dsh-llm");
 
 it("reads only native attachments admitted to the calling run, and never writes them", () => {
@@ -88,13 +91,15 @@ it("drains steering in the current turn and queued follow-ups before becoming id
   } finally { release(); await handle?.dispose(); await ctx.fiber.dispose(); }
 });
 
-it("continues through a new managed session while the native viewer owns the previous writer", async () => {
+it.each([true, false])("continues persisted history and new input (viewer owns writer: %s)", async (viewerOpen) => {
+  const root = mkdtempSync(join(tmpdir(), "bees-continue-"));
   const ctx = new Context();
   const database = new NodeDatabase();
   let viewed: any;
   let runtime: any;
   try {
     await mountAgentLoopTestDependencies(ctx);
+    await ctx.plugin(JsonlSessionPersistence, { root });
     await ctx.plugin(AgentLoop, { agents: [] });
     ctx.llm.registerAdapter(["test"], new class extends LlmAdapter {
       async *stream() {
@@ -114,14 +119,20 @@ it("continues through a new managed session while the native viewer owns the pre
        run_directory, config_json, status, created_at, updated_at)
       VALUES ('native-resume', ?, 'agent', 'viewed', 'uid', '/tmp', ?, 'completed', 'now', 'now')`
     ).run(String(workspace.id), JSON.stringify({ model: "test/test", resolvedModel: "test/test", agentPresetId: "standard", workspaceId: workspace.id }));
-    // This test exercises ownership and the real loop; the read handle supplies its durable snapshot.
-    runtime.sessionEvents = async () => viewed.agent.session.snapshotEvents();
-    const submission = await runtime.admit("bees-run", "native-resume", { uid: "uid", idempotencyKey: "continue", body: "More work" });
+    const originalEvents = viewed.agent.session.snapshotEvents();
+    if (!viewerOpen) await viewed.dispose();
+    const submission = await executeProductCommand.call({ database: database.connection, agents: runtime },
+      "continue_run", { executionId: "native-resume", text: "More work" });
     const delivery = await runtime.waitForDelivery("native-resume", submission.submissionId, AbortSignal.timeout(1000));
     expect(delivery.outcome).toBe("completed");
     expect(runtime.run("native-resume").currentSessionId).not.toBe("viewed");
-    expect(ctx.agents.get("viewed")).toBe(viewed.agent);
+    if (viewerOpen) expect(ctx.agents.get("viewed")).toBe(viewed.agent);
+    const continued = await runtime.sessionEvents("native-resume", runtime.run("native-resume").currentSessionId);
+    const messages = continued.filter((event: any) => event.type === "user/message");
+    expect(JSON.stringify(messages)).toContain("Original work");
+    expect(JSON.stringify(messages)).toContain("More work");
+    expect(await runtime.sessionEvents("original-view", "viewed")).toEqual(originalEvents);
     expect(database.connection.prepare("SELECT metadata_json FROM dsh_audit_events WHERE event_type = 'replacement-run-created'").get()!.metadata_json)
       .toContain('"reason":"native-continuation"');
-  } finally { await viewed?.dispose(); await ctx.fiber.dispose(); database.connection.close(); }
+  } finally { await viewed?.dispose(); await ctx.fiber.dispose(); database.connection.close(); rmSync(root, { recursive: true, force: true }); }
 });

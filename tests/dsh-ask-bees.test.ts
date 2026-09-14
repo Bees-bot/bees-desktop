@@ -57,7 +57,7 @@ it("shows the selected process, its stage agents, and folders without repeating 
   expect(markup).toContain("bees-routing-board");
   expect(markup).toContain("Worker");
   expect(markup).toContain("Reviewer");
-  expect(markup).toContain("Default agent");
+  expect(markup).toContain("Automatic lead");
   expect(markup).not.toContain("What would you like Bees to do?");
   expect(markup).not.toContain("MCP connections");
   expect(markup).not.toContain("News MCP");
@@ -152,7 +152,7 @@ it("briefs Ask with existing resources in its workspace and keeps new setup revi
   expect(payload.body).not.toContain("Old brief");
   expect(payload.initialData.instructions).toContain("default to Goals");
   expect(() => propose([{ action: "create_item", process: privateProcess.id, title: "Wrong workspace" }])).toThrow("active in this workspace");
-  expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [privateAgent.id] }])).toThrow("active in this workspace");
+  expect(() => propose([{ action: "set_stage_route", process: "News brief", stage: "Work", agents: [privateAgent.id] }])).toThrow("active in this workspace");
 
   const proposal = propose([
     { action: "add_agent_assignment", name: "Editor", instructions: "Read the draft in outputs/, fix wording and facts, write the edited copy back to outputs/ and ask the owner when a claim cannot be sourced" },
@@ -227,7 +227,9 @@ it("validates reused resources in the proposal workspace and again when applying
   database.prepare("UPDATE processes SET archived_at = '2026-09-06' WHERE id = ?").run(existing.id);
   await expect(product.command({ action: "apply_proposal", proposalId: pending.id })).rejects.toThrow("active in this workspace");
   database.prepare("UPDATE agent_assignments SET enabled = 0 WHERE id = ?").run(worker.id);
-  expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [worker.id] }])).toThrow("active in this workspace");
+  database.prepare("UPDATE processes SET archived_at = NULL WHERE id = ?").run(existing.id);
+  expect(() => propose([{ action: "set_stage_route", process: existing.id, stage: "Work", agents: [worker.id] }])).toThrow("active in this workspace");
+  expect(() => propose([{ action: "set_stage_route", process: "Goals", stage: "Work", agents: [worker.id] }])).toThrow("Goals picks the agent");
 });
 
 it.each(["provider/model", null])("carries Ask model %s and tool access through proposal, work and schedule", async (model) => {

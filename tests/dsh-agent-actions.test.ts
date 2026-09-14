@@ -31,7 +31,8 @@ it("offers duplicate/archive for active agents, restore for archived agents, and
   confirmAction.mockResolvedValue(true);
   await buttons()[1].props.onClick({});
   expect(act).toHaveBeenLastCalledWith({ action: "archive_agent_assignment", agentAssignmentId: "agent" });
-  expect(buttons({ systemRole: "worker" }).map((node) => node.children[0])).toEqual(["Duplicate"]);
+  expect(buttons({ systemRole: "worker" }).map((node) => [node.children[0], node.props.disabled]))
+    .toEqual([["Duplicate", false], ["Delete", true]]);
   const restored = buttons({ archivedAt: "2026-09-10" });
   expect(restored.map((node) => node.children[0])).toEqual(["Restore"]);
   await restored[0].props.onClick({});

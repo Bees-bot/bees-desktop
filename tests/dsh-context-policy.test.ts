@@ -60,6 +60,8 @@ it("bounds large results without discarding evidence merely because two response
   const before = meter.measure(session).surfaceTokens;
   expect(pruneToolResults(session, meter).pruned).toBe(1);
   const preview = resultEvents(session)[0];
+  expect(preview.surfaceOp).toEqual({ op: "replace", startSeq: original.seq, endSeq: original.seq });
+  expect(preview.sourceEventSeqs).toEqual([original.seq]);
   expect(Array.from(resultText(preview))).toHaveLength(TOOL_PREVIEW_CHARS);
   expect(resultText(preview)).toContain("ERROR: fetch failed");
   expect(resultText(preview)).toContain("Retry-After: 60");

@@ -93,8 +93,8 @@ export function ResourceFields({
         } }, h("option", { value: "" }, "Select file or folder…"),
         ...available.map((location) => h("option", { value: location.id, key: location.id },
           `${location.name} · ${location.kind} · ${location.localPath}`))),
-      h(Button, { disabled: locked || team?.role !== "admin", onClick: () => change(() => add("file")) }, "Add file"),
-      h(Button, { disabled: locked || team?.role !== "admin", onClick: () => change(() => add("folder")) }, "Add folder")),
+      h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, "Add file"),
+      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Add folder")),
     allowOutput ? h("div", { className: "bees-output-field" },
       h("h3", null, "Output folder"),
       h("p", { className: "bees-muted" }, "Results stay in Bees. Choose a folder for an approved copy."),
@@ -110,7 +110,7 @@ export function ResourceFields({
           outputId && !output ? h("option", { value: outputId, disabled: true }, "Unavailable output folder") : null),
         output ? h(Button, { disabled: !output.mapped || Boolean(output.archivedAt), "aria-label": "View output folder",
           onClick: () => setViewer({ locationId: output.id, path: "" }) }, "View") : null,
-        h(Button, { disabled: locked || team?.role !== "admin", onClick: () => change(() => add("folder", true)) }, "Add folder"))) : null,
+        h(Button, { disabled: locked, onClick: () => change(() => add("folder", true)) }, "Add folder"))) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
 }

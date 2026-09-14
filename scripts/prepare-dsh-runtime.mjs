@@ -51,6 +51,9 @@ const temporalDestination = resolve(
   `temporal-${target}${extension}`
 );
 
+// this node becomes the runtime, and one without node:sqlite dies at launch with nothing on screen
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < 22 || (major === 22 && minor < 5)) throw new Error(`Node ${process.version} can't run the Bees runtime. Use Node 22.5 or newer.`);
 mkdirSync(dirname(destination), { recursive: true });
 stageExecutable(process.execPath, destination, "Node");
 
@@ -456,3 +459,40 @@ async function prepareLlamaRuntime() {
 await prepareFreeLlmRuntime();
 await prepareTemporalRuntime();
 await prepareLlamaRuntime();
+
+// Ship the small installer, not a developer-machine Python environment. uv provisions
+// pinned Hindsight and managed Python into the writable app-data directory on first run.
+async function prepareMemoryInstaller() {
+  const release = "0.10.0";
+  const windows = target.includes("windows");
+  const archiveName = `uv-${target}.${windows ? "zip" : "tar.gz"}`;
+  const base = `https://github.com/astral-sh/uv/releases/download/${release}`;
+  const directory = resolve(desktopRoot, "dsh-runtime", "memory-runtime");
+  const binary = join(directory, `uv${extension}`);
+  const marker = join(directory, ".prepared");
+  if (preparedAlready(marker, binary, `${release}-${target}`)) return;
+  const checksum = await fetch(`${base}/${archiveName}.sha256`);
+  if (!checksum.ok) throw new Error(`uv does not provide the memory installer for ${target}`);
+  const hash = (await checksum.text()).trim().split(/\s+/)[0];
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid uv release checksum");
+  const archive = await downloadVerified(`${base}/${archiveName}`, hash);
+  const staging = mkdtempSync(join(tmpdir(), "bees-memory-installer-"));
+  try {
+    const path = join(staging, archiveName);
+    writeFileSync(path, archive);
+    if (windows) execFileSync("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${path.replaceAll("'", "''")}' -DestinationPath '${staging.replaceAll("'", "''")}'`]);
+    else execFileSync("tar", ["-xzf", path, "-C", staging]);
+    const executable = findFile(staging, `uv${extension}`);
+    if (!executable) throw new Error("uv release is missing its executable");
+    mkdirSync(directory, { recursive: true });
+    copyFileSync(executable, binary);
+    chmodSync(binary, 0o755);
+    const license = await fetch(`https://raw.githubusercontent.com/astral-sh/uv/${release}/LICENSE-MIT`);
+    if (!license.ok) throw new Error("uv license download failed");
+    writeFileSync(join(directory, "LICENSE-MIT"), await license.text());
+    if (macTarget) signMacRuntime(directory);
+    markPrepared(marker, binary, `${release}-${target}`);
+  } finally { rmSync(staging, { recursive: true, force: true }); }
+}
+
+await prepareMemoryInstaller();

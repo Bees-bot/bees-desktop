@@ -4,9 +4,9 @@ import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserStatePath, saveBrowserState } from "./agent-browser.js";
+import { browserStatePath, closeAgentBrowser, saveBrowserState } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
-import { BROWSER_CATALOG, catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
@@ -38,6 +38,8 @@ function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
+// a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
+const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
 
 function rowToServer(row) {
   return {
@@ -68,15 +70,15 @@ export class Capabilities {
   }
 
   /**
-   * The browser is the one server that cannot be shared. Playwright's own docs say concurrent
-   * clients on one profile conflict, and they do: two runs browsing at once landed on each other's
-   * pages, so a run asked for a calendar and read a news site. Each run mounts its own on its agent
-   * context, which dies with the run, and they stay signed in through the shared cookie file.
+   * The browser is the one server that cannot be shared. Two runs browsing at once landed on each
+   * other's pages, so a run asked for a calendar and read a news site. Each run mounts its own on
+   * its agent context, which dies with the run: either a headless session signed in from the one
+   * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
   async mountBrowserFor(agentCtx) {
-    const row = this.servers().find(({ enabled, catalogId }) => enabled && catalogId === BROWSER_CATALOG);
+    const row = this.servers().find(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
     if (!row) return;
-    // Whatever a person has signed into since the last run is what this one inherits.
+    // Whatever a person has signed in to since the last run is what this one inherits.
     await saveBrowserState().catch((error) =>
       this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
     await this.mountFor(agentCtx, row);
@@ -89,6 +91,7 @@ export class Capabilities {
   }
 
   async close() {
+    closeAgentBrowser();
     const fibers = [...this.mounted.values()].map(({ fiber }) => fiber).filter(Boolean);
     this.mounted.clear();
     // One bad teardown must not strand the rest, and disposal is best-effort during shutdown.
@@ -116,8 +119,9 @@ export class Capabilities {
         if (hit?.value) env[name] = hit.value;
       }
       // the openapi bridge takes request headers as one env value; args are stored, so no secret goes there
-      const headers = await Promise.all(server.headerNames.map(async (name) =>
-        `${name}:${(await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""}`));
+      const headers = (await Promise.all(server.headerNames.map(async (name) =>
+        [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
+        .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
       if (headers.length) env.API_HEADERS = headers.join(",");
       // The row keeps a placeholder so one server definition works wherever the state directory lives.
       return {
@@ -145,7 +149,7 @@ export class Capabilities {
   /** A server that will not start is reportable state, not a reason to take the app down. */
   async mount(server) {
     // The browser mounts per run in mountBrowserFor, never on the shared context.
-    if (server.catalogId === BROWSER_CATALOG) return;
+    if (isBrowserCatalog(server.catalogId)) return;
     if (this.mounted.has(server.id)) return this.mounted.get(server.id);
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
     const entry = { fiber: null, error: "", ready: false };
@@ -243,7 +247,7 @@ export class Capabilities {
       servers: servers.map((server) => {
         const state = this.mounted.get(server.id);
         const toolCount = tools.filter(({ name }) => name.startsWith(`mcp__${server.serverName}__`)).length;
-        const perRun = server.catalogId === BROWSER_CATALOG;
+        const perRun = isBrowserCatalog(server.catalogId);
         return {
           ...server,
           toolCount,
@@ -315,7 +319,7 @@ export class Capabilities {
     for (const entry of parsed.slice(1))
       for (const [path, ops] of Object.entries(JSON.parse(entry.spec).paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
     const secret = /auth|token|key|secret|cookie|session|oauth/i;
-    const headers = Object.fromEntries(parsed.flatMap(({ request: one }) => Object.entries(one.headers)).filter(([name]) => secret.test(name)));
+    const headers = Object.fromEntries(parsed.flatMap(({ request: one }) => Object.entries(one.headers)).filter(([name, value]) => secret.test(name) && !PLACEHOLDER.test(value)));
     const count = Object.keys(spec.paths).length;
     return { kind: "from-curl", spec, host, headers, apiBaseUrl: request.origin, endpointCount: count,
       how: `described ${count} endpoint${count === 1 ? "" : "s"} from your request${parsed.length === 1 ? "" : "s"}` };
