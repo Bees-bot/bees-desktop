@@ -36,15 +36,15 @@ export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
   return h("div", null,
     h(DriveNotice, { onOpenConnections }),
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-      h(Button, { disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
-      h(Button, { className: "primary", disabled: !teamId || team?.role !== "admin", onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
+      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
+      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
     ...(locations.length ? locations.map((location) => h("div", { className: "bees-row", key: location.id },
       h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, location.name),
         h("div", { className: "bees-muted" }, `${location.kind} · ${location.localPath || "Not mapped on this device"}`),
         h("div", { className: "bees-muted" }, `$[${location.name}] · stable logical id ${location.logicalId}`)),
       h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
       location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
-      h(Button, { className: "danger", disabled: team?.role !== "admin", onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the external folder.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
+      h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the external folder.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
     )) : [h(Empty, { key: "empty" }, "No shared team locations yet")])
   );
 }

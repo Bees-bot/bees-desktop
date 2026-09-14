@@ -976,7 +976,7 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "add_location") {
       const teamId = required(input.teamId, "Team");
-      requireTeam(this.database, teamId, ["admin"]);
+      requireTeam(this.database, teamId, ["admin", "member"]);
       const kind = input.kind === "file" ? "file" : "folder";
       const canonical = input.path ? canonicalMapping(input.path, kind) : null;
       return transaction(this.database, () => {
@@ -1015,7 +1015,7 @@ export async function executeProductCommand(action, input) {
     if (action === "archive_location") {
       const location = mappedLocation(this.database, required(input.locationId, "Location"));
       if (!location) throw new Error("Location not found");
-      requireTeam(this.database, location.teamId, ["admin"]);
+      requireTeam(this.database, location.teamId, ["admin", "member"]);
       this.database.prepare("UPDATE team_locations SET archived_at = ?, updated_at = ? WHERE id = ?")
         .run(at, at, location.id);
       return {};

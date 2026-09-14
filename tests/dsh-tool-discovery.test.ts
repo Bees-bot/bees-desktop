@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 // @ts-expect-error Plain JS runtime boundary.
@@ -91,4 +92,54 @@ it("loads late scoped tools, bounds discovery and schema growth, and preserves p
     await other.dispose();
     await run.dispose();
   }
+});
+
+it.each([
+  ["specialized service", ["Gmail messages"], ["mcp__mail__latest"]],
+  ["public research", [], ["web_fetch"]],
+  ["document plus research", ["Drive document"], ["mcp__docs__read", "web_fetch"]],
+  ["only the relevant service", ["Calendar events"], ["mcp__agenda__list"]],
+  ["unsupported service fallback", ["unsupported-service"], ["web_fetch"]],
+  ["new integration by description", ["inventory stock"], ["mcp__new__lookup"]]
+])("keeps capability-based discovery and execution available for %s", async (_scenario, queries, expected) => {
+  const ctx = new Context();
+  const prompt = new SystemPrompt(ctx, {});
+  const runtime = new ToolRuntime(ctx);
+  const agent = { session: { header: {} } };
+  const run = createScope(ctx, agent);
+  try {
+    mountToolDiscovery(run.ctx, { resolve: async () => undefined });
+    for (const [name, description] of [
+      ["web_fetch", "Read public internet pages"],
+      ["mcp__browser__navigate", "Navigate a web browser"],
+      ["mcp__mail__latest", "Read latest Gmail messages"],
+      ["mcp__docs__read", "Read a Drive document"],
+      ["mcp__agenda__list", "List Calendar events"],
+      ["mcp__new__lookup", "Read inventory stock levels"]
+    ] as const) run.ctx.tools.register(tool(name, description));
+    const execute = (name: string, args = {}) => runtime.execute({ agent, callId: name, name,
+      arguments: args, signal: new AbortController().signal });
+    for (const query of queries) {
+      const result = await execute("bees_find_tools", { query });
+      expect(result.isError).not.toBe(true);
+      const found = JSON.parse(result.content[0].text).tools.map(({ name }: any) => name);
+      expect(found).toEqual(expected.filter(name => name.startsWith("mcp__")));
+    }
+    const shown = (await prompt.assemble({ scope: agent })).tools.map(({ name }: any) => name);
+    for (const name of expected) {
+      expect(shown).toContain(name);
+      expect((await execute(name)).isError).not.toBe(true);
+    }
+    expect(shown).not.toContain("mcp__browser__navigate");
+  } finally { await run.dispose(); }
+});
+
+
+it("does not direct authenticated tasks or visible web tools to bypass MCP discovery", () => {
+  const source = readFileSync(new URL("../dsh-runtime/plugin/lib/agent-runtime.js", import.meta.url), "utf8");
+  expect(source).not.toContain("Anything behind a sign-in goes through the browser");
+  expect(source).not.toContain("Use bees_find_tools only when nothing listed can do the job");
+  expect(source).toContain("prefer an authorized MCP that supports the operation");
+  expect(source).toContain("use bees_find_tools with the service or capability words before falling back");
+  expect(source).toContain("Combine specialized tools and web tools when different parts of the task require them");
 });

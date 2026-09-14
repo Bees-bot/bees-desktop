@@ -15,13 +15,17 @@ export let FreeAiSettings;
 export let CustomAiSettings;
 export let SubscriptionSettings;
 
+const markdownLabels = { code: { copyLabel: "Copy", copiedLabel: "Copied" }, footnotes: "Footnotes" };
+
 export function configureRuntime(require) {
   React = require("react");
   ({ createPortal } = require("react-dom"));
   h = React.createElement;
   NativeUi = React.createContext(null);
   ({ useEffect, useRef, useState } = React);
-  ({ MarkdownText, CodeBlock } = require("@deepseek-ai/dsh-client-ui-primitives"));
+  const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+  CodeBlock = primitives.CodeBlock;
+  MarkdownText = (props) => h(primitives.MarkdownText, { labels: markdownLabels, ...props });
   ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai"));
   ({ FreeAiController, FreeAiSettings } = require("@bees/dsh-free-ai"));
   ({ CustomAiSettings } = require("@bees/dsh-custom-ai"));
