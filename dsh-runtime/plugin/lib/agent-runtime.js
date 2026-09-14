@@ -542,8 +542,10 @@ export class AgentRuntime {
       ALTER TABLE bees_stage_results_next RENAME TO bees_stage_results;
     `));
     const active = database.prepare(`
-      SELECT execution_id, current_session_id, status FROM execution_links
-      WHERE status IN ('running', 'waiting_for_approval', 'waiting_for_input')
+      SELECT e.execution_id, e.current_session_id, e.status,
+        i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled') AS item_done
+      FROM execution_links e LEFT JOIN work_items i ON i.id = e.work_item_id
+      WHERE e.status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all();
     const heartbeatWaits = database.prepare(`
       SELECT e.execution_id, e.current_session_id, e.status
@@ -557,7 +559,9 @@ export class AgentRuntime {
       const executionId = String(run.execution_id);
       const sessionId = String(run.current_session_id);
       const pending = this.pendingInteraction(executionId);
-      if (run.status === "cancelled" && !pending) continue;
+      // A run whose work item is already finished has nothing to recover. Without this the same
+      // runs came back on every launch: one here had 46 attempts against a cancelled item.
+      if ((run.item_done || run.status === "cancelled") && !pending) continue;
       const status = String(run.status);
       this.recovery.add(executionId);
       this.checkpoint(executionId, sessionId, "recovery_needed", {
