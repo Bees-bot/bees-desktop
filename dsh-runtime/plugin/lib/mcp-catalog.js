@@ -1,4 +1,5 @@
-export const BROWSER_CATALOG = "playwright";
+/** The chips that drive a browser. They mount per run; only the Chrome itself is shared. */
+export const isBrowserCatalog = (catalogId) => ["playwright", "chrome-devtools"].includes(catalogId);
 
 /** Servers offered out of the box. Nothing installs without review, because each one is a program
  *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
@@ -171,11 +172,13 @@ const ENTRIES = [
     publisher: "Google Chrome",
     homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
     summary: "Inspect a live page: the console, the network log, performance traces and the DOM.",
-    access: "Drives a Chrome instance and reads everything on the pages it opens, including any "
-    + "session you are already signed into in that profile.",
+    access: "Attaches to the Chrome window Bees opens and reads everything on the pages it opens "
+    + "there, including any session someone has signed in to.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "chrome-devtools-mcp@latest"],
+    // Attach to Bees' own Chrome. Left to itself this server starts one with --enable-automation
+    // and a mock keychain, and Google refuses every sign-in in that one.
+    args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9333"],
     env: [],
     headers: []
   },

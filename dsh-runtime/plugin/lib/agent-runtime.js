@@ -9,7 +9,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
-import { BROWSER_CATALOG, MCP_CATALOG } from "./mcp-catalog.js";
+import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles } from "./product-files.js";
@@ -27,6 +27,11 @@ const CONTROL_ACTIONS = {
     "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
+
+// A turn that stops emitting events never ends on its own, and nothing else ends the run: the
+// Temporal activity keeps heartbeating, so it never times out, and each restart spawns another
+// replacement session that stalls the same way. A working model streams events, so silence is death.
+const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
@@ -730,6 +735,9 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
+    // untilIdle reads this; anything on the wire counts as progress
+    const live = this.live.get(executionId);
+    if (live) live.lastEventAt = Date.now();
     this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
     // History projections are not another tool execution or human decision.
     if (event.type === "tool/result" && event.surfaceOp?.op === "replace") return;
@@ -861,7 +869,8 @@ export class AgentRuntime {
 
   /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
   async startBrowserIfGranted({ mcpAccess, mcpServers }, agentCtx) {
-    const browsers = this.database.prepare("SELECT server_name FROM mcp_servers WHERE enabled = 1 AND catalog_id = ?").all(BROWSER_CATALOG);
+    const browsers = this.database.prepare("SELECT server_name, catalog_id FROM mcp_servers WHERE enabled = 1")
+      .all().filter(({ catalog_id }) => isBrowserCatalog(catalog_id));
     if (mcpAccess === "none" || !browsers.some(({ server_name }) => mcpAccess === "all" || mcpServers.includes(server_name))) return;
     // This run's own browser, mounted on its agent context so it dies with the run. Chrome starts
     // alongside it only so a person has somewhere to sign in when a run asks for one.
@@ -1769,7 +1778,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, approvalAbort });
+    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
@@ -1889,12 +1898,19 @@ export class AgentRuntime {
   async settle(executionId, submissionId, sessionId, handle, before) {
     let result;
     try {
-      await handle.agent.whenIdle();
+      await this.untilIdle(executionId, handle);
       result = outcomeFor(lastTurn(handle.agent.session.snapshotEvents(), before));
     } catch (error) {
       result = { outcome: "failed", error: { message: message(error) } };
     }
     await this.finish(executionId, submissionId, sessionId, handle, result);
+  }
+
+  async untilIdle(executionId, handle) {
+    const idle = handle.agent.whenIdle().then(() => true, () => true);
+    while (!await Promise.race([idle, delay(5_000).then(() => false)]))
+      if (Date.now() - (this.live.get(executionId)?.lastEventAt ?? Date.now()) > RUN_STALL_MS)
+        throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
   }
 
   async finish(executionId, submissionId, sessionId, handle, result) {
