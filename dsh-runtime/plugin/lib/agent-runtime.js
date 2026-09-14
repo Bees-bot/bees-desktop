@@ -605,6 +605,15 @@ export class AgentRuntime {
       // small local models write /outputs/x.md and retry it forever unless told the fix
       if (/^\/(inputs|outputs)\//.test(outside)) return `${outside} starts at the disk root. Drop the leading slash and use ${outside.slice(1)}, which is inside this run.`;
       if (outside) return `${outside} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
+      // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it
+      if (exec.name.startsWith("mcp__") && (/^(?!get|list|search|read|fetch).*(send|post|submit|delete|trash|place|publish|reply|pay|bid|transfer)/i.test(exec.name.split("__").pop())
+        || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))) {
+        const link = database.prepare("SELECT execution_id AS id, config_json AS config FROM execution_links WHERE current_session_id IN (?, ?)")
+          .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
+        if (link && JSON.parse(link.config).requiresHumanApproval && !database.prepare(`SELECT 1 FROM dsh_audit_events
+          WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(link.id))
+          return "This stage needs the person's approval before anything goes out. Show exactly what this call will send with bees_request_work_review, then make the call.";
+      }
       if (exec.name !== "ask_user_question") return;
       if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
         return "A question offering one option is a permission prompt, not a question. Do the work the task already authorised, ask an open question when you need information, or call bees_request_work_review when the work genuinely needs sign-off.";

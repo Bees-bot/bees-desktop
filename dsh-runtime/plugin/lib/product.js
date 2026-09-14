@@ -242,7 +242,7 @@ export class BeesProduct {
       : "";
     const inputs = manifest ? `\n\n${manifest}` : "";
     const approval = stage.requiresHumanApproval
-      ? "\n\nThis stage cannot finish until the human approves the completed result through bees_request_work_review."
+      ? "\n\nThis stage cannot finish until the human approves through bees_request_work_review. Before anything leaves this run (sending, posting, submitting, paying, placing a bid), show exactly what will go out and ask for that approval first. Do only what was approved."
       : "";
     const collaborationProtocol = peers.length
       ? "\n\nAssigned participants: " + JSON.stringify(peers.map(({ id, name, description }) => ({ agentAssignmentId: id, name, description })))
