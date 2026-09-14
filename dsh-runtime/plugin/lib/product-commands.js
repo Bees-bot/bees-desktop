@@ -68,6 +68,31 @@ const hasActiveWork = (database, processId, settled = ["completed", "cancelled"]
     AND id NOT IN (SELECT source_work_item_id FROM recurring_work) LIMIT 1
 `).get(processId, ...settled));
 
+function inheritedRunSettings(database, parent) {
+  const settings = parent?.runSettings && typeof parent.runSettings === "object"
+    ? { ...parent.runSettings }
+    : {};
+  if (Object.hasOwn(settings, "model")) return settings;
+  const execution = parent?.id ? database.prepare(`
+    SELECT json_extract(config_json, '$.model') AS model,
+           json_extract(config_json, '$.reasoningEffort') AS reasoningEffort
+    FROM execution_links
+    WHERE work_item_id = ? AND json_extract(config_json, '$.model') IS NOT NULL
+    ORDER BY updated_at DESC LIMIT 1
+  `).get(parent.id) : null;
+  if (execution?.model) {
+    settings.model = execution.model;
+    if (execution.reasoningEffort) settings.reasoningEffort = execution.reasoningEffort;
+    return settings;
+  }
+  if (!parent?.agentAssignmentId) return settings;
+  const agent = assignment(database, parent.agentAssignmentId, parent.workspaceId);
+  if (!agent?.model) return settings;
+  settings.model = agent.model;
+  if (agent.reasoningEffort) settings.reasoningEffort = agent.reasoningEffort;
+  return settings;
+}
+
 /** An agent may name a server by its id, its server name, its label or its catalog id. */
 export function enabledServers(database) {
   return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
@@ -386,7 +411,7 @@ export async function executeProductCommand(action, input) {
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
       const recurringWorkId = parent && (parent.kind === "run" || parent.parentId)
         ? parent.recurringWorkId : null;
-      const settings = normalizeRunSettings(parent?.runSettings ?? input.runSettings ?? {});
+      const settings = normalizeRunSettings({ ...inheritedRunSettings(this.database, parent), ...(input.runSettings ?? {}) });
       if (settings.mcpAccess) checkMcpServers(this.database, { access: settings.mcpAccess, servers: settings.mcpServers });
       const kind = action === "create_goal" ? "goal" : action === "create_run" ? "run" : "work";
       const rawTitle = resolvedTitle.text;

@@ -132,6 +132,7 @@ fn read_model_shape(path: &Path) -> Option<ModelShape> {
 
     let mut architecture = String::new();
     let mut numbers: HashMap<String, u64> = HashMap::new();
+    let mut layer_sums: HashMap<String, u64> = HashMap::new();
     for _ in 0..kv_count {
         let key = cursor.string()?;
         let value_type = cursor.u32()?;
@@ -139,6 +140,9 @@ fn read_model_shape(path: &Path) -> Option<ModelShape> {
             MetadataValue::Text(text) if key == "general.architecture" => architecture = text,
             MetadataValue::Number(number) => {
                 numbers.insert(key, number);
+            }
+            MetadataValue::LayerSum(total) => {
+                layer_sums.insert(key, total);
             }
             _ => {}
         }
@@ -155,8 +159,13 @@ fn read_model_shape(path: &Path) -> Option<ModelShape> {
     let key_length = field("attention.key_length")
         .or_else(|| field("embedding_length").map(|width| width / heads.max(1)))?;
     let value_length = field("attention.value_length").unwrap_or(key_length);
-    let bytes_per_token = layers
-        .checked_mul(kv_heads)?
+    // Hybrid models keep a cache on only some layers: LFM2 lists heads per layer, Qwen3.5
+    // puts full attention on every Nth layer. Charging every layer starves them of context.
+    let cached_heads = match layer_sums.get(&format!("{architecture}.attention.head_count_kv")) {
+        Some(total) => *total,
+        None => (layers / field("full_attention_interval").unwrap_or(1).max(1)).checked_mul(kv_heads)?,
+    };
+    let bytes_per_token = cached_heads
         .checked_mul(key_length.checked_add(value_length)?)?
         // f16, the cache type llama-server is started with.
         .checked_mul(2)?;
@@ -168,6 +177,7 @@ fn read_model_shape(path: &Path) -> Option<ModelShape> {
 
 enum MetadataValue {
     Number(u64),
+    LayerSum(u64),
     Text(String),
     Other,
 }
@@ -239,6 +249,14 @@ impl GgufCursor {
                         let length = self.u64()?;
                         self.skip(length)?;
                     }
+                } else if matches!(element_type, 4 | 5) && count <= 1024 {
+                    // hybrid models list KV heads per layer, with 0 on layers that keep no cache
+                    let mut total = 0u64;
+                    for _ in 0..count {
+                        total += u64::try_from(i32::from_le_bytes(self.bytes(4)?.try_into().ok()?))
+                            .unwrap_or(0);
+                    }
+                    return Some(MetadataValue::LayerSum(total));
                 } else {
                     self.skip(count.checked_mul(fixed_width(element_type)?)?)?;
                 }
