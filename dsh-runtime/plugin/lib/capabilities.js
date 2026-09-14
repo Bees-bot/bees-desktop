@@ -38,6 +38,8 @@ function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
+// a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
+const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
 
 function rowToServer(row) {
   return {
@@ -116,8 +118,9 @@ export class Capabilities {
         if (hit?.value) env[name] = hit.value;
       }
       // the openapi bridge takes request headers as one env value; args are stored, so no secret goes there
-      const headers = await Promise.all(server.headerNames.map(async (name) =>
-        `${name}:${(await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""}`));
+      const headers = (await Promise.all(server.headerNames.map(async (name) =>
+        [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
+        .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
       if (headers.length) env.API_HEADERS = headers.join(",");
       // The row keeps a placeholder so one server definition works wherever the state directory lives.
       return {
@@ -315,7 +318,7 @@ export class Capabilities {
     for (const entry of parsed.slice(1))
       for (const [path, ops] of Object.entries(JSON.parse(entry.spec).paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
     const secret = /auth|token|key|secret|cookie|session|oauth/i;
-    const headers = Object.fromEntries(parsed.flatMap(({ request: one }) => Object.entries(one.headers)).filter(([name]) => secret.test(name)));
+    const headers = Object.fromEntries(parsed.flatMap(({ request: one }) => Object.entries(one.headers)).filter(([name, value]) => secret.test(name) && !PLACEHOLDER.test(value)));
     const count = Object.keys(spec.paths).length;
     return { kind: "from-curl", spec, host, headers, apiBaseUrl: request.origin, endpointCount: count,
       how: `described ${count} endpoint${count === 1 ? "" : "s"} from your request${parsed.length === 1 ? "" : "s"}` };
