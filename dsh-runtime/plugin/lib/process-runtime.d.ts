@@ -27,6 +27,7 @@ export declare class ProcessRuntime {
   wakeStage(executionId: string): Promise<void>;
   startItem(workItemId: string): Promise<any>;
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
+  resolveFailedItem(workItemId: string, reason: string, requestId: string, replacementWorkItemId?: string | null, signal?: AbortSignal): Promise<{ id: string; action: string; replacementWorkItemId: string | null }>;
   signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;
   move(workItemId: string, targetStageId: string): any;
   archive(workItemId: string, restore?: boolean): Promise<any>;

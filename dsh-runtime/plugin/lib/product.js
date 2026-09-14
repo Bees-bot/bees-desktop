@@ -73,6 +73,22 @@ export class BeesProduct {
           throw new Error("Only this child's parent can request a correction");
         return this.processes.reviseItem(child.id, required(feedback, "Correction feedback"), required(requestId, "Correction request"), signal);
       },
+      resolveFailed: async ({ parentId, workItemId, reason, requestId, replacementWorkItemId, signal }) => {
+        const parent = itemContext(this.database, parentId, ["admin", "member"]);
+        const child = itemContext(this.database, workItemId, ["admin", "member"]);
+        if (child.parentId !== parent.id || child.workspaceId !== parent.workspaceId)
+          throw new Error("Only this child's parent can resolve its failure");
+        const explanation = required(reason, "Recovery reason");
+        if (explanation.length > 4000) throw new Error("Recovery reason must be at most 4000 characters");
+        const result = await this.processes.resolveFailedItem(child.id, explanation,
+          required(requestId, "Recovery request"), replacementWorkItemId ?? null, signal);
+        this.workContext.post(parent.id, { id: `peer-recovery:${requestId}`, kind: "decision", author: "Parent agent",
+          content: result.action === "superseded"
+            ? `Failed child ${child.id} replaced by completed child ${result.replacementWorkItemId}. ${explanation}`
+            : `Retry requested for failed child ${child.id}. ${explanation}`,
+          targetId: child.id, evidence: `Recovery ${requestId}` });
+        return result;
+      },
       cancel: (workItemId) => this.processes.signal(workItemId, "cancel")
     });
     this.agents?.setWorkStarter?.((input) => this.startWork(input));
