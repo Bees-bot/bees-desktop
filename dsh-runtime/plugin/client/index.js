@@ -38,7 +38,7 @@ window.__ModuleLoader__.load({
     }
     const module = { exports: {} };
     const exports = module.exports;
-    exports.inject = ["slots", "uiWorkspace", "settingsScope", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation", "sidebarRight"];
+    exports.inject = ["slots", "uiWorkspace", "settingsScope", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";

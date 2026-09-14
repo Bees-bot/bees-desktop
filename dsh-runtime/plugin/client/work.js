@@ -214,8 +214,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
   const isWorking = ["queued", "running"].includes(run?.status) || item.runtimePhase === "running";
   const conversation = h("div", { className: "bees-native-conversation" },
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })
-      : h(NativeConversation, { ctx, run, item, act }));
+    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data }) : null,
+    h(NativeConversation, { ctx, run, item, act }));
 
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },

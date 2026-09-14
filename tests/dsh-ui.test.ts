@@ -102,6 +102,8 @@ describe("Bees work cockpit UI", () => {
     };
     const plugin = registration.factory((id: string) => modules[id]);
     expect(plugin.inject).toContain("slots");
+    // The right panel is embedded through layout slots; it has no service to await.
+    expect(plugin.inject).not.toContain("sidebarRight");
     expect(plugin.apply).toBeTypeOf("function");
   });
 
