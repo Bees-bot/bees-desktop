@@ -106,10 +106,7 @@ it("shows missing destinations and empty runs without configuration controls", (
   const onClose = vi.fn();
   const previewElement = FilePreview({ target: { executionId: "run", path: "outputs/report.md" }, onClose });
   expect(previewElement.props.onClose).toBe(onClose);
-  const preview = renderToStaticMarkup(previewElement);
-  expect(preview).toContain('aria-label="Full screen"><svg');
-  expect(preview).toContain('aria-label="Close file preview"><svg');
-  expect(preview).toContain('<dialog class="bees-file-dialog" aria-label="Full-screen file preview">');
+  expect(previewElement.type.name).toBe("NativeRunFilePreview");
 });
 
 it("expands files inline below and collapses on toggle or close", () => {
@@ -121,15 +118,18 @@ it("expands files inline below and collapses on toggle or close", () => {
   } : {});
   try {
     const initial = WorkFiles({ runs, filesRef });
-    const explorer = initial.props.children;
+    const explorer = initial.props.children[0];
     expect(explorer.ref).toBe(filesRef);
     const directory = explorer.props.children.props.children[1];
     directory.props.onOpen({ executionId: "run", path: "outputs/report.md" });
     expect(viewer).toEqual({ executionId: "run", path: "outputs/report.md" });
     const opened = WorkFiles({ runs, filesRef });
-    const openedDir = opened.props.children.props.children.props.children[1];
+    const openedDir = opened.props.children[0].props.children.props.children[1];
     expect(openedDir.props.viewer).toEqual({ executionId: "run", path: "outputs/report.md" });
-    directory.props.onOpen(null);
+    const preview = opened.props.children[1];
+    expect(preview.type).toBe(FilePreview);
+    expect(preview.props.target).toEqual(viewer);
+    preview.props.onClose();
     expect(viewer).toBeNull();
   } finally {
     configureRuntime((id: string) => id === "react" ? React : {});

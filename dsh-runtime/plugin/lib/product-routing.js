@@ -37,8 +37,8 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
   if (prior) {
     const lead = { ...JSON.parse(prior.agentConfig), ...prior };
     const ids = agentIds(JSON.parse(prior.agentIds || "[]"));
-    const agents = [lead, ...ids.slice(1).map((id) => assignment(database, id, item.workspaceId)).filter(Boolean)];
-    return { ...lead, agents, discussion: agents.length > 1 };
+    const agents = [lead, ...(lead.participantConfigs ?? [])];
+    return { ...lead, agents, collaborating: agents.length > 1 };
   }
 
   const stage = database.prepare(`
@@ -66,7 +66,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       ids = item.agentIds;
       targetType = "item";
       targetId = item.id;
-      reason = ids.length > 1 ? "Work-item discussion mentions" : "Work-item agent mention";
+      reason = ids.length > 1 ? "Work-item participant selections" : "Work-item agent mention";
     } else {
       ids = agentIds(JSON.parse(stage.routeAgentIds || "[]"));
       if (!ids.length && stage.routeAgentId) ids = [stage.routeAgentId];
@@ -74,20 +74,24 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     if (!targetType && ids.length) {
       targetType = "agent";
       targetId = ids[0];
-      reason = ids.length > 1 ? `Direct stage discussion for ${stage.name}` : `Direct stage assignment for ${stage.name}`;
+      reason = ids.length > 1 ? `Direct stage collaboration for ${stage.name}` : `Direct stage assignment for ${stage.name}`;
     }
     if (!ids.length) {
       const role = purpose === "reviewer" ? "reviewer" : "worker";
-      const fallback = defaultAssignment(database, stage.workspaceId, role);
+      const preferred = defaultAssignment(database, stage.workspaceId, role);
+      const fallback = accepts(preferred) ? preferred : database.prepare(
+        "SELECT id FROM agent_assignments WHERE workspace_id = ? AND enabled = 1 ORDER BY name, id"
+      ).all(stage.workspaceId).map(({ id }) => assignment(database, id, stage.workspaceId))
+        .find((agent) => accepts(agent) && (role === "reviewer" ? agent.systemRole === "reviewer" : agent.systemRole !== "reviewer"));
       ids = fallback ? [fallback.id] : [];
       targetType = "workspace-default";
       targetId = role;
-      reason = `Team ${role} fallback`;
+      reason = `Automatic: ${fallback?.name ?? role} selected from eligible team agents`;
     }
     ids = agentIds(ids);
     if (!ids.length) throw new Error(`The team ${purpose === "reviewer" ? "reviewer" : "worker"} agent is unavailable`);
     // the planner writes discussion stages with one agent to seat; one agent is agent work
-    const discussion = ids.length > 1;
+    const collaborating = ids.length > 1;
     if (purpose === "reviewer" && ids.length > 1) throw new Error("A review stage must use one independent agent");
     const agents = ids.map((id) => assignment(database, id, stage.workspaceId));
     if (agents.some((agent) => !accepts(agent)))
@@ -102,6 +106,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
     const effectiveInstructions = [selected.instructions, specialization?.playbook].filter(Boolean).join("\n\n");
     const agentConfig = JSON.stringify({
       id: selected.id, workspaceId: selected.workspaceId, presetId: selected.presetId,
+      participantConfigs: agents.slice(1),
       name: selected.name, instructions: effectiveInstructions, baseInstructions: selected.instructions,
       systemRole: selected.systemRole,
       specializationId: specialization?.id ?? null,
@@ -128,7 +133,7 @@ export function resolveStageAgent(database, { executionId, item, stageId, purpos
       specialistRevision: specialization?.revision ?? null,
       agentAssignmentId: selected.id, targetType, targetId, reason,
       agentRevision: `${selected.updatedAt}:${specialization?.revision ?? 0}`,
-      agents: [selected, ...agents.slice(1)], discussion
+      agents: [selected, ...agents.slice(1)], collaborating
     };
   });
 }

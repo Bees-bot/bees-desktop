@@ -24,6 +24,12 @@ export class ProcessRuntime {
     this.abortAgent = options.abortAgent;
     this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
+    this.needsRecovery = options.needsRecovery ?? (() => false);
+    this.pendingInteraction = options.pendingInteraction ?? (() => null);
+    this.database.exec(`CREATE TABLE IF NOT EXISTS bees_stage_waits (
+      work_item_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+      execution_id TEXT NOT NULL
+    ) STRICT`);
   }
 
   item(workItemId) {
@@ -113,6 +119,7 @@ export class ProcessRuntime {
         connection: this.workerConnection,
         namespace: "default",
         taskQueue: PROCESS_TASK_QUEUE,
+        maxHeartbeatThrottleInterval: "10 seconds",
         workflowsPath: fileURLToPath(new URL("./process-workflow.js", import.meta.url)),
         activities: { projectWorkItem, createRecurringWorkItem, runDshStage }
       };
@@ -343,6 +350,7 @@ export class ProcessRuntime {
   }
 
   async close() {
+    this.closing = true;
     const claims = [...this.claimWatchers.values()];
     this.claimWatchers.clear();
     for (const watcher of claims) clearInterval(watcher.heartbeat);
@@ -362,9 +370,12 @@ export class ProcessRuntime {
     }))) if (settled.status === "rejected")
       this.logger.warn?.(`bees: a recurring schedule failed to reconcile: ${message(settled.reason)}`);
     const items = this.database.prepare(`
-      SELECT w.id FROM work_items w
+      SELECT w.id, w.runtime_phase AS phase, w.runtime_execution_id AS executionId,
+             EXISTS (SELECT 1 FROM bees_stage_waits h WHERE h.work_item_id = w.id) AS humanWait
+      FROM work_items w
       WHERE w.deleted_at IS NULL AND w.archived_at IS NULL
-        AND w.runtime_phase IN ('ready', 'running')
+        AND (w.runtime_phase IN ('ready', 'running', 'waiting', 'paused')
+          OR w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%')
         AND EXISTS (
           SELECT 1 FROM processes p JOIN workspaces ws ON ws.id = p.workspace_id
           JOIN teams t ON t.id = ws.team_id JOIN organizations o ON o.id = t.organization_id
@@ -381,10 +392,30 @@ export class ProcessRuntime {
     `).all();
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
-    for (const settled of await Promise.allSettled(items.map(({ id }) => this.startItem(id)))) {
+    for (const settled of await Promise.allSettled(items.map(async ({ id, phase, executionId, humanWait }) => {
+      const started = await this.startItem(id);
+      if (!started.claimed) return;
+      if (phase === "failed") await this.signal(id, "retry");
+      else if (humanWait && phase !== "paused" &&
+        (this.needsRecovery(executionId) || !this.pendingInteraction(executionId)))
+        await this.wakeStage(executionId);
+    }))) {
       if (settled.status === "rejected")
         this.logger.warn?.(`bees: a work item failed to reconcile: ${message(settled.reason)}`);
     }
+  }
+
+  async wakeStage(executionId) {
+    if (this.closing) return;
+    const wait = this.database.prepare(`
+      SELECT h.work_item_id AS workItemId FROM bees_stage_waits h
+      JOIN work_items w ON w.id = h.work_item_id
+      WHERE h.execution_id = ? AND w.runtime_execution_id = h.execution_id
+        AND w.runtime_phase IN ('running', 'waiting', 'paused')
+        AND w.deleted_at IS NULL AND w.archived_at IS NULL
+    `).get(executionId);
+    if (wait) await this.client.workflow.getHandle(processWorkflowId(wait.workItemId))
+      .signal("stageChanged", executionId);
   }
 
   async startItem(workItemId) {
@@ -581,16 +612,25 @@ export class ProcessRuntime {
       UPDATE work_items SET stage_id = ?, runtime_phase = ?, runtime_attempt = ?,
         runtime_review_cycle = ?, runtime_execution_id = ?, runtime_error = ?, updated_at = ?
       WHERE id = ? AND process_id = ? AND deleted_at IS NULL
-    `).run(
-      state.stageId, state.phase, Number(state.attempt ?? 0), Number(state.reviewCycle ?? 0),
-      state.executionId ?? null, state.error ?? null, new Date().toISOString(),
-      state.workItemId, state.processId
-    );
-    if (!result.changes) throw new Error("Work item not found");
+    `);
+    transaction(this.database, () => {
+      const updated = result.run(
+        state.stageId, state.phase, Number(state.attempt ?? 0), Number(state.reviewCycle ?? 0),
+        state.executionId ?? null, state.error ?? null, new Date().toISOString(),
+        state.workItemId, state.processId
+      );
+      if (!updated.changes) throw new Error("Work item not found");
+      if (state.waitingForInput && state.executionId) this.database.prepare(`
+        INSERT INTO bees_stage_waits VALUES (?, ?)
+        ON CONFLICT(work_item_id) DO UPDATE SET execution_id = excluded.execution_id
+      `).run(state.workItemId, state.executionId);
+      else this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(state.workItemId);
+    });
     this.notify({
       type: "work-item-changed", workItemId: state.workItemId,
       executionId: state.executionId ?? null, phase: state.phase
     });
+    if (state.phase === "cancelled" && state.executionId) this.abortAgent?.(state.executionId);
     return state;
   }
 }

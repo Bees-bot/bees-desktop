@@ -167,6 +167,19 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     try { const value = await request("/bees-api/snapshot"); setData(value); setError(""); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
+  useEffect(() => ctx.slots.inject("conversation.composer", () => ctx.slots.register({
+    name: "conversation.composer", id: "bees-managed-continuation", priority: 20,
+    select: ({ sessionId, pendingInteraction }) => {
+      const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
+      const run = data?.runs.find(run => !run.ranElsewhere &&
+        (run.sessionId === sessionId || (cwd && run.outputsPath === `${cwd}/outputs`)));
+      if (!run || pendingInteraction) return null;
+      if (run.sessionId !== sessionId) return {};
+      const item = data.items.find(item => item.id === run.workItemId);
+      return !["running", "waiting_for_input", "waiting_for_approval"].includes(run.status) || item?.archivedAt ? {} : null;
+    }
+  }, () => h("p", { className: "bees-muted", role: "status", style: { padding: "16px" } },
+    "Use Continue work below to start a managed run."))), [ctx, data]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     if (typeof window.EventSource !== "function") return undefined;
@@ -471,7 +484,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
         : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act, onOpenConnections: () => navigate("connections") })
-            : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
+            : section.id === "activity" ? h(ActivityPage, { ctx, act, data: viewData, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
                 : h(SettingsPage, { ctx, data: viewData, route, teamId: parts.teamId,
                     organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,

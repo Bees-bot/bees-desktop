@@ -26,7 +26,7 @@ function appendResult(session: any, step: number, content: any[], error = false,
   const callId = `call-${step}`;
   session.append("step/start", { turn: 1, step });
   session.append("assistant/message", {
-    turn: 1, step, message: createAssistantMessage({
+    turn: 1, step, stream: [], message: createAssistantMessage({
       source: { provider: "test", model: "test" },
       content: [{ type: "tool-call", id: callId, name, arguments: args }]
     })
@@ -179,8 +179,8 @@ it("flushes surface replacements before the request and keeps recall reads in th
     tools: { register: (tool: any) => definitions.push(tool) },
     on: (_name: string, hook: any, options: any) => { hooks.push(hook); expect(options.prepend).toBe(true); }
   };
-  installContextPolicy(agentCtx, meter);
-  installContextPolicy(agentCtx, meter);
+  installContextPolicy(agentCtx, meter, agent);
+  installContextPolicy(agentCtx, meter, agent);
   expect(hooks).toHaveLength(1);
   let flushed: any[] = [];
   ctx.on("session/flush", (value: any) => { flushed = value.snapshotEvents(); });

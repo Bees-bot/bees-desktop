@@ -16,6 +16,42 @@ describe("Bees DSH product plugin", () => {
     vi.unstubAllGlobals();
   });
 
+  it("explains heartbeat failures using the latest run failure without guessing or changing recovery state", async () => {
+    const database = new NodeDatabase();
+    try {
+      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const product = new BeesProduct(database.connection, agents, null, tmpdir());
+      const initial = await product.snapshot();
+      const stage = initial.stages[0];
+      database.connection.prepare(`
+        INSERT INTO work_items (id, process_id, stage_id, title, runtime_phase,
+          runtime_execution_id, runtime_error, created_at, updated_at)
+        VALUES ('timeout-work', ?, ?, 'Timed out', 'failed', 'timeout-run',
+          'activity Heartbeat timeout', '2026-09-12T00:00:00Z', '2026-09-12T00:01:00Z')
+      `).run(stage.processId, stage.id);
+      const error = async () => (await product.snapshot()).items.find(({ id }: any) => id === "timeout-work").runtimeError;
+      expect(await error()).toContain(`30 seconds during "${stage.name}"`);
+      expect(await error()).toContain("could not determine why");
+      expect(await error()).toContain("Select Retry");
+      database.connection.exec(`
+        INSERT INTO dsh_audit_events (id, event_type, execution_id, metadata_json, created_at)
+        VALUES ('failure', 'run-failed', 'timeout-run', '{"error":"Model provider quota exhausted"}', '2026-09-12T00:00:20Z'),
+          ('unrelated', 'run-failed', 'other-run', '{"error":"Unrelated failure"}', '2026-09-12T00:00:30Z'),
+          ('future', 'run-failed', 'timeout-run', '{"error":"Later failure"}', '2026-09-12T00:02:00Z');
+      `);
+      expect(await error()).toContain("Last recorded failure: Model provider quota exhausted");
+      database.connection.exec(`
+        INSERT INTO dsh_audit_events (id, event_type, execution_id, metadata_json, created_at)
+        VALUES ('restart', 'run-started', 'timeout-run', '{}', '2026-09-12T00:00:40Z');
+      `);
+      expect(await error()).toContain("could not determine why");
+      expect(database.connection.prepare("SELECT runtime_error FROM work_items WHERE id = 'timeout-work'").get())
+        .toMatchObject({ runtime_error: "activity Heartbeat timeout" });
+      database.connection.exec("UPDATE work_items SET runtime_error = 'Provider unavailable' WHERE id = 'timeout-work'");
+      expect(await error()).toBe("Provider unavailable");
+    } finally { database.connection.close(); }
+  });
+
   it("clears pre-rc.1 metadata and creates the final local ownership hierarchy", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("CREATE TABLE teams (id TEXT PRIMARY KEY); INSERT INTO teams VALUES ('old-team')");
@@ -91,7 +127,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-process-instructions-"));
     const database = new NodeDatabase().connection;
     try {
-      const agents = new AgentRuntime({ on: () => () => undefined }, database);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database);
       const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const product = new BeesProduct(database, agents, { startItem: async () => ({}), isAutomatic: () => false }, root);
       const initial = await product.snapshot();
@@ -118,15 +154,15 @@ describe("Bees DSH product plugin", () => {
       const worker = await run(parent, work, "parent-work");
       expect(worker.body).toContain(criteria);
       expect(worker.initialData.instructions).toBe("");
-      expect(worker.initialData.discussionMembers).toHaveLength(1);
-      expect(worker.initialData.discussionMembers[0]).toMatchObject({ planningReviewer: true });
-      expect(worker.initialData.discussionMembers[0].prompt).toContain(criteria);
+      expect(worker.initialData.participantIds).toHaveLength(1);
+      expect(worker.initialData.contextId).toBeTruthy();
+      expect(worker.body).toContain(criteria);
       const child = await product.command({ action: "create_item", processId: process.id, parentId: parent.id,
         title: "Inspect one input", description: "Report its contents." });
       const delegated = await run(child, work, "child-work");
       expect(delegated.body).toContain(criteria);
       expect(delegated.body).toContain("Cover every supplied input.");
-      expect(delegated.initialData.discussionMembers).toEqual([]);
+      expect(delegated.initialData.participantIds).toEqual([]);
       expect(delegated.body).not.toContain("dates when exposed");
       const reviewer = await run(parent, review, "parent-review");
       expect(reviewer.body).toContain(criteria);
@@ -142,7 +178,7 @@ describe("Bees DSH product plugin", () => {
   it("previews run text files without allowing paths outside inputs and outputs", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-preview-"));
     const database = new NodeDatabase();
-    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const product = new BeesProduct(database.connection, agents, null, root);
     const workspaceId = (await product.snapshot()).workspaces[0].id;
     const runDirectory = join(root, "runs", "preview-run");
@@ -176,8 +212,18 @@ describe("Bees DSH product plugin", () => {
       name: "brief.md", path: "inputs/brief.md", format: "markdown",
       content: "# Brief\n\nChoose **one**.", size: 24, truncated: false
     });
+    writeFileSync(join(runDirectory, "outputs", "report.pdf"), Buffer.from([0, 1, 2, 255]));
+    expect(product.runFile("preview-run", "outputs/report.pdf", true)).toEqual({
+      sessionId: "preview-session", status: "waiting_for_input", path: "outputs/report.pdf"
+    });
+    expect(() => product.runFile("preview-run", "outputs/../secret.md", true)).toThrow("cannot leave");
+    expect(() => product.runFile("preview-run", "secret.md", true)).toThrow("Only run inputs and outputs");
     expect(() => product.runFile("preview-run", "outputs/../secret.md")).toThrow("cannot leave");
     expect(() => product.runFile("preview-run", "secret.md")).toThrow("Only run inputs and outputs");
+    rmSync(join(runDirectory, "outputs"), { recursive: true });
+    symlinkSync(root, join(runDirectory, "outputs"));
+    writeFileSync(join(root, "outside.pdf"), "outside");
+    expect(() => product.runFile("preview-run", "outputs/outside.pdf", true)).toThrow("escaped");
     rmSync(root, { recursive: true });
   });
 
@@ -185,7 +231,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-location-preview-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const product = new BeesProduct(database.connection, agents, null, root);
       const initial = await product.snapshot();
       const teamId = initial.teams[0].id;
@@ -222,7 +268,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-inherited-inputs-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
       const initial = await product.snapshot();
       const { id: workspaceId } = initial.workspaces[0];
@@ -261,7 +307,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-goal-setup-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const starts: any[] = [];
       const product = new BeesProduct(database.connection, agents, { startItem: async (id: string) => {
@@ -309,7 +355,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-explicit-retry-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
       const initial = await product.snapshot();
@@ -330,7 +376,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-manual-recovery-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const admit = vi.spyOn(agents, "admit").mockResolvedValue({} as any);
       const product: any = new BeesProduct(database.connection, agents, {
         startItem: async () => ({}), isAutomatic: () => false,
@@ -353,7 +399,7 @@ describe("Bees DSH product plugin", () => {
     const root = mkdtempSync(join(tmpdir(), "bees-references-"));
     try {
       const database = new NodeDatabase();
-      const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+      const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
       const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
       const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, root);
       const initial = await product.snapshot();
@@ -391,7 +437,7 @@ describe("Bees DSH product plugin", () => {
         executionId: "executive-discussion", workItemId: goal.id, stageId: work.id,
         stageName: work.name, purpose: "worker"
       });
-      expect(execute.mock.calls[0]![1].initialData.discussionMembers).toHaveLength(2);
+      expect(execute.mock.calls[0]![1].initialData.participantIds).toHaveLength(2);
       expect(execute.mock.calls[0]![1].initialData.agentId).toBe(ceo.id);
       await expect(product.command({
         action: "create_goal", workspaceId, title: "$missing, Review this", description: "$missing, Review this"
@@ -401,7 +447,7 @@ describe("Bees DSH product plugin", () => {
 
   it("saves empty selected MCP lists for agents and goals without granting servers", async () => {
     const database = new NodeDatabase();
-    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const product = new BeesProduct(database.connection, agents, { startItem: async () => ({}) }, "/tmp");
     const initial = await product.snapshot();
     const policy = { mcpAccess: "listed", mcpServers: [] };
@@ -434,7 +480,7 @@ describe("Bees DSH product plugin", () => {
 
   it("restarts a standalone planning question without changing its waiting state", async () => {
     const database = new NodeDatabase();
-    const first = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const first = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
     ).get() as { id: string };
@@ -452,7 +498,7 @@ describe("Bees DSH product plugin", () => {
       data: { name: "ask_user_question", callId: "question-1", arguments: "Which market?" }
     });
 
-    const replacement = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const replacement = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const admit = vi.spyOn(replacement, "admit").mockResolvedValue({ submissionId: "replacement", uid: "uid" });
     const product = new BeesProduct(database.connection, replacement, null, "/tmp");
     await product.recoverRuns();
@@ -468,7 +514,7 @@ describe("Bees DSH product plugin", () => {
 
   it("restarts active standalone processing from its checkpoint", async () => {
     const database = new NodeDatabase();
-    new AgentRuntime({ on: () => () => undefined }, database.connection);
+    new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
     ).get() as { id: string };
@@ -482,7 +528,7 @@ describe("Bees DSH product plugin", () => {
       version: 1, mode: "planning", purpose: "Launch safely", workspaceId: workspace.id
     }));
 
-    const replacement = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const replacement = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const admit = vi.spyOn(replacement, "admit").mockResolvedValue({ submissionId: "replacement", uid: "uid" });
     const product = new BeesProduct(database.connection, replacement, null, "/tmp");
     await product.recoverRuns();
@@ -501,7 +547,7 @@ describe("Bees DSH product plugin", () => {
     const runRoot = mkdtempSync(join(tmpdir(), "bees-runs-"));
     writeFileSync(join(files, "brief.md"), "Honey launch requirements and milestones");
     const database = new NodeDatabase();
-    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const stageRuns: any[] = [];
     (agents as any).executeStage = async (...args: any[]) => { stageRuns.push(args); return { outcome: "candidate", summary: "Ready" }; };
     const temporalStarts: any[] = [];
@@ -888,7 +934,7 @@ supersedes: alpha-v1
 Alpha workspace knowledge`);
     writeFileSync(join(secondFiles, "beta.md"), "Beta private team knowledge");
     const database = new NodeDatabase();
-    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const product = new BeesProduct(database.connection, agents, null, root);
     const initial = await product.snapshot();
     const firstWorkspace = initial.workspaces[0];
@@ -943,7 +989,7 @@ Current international expansion strategy`);
       })
     };
     const database = new NodeDatabase();
-    const agents = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const agents = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
     const product = new BeesProduct(database.connection, agents, null, root, { googleDrive });
     const initial = await product.snapshot();
     await product.command({

@@ -34,12 +34,12 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
   return h("div", { className: "bees-form", style: { marginTop: "8px" } },
     fallback ? h("div", { className: "bees-row" },
       h("div", { className: "bees-row-main" }, h("strong", null, fallback.name),
-        h("span", { className: "bees-muted" }, " · Default agent")),
+        h("span", { className: "bees-muted" }, " · Automatic lead")),
       h(Button, { onClick: () => onOpenAgent(fallback.id) }, "Configure")) : null,
     ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
       h("div", { className: "bees-row-main" },
         h("strong", null, agent.name),
-        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Discussion lead" : " · Assigned agent") : " · Participant")),
+        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Lead" : " · Assigned agent") : " · Participant")),
       h(Button, { onClick: () => onOpenAgent(agent.id) }, "Configure"),
       h(Button, { disabled: index === 0, onClick: () => move(index, -1), title: "Move earlier" }, "↑"),
       h(Button, { disabled: index === ids.length - 1, onClick: () => move(index, 1), title: "Move later" }, "↓"),
@@ -52,8 +52,9 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
       h(Button, { className: "primary", disabled: !nextId, onClick: async () => {
         await save([...ids, nextId]); setNextId("");
       } }, ids.length ? "Add participant" : "Assign agent")),
+    ids.length ? h(Button, { onClick: () => save([]) }, "Use automatic assignment") : h("p", { className: "bees-muted" }, stage.driver === "review" ? "An eligible independent reviewer is selected automatically." : "The lead handles the stage and selects suitable specialists when useful."),
     h(Button, { onClick: onCreateAgent }, "+ Create new agent"),
-    ids.length > 1 ? h("p", { className: "bees-muted" }, "All assigned agents discuss; the first agent leads and submits the result.") : null
+    ids.length > 1 ? h("p", { className: "bees-muted" }, "The first agent leads. Participants contribute analysis or execution through the same peer workflow.") : null
   );
 }
 
@@ -107,7 +108,7 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
       placeholder: "Describe this workflow, its instructions and completion criteria. Every assigned agent receives this brief." })),
     h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
       defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
-    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Assign two or more agents to make a discussion; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
+    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
@@ -184,12 +185,15 @@ export function ProcessListActions({ process, act, openWorkItem }) {
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
+  const deleteUnavailable = "Deleting process templates is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${process.name}` },
       process.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore") }, "Restore") : h(React.Fragment, null,
       h(Button, { disabled: busy, onClick: (event) => submit(event, "run") }, "Run"),
       h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_process") }, "Duplicate"),
-      process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive") : null)),
+      process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive")
+        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"),
+      h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -266,7 +270,8 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       const pageActions = h(React.Fragment, null,
           h(Button, { onClick: editProcess }, "Edit process template"),
           h(Button, { onClick: copyProcess }, "Duplicate process template"),
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run")
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run"),
+          h(Button, { disabled: true, title: "Deleting process templates is not available here." }, "Delete")
       );
 
       const routingPanel = h("div", null,

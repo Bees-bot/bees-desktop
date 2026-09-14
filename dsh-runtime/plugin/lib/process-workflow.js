@@ -1,11 +1,12 @@
 import {
-  CancellationScope, condition, defineSignal, deprecatePatch, isCancellation,
-  executeChild, patched, proxyActivities, setHandler, sleep, workflowInfo
+  CancellationScope, condition, defineSignal, isCancellation,
+  executeChild, proxyActivities, setHandler, sleep, workflowInfo
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
+const stageChangedSignal = defineSignal("stageChanged");
 
 const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
@@ -22,12 +23,11 @@ export async function recurringWorkWorkflow(input) {
     args: [work]
   });
 }
-const dshActivities = proxyActivities({
-  // ponytail: Temporal requires a finite activity deadline; a century is operationally indefinite.
+const durableActivities = proxyActivities({
   startToCloseTimeout: "36500 days",
   heartbeatTimeout: "30 seconds",
-  // Failed agent work waits for the user's explicit retry signal.
-  retry: { maximumAttempts: 1 }
+  // Infrastructure loss retries the same execution. Agent failures are non-retryable.
+  retry: { initialInterval: "1 second", maximumInterval: "30 seconds" }
 });
 
 function failureMessage(error) {
@@ -50,7 +50,7 @@ export async function processWorkflow(input) {
   let paused = false;
   let retryRequested = false;
   let retryRequests = 0;
-  deprecatePatch("bees-durable-human-waits-v1");
+  let stageChanges = 0;
   let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
   let capacityWaits = 0;
   let feedback = input.correction?.feedback ?? "";
@@ -71,20 +71,24 @@ export async function processWorkflow(input) {
   setHandler(pauseSignal, () => { paused = true; });
   setHandler(resumeSignal, () => { paused = false; });
   setHandler(retrySignal, () => { retryRequested = true; paused = false; });
+  setHandler(stageChangedSignal, (executionId) => {
+    if (executionId === state.executionId) stageChanges += 1;
+  });
 
-  const project = async (phase = state.phase, error = state.error) => {
+  const project = async (phase = state.phase, error = state.error, waitingForInput = false) => {
     state.phase = phase;
     state.error = error;
-    await projectWorkItem({ ...state });
+    await projectWorkItem({ ...state, ...(waitingForInput ? { waitingForInput: true } : {}) });
   };
   const waitForRetry = async (error) => {
-    const recoverInterruptedWait = error.toLocaleLowerCase().includes("heartbeat timeout");
+    const recoverInterruptedWait = /heartbeat timeout|Stage completion was not recorded|The agent runtime completed without calling bees_submit_stage_result|This run ended without a completed stage result/i.test(error);
     retryRequested = false;
     await project("failed", error);
     await condition(() => retryRequested);
     retryRequested = false;
     state.retryRequest = ++retryRequests;
     if (!recoverInterruptedWait) state.attempt += 1;
+    else if (input.stages[index].driver === "review") state.reviewCycle -= 1;
     state.error = null;
   };
 
@@ -122,15 +126,29 @@ export async function processWorkflow(input) {
 
       let result;
       try {
-        result = await dshActivities.runDshStage({
-          ...state,
-          purpose,
-          driver: stage.driver,
-          requiresHumanApproval: Boolean(stage.requiresHumanApproval),
-          stageName: stage.name,
-          candidateExecutionId,
-          feedback
-        });
+        while (true) {
+          const observedChanges = stageChanges;
+          try {
+            result = await durableActivities.runDshStage({
+              ...state, purpose, driver: stage.driver,
+              requiresHumanApproval: Boolean(stage.requiresHumanApproval),
+              stageName: stage.name, candidateExecutionId, feedback,
+              durableWaits: true
+            });
+          } catch (error) {
+            throw error;
+          }
+          if (result.outcome !== "suspended") break;
+          await project("waiting", null, true);
+          // Signals are recorded by Temporal; no activity or heartbeat stays alive for a human wait.
+          // Capture the counter before the activity so an early answer cannot be lost.
+          await condition(() => stageChanges !== observedChanges);
+          if (paused) {
+            await project("paused", null, true);
+            await condition(() => !paused);
+          }
+          await project("running", null);
+        }
       } catch (error) {
         const message = failureMessage(error);
         if (message === "Stopped by user") {
@@ -164,9 +182,6 @@ export async function processWorkflow(input) {
       if (purpose !== "reviewer" && result.outcome === "candidate") {
         candidateExecutionId = state.executionId;
         feedback = "";
-        // A new candidate is still the same review cycle; only a pass clears its budget.
-        // Preserve the old transition while replaying histories produced before this fix.
-        if (!patched("bees-bounded-review-revisions-v1")) state.revisions = 0;
         index += 1;
         continue;
       }

@@ -16,7 +16,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web"
+  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web", "attachments"
 ];
 
 const ModelPreference = z.object({
@@ -185,8 +185,16 @@ export async function apply(ctx, _config = {}, internals = {}) {
     googleDrive.configure(config.googleDriveDesktopClientId));
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify,
-    abortAgent: (executionId) => agents.abort(executionId)
+    abortAgent: (executionId) => agents.abort(executionId),
+    needsRecovery: (executionId) => agents.needsRecovery(executionId),
+    pendingInteraction: (executionId) => agents.pendingInteraction(executionId)
   });
+  ctx.effect(() => subscribe((change) => {
+    if (change.executionId && (change.type === "stage-wait-resolved" ||
+      change.type === "run/status" && ["running", "completed", "failed", "cancelled"].includes(change.status)))
+      void processes.wakeStage(change.executionId).catch((error) =>
+        ctx.logger.warn(`bees: workflow wake will be retried: ${userMessage(error)}`));
+  }), "bees durable stage wakeups");
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets,
@@ -371,7 +379,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? ""));
+      reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? "", url.searchParams.get("native") === "1"));
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/apps", handler: async (req, res) => {

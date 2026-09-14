@@ -10,6 +10,7 @@ export declare function typedReferences(value: string): Array<{
   id: string;
 }>;
 export declare function safeRecoverySeed(events: Array<{ type: string; seq: number }>): Array<{ type: string; seq: number }>;
+export declare function recoveryToolContext(events: Array<{ type: string; seq: number; data?: any }>, pending: any): string;
 export declare function authorizeReferences(database: unknown, workspaceId: string, references: ReturnType<typeof typedReferences>): void;
 export declare function copyOutputs(
   workspace: string,
@@ -37,6 +38,7 @@ export declare class AgentRuntime {
   dispatch(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
   resumeQueued(): void;
   executeStage(executionId: string, payload: Record<string, any>, signal?: AbortSignal): Promise<any>;
+  waitForDelivery(executionId: string, submissionId: string, signal?: AbortSignal, durableWaits?: boolean): Promise<any>;
   waitForPeers(ids: string[], signal?: AbortSignal): Promise<Array<Record<string, unknown>>>;
   workResult(workItemId: string, evidenceOffset?: number): Promise<Record<string, unknown>>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;

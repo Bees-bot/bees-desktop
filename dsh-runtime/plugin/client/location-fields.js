@@ -1,3 +1,4 @@
+import { NativeRunFilePreview } from "./native-conversation.js";
 import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon, FolderOpenIcon } from "./icons.js";
@@ -267,7 +268,8 @@ export function WorkFiles({ runs, filesRef, act }) {
           ...(run.outputsPath ? [h("div", { className: "bees-output-path", title: run.outputsPath }, run.outputsPath)] : []),
           h(OutputDirectory, { files, executionId: run.id, viewer, onOpen: setViewer, act, outputsPath: run.outputsPath }));
       }))
-      : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."));
+      : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."),
+    viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
 }
 
 function OutputDirectory({ files, executionId, viewer, onOpen, act, outputsPath, prefix = "" }) {
@@ -310,14 +312,7 @@ function OutputDirectory({ files, executionId, viewer, onOpen, act, outputsPath,
               }
             }, h(FolderOpenIcon), "Open") : null
           )
-        ),
-        selected ? h("div", { className: "bees-inline-preview" },
-          h(FilePreview, {
-            target: viewer,
-            onClose: () => onOpen?.(null),
-            inline: true
-          })
-        ) : null);
+        ));
     }));
 }
 
@@ -331,10 +326,13 @@ const languageOf = (name) => CODE_LANGUAGES[String(name ?? "").split(".").pop().
 const formatSize = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 const HIGHLIGHT_LIMIT = 64 * 1024; // shiki freezes the page past this size
 export function FilePreview({ target, onClose, inline }) {
+  if (target.executionId) return h(NativeRunFilePreview, {
+    key: JSON.stringify([target.executionId, target.path]), target, onClose, inline, Preview: FileContents
+  });
   return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target, onClose, inline });
 }
 
-function FileContents({ target, onClose, inline }) {
+function FileContents({ target, onClose, inline, loadFile }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(target.path);
@@ -344,15 +342,22 @@ function FileContents({ target, onClose, inline }) {
     if (expanded) dialog.current.showModal();
   }, [expanded]);
   useEffect(() => {
-    let current = true;
+    const abort = new AbortController();
+    let objectUrl;
     setFile(null); setError("");
     const query = new URLSearchParams(target.locationId
       ? { locationId: target.locationId, path } : { executionId: target.executionId, path });
-    request(`/bees-api/${target.locationId ? "location-file" : "run-file"}?${query}`)
-      .then((value) => { if (current) setFile(value); })
-      .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)); });
-    return () => { current = false; };
-  }, [target.executionId, target.locationId, path, target.updatedAt]);
+    const pending = loadFile ? loadFile({ ...target, path }, abort.signal)
+      : request(`/bees-api/${target.locationId ? "location-file" : "run-file"}?${query}`, { signal: abort.signal });
+    pending.then((value) => {
+      if (abort.signal.aborted) return;
+      if (value.blob) objectUrl = URL.createObjectURL(value.blob);
+      setFile({ ...value, url: objectUrl });
+    }).catch((reason) => {
+      if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
+    });
+    return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [target.executionId, target.locationId, path, target.updatedAt, loadFile]);
   const title = file?.path || file?.name || path || "Folder";
   const contents = error ? h("div", { className: "bees-error", role: "alert" }, error)
       : !file ? h("div", { className: "bees-loading" }, "Opening file…")
@@ -363,8 +368,12 @@ function FileContents({ target, onClose, inline }) {
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
             file.truncated ? h("div", { className: "bees-muted" }, `Showing the first part of a ${formatSize(file.size)} file.`) : null,
-            // a run's outputs are often a screenshot or a pdf, and those come back with no content
-            file.content == null ? h("p", { className: "bees-muted" }, `No preview for this ${formatSize(file.size)} file.`)
+            file.format === "image" ? h("img", { className: "bees-file-preview-image", src: file.url, alt: title })
+              : file.format === "html" ? h("iframe", { className: "bees-file-preview-document", src: file.url, title,
+                sandbox: "allow-scripts", referrerPolicy: "no-referrer" })
+              : file.format === "pdf" ? h("object", { className: "bees-file-preview-document", data: file.url, type: "application/pdf", "aria-label": title },
+                h("a", { href: file.url, download: file.name }, "Download PDF"))
+              : file.content == null ? h("p", { className: "bees-muted" }, `No preview for this ${formatSize(file.size)} file.`)
               : file.format === "markdown" ? h(MarkdownText, { text: file.content })
               : file.content.length > HIGHLIGHT_LIMIT ? h("pre", null, file.content)
               : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));

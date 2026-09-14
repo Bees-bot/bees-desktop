@@ -7,6 +7,8 @@ export declare class ProcessRuntime {
     client?: any; logger?: any; workerFactory?: (options: any) => Promise<any>; claims?: any;
     notify?: (change: Record<string, unknown>) => void;
     abortAgent?: (executionId: string) => unknown;
+    needsRecovery?: (executionId: string) => boolean;
+    pendingInteraction?: (executionId: string) => unknown;
   });
   item(workItemId: string): any;
   stages(processId: string): any[];
@@ -22,6 +24,7 @@ export declare class ProcessRuntime {
   createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string, accountUserId?: string): Promise<any>;
   close(): Promise<void>;
   reconcile(): Promise<void>;
+  wakeStage(executionId: string): Promise<void>;
   startItem(workItemId: string): Promise<any>;
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;

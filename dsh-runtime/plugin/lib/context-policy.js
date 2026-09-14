@@ -79,7 +79,7 @@ export function pruneToolResults(session, tokenMeter) {
       shadowedTokenCount: tokenMeter.estimateMessage(event.data.message)
     });
     session.append("tool/result", { ...event.data, message }, {
-      surfaceOp: { op: "replace", start: seq, end: seq }, sourceEventSeqs: [seq]
+      surfaceOp: { op: "replace", startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq]
     });
     pruned++;
     charsRemoved += before - after;
@@ -129,7 +129,7 @@ export function readToolResult(session, args, visited = new Set()) {
 
 /** Installed on each managed agent, including discussion participants and resumed agents.
  *  The meter comes from the plugin context: an agent context may only read what it injects. */
-export function installContextPolicy(agentCtx, tokenMeter) {
+export function installContextPolicy(agentCtx, tokenMeter, owner) {
   if (typeof agentCtx.on !== "function") return;
   if (installed.has(agentCtx)) return;
   installed.add(agentCtx);
@@ -155,7 +155,7 @@ export function installContextPolicy(agentCtx, tokenMeter) {
     }
   }));
   agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
-    if (agent !== agentCtx.agent || signal.aborted) return next();
+    if (agent !== owner || signal.aborted) return next();
     const { pruned } = pruneToolResults(agent.session, tokenMeter);
     if (pruned) pendingFlush.add(agent.session);
     if (pendingFlush.has(agent.session)) {
