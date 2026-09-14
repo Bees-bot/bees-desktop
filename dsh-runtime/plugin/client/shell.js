@@ -399,7 +399,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const [provider, ...rest] = String(model?.model ?? "").split("/");
     if (rest.length) await request("/bees-api/system-default-model", { method: "POST",
       body: JSON.stringify({ provider, model: rest.join("/"), reasoningEffort: model.reasoningEffort ?? "" }) });
-    const result = await act({ ...agent, ...model, action: "edit_agent_assignment", agentAssignmentId: agent.id });
+    const result = await act({ ...agent, action: "edit_agent_assignment", agentAssignmentId: agent.id, model: "", reasoningEffort: "" });
     if (!result?.id) throw new Error("Could not save the agent's AI");
     setAiTest(null);
     return { ...agent, ...model };

@@ -158,15 +158,6 @@ export class BeesProduct {
 
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
-    const existing = stage.durableWaits ? this.agents.run(stage.executionId) : null;
-    if (existing?.workItemId === item.id && !this.agents.needsRecovery(stage.executionId)) {
-      // Reattach after a wait or lost activity reply without copying inputs or admitting a new run.
-      return this.agents.executeStage(stage.executionId, {
-        idempotencyKey: `process:${stage.executionId}:start`, durableWaits: true,
-        ...(stage.retryRequest > 0 ? { retryId: `process:${stage.executionId}:retry:${stage.retryRequest}` } : {}),
-        body: `Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
-      }, signal);
-    }
     const parent = item.parentId ? itemContext(this.database, item.parentId, ["admin", "member"]) : null;
     const parentBrief = parent
       ? `\n\nOriginal parent request:\n${parent.title}\n${parent.description}\n\nComplete only your assigned portion. The parent owns the combined outcome and reviews your result. Return the completed work, supporting evidence needed to verify your assigned requirements, and any limitations.`
@@ -191,6 +182,16 @@ export class BeesProduct {
     } catch (error) {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
       throw error;
+    }
+
+    const existing = stage.durableWaits ? this.agents.run(stage.executionId) : null;
+    if (existing?.workItemId === item.id && !this.agents.needsRecovery(stage.executionId)) {
+      // Reattach after a wait or lost activity reply without copying inputs or admitting a new run.
+      return this.agents.executeStage(stage.executionId, {
+        idempotencyKey: `process:${stage.executionId}:start`, durableWaits: true,
+        ...(stage.retryRequest > 0 ? { retryId: `process:${stage.executionId}:retry:${stage.retryRequest}`, refreshedModel: assignment.model || null } : {}),
+        body: `Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
+      }, signal);
     }
     const referenceBrief = referenceContext(this.database, item.workspaceId, typedReferences(`${item.title}\n${item.description}\n${item.processDescription}`));
     const peers = !reviewer && !parent ? assignment.agents.slice(1) : [];

@@ -842,6 +842,10 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 26");
   });
+  if (version < 27) transaction(database, () => {
+    database.exec("UPDATE agent_assignments SET model = NULL WHERE model = 'openai-codex/__bees_latest_luna__'");
+    database.exec("PRAGMA user_version = 27");
+  });
   // An installed devtools server starts its own Chrome when it has no address to attach to, and
   // that one is the automated browser Google refuses every sign-in in.
   if (version < 28) database.exec(`

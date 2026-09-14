@@ -966,7 +966,7 @@ export async function executeProductCommand(action, input) {
           mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?
       `).run(presetId, assignment.systemRole ? assignment.name : required(input.name ?? assignment.name, "Agent name"),
         String(input.description ?? assignment.description ?? ""), String(input.instructions ?? assignment.instructions ?? ""),
-        optionalModelRoute(input.model ?? assignment.model),
+        optionalModelRoute(Object.hasOwn(input, "model") ? input.model : assignment.model),
         reasoningEffort,
         JSON.stringify(nextCapabilities), enabled ? 1 : 0, maxConcurrency,
         policy.access, JSON.stringify(policy.servers), at, id);

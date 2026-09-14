@@ -1720,8 +1720,19 @@ export class AgentRuntime {
     let references;
     try {
       data = JSON.parse(run.configJson);
-      if (!data.resolvedModel && (prepared || !existed)) {
-        data = { ...data, ...await resolveRunModel(this.ctx, data) };
+      // Re-resolve the model on explicit user-triggered retries and crash-recovery runs when
+      // a resolvedModel was previously stored. This lets a model change made before retrying
+      // a failed stage take effect instead of staying locked to the original Codex model.
+      // Only re-resolve when resolvedModel is already set: that means the run ran at least
+      // once and has a concrete (possibly stale) model locked in. New runs with no resolvedModel
+      // yet take the normal first-start path below.
+      // Normal durable-wait re-entries keep the same model for session consistency.
+      const staleResolvedModel = data.resolvedModel && (recovery || Boolean(payload.retryId));
+      if (staleResolvedModel || (!data.resolvedModel && (prepared || !existed))) {
+        if (Object.hasOwn(payload, "refreshedModel")) data.model = payload.refreshedModel;
+        // Strip the old resolved fields so resolveRunModel re-derives them from data.model.
+        const { resolvedModel: _rm, resolvedReasoningEffort: _rre, ...base } = data;
+        data = { ...base, ...await resolveRunModel(this.ctx, base) };
         validateRunData(data);
         this.database.prepare("UPDATE execution_links SET config_json = ?, updated_at = ? WHERE execution_id = ?")
           .run(JSON.stringify(data), new Date().toISOString(), executionId);
