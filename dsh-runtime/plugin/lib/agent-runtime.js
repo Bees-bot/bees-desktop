@@ -352,8 +352,7 @@ export function safeRecoverySeed(events) {
     const validRange = (range) => !range || ids.has(range.start) && ids.has(range.end);
     const next = kept.filter((event) => {
       const op = event.surfaceOp;
-      return (!op?.shadowedSeqs || op.shadowedSeqs.every((seq) => ids.has(seq))) &&
-        (op?.op !== "replace" || op.startSeq === undefined || validRange({ start: op.startSeq, end: op.endSeq })) &&
+      return (op?.op !== "replace" || validRange(op)) &&
         (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange));
     });
     if (next.length === kept.length) break;
@@ -369,11 +368,7 @@ export function safeRecoverySeed(events) {
         ...(event.data.shadowedRange ? { shadowedRange: range(event.data.shadowedRange) } : {}),
         ...(event.data.shadowedSeqs ? { shadowedSeqs: seqs(event.data.shadowedSeqs) } : {})
       } } : {}),
-      ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : {
-        ...surfaceOp,
-        ...(surfaceOp.shadowedSeqs ? { shadowedSeqs: seqs(surfaceOp.shadowedSeqs) } : {}),
-        ...(surfaceOp.op === "replace" ? { startSeq: renumbered.get(surfaceOp.startSeq), endSeq: renumbered.get(surfaceOp.endSeq) } : {})
-      } } : {}),
+      ...(surfaceOp ? { surfaceOp: typeof surfaceOp === "string" ? surfaceOp : range(surfaceOp) } : {}),
       ...(sources?.length ? { sourceEventSeqs: sources } : {}) };
   });
 }
