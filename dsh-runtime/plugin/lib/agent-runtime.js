@@ -647,10 +647,15 @@ export class AgentRuntime {
 
   audit(eventType, executionId, sessionId, metadata = {}) {
     const createdAt = new Date().toISOString();
-    this.database.prepare(`
-      INSERT INTO dsh_audit_events (id, event_type, execution_id, session_id, metadata_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(randomUUID(), eventType, executionId, sessionId, JSON.stringify(metadata), createdAt);
+    const id = randomUUID();
+    transaction(this.database, () => {
+      this.database.prepare(`
+        INSERT INTO dsh_audit_events (id, event_type, execution_id, session_id, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, eventType, executionId, sessionId, JSON.stringify(metadata), createdAt);
+      if (["human-work-approved", "human-work-rejected"].includes(eventType))
+        this.workContext.recordHumanReview(executionId, id, eventType === "human-work-approved", metadata.summary, metadata.feedback);
+    });
     this.notify({ type: eventType, executionId, sessionId, at: createdAt });
   }
 
@@ -1337,10 +1342,15 @@ export class AgentRuntime {
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
-        if (["candidate", "pass"].includes(args.outcome) && data.requiresHumanApproval &&
-            !this.database.prepare(`SELECT 1 FROM dsh_audit_events
-              WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(executionId))
-          throw new Error("This stage requires human approval through bees_request_work_review before it can pass");
+        const lastReview = this.database.prepare(`SELECT event_type AS type FROM dsh_audit_events
+          WHERE execution_id = ? AND event_type IN ('human-work-approved', 'human-work-rejected')
+          ORDER BY rowid DESC LIMIT 1`).get(executionId);
+        const rejected = this.workContext.humanReviews(executionId).requiredCorrections
+          .some((review) => review.workItemId === data.workItemId);
+        if (["candidate", "pass"].includes(args.outcome) &&
+            (rejected || lastReview?.type === "human-work-rejected" ||
+              data.requiresHumanApproval && lastReview?.type !== "human-work-approved"))
+          throw new Error("This stage requires human approval through bees_request_work_review before it can pass; resolve the rejection feedback and request review again");
         if (args.outcome === "candidate") assertPeersSettled(this, data);
         const pinned = this.workContext.run(executionId);
         const evidence = pinned ? this.workContext.resultEvidence(executionId, data, workspace, result, findings) : null;

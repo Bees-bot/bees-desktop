@@ -186,7 +186,7 @@ export class BeesProduct {
     try {
       assignment = resolveStageAgent(this.database, {
         executionId, item, stageId: required(stage.stageId, "Stage"), purpose: stage.purpose,
-        candidateExecutionId: stage.candidateExecutionId
+        candidateExecutionId: stage.candidateExecutionId, recurringGuidance: this.workContext.guidance(item.id)
       });
     } catch (error) {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
@@ -946,7 +946,7 @@ export class BeesProduct {
 
   async command(input) {
     const action = required(input?.action, "Action");
-    if (["read_work_context", "read_work_discussion", "memory_status"].includes(action)) return this.execute(action, input);
+    if (["read_work_context", "read_work_discussion", "specialist_feedback_context", "memory_status"].includes(action)) return this.execute(action, input);
     try {
       const result = await this.execute(action, input);
       this.record(action, input, result, "ok");

@@ -494,25 +494,42 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
   const [scope, setScope] = useState("current");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [guidance, setGuidance] = useState(null);
+  const [playbook, setPlaybook] = useState("");
+  const [futureSaved, setFutureSaved] = useState(false);
   const recurring = data?.recurringWork?.find(({ id }) => id === item?.recurringWorkId);
-  const producerRun = data?.runs?.find((run) => run.workItemId === item?.id && run.mode === "work" && run.specializationId);
-  const specialist = data?.specializations?.find(({ id }) => id === producerRun?.specializationId);
+  const loadGuidance = async () => {
+    setScope("future"); setBusy("loading"); setError("");
+    try {
+      if (!act || !executionId) throw new Error("Future-run guidance is unavailable for this review");
+      const value = await act({ action: "specialist_feedback_context", executionId });
+      if (!value) throw new Error("The producing specialist's playbook could not be loaded");
+      setGuidance(value); setPlaybook(value.playbook);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(""); }
+  };
   const answer = async (outcome, feedback = "") => {
     setBusy(outcome); setError("");
+    let saved = futureSaved;
     try {
       const detail = feedback.trim();
+      if (outcome === "reject" && scope === "future" && !saved) {
+        if (!act || !executionId || !recurring || !guidance) throw new Error("Load and edit the future-run guidance first");
+        // Save before answering: the native review disappears as soon as its answer is accepted.
+        const learned = await act({ action: "apply_specialist_feedback", executionId, feedback: detail,
+          applyToFuture: true, playbook, expectedRevision: guidance.revision });
+        if (!learned) throw new Error("Future guidance was not saved. The rejection has not been sent");
+        saved = true; setFutureSaved(true);
+      }
       await pending.answer({ answers: [{
         id: question.id, selected: outcome === "approve" ? ["Approve"] : [],
         ...(detail ? { custom: detail } : {})
       }] });
-      if (outcome === "reject" && scope === "future") {
-        if (!act || !executionId || !recurring) throw new Error("Future-run learning is unavailable for this review");
-        const learned = await act({ action: "apply_specialist_feedback", executionId, feedback });
-        if (!learned) throw new Error("The work was rejected, but its future-run guidance could not be updated");
-      }
       onAnswered(wait.key);
     } catch (reason) {
-      setBusy(""); setError(reason instanceof Error ? reason.message : String(reason));
+      setBusy("");
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setError(saved ? `Future guidance was saved, but the review answer could not be confirmed. Retry sending the rejection. ${message}` : message);
     }
   };
   if (!question) return h(Empty, null, "The work review request is unavailable.");
@@ -526,29 +543,39 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
       h(Button, { className: "danger", disabled: Boolean(busy), onClick: () => setRejecting(true) }, "Reject"),
       h("div", { className: "bees-grow" }),
       h(Button, { className: "primary", disabled: Boolean(busy), onClick: () => void answer("approve") },
-        busy === "approve" ? "Approving…" : "Approve")));
+        busy === "approve" ? "Approving..." : "Approve")));
   return h(React.Fragment, null,
     h("div", null, h("div", { className: "bees-muted" }, "Reject work"),
-      h("h3", { className: "bees-section-title" }, "What should change?")),
+      h("h3", { className: "bees-section-title" }, "What should change in this run?")),
     h("textarea", {
-      className: "bees-textarea", value: reason, maxLength: 2_000, autoFocus: true, disabled: Boolean(busy),
-      placeholder: "Give specific feedback so the agent can revise the work.",
+      className: "bees-textarea", value: reason, maxLength: 2_000, autoFocus: true, disabled: Boolean(busy) || futureSaved,
+      placeholder: "Give concrete corrections. The original feedback is preserved for this run and its reviewer.",
       onChange: (event) => setReason(event.target.value)
     }),
-    h("div", { className: "bees-muted" }, `${reason.length}/2000`),
+    h("div", { className: "bees-muted" }, `${reason.length}/2000. These corrections are mandatory for this run, not optional discussion or recalled memory.`),
     recurring ? h("div", { className: "bees-question-options", role: "radiogroup", "aria-label": "Feedback scope" },
-      h("button", { type: "button", role: "radio", "aria-checked": scope === "current", className: `bees-choice ${scope === "current" ? "selected" : ""}`, onClick: () => setScope("current") },
+      h("button", { type: "button", role: "radio", disabled: Boolean(busy) || futureSaved, "aria-checked": scope === "current", className: `bees-choice ${scope === "current" ? "selected" : ""}`, onClick: () => setScope("current") },
         h("span", { className: "bees-choice-mark" }, "1"), h("span", { className: "bees-choice-copy" }, h("strong", null, "This run only"), h("span", { className: "bees-muted" }, "Revise this result without changing future behavior."))),
-      h("button", { type: "button", role: "radio", "aria-checked": scope === "future", className: `bees-choice ${scope === "future" ? "selected" : ""}`, onClick: () => setScope("future") },
-        h("span", { className: "bees-choice-mark" }, "2"), h("span", { className: "bees-choice-copy" }, h("strong", null, `Future ${recurring.name} runs`),
-          h("span", { className: "bees-muted" }, `Also update ${specialist?.name || "the producing specialist"}.`)))) :
+      h("button", { type: "button", role: "radio", disabled: Boolean(busy) || futureSaved, "aria-checked": scope === "future", className: `bees-choice ${scope === "future" ? "selected" : ""}`, onClick: () => void loadGuidance() },
+        h("span", { className: "bees-choice-mark" }, "2"), h("span", { className: "bees-choice-copy" }, h("strong", null, `Also apply guidance to future ${recurring.name} runs`),
+          h("span", { className: "bees-muted" }, "Review a concise playbook update, not a permanent copy of this rejection.")))) :
       h("p", { className: "bees-muted" }, "This feedback applies to this goal only. One-off work does not change an agent's future behavior."),
+    scope === "future" && guidance ? h("div", { className: "bees-stack" },
+      h("label", null, `Future guidance for ${guidance.name} (editing version ${guidance.revision})`,
+        h("textarea", { className: "bees-textarea", value: playbook, maxLength: 6000, rows: 8,
+          disabled: Boolean(busy) || futureSaved, onChange: (event) => setPlaybook(event.target.value),
+          placeholder: "Write reusable guidance, keeping any existing rules that still apply." })),
+      h("p", { className: "bees-muted" }, `${playbook.length}/6000. This replaces the full playbook: merge repeated rules, preserve useful guidance, and omit one-run exceptions. Workers and reviewers use the same frozen version in future runs; current runs keep their existing guidance.`),
+      !futureSaved ? h(Button, { disabled: Boolean(busy), onClick: () => void loadGuidance() }, "Reload latest playbook (discard edits)") : null) : null,
+    busy === "loading" ? h("p", { role: "status" }, "Loading the producing specialist's playbook...") : null,
+    futureSaved ? h("p", { role: "status", className: "bees-callout" }, "Future guidance is saved. Finish sending the rejection below.") : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-answer-actions" },
-      h(Button, { disabled: Boolean(busy), onClick: () => { setRejecting(false); setError(""); } }, "Back"),
+      h(Button, { disabled: Boolean(busy) || futureSaved, onClick: () => { setRejecting(false); setError(""); } }, "Back"),
       h("div", { className: "bees-grow" }),
-      h(Button, { className: "danger", disabled: Boolean(busy) || reason.trim().length < 3,
-        onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting…" : "Reject and send feedback")));
+      h(Button, { className: "danger", disabled: Boolean(busy) || reason.trim().length < 3 ||
+        scope === "future" && !futureSaved && (!guidance || playbook.trim().length < 3 || playbook.trim() === guidance.playbook),
+        onClick: () => void answer("reject", reason) }, busy === "reject" ? "Rejecting..." : "Reject and send feedback")));
 }
 
 // Autofocus scrolled the widget to the box, so the question above it was out of view before you read it.
