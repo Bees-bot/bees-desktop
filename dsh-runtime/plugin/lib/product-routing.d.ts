@@ -5,4 +5,5 @@ export declare function resolveStageAgent(database: any, input: {
   stageId: string;
   purpose: "worker" | "reviewer";
   candidateExecutionId?: string;
+  recurringGuidance?: Array<Record<string, any>>;
 }): any;

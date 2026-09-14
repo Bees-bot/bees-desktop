@@ -24,6 +24,13 @@ export function SharedWorkContext({ item, executionId }) {
       : "Requirements are pinned when execution starts. Edit the work item or process to change requirements for a new execution."),
     view?.context ? h("details", { open: true }, h("summary", null, "Exact requirements and assigned scope"),
       h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, JSON.stringify({ requirements: view.context.content, scope: view.context.scope }, null, 2))) : null,
+    view?.humanReview?.entries?.length ? h("details", { open: Boolean(view.humanReview.requiredCorrections.length) },
+      h("summary", null, `Human review feedback (revision ${view.humanReview.version})`),
+      h("p", { className: "bees-muted" }, "Original feedback is preserved here. Unresolved rejections are required corrections for this run, not ordinary discussion or recalled memory."),
+      ...view.humanReview.entries.map((review) => h("article", { key: review.id, className: "bees-box" },
+        h("strong", null, `${review.approved ? "Approved" : "Rejected"}: ${review.workItemId}`),
+        h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, review.feedback || review.summary),
+        h("small", null, `Execution: ${review.executionId}`)))) : null,
     view?.context?.memories?.length ? h("details", null, h("summary", null, "Recalled experience"),
       ...view.context.memories.map((memory, index) => h("p", { key: memory.id ?? index }, memory.text))) : null);
 }
