@@ -486,7 +486,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('const GLOBAL_SETTINGS = [\n  ["personal-ai", "AI connections"]');
     expect(client).toContain('onClick: () => navigate("personal-ai")');
     expect(client).toContain('className: "bees-settings-divider"');
-    expect(client).toContain('row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings"');
+    expect(client).not.toContain('row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings"');
     expect(client).not.toContain('key: `top-settings:${child}`');
     expect(client).not.toContain('aria-label": "Bees navigation"');
     expect(client).toContain('className: "bees-settings-layout"');

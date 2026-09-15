@@ -104,8 +104,8 @@ function ScopeSwitcher({
           h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, expanded ? "⌄" : "›"),
           h("span", { className: "bees-team-initial", "aria-hidden": "true" }, row.name.trim().charAt(0).toLocaleUpperCase() || "•"),
           h("span", { className: "bees-team-name" }, row.name)),
-          row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
-            "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon)) : null),
+          h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
+            "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
         expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
           ...NAVIGATION.filter(({ id }) => id !== "settings").map((item) => {
             const menuKey = `${row.id}:${item.id}`;
