@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -496,3 +497,10 @@ async function prepareMemoryInstaller() {
 }
 
 await prepareMemoryInstaller();
+
+// The memory plugin loads out of node_modules/@bees/dsh-plugin and resolves the installer as a
+// sibling package, so it has to exist there too. Nothing else copies this across.
+const memorySource = resolve(desktopRoot, "dsh-runtime", "memory-runtime");
+const memoryStaged = resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime");
+rmSync(memoryStaged, { recursive: true, force: true });
+cpSync(memorySource, memoryStaged, { recursive: true, dereference: true });

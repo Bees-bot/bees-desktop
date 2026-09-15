@@ -47,6 +47,7 @@ const CAPACITY_WAIT_LIMIT = 40;
 
 export async function processWorkflow(input) {
   let index = Math.max(0, input.stages.findIndex(({ id }) => id === input.stageId));
+  const startedAt = index;
   let paused = false;
   let retryRequested = false;
   let retryRequests = 0;
@@ -180,6 +181,13 @@ export async function processWorkflow(input) {
         continue;
       }
       if (purpose !== "reviewer" && result.outcome === "candidate") {
+        // A peer was delegated one assignment, not the rest of the process. Walking it on ran
+        // every later stage a second time and held the parent waiting for all of them.
+        if (input.peerAssignment && index === startedAt) {
+          state.executionId = null;
+          await project("completed", null);
+          return state;
+        }
         candidateExecutionId = state.executionId;
         feedback = "";
         index += 1;

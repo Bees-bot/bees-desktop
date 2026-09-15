@@ -7,6 +7,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
+import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
 import { userMessage } from "./product-database.js";
@@ -183,6 +184,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   initializeProductDatabase(database);
   capabilities = new Capabilities(ctx, database, workspace);
   agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities);
+  mountEvidenceCapture(ctx, database, ctx.logger);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
   void connected.authConfig().then((config) =>

@@ -8,10 +8,15 @@ const json = (value) => ({ result_json: JSON.stringify(value) });
 
 export function assertPeersSettled(runtime, data) {
   if (!data.workItemId) return;
-  const children = runtime.database.prepare(`SELECT w.id, w.agent_assignment_id AS agentId, w.runtime_phase AS phase
+  const children = runtime.database.prepare(`SELECT w.id, w.title, w.agent_assignment_id AS agentId, w.runtime_phase AS phase
     FROM work_items w WHERE w.parent_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL`).all(data.workItemId);
-  if (children.some(({ phase }) => !["completed", "cancelled"].includes(phase)))
-    throw new Error("Peer work is unfinished. Wait for active peers. For failed children, use bees_resolve_failed_work to retry the same child or explicitly replace it with a completed sibling after reviewing the evidence.");
+  const unfinished = children.filter(({ phase }) => !["completed", "cancelled"].includes(phase));
+  // Name the child. "Peer work is unfinished" leaves a small model retrying the same submit forever.
+  if (unfinished.length) throw new Error(
+    `${unfinished.map(({ title, phase }) => `"${String(title).slice(0, 60)}" is ${phase}`).join("; ")}. ` +
+    (unfinished.some(({ phase }) => phase === "waiting")
+      ? "A waiting child resumes when the user answers it in Bees. Submitting again will not help."
+      : "Wait for active peers. For failed children, use bees_resolve_failed_work to retry the same child or explicitly replace it with a completed sibling after reviewing the evidence."));
   if (data.participantIds?.some((id) => !children.some(({ agentId, phase }) => agentId === id && phase === "completed")))
     throw new Error("Each assigned participant must contribute through bees_delegate_work before the lead submits.");
 }
@@ -65,7 +70,9 @@ export function mountPeerCollaboration(runtime, agentCtx, data, executionId, { t
           SELECT w.id, w.title, w.runtime_phase AS status FROM work_items w JOIN tree ON tree.id = w.id
           WHERE w.id != ? AND w.archived_at IS NULL`).all(pinned.rootId, data.workItemId);
         const updates = context.updates(data.workItemId, after);
-        const active = peers.filter(({ status }) => ["ready", "queued", "running", "waiting"].includes(status));
+        // waiting is parked on the user and queued is not a phase the table allows, so neither
+        // can make progress. Counting them as active gave the caller a 30s timeout loop.
+        const active = peers.filter(({ status }) => ["ready", "running"].includes(status));
         return { ...updates, peers, reason: updates.updates.length ? "message"
           : !active.length || active.every(({ id }) => runtime.peerWaiters.has(id)) ? "no-progress" : "waiting" };
       };
