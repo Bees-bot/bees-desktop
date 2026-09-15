@@ -8,7 +8,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser } from "./agent-browser.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
@@ -896,14 +896,11 @@ export class AgentRuntime {
         (mcpAccess === "all" || mcpServers.includes(name)));
   }
 
-  /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
+  /** Mounts this run's own browser. Chrome waits for the Open browser action, not for every run. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
-    // This run's own browser, mounted on its agent context so it dies with the run. Chrome starts
-    // alongside it only so a person has somewhere to sign in when a run asks for one.
     await this.capabilities.mountBrowserFor(agentCtx)
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
-    await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
   }
 
   /**
