@@ -8,7 +8,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
@@ -44,7 +44,7 @@ const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest s
 
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals has automatic agent selection in Work, followed by independent Review and Done; keep those stages. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. Every new request starts fresh work, even if an earlier item has the same title.
 
-Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points. If an existing process cannot honor them, ask a concise question before proposing it.
+Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
@@ -220,7 +220,7 @@ function reviewTimeline(events) {
         tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
     }
     if (event.type === "tool/result") {
-      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
       return calls.has(callId) ? [{ seq: event.seq, time: event.time, type: event.type,
         callId, error: Boolean(event.data.error), detail: excerpt(event.data.message?.content) }] : [];
     }
@@ -331,7 +331,7 @@ function eventsToConversation(events, settlements) {
       });
       calls.set(event.data.callId, part);
     } else if (event.type === "tool/result") {
-      const part = calls.get(event.data.message.source?.callId ?? event.data.message.content?.[0]?.callId);
+      const part = calls.get(event.data.message.source?.callId ?? event.data.message.content?.[0]?.toolCallId);
       if (part) {
         part.state = event.data.error ? "output-error" : "output-available";
         part.output = textBlocks(event.data.message.content).join("\n") || event.data.message.content;
@@ -352,20 +352,23 @@ export function safeRecoverySeed(events) {
   let kept = events.filter((event) => event.seq <= last.seq &&
     !event.type.startsWith("team/") && event.data?.source?.kind !== "team-message");
   // Remove projections of filtered events before assigning contiguous new indices.
+  // DSH names a surface range startSeq/endSeq; the pruning events beside it use start/end.
+  const ends = (value) => [value.startSeq ?? value.start, value.endSeq ?? value.end];
   for (;;) {
     const ids = new Set(kept.map((event) => event.seq));
-    const validRange = (range) => !range || ids.has(range.start) && ids.has(range.end);
-    const next = kept.filter((event) => {
-      const op = event.surfaceOp;
-      return (op?.op !== "replace" || ids.has(op.startSeq) && ids.has(op.endSeq)) &&
-        (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange));
-    });
+    const validRange = (value) => !value || ends(value).every((seq) => ids.has(seq));
+    const next = kept.filter((event) =>
+      (event.surfaceOp?.op !== "replace" || validRange(event.surfaceOp)) &&
+      (event.type !== "compaction/prune" || validRange(event.data?.shadowedRange)));
     if (next.length === kept.length) break;
     kept = next;
   }
   const renumbered = new Map(kept.map((event, seq) => [event.seq, seq]));
   const seqs = (list) => list?.map((seq) => renumbered.get(seq)).filter((seq) => seq !== undefined);
-  const range = (value) => ({ ...value, start: renumbered.get(value.start), end: renumbered.get(value.end) });
+  const range = (value) => {
+    const [start, end] = ends(value).map((seq) => renumbered.get(seq));
+    return value.startSeq === undefined ? { ...value, start, end } : { ...value, startSeq: start, endSeq: end };
+  };
   return kept.map(({ sourceEventSeqs, surfaceOp, ...event }, seq) => {
     const sources = seqs(sourceEventSeqs);
     return { ...event, seq,
@@ -379,26 +382,30 @@ export function safeRecoverySeed(events) {
 }
 
 /** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
-export function recoveryToolContext(events, pending) {
+export function recoveryToolContext(events, pending, ownerChecked = false) {
   const boundary = [...events].reverse().find((event) => event.type === "turn/end")?.seq ?? -1;
   const calls = new Map();
   for (const event of events) {
     if (event.type === "tool/call") calls.set(String(event.data.callId), { ...event.data, seq: event.seq });
     if (event.type === "tool/result") {
-      const id = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      const id = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
       const call = calls.get(id);
       if (call) call.result = event.data;
     }
   }
-  const uncertain = [...calls.values()].find((call) => !call.result &&
+  const uncertain = [...calls.values()].filter((call) => !call.result &&
     !["ask_user_question", WORK_REVIEW_TOOL].includes(call.name) &&
     !(pending?.kind === "approval" && pending.callId === call.callId));
-  if (uncertain) throw new Error(`Bees restarted while ${uncertain.name} was executing, before its result was recorded. Check whether the action completed before retrying; Bees will not repeat it automatically.`);
+  // Whether an in-flight call ran is unknowable, so Bees refuses to continue by itself. Retrying
+  // never cleared that, which left the run stuck for good; the owner continuing it says they looked.
+  if (uncertain.length && !ownerChecked) throw new Error(`Bees restarted while ${uncertain[0].name} was executing, before its result was recorded. Check whether the action completed, then continue this run to say so; Bees will not repeat it on its own.`);
   const completed = [...calls.values()].filter((call) => call.result && call.seq > boundary).map((call) => ({
     name: call.name, callId: call.callId, arguments: excerpt(call.arguments, 2_000),
     result: excerpt(call.result, 4_000)
   }));
-  return completed.length ? `\n\nThese tools already returned in the interrupted turn. Reuse their results; do not repeat their actions. Full results remain in the previous session's work evidence:\n${JSON.stringify(completed)}` : "";
+  const unknown = uncertain.map(({ name }) => name).join(", ");
+  return (unknown ? `\n\nBees restarted while ${unknown} was executing and its result was never recorded. The owner has confirmed the check. Establish what it did before running it again, and never repeat it blindly.` : "") +
+    (completed.length ? `\n\nThese tools already returned in the interrupted turn. Reuse their results; do not repeat their actions. Full results remain in the previous session's work evidence:\n${JSON.stringify(completed)}` : "");
 }
 
 function outcomeFor(event) {
@@ -604,11 +611,13 @@ export class AgentRuntime {
           }
         }
       }
-      const outside = run && targets.find((target) => !inside(resolve(run.directory, target), run.directory)
-        && !spill(resolve(run.directory, target)) && !uploads.has(actual(resolve(run.directory, target))));
-      // small local models write /outputs/x.md and retry it forever unless told the fix
-      if (/^\/(inputs|outputs)\//.test(outside)) return `${outside} starts at the disk root. Drop the leading slash and use ${outside.slice(1)}, which is inside this run.`;
-      if (outside) return `${outside} is outside this run. Read and write only under its own directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
+      // run is 0, not undefined, when the tool took no path argument; ?. does not stop a number
+      const outside = run ? targets.find((target) => !inside(resolve(run.directory, target), run.directory)
+        && !spill(resolve(run.directory, target)) && !uploads.has(actual(resolve(run.directory, target)))) : undefined;
+      // small local models write /outputs/x.md or /workspace/outputs/x.md and retry it for ever unless told the fix
+      const rootless = outside?.replace(/^\/(?:(?:workspace|app|home|root)\/)?(?=(?:inputs|outputs)\/)/, "");
+      if (rootless !== outside) return `${outside} starts at the disk root. Use the relative path ${rootless} instead, which is inside this run.`;
+      if (outside) return `${outside} is outside this run. Use a relative path like outputs/report.md under the run directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
       // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it
       if (exec.name.startsWith("mcp__") && (/^(?!get|list|search|read|fetch).*(send|post|submit|delete|trash|place|publish|reply|pay|bid|transfer)/i.test(exec.name.split("__").pop())
         || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))) {
@@ -697,7 +706,9 @@ export class AgentRuntime {
       FROM bees_run_checkpoints WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1
     `).get(executionId);
     if (!row?.pendingInteractionJson) return null;
-    return JSON.parse(row.pendingInteractionJson);
+    // This is read during the boot scan. One unreadable row used to stop the whole plugin loading.
+    try { return JSON.parse(row.pendingInteractionJson); }
+    catch { this.ctx.logger.warn(`bees: unreadable pending interaction on ${executionId}`); return null; }
   }
 
   pendingApproval(executionId) {
@@ -739,9 +750,13 @@ export class AgentRuntime {
     if (!run) return;
     const executionId = String(run.executionId);
     const sessionId = String(session.id);
-    // untilIdle reads this; anything on the wire counts as progress
+    // untilIdle reads these; anything on the wire counts as progress
     const live = this.live.get(executionId);
-    if (live) live.lastEventAt = Date.now();
+    if (live) {
+      live.lastEventAt = Date.now();
+      if (event.type === "tool/call") live.openTool = true;
+      else if (event.type === "tool/result" && event.surfaceOp?.op !== "replace") live.openTool = false;
+    }
     this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
     // History projections are not another tool execution or human decision.
     if (event.type === "tool/result" && event.surfaceOp?.op === "replace") return;
@@ -763,6 +778,7 @@ export class AgentRuntime {
         idempotencyKey: `${pending.kind}-requested:${sessionId}:${pending.callId}`
       });
       this.audit(`${pending.kind}-requested`, executionId, sessionId, pending);
+      this.showBrowserForQuestion(executionId);
       return;
     }
     if (event.type === "approval/asked") {
@@ -804,7 +820,7 @@ export class AgentRuntime {
       return;
     }
     if (event.type === "tool/result") {
-      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.callId ?? "");
+      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
       const pending = this.pendingInteraction(executionId);
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
@@ -871,16 +887,28 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
+  /** This run holds a browser when a browser server is enabled and nothing denies it that server. */
+  grantedBrowser({ mcpAccess, mcpServers }) {
+    if (mcpAccess === "none") return false;
+    return this.database.prepare("SELECT server_name AS name, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
+      .all().some(({ name, catalogId }) => isBrowserCatalog(catalogId) &&
+        (mcpAccess === "all" || mcpServers.includes(name)));
+  }
+
   /** Chrome starts with the first run that can reach it. No Chrome is logged, not fatal: most runs never browse. */
-  async startBrowserIfGranted({ mcpAccess, mcpServers }, agentCtx) {
-    const browsers = this.database.prepare("SELECT server_name, catalog_id FROM mcp_servers WHERE enabled = 1")
-      .all().filter(({ catalog_id }) => isBrowserCatalog(catalog_id));
-    if (mcpAccess === "none" || !browsers.some(({ server_name }) => mcpAccess === "all" || mcpServers.includes(server_name))) return;
+  async startBrowserIfGranted(data, agentCtx) {
+    if (!this.grantedBrowser(data)) return;
     // This run's own browser, mounted on its agent context so it dies with the run. Chrome starts
     // alongside it only so a person has somewhere to sign in when a run asks for one.
     await this.capabilities.mountBrowserFor(agentCtx)
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
+  }
+
+  /** A run that browses has usually stopped because it needs a person to sign in, so bring the window up. */
+  showBrowserForQuestion(executionId) {
+    const config = this.run(executionId)?.configJson;
+    if (config && this.grantedBrowser(JSON.parse(config))) this.track(showAgentBrowser());
   }
 
   /**
@@ -1547,13 +1575,13 @@ export class AgentRuntime {
     }
   }
 
-  async newHandle(run, data, workspace, mode) {
+  async newHandle(run, data, workspace, mode, ownerChecked = false) {
     let sessionId = run?.currentSessionId ?? run?.executionId;
     let seed;
     let recoveryContext = "";
     if (mode === "recovery" && run) {
       const events = await this.sessionEvents(run.executionId, run.currentSessionId);
-      recoveryContext = recoveryToolContext(events, this.pendingInteraction(run.executionId));
+      recoveryContext = recoveryToolContext(events, this.pendingInteraction(run.executionId), ownerChecked);
       seed = safeRecoverySeed(events);
       sessionId = `${run.executionId}-r${Number(run.recoveryCount) + 1}-${randomUUID().slice(0, 8)}`;
     }
@@ -1759,7 +1787,7 @@ export class AgentRuntime {
     const mode = replaceSession ? "recovery" : prepared || !existed ? "create" : "resume";
     let opened;
     try {
-      opened = await this.newHandle(run, data, workspace, mode);
+      opened = await this.newHandle(run, data, workspace, mode, Boolean(payload.ownerChecked));
     } catch (error) {
       if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
       throw error;
@@ -1796,7 +1824,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now() });
+    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now(), openTool: false });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
@@ -1926,9 +1954,14 @@ export class AgentRuntime {
 
   async untilIdle(executionId, handle) {
     const idle = handle.agent.whenIdle().then(() => true, () => true);
-    while (!await Promise.race([idle, delay(5_000).then(() => false)]))
-      if (Date.now() - (this.live.get(executionId)?.lastEventAt ?? Date.now()) > RUN_STALL_MS)
+    while (!await Promise.race([idle, delay(5_000).then(() => false)])) {
+      const live = this.live.get(executionId);
+      // A tool that has not returned may be waiting on a person or on a peer, and a question
+      // re-presented after a restart sends nothing either. Only a silently generating turn stalls.
+      const waiting = live?.openTool || this.pendingInteraction(executionId);
+      if (!waiting && Date.now() - (live?.lastEventAt ?? Date.now()) > RUN_STALL_MS)
         throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
+    }
   }
 
   async finish(executionId, submissionId, sessionId, handle, result) {

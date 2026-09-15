@@ -1,6 +1,6 @@
 import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
-import { showAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, showAgentBrowser } from "./agent-browser.js";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
@@ -1275,7 +1275,10 @@ export async function executeProductCommand(action, input) {
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      return { stopped: this.agents.abort(executionId) };
+      const stopped = this.agents.abort(executionId);
+      // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
+      this.agents.track(hideAgentBrowser());
+      return { stopped };
     }
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");
@@ -1293,7 +1296,7 @@ export async function executeProductCommand(action, input) {
       const { uid } = runContext(this.database, executionId);
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `continue:${executionId}:${Date.now()}`,
-        uid,
+        uid, ownerChecked: true,
         body: text
       });
     }

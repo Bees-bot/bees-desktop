@@ -780,7 +780,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
-      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.agentBrowser })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),

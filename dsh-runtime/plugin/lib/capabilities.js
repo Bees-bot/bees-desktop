@@ -69,6 +69,11 @@ export class Capabilities {
     await Promise.all(this.servers().filter(({ enabled }) => enabled).map((row) => this.mount(row)));
   }
 
+  /** True while a browser server is enabled, so a run has a signed-in profile a person can reach. */
+  browserEnabled() {
+    return this.servers().some(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
+  }
+
   /**
    * The browser is the one server that cannot be shared. Two runs browsing at once landed on each
    * other's pages, so a run asked for a calendar and read a news site. Each run mounts its own on
@@ -396,8 +401,15 @@ export class Capabilities {
     if (!server) return null;
     const at = server.args.indexOf("--openapi-spec");
     const spec = JSON.parse(await readFile(server.args[at + 1], "utf8"));
-    for (const [path, ops] of Object.entries(found.spec.paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
+    for (const [path, ops] of Object.entries(found.spec.paths))
+      for (const [verb, op] of Object.entries(ops)) {
+        const before = spec.paths[path]?.[verb]?.parameters ?? [];
+        // a later bare paste must not wipe the parameters an earlier fuller one found
+        const byName = new Map(before.concat(op.parameters ?? []).map((one) => [one.name, one]));
+        spec.paths[path] = { ...spec.paths[path], [verb]: { ...op, parameters: [...byName.values()] } };
+      }
     server.args[at + 1] = await this.writeSpec(found.host, JSON.stringify(spec, null, 2));
+    await this.typedTools(server.args, server.args[at + 1]);
     server.headerNames = [...new Set([...server.headerNames, ...Object.keys(secrets)])];
     this.database.prepare("UPDATE mcp_servers SET args_json = ?, header_names_json = ? WHERE id = ?")
       .run(JSON.stringify(server.args), JSON.stringify(server.headerNames), server.id);
@@ -421,6 +433,18 @@ export class Capabilities {
       text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
     }
     return text;
+  }
+
+  /** Dynamic mode hides every parameter behind an empty `params` object, and a small local model
+   *  fills that with nothing. A short spec drives far better as one typed tool per endpoint. */
+  async typedTools(args, specFile) {
+    const at = args.indexOf("--tools");
+    if (at < 0 || !String(specFile ?? "").startsWith("/")) return args;
+    try {
+      const { paths = {} } = JSON.parse(await readFile(specFile, "utf8"));
+      if (Object.keys(paths).length <= 12) args[at + 1] = "all";
+    } catch { /* an unreadable spec keeps the mode it was installed with */ }
+    return args;
   }
 
   async install(input) {
@@ -460,6 +484,7 @@ export class Capabilities {
       if (value && field.flag) args.push(field.flag, value);
     }
     if (directory) args.push(directory);
+    await this.typedTools(args, given.openapiSpec);
     return this.insert({
       id: randomUUID(),
       serverName: this.freeServerName(
