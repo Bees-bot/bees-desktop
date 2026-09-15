@@ -8,7 +8,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
@@ -65,6 +65,7 @@ const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
 - Never create Approve, Reject, Continue, or Stop choices with ask_user_question.
 - Ask for everything you are missing in one call, one entry per item, not a fresh question after each answer.
+- Write everything the owner reads in plain English, in this order: what happened, what it means for them, what you need. The first line carries the point on its own. No request ids, HTTP statuses, error class names, tool names or stack traces unless the owner has to act on one, and then say it in everyday words.
 - A skipped preference is not a blocker: take the widest safe default, keep every limit the person did set, say what you assumed, and never ask it again. Never fail a stage over a missing preference. Information or a sign-in the work genuinely cannot proceed without is not a preference.
 - A skip grants nothing. It does not widen what the task already authorised, and it is never the approval for an action that needs one.
 This protocol selects the interaction mechanism; do not invent approval checkpoints that the task or process did not request.`;
@@ -778,7 +779,6 @@ export class AgentRuntime {
         idempotencyKey: `${pending.kind}-requested:${sessionId}:${pending.callId}`
       });
       this.audit(`${pending.kind}-requested`, executionId, sessionId, pending);
-      this.showBrowserForQuestion(executionId);
       return;
     }
     if (event.type === "approval/asked") {
@@ -887,8 +887,9 @@ export class AgentRuntime {
     agentCtx.tools.restrict({ deny });
   }
 
-  /** This run holds a browser when a browser server is enabled and nothing denies it that server. */
-  grantedBrowser({ mcpAccess, mcpServers }) {
+  /** This run holds a browser when a browser server is enabled and nothing denies it that server.
+   *  The database, not capabilities: this class is built without them in some tests. */
+  grantedBrowser({ mcpAccess, mcpServers = [] } = {}) {
     if (mcpAccess === "none") return false;
     return this.database.prepare("SELECT server_name AS name, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
       .all().some(({ name, catalogId }) => isBrowserCatalog(catalogId) &&
@@ -903,12 +904,6 @@ export class AgentRuntime {
     await this.capabilities.mountBrowserFor(agentCtx)
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
     await startAgentBrowser().catch((error) => this.ctx.logger.warn(`bees: the agent's browser did not start: ${message(error)}`));
-  }
-
-  /** A run that browses has usually stopped because it needs a person to sign in, so bring the window up. */
-  showBrowserForQuestion(executionId) {
-    const config = this.run(executionId)?.configJson;
-    if (config && this.grantedBrowser(JSON.parse(config))) this.track(showAgentBrowser());
   }
 
   /**

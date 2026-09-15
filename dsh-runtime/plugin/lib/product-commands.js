@@ -1180,6 +1180,15 @@ export async function executeProductCommand(action, input) {
       const resolved = resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
       const outcome = resolved.text;
       const manifest = inputManifest(stageInputLocations(referenceInputs(this.database, workspace.id, resolved.references), runDirectory));
+      // A newer plan supersedes one still parked. Left alive it came back on every launch and asked
+      // again for an answer the person had already moved on from.
+      for (const { execution_id: parked } of this.database.prepare(`
+        SELECT execution_id FROM execution_links
+        WHERE workspace_id = ? AND COALESCE(work_item_id, '') = ''
+          AND status IN ('waiting_for_input', 'waiting_for_approval')
+      `).all(workspace.id)) {
+        if (!this.agents.abort(parked)) this.agents.setStatus(parked, "cancelled");
+      }
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: await this.planningBrief(workspace.id, outcome) + (manifest ? `\n\n${manifest}` : ""),

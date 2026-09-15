@@ -60,7 +60,17 @@ function schemaFromExample(value, depth = 0) {
   return { type: "string" };
 }
 
-/** What the endpoint accepts, read from the body the request already sends. */
+/** A curl copied off a docs page arrives with its inner quotes escaped, which is not JSON until undone. */
+function parseBody(text) {
+  for (const candidate of [text, text.replace(/\\"/g, '"')]) {
+    try { return JSON.parse(candidate); } catch { /* try the unescaped form */ }
+  }
+  return undefined;
+}
+
+/** What the endpoint accepts, read from the body the request already sends.
+ *  The pasted Content-Type wins over guessing: a body this cannot read is still JSON when the
+ *  request says so, and calling it text/plain makes a server that routes on content type refuse it. */
 function requestBodyFor(request) {
   if (!request.body) return undefined;
   const declared = Object.entries(request.headers)
@@ -74,12 +84,14 @@ function requestBodyFor(request) {
       } } }
     };
   }
-  try {
-    return { required: true, content: { "application/json": { schema: schemaFromExample(JSON.parse(request.body)) } } };
-  } catch {
-    // Not JSON and not a form: describe it as text rather than refuse the endpoint.
-    return { required: true, content: { "text/plain": { schema: { type: "string" } } } };
-  }
+  const body = parseBody(request.body);
+  if (body !== undefined)
+    return { required: true, content: { "application/json": { schema: schemaFromExample(body) } } };
+  // Unreadable, so the field list is lost either way. Name the type, keep the endpoint usable.
+  const json = declared ? declared.includes("json") : /^\s*[{[]/.test(request.body);
+  return { required: true, content: json
+    ? { "application/json": { schema: { type: "object" } } }
+    : { "text/plain": { schema: { type: "string" } } } };
 }
 
 function operationId(method, path) {

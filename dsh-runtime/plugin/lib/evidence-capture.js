@@ -41,9 +41,8 @@ const LOCATOR = " Full formatted result stored at: ";
 function spillPath(text) {
   const at = text.lastIndexOf("\n\n(");
   const notice = at < 0 ? "" : text.slice(at + 2);
-  if (!hasSpillNotice(notice)) return undefined;
-  const from = notice.indexOf(LOCATOR) + LOCATOR.length;
-  return from < LOCATOR.length ? undefined : notice.slice(from, notice.indexOf(". ", from));
+  const from = hasSpillNotice(notice) ? notice.indexOf(LOCATOR) + LOCATOR.length : 0;
+  return from > LOCATOR.length ? notice.slice(from, notice.indexOf(". ", from)) : undefined;
 }
 
 const save = (path, value) => {
@@ -73,7 +72,7 @@ const setting = (field, fallback) => {
 };
 const truthy = (value) => value === true || value === "true" || value === "True";
 
-export function shortlist(directory, pool) {
+function shortlist(directory, pool) {
   const params = readJson(join(directory, FILTER));
   if (!params) return undefined;
   const rate = Number(setting(params.rate, 20));
@@ -173,18 +172,17 @@ function capture(exec, result, database) {
   const payload = file ? readJson(file) : json(text);
   if (!payload) return undefined;
   const requestId = String(payload.request_id ?? "");
-  const tool = exec.name;
   // The generated tool name is the only name this layer knows. Recording it beats guessing a path.
-  const endpoint = tool.replace(/^mcp__[^_]+__/, "");
+  const endpoint = exec.name.replace(/^mcp__[^_]+__/, "");
   const name = `${endpoint}${requestId ? `-${requestId}` : ""}.json`;
   const where = join(EVIDENCE, "calls", name);
-  update(directory, where, () => payload);
+  save(join(directory, where), payload);
   const rows = listOf(payload);
   const matched = rows ? (payload.total_count ?? payload.result?.total_count ?? rows.length) : null;
   const calls = update(directory, CALLS, (current) => ({
     calls: [...(current?.calls ?? []), {
       endpoint,
-      tool,
+      tool: exec.name,
       params: exec.arguments ?? {},
       request_id: requestId || null,
       total_count: matched,
