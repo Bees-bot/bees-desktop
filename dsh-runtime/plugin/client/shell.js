@@ -353,10 +353,13 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
+  // A question waiting for you is not a workspace thing, so that route covers every workspace. The
+  // Needs you count and the page it opens both read this, or the number and the list disagree.
+  const scopeFor = (targetRoute) => targetRoute === "waiting" ? (data.workspaces ?? []).map(({ id }) => id) : workspaceIds;
   const rowsForRoute = (targetRoute) => {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
-    if (target.id === "work") return workItemsFor(viewData, targetRoute, workspaceIds)
+    if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
       .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
@@ -459,7 +462,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const page = route === "home" ? h(Home, {
     key: parts.workspaceId, capabilities,
-    ctx, data: viewData, workspaceId: parts.workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate,
+    ctx, data: viewData, workspaceId: parts.workspaceId, act, openWorkItem, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createProcess, createRun, createAgent
   })
     : route === "getting-started" ? h(GettingStarted, { ctx, data, parts, state: onboarding, update: updateOnboarding, saveAgentModel: savePlanningAi,
@@ -478,7 +481,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
     : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
-    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
+    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds: scopeFor(route), workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, openNeedsYou, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })

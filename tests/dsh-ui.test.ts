@@ -362,7 +362,7 @@ describe("Bees work cockpit UI", () => {
   it("omits archived work from every Needs you list", () => {
     expect(client).toContain("const activeRuns = data.runs.filter");
     expect(client).toContain("!isDone(data.items.find(({ id }) => id === run.workItemId) ?? {})");
-    expect(client).toContain("const blocked = activeRuns.filter");
+    expect(client).toContain("const working = activeRuns.filter");
   });
 
   it("uses explicit review decisions with isolated future-run learning", () => {

@@ -806,14 +806,13 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   const rowKey = rows.map(({ run }) => `${run.id}:${waiting.get(run.sessionId)?.kind ?? "none"}`).join("|");
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current)
     ? current : autoSelect ? rows[0]?.run.id ?? "" : ""), [rowKey, autoSelect]);
-  useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => rows.some(({ run }) => run.id === id)))), [rowKey]);
+  useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => activeRuns.some((run) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
   const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
   const session = useSnapshot(binding?.session);
   const interaction = pendingInteractionFor(waiting, selected?.run.sessionId, handled);
-  const actionableRunIds = new Set(rows.map(({ run }) => run.id));
-  const blocked = activeRuns.filter((run) =>
-    ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !actionableRunIds.has(run.id));
+  // Answered runs stay on screen while Bees works, so an answer does not just make the row vanish.
+  const working = activeRuns.filter((run) => handledRuns.has(run.id) && ["queued", "running"].includes(run.status));
   const answered = (key, candidates = rows) => {
     setHandled((current) => new Set(current).add(key));
     const completed = new Set(handledRuns);
@@ -822,29 +821,31 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
     const next = candidates.find(({ run }) => !completed.has(run.id));
     if (next) setSelectedId(next.run.id);
   };
-  return { rows, selected, selectedId, setSelectedId, session, interaction, handled, blocked, answered };
+  return { rows, selected, selectedId, setSelectedId, session, interaction, handled, working, answered };
 }
 
-export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, rowsForRoute, limit = 8, setPageHeader }) {
-  const queue = useNeedsYouQueue(ctx, data, workspaceIds, "", false);
+export function NeedsYouWidget({ ctx, data, act, rowsForRoute, limit = 8 }) {
+  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const records = rowsForRoute("waiting")
     .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
     .filter((record) => record.live);
   const listedItemIds = new Set(records.map(({ id }) => id));
-    
   for (const live of queue.rows) {
     if (!live.item || !listedItemIds.has(live.item.id)) {
       records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
     }
   }
-  
   const visibleRecords = records.slice(0, limit);
   const selected = visibleRecords.find(({ live }) => live.run.id === queue.selectedId)?.live;
   const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);
+  const workingRows = queue.working.map((run) => h("div", { key: run.id, className: "bees-dashboard-need-row" },
+    h("div", { className: "bees-dashboard-row" },
+      h("span", { className: "bees-dashboard-need-copy" }, runTitle(data, run)),
+      h("span", { className: "bees-badge" }, "Working…"))));
 
   return h("div", { className: "bees-dashboard-needs" },
-    visibleRecords.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
+    visibleRecords.length || workingRows.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
       const { live } = record;
       const isSelected = Boolean(selected && live.run.id === selected.run.id);
       const panelId = `bees-dashboard-need-${live.run.id}`;
@@ -868,7 +869,7 @@ export function NeedsYouWidget({ ctx, data, workspaceIds, act, openNeedsYou, row
             onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null
       );
-    })) : h(Empty, null, "Nothing needs you right now.")
+    }), ...workingRows) : h(Empty, null, "Nothing needs you right now.")
   );
 }
 

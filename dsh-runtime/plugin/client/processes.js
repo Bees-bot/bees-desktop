@@ -117,6 +117,10 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
 }
 
 
+/** A parked plan takes the person to its own question once. Coming back to this page afterwards has
+ *  to leave them alone, or the page is unusable while a plan is waiting. */
+const redirected = new Set();
+
 /** Describe the work once and Bees builds the process, its agents and its schedule to run it again. */
 function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan, openNeedsYou }) {
   const { outcome = "", runId = "" } = plan;
@@ -138,6 +142,11 @@ function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan, openNe
   const asking = run && ["waiting_for_input", "waiting_for_approval"].includes(run.status);
   const stopped = run && ["failed", "cancelled"].includes(run.status);
   const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
+  useEffect(() => {
+    if (!asking || redirected.has(run.id)) return;
+    redirected.add(run.id);
+    openNeedsYou();
+  }, [asking, run?.id]);
   return h("div", { className: "bees-stack" },
     h("form", { className: "bees-composer", onSubmit: submit },
       h("textarea", {

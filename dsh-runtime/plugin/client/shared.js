@@ -147,8 +147,9 @@ export const css = `
 .bees-widget-tooltip li { margin-bottom: 4px; }
 
 .bees-native-widgets{display:flex;height:65vh;min-height:320px;min-width:0;overflow:hidden;contain:layout paint;isolation:isolate}
-.bees-native-main{flex:1;min-width:0;height:100%}
-@media(max-width:800px){.bees-native-widgets{flex-direction:column}.bees-native-main{min-height:240px}.bees-embedded-rightbar{width:100%!important;flex:1;min-height:0}}
+.bees-native-main{flex:1;min-width:0;max-width:100%;height:100%}
+.bees-embedded-rightbar{flex:0 1 auto;max-width:40%;min-width:0}
+@media(max-width:800px){.bees-native-widgets{flex-direction:column}.bees-native-main{min-height:240px}.bees-embedded-rightbar{width:100%!important;max-width:none;flex:1;min-height:0}}
 .bees-native-conversation{min-height:180px;display:flex;flex-direction:column;gap:12px;padding:16px;min-width:0;overflow:auto}
 .bees-app [hidden]{display:none!important}
 .bees-ask-setup{max-width:none;margin:0;padding:4px 0;min-width:0}

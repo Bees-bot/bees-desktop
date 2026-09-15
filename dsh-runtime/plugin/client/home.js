@@ -170,7 +170,7 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
 
-export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createProcess, createRun, createAgent, capabilities }) {
+export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createProcess, createRun, createAgent, capabilities }) {
   const [outcome, setOutcome] = useState("");
   const [setup, setSetup] = useState(false);
   const dashboards = dashboardsFrom(preference.dashboards);
@@ -207,7 +207,7 @@ export function Home({ ctx, data, workspaceId, workspaceIds, act, openWorkItem, 
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { ctx, data, workspaceId, workspaceIds, act, openWorkItem, openNeedsYou, navigate, rowsForRoute, createWork, createProcess, createRun, createAgent,
+  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configureGoal: () => setSetup(true) };
 
   useEffect(() => {
