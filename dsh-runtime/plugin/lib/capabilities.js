@@ -410,6 +410,7 @@ export class Capabilities {
       }
     server.args[at + 1] = await this.writeSpec(found.host, JSON.stringify(spec, null, 2));
     await this.typedTools(server.args, server.args[at + 1]);
+    await this.verifyEndpoints(server.args[at + 1]);
     server.headerNames = [...new Set([...server.headerNames, ...Object.keys(secrets)])];
     this.database.prepare("UPDATE mcp_servers SET args_json = ?, header_names_json = ? WHERE id = ?")
       .run(JSON.stringify(server.args), JSON.stringify(server.headerNames), server.id);
@@ -445,6 +446,43 @@ export class Capabilities {
       if (Object.keys(paths).length <= 12) args[at + 1] = "all";
     } catch { /* an unreadable spec keeps the mode it was installed with */ }
     return args;
+  }
+
+  /** Catches a spec that names a route the API refuses, before a run dies on it. A probe sends no
+   *  credential, so it cannot create anything. Only a refused method or body type counts: APIs
+   *  answer 404 to hide a resource from a caller with no session. */
+  async verifyEndpoints(specSource) {
+    if (!specSource) return;
+    let spec;
+    try {
+      const text = /^https?:/.test(specSource)
+        ? await fetch(specSource, { signal: AbortSignal.timeout(8000) }).then((response) => response.text())
+        : await readFile(specSource, "utf8");
+      spec = JSON.parse(text);
+    } catch { return; }
+    const origin = spec.servers?.[0]?.url;
+    const paths = Object.entries(spec.paths ?? {});
+    if (!origin || paths.length > 12) return;
+    // a server url may carry a prefix like /v1, and joining it must not drop that
+    const base = String(origin).replace(/\/+$/, "");
+    for (const [path, operations] of paths) {
+      // a templated path has no single address to probe
+      if (path.includes("{")) continue;
+      for (const [method, operation] of Object.entries(operations)) {
+        if (!/^(get|put|post|delete|options|head|patch)$/.test(method)) continue;
+        const type = Object.keys(operation?.requestBody?.content ?? {})[0];
+        let status;
+        try {
+          status = (await fetch(`${base}/${path.replace(/^\/+/, "")}`, {
+            method: method.toUpperCase(),
+            ...(type ? { headers: { "content-type": type }, body: type === "application/json" ? "{}" : "" } : {}),
+            signal: AbortSignal.timeout(5000)
+          })).status;
+        } catch { continue; }
+        if (status === 405 || status === 415)
+          throw new Error(`${origin} refuses ${method.toUpperCase()} ${path} with ${status}. Describe that endpoint the way the API really serves it, then install it again.`);
+      }
+    }
   }
 
   async install(input) {
@@ -485,6 +523,7 @@ export class Capabilities {
     }
     if (directory) args.push(directory);
     await this.typedTools(args, given.openapiSpec);
+    await this.verifyEndpoints(given.openapiSpec);
     return this.insert({
       id: randomUUID(),
       serverName: this.freeServerName(

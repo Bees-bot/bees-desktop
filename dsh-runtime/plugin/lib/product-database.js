@@ -320,11 +320,9 @@ const STARTER_TEMPLATES = [
 ];
 
 function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
-  insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION, processStages([
-    { name: "Work", driver: "agent" },
-    { name: "Review", driver: "review" },
-    { name: "Done", driver: "terminal" }
-  ]), "goals", stableUuid(`${workspaceId}:goals`), at);
+  // processStages reads the drivers off the names and closes the process with its own Done
+  insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION,
+    processStages(["Work", "Review"]), "goals", stableUuid(`${workspaceId}:goals`), at);
   for (const [name, description, stages] of STARTER_TEMPLATES)
     database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
       .run(stableUuid(`${workspaceId}:template:${name}`), workspaceId, name, description,

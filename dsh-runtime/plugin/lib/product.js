@@ -20,22 +20,27 @@ import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
 
-/** A big file shows its head with a note rather than a refusal; JSON that fits is pretty-printed. */
-const PREVIEW_BYTES = 256_000;
+/** A big file shows its head with a note rather than a refusal; JSON is pretty-printed at any size. */
+const PREVIEW_BYTES = 1024 * 1024;
+const JSON_PARSE_BYTES = 4 * 1024 * 1024;
 function textPreview(path, logical) {
   const extension = extname(path).toLowerCase();
   const size = lstatSync(path).size;
-  const buffer = Buffer.alloc(Math.min(size, PREVIEW_BYTES));
+  // json is read whole so it parses, then the formatted text is clipped like any other file
+  const json = extension === ".json" && size <= JSON_PARSE_BYTES;
+  const buffer = Buffer.alloc(json ? size : Math.min(size, PREVIEW_BYTES));
   const fd = openSync(path, "r");
   let read;
   try { read = readSync(fd, buffer, 0, buffer.length, 0); } finally { closeSync(fd); }
   // stream drops a multibyte character cut at the byte limit instead of showing a box
   let content = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, read), { stream: true });
-  if (extension === ".json" && size <= PREVIEW_BYTES) {
+  if (json) {
     try { content = JSON.stringify(JSON.parse(content), null, 2); } catch { /* not JSON after all, show it raw */ }
   }
   const format = [".md", ".markdown"].includes(extension) ? "markdown" : "text";
-  return { name: basename(path), path: logical, format, content, size, truncated: size > PREVIEW_BYTES };
+  // either the file was longer than the read, or the formatted text is longer than the preview
+  const truncated = read < size || content.length > PREVIEW_BYTES;
+  return { name: basename(path), path: logical, format, content: truncated ? content.slice(0, PREVIEW_BYTES) : content, size, truncated };
 }
 
 /** The brief grows with the team, and a long description costs the same as useful context. */
