@@ -787,7 +787,9 @@ export class BeesProduct {
       if (change.action === "create_goal") {
         const title = required(change.title, "Goal title");
         proposedItems.add(title.toLocaleLowerCase());
-        return { action: "create_goal", title, description: workDescription(change), ...locations(change), runSettings: settings, ...requestedAssignment };
+        const agents = Array.isArray(change.agents) && change.agents.length
+          ? { agents: change.agents.map((agent) => available(proposedAgents, String(agent), "agent")?.name ?? String(agent)) } : requestedAssignment;
+        return { action: "create_goal", title, description: workDescription(change), ...locations(change), runSettings: settings, ...agents };
       }
       if (change.action === "add_agent_assignment" || change.action === "edit_agent_assignment") {
         const adding = change.action === "add_agent_assignment";

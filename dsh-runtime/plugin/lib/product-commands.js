@@ -364,7 +364,9 @@ export async function executeProductCommand(action, input) {
     }
     if (["create_item", "create_run", "create_goal"].includes(action)) {
       const created = transaction(this.database, () => {
-      let processId = input.processId ? required(input.processId, "Process") : null;
+      // a watcher knows its pipeline by name only, and an empty pipeline shows up nowhere else
+      let processId = input.processId ? required(input.processId, "Process")
+        : input.process ? proposalResource(this.database, input.workspaceId, "process", String(input.process).trim()).id : null;
       if (action === "create_goal") {
         const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
         processId = this.database.prepare(`
@@ -1124,6 +1126,7 @@ export async function executeProductCommand(action, input) {
             payload.idempotencyKey = `proposal:${proposalId}:${index}`;
             payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
             if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
+            if (change.agents) payload.agentIds = change.agents.map((name) => idOf("agent", name));
           }
           if (change.action === "create_recurring_work") Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
           if (change.action === "set_stage_route") {

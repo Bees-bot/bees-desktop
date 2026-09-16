@@ -220,8 +220,11 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       let event;
       try { event = JSON.parse(line); } catch { return; }
       if (event.type === "result") final = event;
-      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use" && part.name === "StructuredOutput" && typeof part.input?.tool === "string");
-      if (block && !early) { early = { structured: block.input, usage: event.message.usage ?? {} }; stop(); }
+      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use");
+      // a dsh tool called by its own name gets "No such tool available" from the cli, and the model then reports every tool as down
+      const structured = block?.name === "StructuredOutput" ? typeof block.input?.tool === "string" && block.input
+        : block && schema?.properties.tool.enum.some(Boolean) && { tool: block.name, arguments: block.input ?? {}, text: "" };
+      if (structured && !early) { early = { structured, usage: event.message.usage ?? {} }; stop(); }
     };
     const stop = () => child.kill("SIGKILL");
     const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
