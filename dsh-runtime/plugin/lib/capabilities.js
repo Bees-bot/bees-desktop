@@ -11,6 +11,7 @@ import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "
 import { discoverApi } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
 import { specFromCurl } from "./spec-from-curl.js";
+import { startStep } from "./startup.js";
 
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -92,7 +93,11 @@ export class Capabilities {
   /** On the run's own context, which dies with the run. */
   async mountFor(agentCtx, row) {
     if (!row.enabled) return;
-    await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
+    const finish = startStep(`mcp.per-run:${row.serverName}`);
+    try {
+      await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
+      finish();
+    } catch (error) { finish("failed"); throw error; }
   }
 
   async close() {
@@ -159,12 +164,15 @@ export class Capabilities {
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
     const entry = { fiber: null, error: "", ready: false };
     this.mounted.set(server.id, entry);
+    const finish = startStep(`mcp.shared:${server.serverName}`);
     try {
       const fiber = this.ctx.plugin(mcpClient, await this.configFor(server));
       entry.fiber = fiber;
       await started(fiber, server.serverName);
       entry.ready = true;
+      finish();
     } catch (error) {
+      finish("failed");
       const reason = message(error);
       // The client names the server but never what it tried, which is what you need.
       const attempted = server.transport === "stdio"

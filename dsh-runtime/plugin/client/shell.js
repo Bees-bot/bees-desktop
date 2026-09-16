@@ -149,6 +149,18 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  const startupRendered = useRef(false);
+  useEffect(() => {
+    void globalThis.fetch?.("/bees-api/startup?phase=ui.shell-mounted", { method: "POST" }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!data || startupRendered.current) return;
+    startupRendered.current = true;
+    // Report after the populated UI has had a frame to paint, not merely after fetching data.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      void globalThis.fetch?.("/bees-api/startup?phase=ui.data-rendered", { method: "POST" }).catch(() => {});
+    }));
+  }, [data]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [route, setRoute] = useState("home");

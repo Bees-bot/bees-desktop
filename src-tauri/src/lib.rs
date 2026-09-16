@@ -1,5 +1,6 @@
 mod local_models;
 mod process;
+mod startup;
 
 use getrandom::fill;
 use local_models::{
@@ -109,6 +110,7 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
         .join("lib")
         .join("bin.js");
     if !entry.is_file()
+        || !runtime.join("start.mjs").is_file()
         || !runtime.join("profile").join("package.json").is_file()
         || !runtime.join("profile").join("cordis.patch.yml").is_file()
         || !runtime
@@ -354,9 +356,11 @@ fn inherit_environment(command: &mut Command, keys: &[&str]) {
 }
 
 fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo, String> {
-    let (node, temporal_binary, runtime) = runtime_paths(app)?;
+    let _startup = startup::start("runtime.ensure");
+    let (node, temporal_binary, runtime) = startup::step("runtime.paths", || runtime_paths(app))?;
     let manager = app.state::<DshManager>();
-    let mut managed = manager.0.lock().map_err(|error| error.to_string())?;
+    let mut managed = startup::step("runtime.manager-lock", || manager.0.lock())
+        .map_err(|error| error.to_string())?;
     if let Some(current) = managed.as_mut() {
         if current.runtime_root == runtime && current.child.alive()? && current.temporal.alive()? {
             let base_url = format!("http://127.0.0.1:{}", current.port);
@@ -387,7 +391,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     let home = app_data.join("dsh");
     let workspace = app_data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
-    prepare_profile(&runtime, &home)?;
+    startup::step("runtime.profile.prepare", || prepare_profile(&runtime, &home))?;
 
     let port = stable_loopback_port(app)?;
     let temporal_port = loop {
@@ -399,12 +403,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     let temporal_address = format!("127.0.0.1:{temporal_port}");
     let secret = token()?;
     let base_url = format!("http://127.0.0.1:{port}");
-    let entry = runtime
-        .join("node_modules")
-        .join("@deepseek-ai")
-        .join("dsh")
-        .join("lib")
-        .join("bin.js");
+    let entry = runtime.join("start.mjs");
     let (log, log_path) = open_log(app)?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
     let temporal_log = log.try_clone().map_err(|error| error.to_string())?;
@@ -440,11 +439,12 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .stdout(Stdio::from(temporal_log))
         .stderr(Stdio::from(temporal_errors));
     let mut temporal = Sidecar::new(
-        temporal_command
-            .spawn()
+        startup::step("temporal.spawn", || temporal_command.spawn())
             .map_err(|error| format!("Temporal could not start: {error}"))?,
     );
-    wait_temporal(&mut temporal, &temporal_address, &log_path)?;
+    startup::step("temporal.wait-port", || {
+        wait_temporal(&mut temporal, &temporal_address, &log_path)
+    })?;
     let mut command = Command::new(&node);
     command.env_clear();
     inherit_environment(&mut command, &BASE_ENVIRONMENT);
@@ -466,17 +466,20 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("BEES_DATABASE_PATH", app_data.join("bees-stage1.db"))
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
+        .env("BEES_STARTUP_LOG", state_dir(app)?.join("startup.log"))
         .env("BEES_RUNTIME_ROOT", &runtime)
         .env("BEES_TEMPORAL_ADDRESS", &temporal_address)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
     let mut child = Sidecar::new(
-        command
-            .spawn()
+        startup::step("node.spawn", || command.spawn())
             .map_err(|error| format!("DeepSeek Harness could not start: {error}"))?,
     );
-    wait_ready(&mut child, &format!("{base_url}/healthz"), &log_path, 300)?;
+    startup::step("runtime.wait-health", || {
+        wait_ready(&mut child, &format!("{base_url}/healthz"), &log_path, 300)
+    })?;
+    startup::mark("runtime.healthy");
     *managed = Some(ManagedDsh {
         child,
         temporal,
@@ -560,6 +563,7 @@ async fn ensure_dsh_runtime(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
+    startup::mark("ui.splash.invoke");
     let home = window.url().map_err(|error| error.to_string())?;
     let handle = app.clone();
     let runtime =
@@ -569,9 +573,8 @@ async fn ensure_dsh_runtime(
     let url: tauri::Url = format!("{}/bees-auth?token={}", runtime.base_url, runtime.token)
         .parse()
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
-    clear_dsh_auth_cookies(&window)?;
-    window
-        .navigate(url)
+    startup::step("ui.clear-auth-cookies", || clear_dsh_auth_cookies(&window))?;
+    startup::step("ui.navigate", || window.navigate(url))
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
     watch_dsh(app, window, home);
     Ok(())
@@ -676,6 +679,8 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup::mark("native.entry");
+    let native_build = startup::start("native.build-app");
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
@@ -686,17 +691,25 @@ pub fn run() {
     }
     builder
         .setup(|app| {
-            reap_orphan_llama_servers();
-            if let Ok((node, temporal, _)) = runtime_paths(app.handle()) {
-                reap_orphaned_sidecars(&node);
-                reap_orphaned_sidecars(&temporal);
+            if let Ok(state) = state_dir(app.handle()) {
+                startup::open(&state.join("startup.log"));
+            }
+            let _setup = startup::start("native.setup");
+            startup::step("native.reap-llama", reap_orphan_llama_servers);
+            if let Ok((node, temporal, _)) =
+                startup::step("native.runtime-paths", || runtime_paths(app.handle()))
+            {
+                startup::step("native.reap-node", || reap_orphaned_sidecars(&node));
+                startup::step("native.reap-temporal", || reap_orphaned_sidecars(&temporal));
             }
             if let Ok(state) = state_dir(app.handle()) {
-                reap_agent_browser(&state.join("browser-profile"));
+                startup::step("native.reap-browser", || {
+                    reap_agent_browser(&state.join("browser-profile"))
+                });
             }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
-            build_tray(app.handle())?;
+            startup::step("native.tray", || build_tray(app.handle()))?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -721,9 +734,23 @@ pub fn run() {
             local_model_connection,
             open_external_url
         ])
+        .on_page_load(|_window, payload| {
+            // Do not log the URL: the initial handoff carries an authentication token.
+            startup::mark(match payload.event() {
+                tauri::webview::PageLoadEvent::Started => "webview.load-started",
+                tauri::webview::PageLoadEvent::Finished => "webview.load-finished",
+            });
+        })
         .build(tauri::generate_context!())
+        .map(|app| {
+            drop(native_build);
+            app
+        })
         .expect("error while running Bees")
         .run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                startup::mark("native.event-loop-ready");
+            }
             #[cfg(target_os = "macos")]
             if matches!(event, tauri::RunEvent::Reopen { .. }) {
                 show_main_window(handle);

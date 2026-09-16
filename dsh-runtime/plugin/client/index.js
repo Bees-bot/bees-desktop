@@ -7,6 +7,8 @@ import { NativeContentHost, nativeEmbedding } from "./native-conversation.js";
 import { installScrollbars } from "./scrollbars.js";
 import brandMark from "../../../src/brand-mark.png";
 
+void globalThis.fetch?.("/bees-api/startup?phase=ui.module-loaded", { method: "POST" }).catch(() => {});
+
 window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
   factory: (require) => {

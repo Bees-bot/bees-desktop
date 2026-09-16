@@ -14,6 +14,7 @@ import { userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 import { AppPlatform } from "./app-platform.js";
 import { AppCatalog } from './app-catalog.js';
+import { mark, step } from "./startup.js";
 
 export const name = "bees";
 export const inject = [
@@ -154,7 +155,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
   if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
 
-  const database = new DatabaseSync(databasePath);
+  const database = step("bees.database.open", () => new DatabaseSync(databasePath));
   database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
   const changeSubscribers = new Set();
   let changeRevision = 0;
@@ -181,9 +182,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
     database.close();
   }, "bees shutdown");
   const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
-  initializeProductDatabase(database);
+  step("bees.database.initialize", () => initializeProductDatabase(database));
   capabilities = new Capabilities(ctx, database, workspace);
-  agents = new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities);
+  agents = step("bees.agents.initialize", () => new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities));
   mountEvidenceCapture(ctx, database, ctx.logger);
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
@@ -215,10 +216,10 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const catalog = new AppCatalog(database);
   const apps = new AppPlatform(product, undefined, { connected, catalog });
   agents.apps = apps;
-  await product.initialize();
-  await capabilities.initialize();
-  await product.recoverRuns();
-  await processes.start((stage, signal) => product.runProcessStage(stage, signal));
+  await step("bees.workspaces.initialize", () => product.initialize());
+  await step("bees.integrations.initialize", () => capabilities.initialize());
+  await step("bees.runs.recover", () => product.recoverRuns());
+  await step("bees.processes.start", () => processes.start((stage, signal) => product.runProcessStage(stage, signal)));
   const syncTick = async () => {
     await connected.sync();
     await product.initialize();
@@ -229,7 +230,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     ctx.logger.warn?.(`bees: background team sync failed: ${userMessage(error)}`)), 15_000);
   syncTimer.unref();
   ctx.effect(() => () => clearInterval(syncTimer), "bees team sync");
-  void syncTick().catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
+  void step("background.team-sync.initial", syncTick).catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
   if (!server?.prependListener) throw new Error("bees: agent runtime webserver seam changed");
@@ -256,6 +257,15 @@ export async function apply(ctx, _config = {}, internals = {}) {
     reply(res, 401, { error: "unauthorized" }) });
   register(ctx, { kind: "exact", path: "/healthz", handler: (_req, res) =>
     reply(res, 200, { status: "ok", runtime: "dsh", product: "bees" }) });
+  mark("bees.health-route.registered");
+  const startupMarkers = new Set(["ui.module-loaded", "ui.shell-mounted", "ui.data-rendered"]);
+  register(ctx, { kind: "exact", path: "/bees-api/startup", handler: (req, res) => {
+    if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
+    const phase = new URL(req.url, "http://127.0.0.1").searchParams.get("phase");
+    // One fixed marker per boot; no arbitrary browser data is written to the log.
+    if (startupMarkers.delete(phase)) mark(phase);
+    reply(res, 200, { ok: true });
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/events", handler: (req, res) => {
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { step } from "./startup.js";
 
 export const LOCAL_MEMORY_URL = "http://127.0.0.1:8898";
 const version = "0.10.0";
@@ -73,7 +74,7 @@ export class LocalMemory {
 
   ensure() {
     if (this.stop.signal.aborted || this.pending || Date.now() < this.retryAt) return;
-    this.pending = this.launch().catch(async (error) => {
+    this.pending = (this.ready ? this.launch() : step("background.hindsight.launch", () => this.launch())).catch(async (error) => {
       if (!this.stop.signal.aborted) {
         this.status = error.message;
         this.retryAt = Date.now() + 60000;
@@ -121,12 +122,12 @@ export class LocalMemory {
       const uv = fileURLToPath(new URL(`../../memory-runtime/uv${suffix}`, import.meta.url));
       if (!existsSync(uv)) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
       this.spawn(uv, ["tool", "install", "--python", "3.12", "--with", "flashrank", `hindsight-api-slim[local-onnx,embedded-db]==${version}`], env);
-      const result = await this.exit;
+      const result = await step("background.hindsight.install", () => this.exit);
       this.child = undefined;
       if (result.error || result.code !== 0) throw new Error("Local memory installation failed; check internet access. Bees will retry automatically.");
     }
     this.stop.signal.throwIfAborted();
-    await this.target();
+    await step("background.hindsight.find-local-model", () => this.target());
     this.status = "Starting local Hindsight and its embedding model";
     const token = randomBytes(32).toString("hex");
     this.bridge = createServer((request, response) => { void this.forward(request, response, token); });

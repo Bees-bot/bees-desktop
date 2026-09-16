@@ -355,6 +355,7 @@ async function findClaude(ctx) {
 }
 
 export async function apply(ctx) {
+  const time = globalThis.__beesStartup?.step ?? ((_phase, run) => run());
   let pending = null;
   let claudeRegistration = null;
   let refreshingCodex = null;
@@ -372,8 +373,8 @@ export async function apply(ctx) {
     if ((!enabled || !path) && claudeRegistration) { claudeRegistration(); claudeRegistration = null; }
   };
   const syncClaude = (reset = false) => { claudeSync = claudeSync.then(() => updateClaude(reset), () => updateClaude(reset)); return claudeSync; };
-  await ensureCodex().catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
-  await syncClaude();
+  await time("subscriptions.codex.refresh", ensureCodex).catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
+  await time("subscriptions.claude.configure", syncClaude);
   ctx.on("credentials/updated", (ref) => {
     if (ref === CLAUDE_PATH_REF || ref === CLAUDE_ENABLED_REF) void syncClaude();
   });

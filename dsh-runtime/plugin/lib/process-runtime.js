@@ -6,6 +6,7 @@ import {
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { iso, message, transaction } from "./product-database.js";
+import { step } from "./startup.js";
 
 export const PROCESS_TASK_QUEUE = "bees-processes-v1";
 export const processWorkflowId = (workItemId) => `bees/work-item/${workItemId}`;
@@ -88,11 +89,11 @@ export class ProcessRuntime {
     const address = process.env.BEES_TEMPORAL_ADDRESS;
     if (!this.client) {
       if (!address) throw new Error("bees: missing embedded Temporal address");
-      this.connection = await Connection.connect({ address });
+      this.connection = await step("temporal.client.connect", () => Connection.connect({ address }));
       this.client = new Client({ connection: this.connection, namespace: "default" });
     }
     if (!this.worker && (address || this.workerFactory)) {
-      this.workerConnection = this.workerFactory ? undefined : await NativeConnection.connect({ address });
+      this.workerConnection = this.workerFactory ? undefined : await step("temporal.worker.connect", () => NativeConnection.connect({ address }));
       const projectWorkItem = (state) => this.project(state);
       const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt, accountUserId = "" }) => {
         const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt, accountUserId);
@@ -126,12 +127,12 @@ export class ProcessRuntime {
         workflowsPath: fileURLToPath(new URL("./process-workflow.js", import.meta.url)),
         activities: { projectWorkItem, createRecurringWorkItem, runDshStage }
       };
-      this.worker = this.workerFactory
-        ? await this.workerFactory(workerOptions)
-        : await Worker.create(workerOptions);
+      this.worker = await step("temporal.worker.create-and-bundle", () => this.workerFactory
+        ? this.workerFactory(workerOptions)
+        : Worker.create(workerOptions));
       this.running = this.worker.run().catch((error) => this.logger.error?.(error));
     }
-    await this.reconcile();
+    await step("temporal.reconcile", () => this.reconcile());
   }
 
   recurring(recurringWorkId, accountUserId = "") {

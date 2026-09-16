@@ -51,6 +51,13 @@ make build    # Build the desktop release installer
 
 `npm run tauri:prod` launches the development app against the deployed API without building an installer. `npm run tauri:dev` also uses the deployed API by default; set `BEES_ACCOUNT_API_URL` to override it.
 
+Development commands use `src-tauri/tauri.dev.conf.json`: the debug app reads DSH
+and llama.cpp from this checkout, so Cargo does not copy their resource trees on
+each build. Preparation preserves unchanged Node/Temporal executable timestamps,
+letting Cargo reuse the native build on repeat launches. Source and configuration
+changes still rebuild normally. The first build downloads/prepares runtimes and
+compiles Rust dependencies; release installers include the complete resources.
+
 Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app.
 
 Build an installer with `make build` (or `npm run tauri:build`).
