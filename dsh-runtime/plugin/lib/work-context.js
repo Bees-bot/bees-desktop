@@ -307,10 +307,19 @@ export class WorkContext {
     let findings;
     try { findings = JSON.parse(value); } catch { throw new Error("findings_json must be a JSON array"); }
     if (JSON.stringify(findings).length > 5000) throw new Error("Review findings exceed 5000 characters");
-    if (!Array.isArray(findings) || !findings.length || findings.length > 20 || findings.some((f) =>
-      !["goal", "process", "system", "scope"].includes(f?.criterion) ||
-      !["evidence", "change"].every((key) => typeof f[key] === "string" && f[key].trim() && f[key].length <= 2000)))
-      throw new Error("Each review finding needs criterion (goal/process/system/scope), evidence, and a concrete change");
+    if (!Array.isArray(findings)) throw new Error("findings_json must be a JSON array");
+    // smaller models name these fields their own way and a whole review died on the spelling
+    const pick = (f, keys) => keys.map((key) => f?.[key]).find((v) => typeof v === "string" && v.trim())?.trim() ?? "";
+    findings = findings.map((f) => typeof f === "string" ? { evidence: f, change: f } : f ?? {}).map((f) => ({
+      criterion: f.criterion ?? "goal",
+      evidence: pick(f, ["evidence", "finding", "issue", "problem", "observation"]),
+      change: pick(f, ["change", "fix", "correction", "suggestion", "recommendation"])
+    }));
+    // taste is not a finding: a named criterion still has to be one of the four
+    if (findings.some((f) => !["goal", "process", "system", "scope"].includes(f.criterion)))
+      throw new Error("Each review finding's criterion must be goal, process, system or scope");
+    if (!findings.length || findings.length > 20 || findings.some((f) => !f.evidence || !f.change || f.evidence.length > 2000 || f.change.length > 2000))
+      throw new Error("Each review finding needs evidence and a concrete change, each under 2000 characters");
     return findings;
   }
 

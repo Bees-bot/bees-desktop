@@ -151,11 +151,17 @@ export class ProcessRuntime {
   }
 
   executorAccounts(recurringWorkId) {
+    // a shared schedule runs as the account whose item was scheduled, on whichever of that person's
+    // devices is connected here: their servers and sign-ins live there. every other member's device
+    // would fire the same tick under its own account and the server keeps claims per account, so two
+    // devices meant two runs. a schedule from before this had no owner and still runs for everyone.
     const connected = this.database.prepare(`
       SELECT DISTINCT c.account_user_id AS accountUserId
       FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
+      LEFT JOIN work_items d ON d.id = r.source_work_item_id
       JOIN bees_connection_teams ct ON ct.team_id = w.team_id
       JOIN bees_connections c ON c.id = ct.connection_id
+        AND c.account_user_id = COALESCE(d.account_user_id, c.account_user_id)
       WHERE r.id = ? ORDER BY c.account_user_id
     `).all(recurringWorkId).map(({ accountUserId }) => accountUserId);
     if (connected.length) return connected;

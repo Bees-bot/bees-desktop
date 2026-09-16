@@ -46,13 +46,15 @@ Use an existing process when the person names it. Otherwise use create_goal to s
 
 Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
 
+A schedule that watches for new things (new mail, new jobs, new tickets) is not the pipeline that handles them. Give the handling its own process with its stages and approval point, and schedule a watcher goal (create_goal, then create_recurring_work) whose agent checks the source, remembers what it already saw, and creates one item in that process per new thing with bees_control create_item. An empty check then ends after one stage instead of walking every stage and asking the owner to approve nothing, and each new thing shows up on its own in the owner's attention list.
+
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
 Keep setup capabilities: propose a missing MCP connection when the outcome requires one, install_skill only when an available pack clearly helps and is not already installed, and a schedule when the person specifies recurrence. A request only to configure a resource does not also need a work item. Reuse the configured model; do not invent a provider/model or require a second provider. Model connections and local model downloads are managed through the model settings screen, not proposal actions. The selected model and tool access follow the resulting work; do not broaden tool access or claim an unavailable connection is usable. Explain any missing access in the proposal.
 
 A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
 
-MCP servers come from the catalog only, by install_mcp_server with one of these catalogId values: ${CATALOG_IDS}. An API with no server of its own goes through catalogId "openapi-bridge" with inputs {curl: the exact request the person gave} and secrets {API_HEADERS: its auth header}, which turns every endpoint into a tool. Never propose add_mcp_server with a package you have not seen. A credential always goes in an MCP server's secrets, where the credential store holds it. Never put a key, token or auth header in a work item, a goal or a stage: that column is plain text, it is indexed for search, it is shown on screen and it is read back into the prompt on every later run.
+MCP servers come from the catalog only, by install_mcp_server with one of these catalogId values: ${CATALOG_IDS}. An API with no server of its own goes through catalogId "openapi-bridge" with inputs {curl: the exact request the person gave} and secrets {API_HEADERS: its auth header}, which turns every endpoint into a tool. An id that changes per call goes in the path as a {name} placeholder, /bids/{bid_id}/ and not /bids/789/, or that tool only ever reaches the one record. Never propose add_mcp_server with a package you have not seen. A credential always goes in an MCP server's secrets, where the credential store holds it. Never put a key, token or auth header in a work item, a goal or a stage: that column is plain text, it is indexed for search, it is shown on screen and it is read back into the prompt on every later run.
 
 A stage is a name and nothing else. What the work is goes in the work item you create for it, and how an agent behaves goes in that agent's instructions, never in a stage. A credential the person gave belongs in the MCP server's secrets, never in a work item and never in a request for the person to sign in.
 
@@ -906,7 +908,7 @@ export class AgentRuntime {
   /** Mounts this run's own browser. Chrome waits for the Open browser action, not for every run. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
-    await this.capabilities.mountBrowserFor(agentCtx)
+    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null)
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
   }
 
@@ -953,6 +955,7 @@ export class AgentRuntime {
     const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
+    if (data.mcpAccess !== "none") await this.capabilities?.retryFailed?.(data.mcpAccess === "listed" ? data.mcpServers : null);
     this.restrictMcp(agentCtx, data);
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
@@ -1059,7 +1062,7 @@ export class AgentRuntime {
       description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. "
         + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|none|listed, mcpServers?} -> {id}. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
-        + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, directory?, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools and catalogId filesystem or git needs directory, an absolute path; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
+        + "search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, directory?, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}) and catalogId filesystem or git needs directory, an absolute path; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. "
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
       parameters: {
         action: { type: "string", required: true, description: "One of the actions above." },
@@ -1359,13 +1362,15 @@ export class AgentRuntime {
         const present = (path) => real(resolve(workspace, path)) || files.some((file) => file.startsWith(path));
         const missing = files ? (result.summary.match(/outputs\/[\w.\-/]+/g) ?? []).map((path) => path.replace(/[.,;:]+$/, ""))
           .filter((path) => /(^|\/)\.\.(\/|$)/.test(path) || !present(path)) : [];
-        const named = files ? result.summary.match(/(?<![\p{L}\p{N}./_-])[\p{L}\p{N}._-]+\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/giu) ?? [] : [];
-        const stray = named.find((name) => real(resolve(workspace, name)) && !present(`outputs/${name}`));
+        const named = files ? result.summary.match(/(?<![\p{L}\p{N}./_-])[\p{L}\p{N}][\p{L}\p{N}._-]*\.(?:txt|md|markdown|csv|tsv|json|ya?ml|html?|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|svg|zip)\b/giu) ?? [] : [];
+        // a bare name may sit in a subfolder of outputs/, review reads those too
+        const has = (name) => present(`outputs/${name}`) || files.some((file) => file.endsWith(`/${name}`));
+        const stray = named.find((name) => real(resolve(workspace, name)) && !has(name));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) => !["inputs", "."].some((dir) => real(resolve(workspace, dir, name))) && !present(`outputs/${name}`));
+        const absent = missing[0] ?? named.find((name) => !["inputs", "."].some((dir) => real(resolve(workspace, dir, name))) && !has(name));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (files && result.summary.length > 1_200)
-          throw new Error("Keep the summary under 1200 characters: what you produced, where it is, and what is needed next. Save file deliverables under outputs/.");
+          throw new Error(`Keep the summary under 1200 characters, this one is ${result.summary.length}: what you produced, where it is, and what is needed next. Save file deliverables under outputs/.`);
         const prior = this.database.prepare(`
           SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
         `).get(executionId);

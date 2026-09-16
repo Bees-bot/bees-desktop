@@ -73,7 +73,7 @@ it("uses one run context and folder across hierarchy, stages, lifecycle changes 
     f.db.prepare("INSERT INTO bees_stage_results VALUES ('root-worker', 'worker', 'candidate', ?, 'now')").run(result.summary);
     const review = await f.run(root.id, "root-review", "reviewer", "root-worker");
     expect(review.workspace).toBe(first.workspace);
-    expect(readFileSync(join(first.workspace, ".bees-reviews", "root-review", "candidate", "articles.csv"), "utf8")).toContain("news,12");
+    expect(readFileSync(join(first.workspace, ".bees-reviews", "root-review", "candidate", "outputs", "articles.csv"), "utf8")).toContain("news,12");
     writeFileSync(join(first.workspace, "outputs", "chart.svg"), "<svg />");
     // A later worker must not restore an older candidate over the shared folder.
     await f.run(root.id, "later-stage", "worker", "root-worker");

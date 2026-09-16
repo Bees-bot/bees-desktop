@@ -4,7 +4,7 @@ import { join } from "node:path";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserStatePath, closeAgentBrowser, saveBrowserState } from "./agent-browser.js";
+import { browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -80,13 +80,23 @@ export class Capabilities {
    * its agent context, which dies with the run: either a headless session signed in from the one
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
-  async mountBrowserFor(agentCtx) {
-    const row = this.servers().find(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
+  async mountBrowserFor(agentCtx, granted = null) {
+    // the run's grant picks which one: with devtools and playwright both installed, the older row won
+    // every time and an agent listed on "browser" hunted for mcp__browser__ tools that never existed
+    const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
+      && (!granted || granted.includes(serverName)));
     if (!row) return;
     // Whatever a person has signed in to since the last run is what this one inherits.
     await saveBrowserState().catch((error) =>
       this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
     await this.mountFor(agentCtx, row);
+    // devtools attaches to Bees' Chrome and no run starts that any more, so a run that never browses
+    // opens no window. the first browser call brings it up minimised, or every call fails to connect.
+    if (row.catalogId === "chrome-devtools") agentCtx.on("tools/pre-execute", async (exec, next) => {
+      if (exec.name.startsWith(`mcp__${row.serverName}__`)) await startAgentBrowser().catch((error) =>
+        this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+      return next();
+    });
   }
 
   /** On the run's own context, which dies with the run. */
@@ -157,7 +167,7 @@ export class Capabilities {
     if (isBrowserCatalog(server.catalogId)) return;
     if (this.mounted.has(server.id)) return this.mounted.get(server.id);
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
-    const entry = { fiber: null, error: "", ready: false };
+    const entry = { fiber: null, error: "", ready: false, at: Date.now() };
     this.mounted.set(server.id, entry);
     try {
       const fiber = this.ctx.plugin(mcpClient, await this.configFor(server));
@@ -175,6 +185,20 @@ export class Capabilities {
     // A row removed while its fiber was starting must not leave the child process behind.
     if (!this.mounted.has(server.id) && entry.fiber) await stop(this.ctx, entry.fiber, server.serverName);
     return entry;
+  }
+
+  /** The memory launcher comes up after the plugin, so its boot mount fails and nothing ever tried again:
+   *  an agent listed on it ran without one mcp__memory__ tool. A run that may use a failed server retries it. */
+  async retryFailed(names = null) {
+    const rows = this.servers().filter(({ id, enabled, serverName, catalogId }) => enabled && !isBrowserCatalog(catalogId)
+      && (!names || names.includes(serverName)) && this.mounted.get(id)?.error && Date.now() - this.mounted.get(id).at > 60_000);
+    await Promise.all(rows.map((row) => this.serialize(row.id, () => this.remount(row))));
+  }
+
+  /** the local memory server was just started, so every session opened on the old process is gone */
+  async remountUrl(url) {
+    const rows = this.servers().filter((row) => row.enabled && row.transport === "streamable-http" && URL.parse(row.url)?.origin === url);
+    await Promise.all(rows.map((row) => this.serialize(row.id, () => this.remount(row))));
   }
 
   async unmount(serverId) {

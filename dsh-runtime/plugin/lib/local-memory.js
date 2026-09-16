@@ -172,7 +172,12 @@ export class LocalMemory {
       await delay(1000, undefined, { signal: this.stop.signal });
       if (exited) throw new Error("Local Hindsight could not start. Check available disk space and port 8898; Bees will retry.");
       // Dependencies and embeddings can take time on first launch, so an unreachable port is not fatal here.
-      if (await this.healthy()) { this.ready = true; this.status = "Local Hindsight running"; return; }
+      if (await this.healthy()) {
+        this.ready = true; this.status = "Local Hindsight running";
+        // a fresh process knows none of the sessions the boot mount opened against the one retire() killed
+        void this.onStart?.();
+        return;
+      }
     }
     throw new Error("Local memory startup timed out; Bees will retry automatically.");
   }
@@ -194,9 +199,11 @@ export class LocalMemory {
       catch { response.writeHead(400).end(); return; }
       if (!body || typeof body !== "object" || Array.isArray(body)) { response.writeHead(400).end(); return; }
       const target = await this.target();
+      // qwen thinks for 2k to 8k tokens before each fact extraction, past hindsight's timeout, so every retain failed
       const upstream = await fetch(`${target.base}/chat/completions`, { method: "POST", redirect: "error",
         signal: AbortSignal.any([this.stop.signal, controller.signal, AbortSignal.timeout(300000)]),
-        headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, model: target.model }) });
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, model: target.model, chat_template_kwargs: { ...body.chat_template_kwargs, enable_thinking: false } }) });
       response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json" });
       if (upstream.body) await pipeline(Readable.fromWeb(upstream.body), response); else response.end();
     } catch (error) {

@@ -14,9 +14,11 @@ const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
 });
 
 export async function recurringWorkWorkflow(input) {
-  const work = await createRecurringWorkItem({
-    ...input, occurrenceAt: workflowInfo().startTime.toISOString().slice(0, 19) + "Z"
-  });
+  // the tick the schedule meant, not when this worker got to it: every device firing the same
+  // schedule has to claim the same occurrence key
+  const [scheduled] = workflowInfo().searchAttributes?.TemporalScheduledStartTime ?? [];
+  const at = new Date(scheduled ?? workflowInfo().startTime);
+  const work = await createRecurringWorkItem({ ...input, occurrenceAt: at.toISOString().slice(0, 19) + "Z" });
   if (!work) return { skipped: true };
   return executeChild(processWorkflow, {
     workflowId: `bees/work-item/${work.workItemId}`,

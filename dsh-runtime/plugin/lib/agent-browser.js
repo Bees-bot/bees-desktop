@@ -108,7 +108,7 @@ export async function saveBrowserState() {
 }
 
 /** Bring the browser up minimised. Cheap once it runs; one launch at a time, however many ask. */
-function startAgentBrowser() {
+export function startAgentBrowser() {
   if (running() || starting) return starting ?? Promise.resolve();
   starting = launch().finally(() => { starting = null; });
   return starting;
