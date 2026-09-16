@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync
+  copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync
 } from "node:fs";
 import { basename, extname, relative, resolve, sep } from "node:path";
-import { currentIdentity, required } from "./product-database.js";
+import { currentIdentity, required, workItemLineage, workRunItems } from "./product-database.js";
 
 export const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml",
@@ -59,7 +59,7 @@ export function walkLocation(location, onFile) {
   }
 }
 
-export function stageLocation(location, destination) {
+export function stageLocation(location, destination, overwrite = true) {
   let files = 0;
   let bytes = 0;
   walkLocation(location, (source, logical) => {
@@ -68,6 +68,7 @@ export function stageLocation(location, destination) {
     const stat = lstatSync(source);
     const target = resolve(destination, logical);
     if (!logical || logical === ".." || logical.startsWith(`..${sep}`) || !target.startsWith(`${destination}${sep}`)) return;
+    if (!overwrite && existsSync(target)) return;
     if (stat.size > 20_000_000 || bytes + stat.size > 250_000_000)
       throw new Error(`${location.name} contains a file larger than 20 MB or exceeds the 250 MB input limit`);
     mkdirSync(resolve(target, ".."), { recursive: true });
@@ -97,7 +98,7 @@ export function stageInputs(database, itemId, runDirectory, agentId = null) {
   const { deviceId } = currentIdentity(database);
   const locations = database.prepare(`
     WITH refs(location_id, relative_path) AS (
-      SELECT location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
+      SELECT location_id, relative_path FROM work_item_locations WHERE work_item_id IN (SELECT value FROM json_each(?))
       UNION
       SELECT pl.location_id, pl.relative_path FROM process_locations pl
       JOIN work_items wi ON wi.process_id = pl.process_id WHERE wi.id = ?
@@ -112,26 +113,33 @@ export function stageInputs(database, itemId, runDirectory, agentId = null) {
     JOIN workspaces ws ON ws.id = p.workspace_id AND ws.team_id = l.team_id
     LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
     WHERE l.archived_at IS NULL ORDER BY l.name
-  `).all(itemId, itemId, agentId, itemId, deviceId);
-  return stageInputLocations(locations, runDirectory);
+  `).all(JSON.stringify(workRunItems(database, itemId)), itemId, agentId, itemId, deviceId);
+  return stageInputLocations(locations, runDirectory, true);
 }
 
-export function stageInputLocations(locations, runDirectory) {
+export function stageInputLocations(locations, runDirectory, preserveExisting = false) {
   const inputRoot = resolve(runDirectory, "inputs");
   for (const location of locations) {
+    const suffix = location.relativePath
+      ? `-${createHash("sha256").update(location.relativePath).digest("hex").slice(0, 8)}`
+      : "";
+    const directory = resolve(inputRoot, `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}${suffix}`);
+    location.stagedPath = relative(runDirectory, directory).replaceAll("\\", "/");
+    // An added item uses the run's captured inputs even if the original source has changed.
+    if (preserveExisting && existsSync(directory)) continue;
     if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
     // realpathSync below reports a bare "ENOENT ... lstat <path>", which tells a person nothing
     // about which mapped folder went missing or that a mapping is what broke their run.
     if (!existsSync(location.localPath))
       throw new Error(`${location.name} is mapped to ${location.localPath}, which is not on this device any more`);
     const selected = stagedLocation(location, location.relativePath);
-    const suffix = location.relativePath
-      ? `-${createHash("sha256").update(location.relativePath).digest("hex").slice(0, 8)}`
-      : "";
-    const directory = resolve(inputRoot, `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}${suffix}`);
     mkdirSync(directory, { recursive: true });
-    stageLocation(selected, directory);
-    location.stagedPath = relative(runDirectory, directory).replaceAll("\\", "/");
+    try { stageLocation(selected, directory); }
+    catch (error) {
+      // A failed first capture must not look like a complete snapshot on retry.
+      if (preserveExisting) rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
   }
   return locations;
 }
@@ -142,10 +150,12 @@ export function inputManifest(locations) {
 }
 
 export function outputLocation(database, itemId) {
+  if (!database.prepare("SELECT 1 FROM work_items WHERE id = ? AND deleted_at IS NULL").get(itemId)) return null;
+  const root = workItemLineage(database, itemId)[0];
   return database.prepare(`
     SELECT coalesce(w.output_location_id, p.output_location_id) AS id
     FROM work_items w JOIN processes p ON p.id = w.process_id WHERE w.id = ?
-  `).get(itemId)?.id ?? null;
+  `).get(root.id)?.id ?? null;
 }
 
 /** Regular files under root, symlinks skipped, at most `limit` of the ones `keep` accepts. */

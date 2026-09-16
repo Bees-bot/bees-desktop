@@ -72,6 +72,8 @@ export class ProcessRuntime {
       workItemId: item.id, processId: item.processId, stageId: item.stageId,
       accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3,
       parentReview: Boolean(item.parentId),
+      // Its own field so runs already in flight replay on the path they started with.
+      peerAssignment: Boolean(item.parentId),
       ...(correction ? { correction: JSON.parse(correction.metadata) } : {})
     };
   }

@@ -490,22 +490,26 @@ function OrganizationSettings({
     failure);
 }
 
-function TeamSettings({ team, organization, connectionId, openOrganization }) {
+function TeamSettings({ team, organization, connectionId, openOrganization, navigate }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const canManage = team?.role === "admin";
+  const canManageOrganization = ["owner", "admin"].includes(organization?.role);
+  const canDelete = canManage && canManageOrganization;
   useEffect(() => {
     let active = true;
     setPeople(null);
     setError("");
-    if (team && organization?.connected && team.role === "admin") {
+    if (team && organization?.connected) {
       collaboration("team_people", { teamId: team.id, connectionId })
         .then((value) => active && setPeople(value))
         .catch((reason) => active && setError(reason instanceof Error ? reason.message : String(reason)));
     }
     return () => { active = false; };
-  }, [team?.id, connectionId]);
+  }, [team?.id, team?.role, organization?.connected, connectionId]);
   const [adding, add] = useSubmit(async (event) => {
+    if (!canManage || !people?.candidates.length) return;
     const form = new FormData(event.currentTarget);
     try { setPeople(await collaboration("add_team_member", { teamId: team?.id, connectionId,
       userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
@@ -513,6 +517,7 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
   });
   if (!team) return h(Empty, null, "Choose a team");
   const deleteTeam = async () => {
+    if (!canDelete) return;
     const name = await ask(
       `Delete ${team.name} permanently?\nThis deletes its workspaces and all of its Bees data. Files in folders outside Bees stay on disk. Type the team name to confirm.`,
       ""
@@ -530,21 +535,19 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setDeleting(false); }
   };
-  const dangerZone = ["owner", "admin"].includes(organization?.role) ? h("section", {
+  const dangerZone = h("section", {
     className: "bees-box bees-danger-zone"
   },
   h("h3", null, "Delete team"),
   h("p", { className: "bees-muted" },
     "Permanently deletes this team, its workspaces, and its Bees data. Files in folders outside Bees stay on disk."),
-  h(Button, { className: "danger", disabled: deleting, onClick: deleteTeam },
-    deleting ? "Deleting…" : "Delete team")) : null;
+  h(Button, { className: "danger", disabled: !canDelete || deleting, onClick: deleteTeam },
+    deleting ? "Deleting…" : "Delete team"));
   const failure = error ? h("div", { className: "bees-error", role: "alert" }, error) : null;
   if (!organization?.connected) return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, team.name),
       h("p", { className: "bees-muted" }, "This team belongs to a Private organization on this device.")),
     dangerZone, failure);
-  if (team.role !== "admin") return h("section", { className: "bees-box" }, h("h3", null, team.name),
-    h("p", { className: "bees-muted" }, "Only team administrators can add organization members to this team."));
   if (!people) return h("div", { className: "bees-stack" },
     h(Empty, null, error || "Loading team members…"), dangerZone);
   return h("div", { className: "bees-stack" },
@@ -554,11 +557,18 @@ function TeamSettings({ team, organization, connectionId, openOrganization }) {
           h("div", { className: "bees-muted" }, "Active organization member")), h("span", { className: "bees-badge" }, member.role)))),
     h("section", { className: "bees-box" }, h("h3", null, "Add organization member"),
       h("p", { className: "bees-muted" }, "Team membership starts immediately; there is no invitation to accept."),
-      people.candidates.length ? h("form", { className: "bees-form-row", onSubmit: add },
-        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId" },
+      h("form", { className: "bees-form-row", onSubmit: add },
+        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId", disabled: !canManage || !people.candidates.length },
+          !canManage || !people.candidates.length ? h("option", { value: "" }, canManage
+            ? "Every organization member is already on this team" : "Only team administrators can add members") : null,
           ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
-        h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-        h("button", { className: "bees-btn primary", disabled: adding }, adding ? "Adding…" : "Add member")) : h(Empty, null, "Every active organization member is already on this team")),
+        h("label", null, "Role", h("select", { className: "bees-select", name: "role", disabled: !canManage || !people.candidates.length }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+        h("button", { className: "bees-btn primary", disabled: !canManage || !people.candidates.length || adding }, adding ? "Adding…" : "Add member")),
+      h("p", { className: "bees-muted" }, canManageOrganization
+        ? `For someone new, invite them to ${organization.name} first. After they accept, add them to ${team.name} here.`
+        : "Only organization administrators can invite new people. After they join the organization, a team administrator can add them here."),
+      h(Button, { disabled: !canManage || !canManageOrganization,
+        onClick: () => navigate("organization-members") }, "Invite new member")),
     dangerZone,
     failure);
 }
@@ -608,7 +618,9 @@ export function SettingsPage({
     ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
     : null;
   if (route === "team-settings") return h("div", { className: "bees-stack" },
-    h(TeamSettings, { team, organization, connectionId, openOrganization }),
+    team && team.role !== "admin" ? h("p", { className: "bees-callout", role: "status" },
+      "Read-only team settings. Only team administrators can make changes.") : null,
+    h(TeamSettings, { team, organization, connectionId, openOrganization, navigate }),
     ...data.workspaces.filter((workspace) => workspace.teamId === teamId).map((workspace) =>
       h(MemorySettings, { key: workspace.id, workspace, canManage: team?.role === "admin" })));
   const content = route === "personal-ai"

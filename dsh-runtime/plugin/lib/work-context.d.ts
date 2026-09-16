@@ -11,6 +11,10 @@ export interface PinnedWorkContext {
 export declare class WorkContext {
   constructor(database: unknown, notify?: (event: Record<string, any>) => void);
   lineage(itemId: string): Array<Record<string, any>>;
+  resources(itemId: string): { rootId: string; directory: string | null; memories: string | null };
+  directory(itemId: string, workspace: string): string;
+  files(itemId: string, includeText?: boolean): Array<{ path: string; content?: string; truncated?: boolean }>;
+  recallMemories(executionId: string, recall: () => Promise<Array<Record<string, any>>>): Promise<void>;
   run(executionId: string): PinnedWorkContext | null;
   latest(itemId: string): PinnedWorkContext | null;
   guidance(itemId: string): Array<Record<string, any>>;

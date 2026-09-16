@@ -12,11 +12,11 @@ export const nativeEmbedding = {
 };
 
 /** Portal the owner's rendered slots, retaining DSH's session scope and store ownership. */
-export function NativeContentHost({ content, kind, width }) {
+export function NativeContentHost({ content, kind }) {
   const { target, debug } = React.useSyncExternalStore(nativeEmbedding.subscribe, nativeEmbedding.getSnapshot, nativeEmbedding.getSnapshot);
   if (!target || debug) return content;
   return createPortal(h("div", { className: `bees-embedded-${kind}`, style: {
-    width: kind === "rightbar" ? width : "100%", height: "100%", minWidth: 0, maxWidth: "100%", overflow: "hidden"
+    height: "100%", minWidth: 0, overflow: "hidden"
   } }, content), target[kind]);
 }
 

@@ -362,7 +362,7 @@ describe("Bees work cockpit UI", () => {
   it("omits archived work from every Needs you list", () => {
     expect(client).toContain("const activeRuns = data.runs.filter");
     expect(client).toContain("!isDone(data.items.find(({ id }) => id === run.workItemId) ?? {})");
-    expect(client).toContain("const blocked = activeRuns.filter");
+    expect(client).toContain("const working = activeRuns.filter");
   });
 
   it("uses explicit review decisions with isolated future-run learning", () => {
@@ -392,7 +392,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("schedulable && !item.parentId");
     expect(client).toContain("result.sourceWorkItemId");
     expect(client).toContain('!item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId)');
-    expect(client).toContain('item.kind === "run" ? "scheduled run" : item.kind');
+    expect(client).toContain('item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind');
     expect(client).toContain('item.kind === "run" && data.processes.find');
     expect(client).toContain('route !== "goals" || process?.kind === "goals"');
     expect(client).not.toContain('workspaceId) && item.kind !== "run"');
@@ -486,7 +486,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('const GLOBAL_SETTINGS = [\n  ["personal-ai", "AI connections"]');
     expect(client).toContain('onClick: () => navigate("personal-ai")');
     expect(client).toContain('className: "bees-settings-divider"');
-    expect(client).toContain('row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings"');
+    expect(client).not.toContain('row.role === "admin" ? h("button", { type: "button", className: "bees-team-settings"');
     expect(client).not.toContain('key: `top-settings:${child}`');
     expect(client).not.toContain('aria-label": "Bees navigation"');
     expect(client).toContain('className: "bees-settings-layout"');

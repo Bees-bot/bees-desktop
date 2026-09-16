@@ -1,13 +1,13 @@
 import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
-import { showAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, showAgentBrowser } from "./agent-browser.js";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
   agentCapabilities, agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
   parentFor, processContext, processStages,
-  message, requireTeam, required, stableUuid, transaction, workspaceContext
+  message, requireTeam, required, stableUuid, transaction, workspaceContext, workRunItems
 } from "./product-database.js";
 import {
   canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputs, stageInputLocations
@@ -428,20 +428,15 @@ export async function executeProductCommand(action, input) {
           archived_at, deleted_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(id, processId, stageId, parentId, kind, required(title, "Title"), description,
-        input.owner ? String(input.owner) : null, assignmentId, JSON.stringify(selectedAgentIds), priorityOf(input.priority), outputLocationId,
+        input.owner ? String(input.owner) : null, assignmentId, JSON.stringify(selectedAgentIds), priorityOf(input.priority), parent ? null : outputLocationId,
         recurringWorkId, accountUserId, at, at);
       replaceLocations(this.database, "work_item_locations", "work_item_id", id, inputLocationIds);
       for (const location of referenceInputs(this.database, workspace.id, [...resolvedTitle.references, ...resolvedDescription.references]))
         this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(id, location.id, location.relativePath);
       this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
         .run(JSON.stringify(settings), id);
-      if (parent) {
-        // Inherit before startItem: the first delegated run must see the same context and limits.
-        this.database.prepare(`INSERT OR IGNORE INTO work_item_locations
-          SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?`).run(id, parent.id);
-        this.database.prepare("UPDATE work_items SET output_location_id = coalesce(output_location_id, ?) WHERE id = ?")
-          .run(parent.outputLocationId, id);
-      }
+      if (parent && outputLocationId) this.database.prepare("UPDATE work_items SET output_location_id = ?, updated_at = ? WHERE id = ?")
+        .run(outputLocationId, at, this.workContext.lineage(parent.id)[0].id);
       if (receiptKey) this.database.prepare("INSERT INTO bees_work_receipts VALUES (?, ?, ?, ?)")
         .run(workspace.id, receiptKey, id, at);
       return { id };
@@ -452,7 +447,10 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-      const parentId = parentFor(this.database, item.id, item.processId, input.parentId);
+      const parentId = parentFor(this.database, item.id, item.processId, input.parentId === undefined ? item.parentId : input.parentId);
+      const rootId = this.workContext.lineage(item.id)[0].id;
+      if ((parentId ? this.workContext.lineage(parentId)[0].id : item.id) !== rootId)
+        throw new Error("A work item must remain in its process run");
       const titleReferences = resolveReferences(this.database, item.workspaceId, required(input.title, "Title"));
       const descriptionReferences = resolveReferences(this.database, item.workspaceId, input.description);
       const rawTitle = titleReferences.text;
@@ -525,8 +523,9 @@ export async function executeProductCommand(action, input) {
           item.outputLocationId, id, at, at);
         this.database.prepare(`
           INSERT INTO work_item_locations
-          SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?
-        `).run(sourceWorkItemId, item.id);
+          SELECT DISTINCT ?, location_id, relative_path FROM work_item_locations
+          WHERE work_item_id IN (SELECT value FROM json_each(?))
+        `).run(sourceWorkItemId, JSON.stringify(workRunItems(this.database, item.id)));
         this.database.prepare("UPDATE work_items SET run_settings_json = ? WHERE id = ?")
           .run(JSON.stringify(item.runSettings), sourceWorkItemId);
       });
@@ -1047,8 +1046,8 @@ export async function executeProductCommand(action, input) {
         this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, process.id);
       } else {
         const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-        this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ? AND location_id = ? AND (? IS NULL OR relative_path = ?)")
-          .run(item.id, required(input.locationId, "Location"), relativePath, relativePath);
+        this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id IN (SELECT value FROM json_each(?)) AND location_id = ? AND (? IS NULL OR relative_path = ?)")
+          .run(JSON.stringify(workRunItems(this.database, item.id)), required(input.locationId, "Location"), relativePath, relativePath);
         this.database.prepare("UPDATE work_items SET updated_at = ? WHERE id = ?").run(at, item.id);
       }
       return {};
@@ -1056,7 +1055,7 @@ export async function executeProductCommand(action, input) {
     if (action === "set_output_location") return transaction(this.database, () => {
       const target = input.processId
         ? { ...processContext(this.database, input.processId, ["admin", "member"]), table: "processes" }
-        : { ...itemContext(this.database, input.itemId, ["admin", "member"]), table: "work_items" };
+        : { ...this.workContext.lineage(itemContext(this.database, input.itemId, ["admin", "member"]).id)[0], table: "work_items" };
       const locationId = locationIds(this.database, target.workspaceId,
         input.locationId ? [input.locationId] : [], true)[0] ?? null;
       this.database.prepare(`UPDATE ${target.table} SET output_location_id = ?, updated_at = ? WHERE id = ?`)
@@ -1180,6 +1179,15 @@ export async function executeProductCommand(action, input) {
       const resolved = resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
       const outcome = resolved.text;
       const manifest = inputManifest(stageInputLocations(referenceInputs(this.database, workspace.id, resolved.references), runDirectory));
+      // A newer plan supersedes one still parked. Left alive it came back on every launch and asked
+      // again for an answer the person had already moved on from.
+      for (const { execution_id: parked } of this.database.prepare(`
+        SELECT execution_id FROM execution_links
+        WHERE workspace_id = ? AND COALESCE(work_item_id, '') = ''
+          AND status IN ('waiting_for_input', 'waiting_for_approval')
+      `).all(workspace.id)) {
+        if (!this.agents.abort(parked)) this.agents.setStatus(parked, "cancelled");
+      }
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
         body: await this.planningBrief(workspace.id, outcome) + (manifest ? `\n\n${manifest}` : ""),
@@ -1217,13 +1225,19 @@ export async function executeProductCommand(action, input) {
           WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
         `).get(item.id)?.executionId : null
       });
-      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const runDirectory = this.workContext.directory(item.id, this.defaultWorkspace);
       const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
+      const root = this.workContext.lineage(item.id)[0];
+      this.workContext.pin(executionId, item, { instructions: assignment.instructions, stageName: stagePurpose,
+        systemInstructions: this.agents.settings?.get?.()?.systemInstructions ?? "" });
+      try {
+        await this.workContext.recallMemories(executionId, () => this.memory.recall(root.workspaceId, root.title + "\n" + root.description));
+      } catch { /* The shared local context remains available without Hindsight. */ }
       const reviewing = stagePurpose === "reviewer";
       const grants = reviewing ? [] : [outputLocation(this.database, item.id)].filter(Boolean);
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
+        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}\n\n${this.workContext.prompt(executionId)}`,
         initialData: {
           version: 1, mode: reviewing ? "review" : "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,
@@ -1275,7 +1289,10 @@ export async function executeProductCommand(action, input) {
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      return { stopped: this.agents.abort(executionId) };
+      const stopped = this.agents.abort(executionId);
+      // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
+      this.agents.track(hideAgentBrowser());
+      return { stopped };
     }
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");
@@ -1293,7 +1310,7 @@ export async function executeProductCommand(action, input) {
       const { uid } = runContext(this.database, executionId);
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `continue:${executionId}:${Date.now()}`,
-        uid,
+        uid, ownerChecked: true,
         body: text
       });
     }

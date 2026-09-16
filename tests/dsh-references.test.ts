@@ -106,7 +106,7 @@ it("carries all reference identities and exact file snapshots through Ask, Apply
   const stage = database.prepare("SELECT id, name FROM stages WHERE process_id = ? ORDER BY position LIMIT 1").get(process.id)!;
   await product.runProcessStage({ workItemId: applied.results[0].id, stageId: stage.id, stageName: stage.name, purpose: "worker", executionId: "execute-refs" });
   expect((execute.mock.calls[0]![1] as any).body).toContain("Charge 25 per seat");
-  const workInputs = join(root, "runs", "execute-refs", "inputs");
+  const workInputs = join(root, "runs", applied.results[0].id, "inputs");
   expect(readdirSync(join(workInputs, readdirSync(workInputs)[0]!))).toEqual(["proposal.pdf"]);
 });
 

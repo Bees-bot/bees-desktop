@@ -117,6 +117,27 @@ export function processContext(database, processId, roles = ["admin", "member", 
   return row;
 }
 
+export function workItemLineage(database, itemId) {
+  const items = [];
+  let item = itemContext(database, itemId);
+  const processId = item.processId;
+  while (item) {
+    if (items.length >= 100 || items.some(({ id }) => id === item.id)) throw new Error("Invalid work hierarchy");
+    if (item.processId !== processId) throw new Error("Work context cannot cross processes");
+    items.unshift(item);
+    item = item.parentId ? itemContext(database, item.parentId) : null;
+  }
+  return items;
+}
+
+export function workRunItems(database, itemId) {
+  const root = workItemLineage(database, itemId)[0];
+  return database.prepare(`WITH RECURSIVE tree(id) AS (
+    SELECT ? UNION SELECT w.id FROM work_items w JOIN tree ON w.parent_id = tree.id
+    WHERE w.process_id = ? AND w.deleted_at IS NULL)
+    SELECT id FROM tree`).all(root.id, root.processId).map(({ id }) => id);
+}
+
 export function parentFor(database, itemId, processId, parentId) {
   if (!parentId) return null;
   let current = String(parentId);
@@ -239,6 +260,7 @@ function ensureAgentDefaults(database, workspaceId, at = iso()) {
   }
 }
 
+/** Writes stages that processStages has already shaped, so drivers and the closing Done are decided once. */
 export function insertProcess(
   database, workspaceId, name, description, stages, kind = "standard", id = randomUUID(), at = iso(), accountUserId = null
 ) {
@@ -251,12 +273,8 @@ export function insertProcess(
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   stages.forEach((stage, position) => {
-    const name = required(typeof stage === "string" ? stage : stage.name, "Stage");
-    const driver = stageDriver(stage, position, stages.length);
-    const requiresApproval = typeof stage === "object" && stage?.requiresHumanApproval !== undefined
-      ? Boolean(stage.requiresHumanApproval) : /\b(?:approval|sign[- ]?off)\b/i.test(name);
-    insert.run(stableUuid(`${id}:stage:${position}`), id, name, position, driver,
-      requiresApproval ? 1 : 0, driver === "terminal" ? 1 : 0);
+    insert.run(stableUuid(`${id}:stage:${position}`), id, stage.name, position, stage.driver,
+      stage.requiresHumanApproval ? 1 : 0, stage.driver === "terminal" ? 1 : 0);
   });
   return id;
 }
@@ -264,6 +282,8 @@ export function insertProcess(
 /** Stages describe process structure. Agent guidance belongs to agents and specialists. */
 export function processStages(value, label = "process") {
   const entries = Array.isArray(value) ? value : [];
+  // The limit counts the caller's own stages. The closing Done below is ours and does not use one up.
+  if (entries.length < 2 || entries.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
   const stages = entries.map((entry, position) => ({
     name: required(typeof entry === "string" ? entry : entry?.name, "Stage"),
     driver: stageDriver(entry, position, entries.length),
@@ -271,24 +291,33 @@ export function processStages(value, label = "process") {
       ? Boolean(entry.requiresHumanApproval)
       : /\b(?:approval|sign[- ]?off)\b/i.test(String(typeof entry === "string" ? entry : entry?.name))
   }));
-  if (stages.length < 2 || stages.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
+  // A run only ends on a terminal stage. Callers that name every driver themselves leave the last
+  // step as agent work, and the process then never starts at all, so close it here.
+  if (stages.at(-1).driver !== "terminal")
+    stages.push({ name: "Done", driver: "terminal", requiresHumanApproval: false });
   if (new Set(stages.map(({ name }) => name.toLocaleLowerCase())).size !== stages.length)
     throw new Error("Stage names must be unique");
   return stages;
 }
+
+/** Names that hand a stage to a person. The planner path reads this too, to override it. */
+export const HUMAN_STAGE = /\b(?:human|inbox|manual)\b/i;
 
 function stageDriver(stage, position, count) {
   const explicit = typeof stage === "object" ? stage?.driver : null;
   if (explicit && !["manual", "agent", "discussion", "review", "terminal"].includes(explicit))
     throw new Error(`Unsupported stage driver: ${explicit}`);
   const name = String(typeof stage === "string" ? stage : stage?.name ?? "");
+  // Only a closing name ends the run. Any other final step is real work that has to run, so
+  // processStages gives the process a Done after it instead of skipping it.
+  const closes = position === count - 1 && /\b(?:done|complete|completed|finished)\b/i.test(name);
   // An approval gate is agent work that waits for a person, which requires_human_approval already
   // does. Reading it as a manual step instead makes the whole process non-automatic, so a pipeline
   // with a stage called "Human approval" sits at ready and never runs a thing.
-  return explicit ?? (position === count - 1 ? "terminal"
+  return explicit ?? (closes ? "terminal"
     : /\b(?:discuss|discussion|debate|roundtable)\b/i.test(name) ? "discussion"
       : /\b(?:approval|sign[- ]?off)\b/i.test(name) ? "agent"
-        : /\b(?:human|inbox|manual)\b/i.test(name) ? "manual"
+        : HUMAN_STAGE.test(name) ? "manual"
           : position > 0 && /review/i.test(name) ? "review" : "agent");
 }
 
@@ -312,11 +341,9 @@ const STARTER_TEMPLATES = [
 ];
 
 function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
-  insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION, [
-    { name: "Work", driver: "agent" },
-    { name: "Review", driver: "review" },
-    { name: "Done", driver: "terminal" }
-  ], "goals", stableUuid(`${workspaceId}:goals`), at);
+  // processStages reads the drivers off the names and closes the process with its own Done
+  insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION,
+    processStages(["Work", "Review"]), "goals", stableUuid(`${workspaceId}:goals`), at);
   for (const [name, description, stages] of STARTER_TEMPLATES)
     database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
       .run(stableUuid(`${workspaceId}:template:${name}`), workspaceId, name, description,

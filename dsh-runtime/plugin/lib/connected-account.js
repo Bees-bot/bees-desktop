@@ -651,14 +651,16 @@ export class ConnectedAccount {
       "SELECT organization_id AS organizationId FROM teams WHERE id = ?"
     ).get(teamId);
     if (!team) throw new Error("Team not found");
-    const [{ members = [] }, { candidates = [] }] = await Promise.all([
-      this.request(`/api/teams/${encodeURIComponent(teamId)}/members`, {
-        organizationId: team.organizationId, connectionId
-      }),
-      this.request(`/api/teams/${encodeURIComponent(teamId)}/candidates`, {
+    const { members = [] } = await this.request(`/api/teams/${encodeURIComponent(teamId)}/members`, {
+      organizationId: team.organizationId, connectionId
+    });
+    const userId = connectionId ? this.accountForConnection(connectionId) : this.account()?.userId;
+    const canManage = members.some((member) => member.userId === userId && member.role === "admin");
+    const { candidates = [] } = canManage
+      ? await this.request(`/api/teams/${encodeURIComponent(teamId)}/candidates`, {
         organizationId: team.organizationId, connectionId
       })
-    ]);
+      : {};
     return { members, candidates };
   }
 

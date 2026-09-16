@@ -16,14 +16,15 @@ export function SharedWorkContext({ item, executionId }) {
     }).catch((reason) => active && setError(reason.message));
     return () => { active = false; };
   }, [item.id, executionId, revision]);
+  const context = view?.context ?? view?.runContext;
   return h("div", { className: "bees-stack" },
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
-    h("h3", null, "Shared task context"),
-    h("p", { className: "bees-muted" }, view?.context
-      ? `Requirements version ${view.context.version}. This execution and its reviewer use the same requirements. Discussion and memories do not change them.`
+    h("h3", null, "Shared run context"),
+    h("p", { className: "bees-muted" }, context
+      ? `Requirements version ${context.version}. Every work item uses this run's shared context. Each execution preserves the requirements used for its review.`
       : "Requirements are pinned when execution starts. Edit the work item or process to change requirements for a new execution."),
-    view?.context ? h("details", { open: true }, h("summary", null, "Exact requirements and assigned scope"),
-      h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, JSON.stringify({ requirements: view.context.content, scope: view.context.scope }, null, 2))) : null,
+    context ? h("details", { open: true }, h("summary", null, "Exact requirements and assigned scope"),
+      h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, JSON.stringify({ requirements: context.content, scope: context.scope }, null, 2))) : null,
     view?.humanReview?.entries?.length ? h("details", { open: Boolean(view.humanReview.requiredCorrections.length) },
       h("summary", null, `Human review feedback (revision ${view.humanReview.version})`),
       h("p", { className: "bees-muted" }, "Original feedback is preserved here. Unresolved rejections are required corrections for this run, not ordinary discussion or recalled memory."),
@@ -31,8 +32,8 @@ export function SharedWorkContext({ item, executionId }) {
         h("strong", null, `${review.approved ? "Approved" : "Rejected"}: ${review.workItemId}`),
         h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, review.feedback || review.summary),
         h("small", null, `Execution: ${review.executionId}`)))) : null,
-    view?.context?.memories?.length ? h("details", null, h("summary", null, "Recalled experience"),
-      ...view.context.memories.map((memory, index) => h("p", { key: memory.id ?? index }, memory.text))) : null);
+    context?.memories?.length ? h("details", null, h("summary", null, "Recalled experience"),
+      ...context.memories.map((memory, index) => h("p", { key: memory.id ?? index }, memory.text))) : null);
 }
 
 export function WorkDiscussion({ item, onOpenWork }) {
@@ -126,6 +127,7 @@ export function MemorySettings({ workspace, canManage = false }) {
     return () => { active = false; clearInterval(timer); };
   }, [workspace.id]);
   const act = async (action, input = {}) => {
+    if (!canManage) return false;
     setBusy(true);
     try {
       const value = await command(action, { workspaceId: workspace.id, ...input });
@@ -135,6 +137,7 @@ export function MemorySettings({ workspace, canManage = false }) {
   };
   const save = async (event) => {
     event.preventDefault();
+    if (!canManage) return;
     const form = event.currentTarget, values = new FormData(form);
     if (await act("memory_configure", { url: values.get("url"), model: values.get("model") ?? undefined, enabled: values.get("enabled") === "on", apiKey: values.get("apiKey"), clearKey: values.get("clearKey") === "on" })) {
       form.elements.apiKey.value = "";
@@ -148,9 +151,9 @@ export function MemorySettings({ workspace, canManage = false }) {
     state?.bank ? h("p", { className: "bees-muted" }, `Memory bank: ${state.bank}`) : null,
     h("p", { role: "status" }, state?.status ?? "Loading memory settings..."),
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
-    canManage && state ? h("form", { key: `${state.url}:${state.model ?? ""}:${state.enabled}`, className: "bees-form", onSubmit: save },
+    state ? h("form", { key: `${state.url}:${state.model ?? ""}:${state.enabled}`, className: "bees-form", onSubmit: save },
       state.managed ? h(React.Fragment, null,
-        h("label", null, "AI model for Hindsight", h("select", { name: "model", className: "bees-select", defaultValue: state.model || "" },
+        h("label", null, "AI model for Hindsight", h("select", { name: "model", className: "bees-select", disabled: !canManage, defaultValue: state.model || "" },
           h("option", { value: "" }, "Automatic (running local model)"),
           ...(state.models ?? []).map((model) => h("option", { key: model.id, value: model.id }, model.name)),
           state.model && !state.models?.some((model) => model.id === state.model)
@@ -158,24 +161,25 @@ export function MemorySettings({ workspace, canManage = false }) {
         h("p", { className: "bees-muted" }, "Applies to local memory for all workspaces on this device. Models are managed in AI settings. A selected model must be running; Bees never falls back to a cloud model."),
         state.activeModel ? h("p", null, `Using: ${state.activeModel}`) : null) : null,
       h("details", null, h("summary", null, "Advanced: custom Hindsight service"),
-      h("label", null, "Hindsight endpoint", h("input", { type: "url", name: "url", required: true, className: "bees-input", defaultValue: state.url || "http://127.0.0.1:8898" })),
-      h("label", null, "API key (blank keeps the saved key)", h("input", { type: "password", name: "apiKey", autoComplete: "new-password", className: "bees-input" })),
-      h("label", null, h("input", { type: "checkbox", name: "clearKey" }), " Remove saved API key")),
-      h("label", null, h("input", { type: "checkbox", name: "enabled", defaultChecked: state.enabled }), " Enable workspace memory"),
+      h("label", null, "Hindsight endpoint", h("input", { type: "url", name: "url", required: true, className: "bees-input", disabled: !canManage, defaultValue: state.url || "http://127.0.0.1:8898" })),
+      h("label", null, "API key (blank keeps the saved key)", h("input", { type: "password", name: "apiKey", autoComplete: "new-password", className: "bees-input", disabled: !canManage })),
+      h("label", null, h("input", { type: "checkbox", name: "clearKey", disabled: !canManage }), " Remove saved API key")),
+      h("label", null, h("input", { type: "checkbox", name: "enabled", disabled: !canManage, defaultChecked: state.enabled }), " Enable workspace memory"),
       h("div", { className: "bees-row" },
-        h(Button, { type: "submit", disabled: busy }, "Save memory settings"),
-        h(Button, { type: "button", disabled: busy || !state.enabled, onClick: () => act("memory_test") }, "Test connection"),
-        h(Button, { type: "button", disabled: busy || !state.enabled, onClick: () => act("memory_retry") }, "Retry synchronization"))) : null,
+        h(Button, { type: "submit", disabled: !canManage || busy }, "Save memory settings"),
+        h(Button, { type: "button", disabled: !canManage || busy || !state.enabled, onClick: () => act("memory_test") }, "Test connection"),
+        h(Button, { type: "button", disabled: !canManage || busy || !state.enabled, onClick: () => act("memory_retry") }, "Retry synchronization"))) : null,
     h("h4", null, "Remembered outcomes"),
     state && !state.memories?.length ? h("p", { className: "bees-muted" }, "No outcomes yet. Accepted work completed after memory is enabled will appear here.") : null,
     ...(state?.memories ?? []).map((memory) => h("article", { key: memory.id, className: "bees-box" },
       h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, memory.content),
       h("p", { className: "bees-muted" }, memory.evidence),
       h("small", null, memory.error || memory.status),
-      canManage ? h("div", { className: "bees-row" },
-        h(Button, { disabled: busy || memory.status === "deleting", onClick: async () => {
+      h("div", { className: "bees-row" },
+        h(Button, { disabled: !canManage || busy || memory.status === "deleting", onClick: async () => {
+          if (!canManage) return;
           const content = await ask("Correct remembered outcome", memory.content);
           if (content) await act("memory_edit", { id: memory.id, content });
         } }, "Correct"),
-        h(Button, { disabled: busy || memory.status === "deleting", onClick: () => act("memory_delete", { id: memory.id }) }, "Forget")) : null)));
+        h(Button, { disabled: !canManage || busy || memory.status === "deleting", onClick: () => act("memory_delete", { id: memory.id }) }, "Forget")))));
 }

@@ -1,4 +1,5 @@
 import { freezeMessage } from "@deepseek-ai/dsh-llm";
+import { hasSpillNotice } from "@deepseek-ai/dsh-spill-policy/notice";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 export const TOOL_PREVIEW_CHARS = 8_000;
@@ -44,6 +45,15 @@ function previewContent(blocks, budget, callId) {
   });
 }
 
+/** The spill policy already saved the full text and put its locator in the notice.
+ *  Keep the locator and drop the body: grepping that file beats paging the result back. */
+function spillReceipt(blocks) {
+  const text = blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
+  const at = text.lastIndexOf("\n\n(");
+  return at >= 0 && hasSpillNotice(text.slice(at + 2))
+    ? [{ ...blocks.find((block) => block.type === "text"), text: text.slice(at + 2) }] : null;
+}
+
 /** Rewrite the DSH surface, never a provider request or the immutable original event. */
 export function pruneToolResults(session, tokenMeter) {
   const originals = originalResults(session);
@@ -68,7 +78,7 @@ export function pruneToolResults(session, tokenMeter) {
     remaining -= Math.min(before, budget);
     if (before <= budget) continue;
     const original = originals.get(callId).data.message.content[0];
-    const content = previewContent(original.content, budget, callId);
+    const content = spillReceipt(original.content) ?? previewContent(original.content, budget, callId);
     const after = textLength(content);
     if (after >= before) continue;
     const message = freezeMessage({

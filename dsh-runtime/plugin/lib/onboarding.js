@@ -27,7 +27,8 @@ async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
   const signal = AbortSignal.timeout(60_000);
   let text = false;
   let finished = false;
-  for await (const chunk of ctx.llm.stream({ ...selection, signal, maxTokens: 128,
+  // a reasoning model spends the first few hundred tokens thinking, so a tight cap returns no text at all
+  for await (const chunk of ctx.llm.stream({ ...selection, signal, maxTokens: 1024,
     ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
     messages: [{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "Reply with a short hello." }] }],
     tools: [] })) {

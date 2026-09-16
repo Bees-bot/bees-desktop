@@ -108,13 +108,11 @@ export async function saveBrowserState() {
 }
 
 /** Bring the browser up minimised. Cheap once it runs; one launch at a time, however many ask. */
-export function startAgentBrowser() {
+function startAgentBrowser() {
   if (running() || starting) return starting ?? Promise.resolve();
   starting = launch().finally(() => { starting = null; });
   return starting;
 }
-
-export const agentBrowserRunning = () => running();
 
 /** Put the window on screen so a person can sign in, and land on the tab the agent is reading. */
 export async function showAgentBrowser() {
@@ -123,9 +121,10 @@ export async function showAgentBrowser() {
   await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
 }
 
-/** Back out of the way once the person has answered. */
+/** Back out of the way once the person has answered. Listening, not running: a Chrome an earlier
+ *  Bees started is still the window on screen, and its process handle died with the old Bees. */
 export async function hideAgentBrowser() {
-  if (!running()) return;
+  if (!(await listening())) return;
   await setWindow("minimized");
 }
 

@@ -15,7 +15,7 @@ describe("DSH stage results", () => {
       const stage = database.connection.prepare(`SELECT s.id AS stageId, s.process_id AS processId,
         p.workspace_id AS workspaceId FROM stages s JOIN processes p ON p.id = s.process_id
         WHERE p.kind = 'goals' AND s.driver = 'agent'`).get() as { stageId: string; processId: string; workspaceId: string };
-      for (const [id, parent] of [["parent", null], ["child", "parent"], ["unrelated", null]] as const)
+      for (const [id, parent] of [["parent", null], ["child", "parent"], ["chart", "parent"], ["unrelated", null]] as const)
         database.connection.prepare(`INSERT INTO work_items
           (id, parent_id, process_id, stage_id, title, runtime_phase, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'completed', '2026-01-01', '2026-01-02')
@@ -50,7 +50,7 @@ describe("DSH stage results", () => {
       const read = tools.find(({ name }) => name === "bees_read_work_evidence");
       const page = await read.execute({ work_item_id: "child", session_id: "child-session", call_id: "rss" });
       expect(JSON.parse(page.result_json).text).toBe(evidenceText);
-      await expect(read.execute({ work_item_id: "unrelated" })).rejects.toThrow("direct children only");
+      await expect(read.execute({ work_item_id: "unrelated" })).rejects.toThrow("this process run only");
       await expect(read.execute({ work_item_id: "child", session_id: "foreign-session", call_id: "rss" })).rejects.toThrow("session and call reference");
       await expect(read.execute({ work_item_id: "child", session_id: "child-session", call_id: "missing" })).rejects.toThrow("this session");
       const revise = vi.fn(async () => ({ id: "child" }));
@@ -73,6 +73,25 @@ describe("DSH stage results", () => {
       expect(last.evidence).toHaveLength(5);
       expect(last.next_evidence_offset).toBeNull();
       expect(new Set([...first.evidence, ...last.evidence].map(({ call_id }: any) => call_id)).size).toBe(45);
+      database.connection.prepare(`INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+        SELECT 'parent-source', workspace_id, 'parent', agent_name, 'parent-source-session', 'parent-uid',
+          run_directory, config_json, status, created_at, updated_at FROM execution_links WHERE execution_id = 'child-run'`).run();
+      database.connection.prepare("INSERT INTO bees_stage_results VALUES ('parent-source', 'worker', 'candidate', ?, '2026-01-02')").run(summary);
+      const chartTools: any[] = [];
+      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
+        tools: { register: (tool: any) => chartTools.push(tool), restrict: () => undefined } }, {
+        mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
+        workItemId: "chart", workspaceId: stage.workspaceId, grants: []
+      }, "chart-run", directory);
+      const readFromChart = chartTools.find(({ name }) => name === "bees_read_work_evidence");
+      runtime.sessionEvents.mockResolvedValue(events);
+      expect(JSON.parse((await readFromChart.execute({ work_item_id: "child", session_id: "child-session", call_id: "rss" })).result_json).text)
+        .toBe(evidenceText);
+      expect(JSON.parse((await readFromChart.execute({ work_item_id: "parent", session_id: "parent-source-session", call_id: "rss" })).result_json).text)
+        .toBe(evidenceText);
+      await expect(readFromChart.execute({ work_item_id: "unrelated" })).rejects.toThrow("this process run only");
     } finally { database.connection.close(); rmSync(directory, { recursive: true, force: true }); }
   });
 
@@ -148,7 +167,7 @@ describe("DSH stage results", () => {
       results_json: JSON.stringify([{ kind: "file", title: "Team/guide.md", excerpt: "Release guide" }])
     });
     expect(searches).toEqual([{ query: "release", workspaceId: workspace.id }]);
-    expect(prompts.join("\n")).toContain("Team knowledge is available independently of attached inputs");
+    expect(prompts.join("\n")).toContain("Team knowledge search covers work descriptions and mapped team sources, not generated run files");
     expect(prompts.join("\n")).toContain("System-wide user instructions:\nUse ISO dates in every deliverable");
     const read = tools.find(({ name }) => name === "bees_read_knowledge");
     await expect(read.execute({ result_id: "location:guide.md" })).resolves.toEqual({

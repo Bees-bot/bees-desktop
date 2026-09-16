@@ -69,6 +69,11 @@ export class Capabilities {
     await Promise.all(this.servers().filter(({ enabled }) => enabled).map((row) => this.mount(row)));
   }
 
+  /** True while a browser server is enabled, so a run has a signed-in profile a person can reach. */
+  browserEnabled() {
+    return this.servers().some(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
+  }
+
   /**
    * The browser is the one server that cannot be shared. Two runs browsing at once landed on each
    * other's pages, so a run asked for a calendar and read a news site. Each run mounts its own on
@@ -396,8 +401,16 @@ export class Capabilities {
     if (!server) return null;
     const at = server.args.indexOf("--openapi-spec");
     const spec = JSON.parse(await readFile(server.args[at + 1], "utf8"));
-    for (const [path, ops] of Object.entries(found.spec.paths)) spec.paths[path] = { ...spec.paths[path], ...ops };
+    for (const [path, ops] of Object.entries(found.spec.paths))
+      for (const [verb, op] of Object.entries(ops)) {
+        const before = spec.paths[path]?.[verb]?.parameters ?? [];
+        // a later bare paste must not wipe the parameters an earlier fuller one found
+        const byName = new Map(before.concat(op.parameters ?? []).map((one) => [one.name, one]));
+        spec.paths[path] = { ...spec.paths[path], [verb]: { ...op, parameters: [...byName.values()] } };
+      }
     server.args[at + 1] = await this.writeSpec(found.host, JSON.stringify(spec, null, 2));
+    await this.typedTools(server.args, server.args[at + 1]);
+    await this.verifyEndpoints(server.args[at + 1]);
     server.headerNames = [...new Set([...server.headerNames, ...Object.keys(secrets)])];
     this.database.prepare("UPDATE mcp_servers SET args_json = ?, header_names_json = ? WHERE id = ?")
       .run(JSON.stringify(server.args), JSON.stringify(server.headerNames), server.id);
@@ -421,6 +434,55 @@ export class Capabilities {
       text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
     }
     return text;
+  }
+
+  /** Dynamic mode hides every parameter behind an empty `params` object, and a small local model
+   *  fills that with nothing. A short spec drives far better as one typed tool per endpoint. */
+  async typedTools(args, specFile) {
+    const at = args.indexOf("--tools");
+    if (at < 0 || !String(specFile ?? "").startsWith("/")) return args;
+    try {
+      const { paths = {} } = JSON.parse(await readFile(specFile, "utf8"));
+      if (Object.keys(paths).length <= 12) args[at + 1] = "all";
+    } catch { /* an unreadable spec keeps the mode it was installed with */ }
+    return args;
+  }
+
+  /** Catches a spec that names a route the API refuses, before a run dies on it. A probe sends no
+   *  credential, so it cannot create anything. Only a refused method or body type counts: APIs
+   *  answer 404 to hide a resource from a caller with no session. */
+  async verifyEndpoints(specSource) {
+    if (!specSource) return;
+    let spec;
+    try {
+      const text = /^https?:/.test(specSource)
+        ? await fetch(specSource, { signal: AbortSignal.timeout(8000) }).then((response) => response.text())
+        : await readFile(specSource, "utf8");
+      spec = JSON.parse(text);
+    } catch { return; }
+    const origin = spec.servers?.[0]?.url;
+    const paths = Object.entries(spec.paths ?? {});
+    if (!origin || paths.length > 12) return;
+    // a server url may carry a prefix like /v1, and joining it must not drop that
+    const base = String(origin).replace(/\/+$/, "");
+    for (const [path, operations] of paths) {
+      // a templated path has no single address to probe
+      if (path.includes("{")) continue;
+      for (const [method, operation] of Object.entries(operations)) {
+        if (!/^(get|put|post|delete|options|head|patch)$/.test(method)) continue;
+        const type = Object.keys(operation?.requestBody?.content ?? {})[0];
+        let status;
+        try {
+          status = (await fetch(`${base}/${path.replace(/^\/+/, "")}`, {
+            method: method.toUpperCase(),
+            ...(type ? { headers: { "content-type": type }, body: type === "application/json" ? "{}" : "" } : {}),
+            signal: AbortSignal.timeout(5000)
+          })).status;
+        } catch { continue; }
+        if (status === 405 || status === 415)
+          throw new Error(`${origin} refuses ${method.toUpperCase()} ${path} with ${status}. Describe that endpoint the way the API really serves it, then install it again.`);
+      }
+    }
   }
 
   async install(input) {
@@ -460,6 +522,8 @@ export class Capabilities {
       if (value && field.flag) args.push(field.flag, value);
     }
     if (directory) args.push(directory);
+    await this.typedTools(args, given.openapiSpec);
+    await this.verifyEndpoints(given.openapiSpec);
     return this.insert({
       id: randomUUID(),
       serverName: this.freeServerName(

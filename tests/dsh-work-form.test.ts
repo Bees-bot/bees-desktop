@@ -91,7 +91,7 @@ it("shows work locations read-only and groups generated files by run and directo
   expect(files).toContain(">data</summary>");
   expect(files).toContain('title="analysis/data/totals.csv"');
   expect(files.match(/>summary.md<\/button>/g)).toHaveLength(3);
-  expect(client).toContain("h(WorkFiles, { key: item.id, runs: itemRuns");
+  expect(client).toContain("h(WorkFiles, { key: processRunId, runs: fileRuns");
 });
 
 it("shows missing destinations and empty runs without configuration controls", () => {
