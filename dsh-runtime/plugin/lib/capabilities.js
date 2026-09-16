@@ -301,27 +301,33 @@ export class Capabilities {
     };
   }
 
-  /** The public MCP registry, remote servers only: a stdio row would mean installing a package. */
+  /** The public MCP registry: a package Bees runs here with npx or uvx, else a hosted server by its url. */
   async searchRegistry(query) {
     const search = String(query ?? "").trim();
     const response = await fetch(
-      `https://registry.modelcontextprotocol.io/v0/servers?limit=40${search ? `&search=${encodeURIComponent(search)}` : ""}`,
+      `https://registry.modelcontextprotocol.io/v0/servers?limit=40&version=latest${search ? `&search=${encodeURIComponent(search)}` : ""}`,
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
     const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
     const seen = new Set();
+    const runners = { npm: "npx -y", pypi: "uvx" };
     return servers.flatMap(({ server }) => {
+      const pkg = server?.packages?.find(({ registryType, transport }) => runners[registryType] && transport?.type === "stdio");
       const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
-      if (!remote || !server.name || seen.has(server.name)) return [];
+      if ((!pkg && !remote) || !server.name || seen.has(server.name)) return [];
       seen.add(server.name);
       return [{
         name: server.name,
         title: server.title || server.name,
         description: server.description ?? "",
-        url: remote.url,
+        website: server.websiteUrl ?? server.repository?.url ?? "",
         // Reverse-domain names carry dots and slashes the namespace pattern refuses.
-        serverName: server.name.split("/").pop().replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32)
+        serverName: server.name.split("/").pop().replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32),
+        // pinned, so an approved plan runs the version the owner saw
+        ...(pkg ? { transport: "stdio", command: `${runners[pkg.registryType]} ${pkg.identifier}${pkg.version ? `@${pkg.version}` : ""}`,
+          settings: (pkg.environmentVariables ?? []).map(({ name, description }) => ({ name, description })) }
+          : { transport: "streamable-http", url: remote.url })
       }];
     });
   }

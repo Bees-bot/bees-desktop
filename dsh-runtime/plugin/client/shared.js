@@ -1193,7 +1193,7 @@ const CHANGE_LINES = {
   create_item: (c) => `Work item ${c.title} in ${c.process}`,
   create_goal: (c) => `Goal ${c.title}`,
   install_mcp_server: (c) => `Connect ${c.catalogId}`,
-  add_mcp_server: (c) => `Connect ${c.serverName}`,
+  add_mcp_server: (c) => `Connect ${c.serverName} (${c.url ?? [c.command, c.args].flat().filter(Boolean).join(" ")})`,
   install_skill: (c) => `Skill ${c.directory} from ${c.repo}`,
   create_recurring_work: (c) => `Schedule ${c.name}, ${c.frequency}`
 };

@@ -253,7 +253,8 @@ export function CatalogReview({ ctx, entry, onCancel, onInstall }) {
       h(Button, { onClick: onCancel }, "Cancel")));
 }
 
-function ManualServerForm({ onCancel, act, setPageHeader }) {
+// initial is a registry result when the owner added one from the search
+function ManualServerForm({ onCancel, act, setPageHeader, initial }) {
   const [transport, setTransport] = useState("stdio");
   const [busy, onSubmit] = useSubmit(async (event) => {
       const form = new FormData(event.currentTarget);
@@ -275,21 +276,21 @@ function ManualServerForm({ onCancel, act, setPageHeader }) {
       h("div", null, h("h2", null, "Add a server by hand"),
         h("div", { className: "bees-muted" }, "Only add a server you trust. Its tools go straight to your agents."))),
     h("label", null, "Short name", h("input", {
-      className: "bees-input", name: "serverName", required: true, autoFocus: true, placeholder: "linear",
+      className: "bees-input", name: "serverName", required: true, autoFocus: true, placeholder: "linear", defaultValue: initial.serverName,
       pattern: "[A-Za-z0-9_-]{1,32}", title: "Letters, digits, dash and underscore, up to 32 characters"
     }), h("span", { className: "bees-muted" }, "Every tool this server publishes is prefixed with it.")),
-    h("label", null, "Display name", h("input", { className: "bees-input", name: "label", placeholder: "Linear" })),
+    h("label", null, "Display name", h("input", { className: "bees-input", name: "label", placeholder: "Linear", defaultValue: initial.title })),
     h("label", null, "How it runs", h("select", {
       className: "bees-select", value: transport, onChange: (event) => setTransport(event.target.value)
     }, h("option", { value: "stdio" }, "Run a command on this machine"),
       h("option", { value: "streamable-http" }, "Call a URL over HTTP"))),
     transport === "stdio" ? h(React.Fragment, null,
-      h("label", null, "Command", h("input", { className: "bees-input", name: "command", required: true, placeholder: "npx" })),
+      h("label", null, "Command", h("input", { className: "bees-input", name: "command", required: true, placeholder: "npx", defaultValue: initial.command })),
       h("label", null, "Arguments, one per line", h("textarea", {
         className: "bees-textarea", name: "args", placeholder: "-y\n@modelcontextprotocol/server-memory"
       })),
       h("label", null, "Environment secrets, one NAME=value per line", h("textarea", {
-        className: "bees-textarea", name: "secrets", placeholder: "API_KEY=…"
+        className: "bees-textarea", name: "secrets", placeholder: "API_KEY=…", defaultValue: initial.settings?.map(({ name }) => `${name}=`).join("\n")
       })))
       : h(React.Fragment, null,
         h("label", null, "Server URL", h("input", {
@@ -318,7 +319,7 @@ export function McpPage({ ctx, capabilities }) {
   if (error && !data) return h(Empty, null, error);
   if (!data) return h(Empty, null, "Reading connected servers…");
   const entry = data.catalog.find(({ id }) => id === reviewing);
-  if (manual) return h(ManualServerForm, { onCancel: () => setManual(false), act });
+  if (manual) return h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual });
   if (entry) return h(CatalogReview, {
     ctx, entry, onCancel: () => setReviewing(""),
     onInstall: async ({ directory, secrets, inputs }) => {
@@ -387,15 +388,15 @@ export function McpPage({ ctx, capabilities }) {
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, row.title),
         h("div", { className: "bees-muted" }, row.description || row.name),
-        h("div", { className: "bees-muted" }, row.url)),
+        h("div", { className: "bees-muted" }, row.url ?? row.command)),
       h(Button, {
-        onClick: async () => (await confirmAction(`Add ${row.title}? Bees will call ${row.url} and hand its tools to your agents.`))
+        onClick: async () => !row.url ? setManual(row) : (await confirmAction(`Add ${row.title}? Bees will call ${row.url} and hand its tools to your agents.`))
           && act({
             action: "add_mcp_server", transport: "streamable-http",
             serverName: row.serverName, label: row.title, url: row.url
           })
       }, "Add"))),
     registry.results && !registry.results.length
-      ? h(Empty, null, "The registry returned no remote server for that") : null
+      ? h(Empty, null, "The registry returned no server for that") : null
   );
 }
