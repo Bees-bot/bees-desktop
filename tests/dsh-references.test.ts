@@ -80,7 +80,7 @@ it("carries all reference identities and exact file snapshots through Ask, Apply
   expect(readdirSync(inputDirectory)).toEqual(["proposal.pdf"]);
   expect(readFileSync(join(inputDirectory, "proposal.pdf"), "utf8")).toBe("PDF fixture bytes");
   const tools: any[] = [];
-  await runtime.setup({ systemPrompt: { section: () => {}, context: () => {} },
+  await runtime.setup({ systemPrompt: { section: () => {}, context: () => {}, variable: () => undefined },
     tools: { register: (tool: any) => tools.push(tool), restrict: () => {} }
   }, payload.initialData, "plan", payload.workspace);
   const proposal = await tools.find(({ name }) => name === "bees_propose_changes").execute({

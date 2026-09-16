@@ -119,7 +119,7 @@ function testContext(
         };
         sessions.set(session.id, session.events);
         const agentContext = {
-          systemPrompt: { section: () => undefined, context: () => undefined },
+          systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
           tools: { register: () => undefined }
         };
         await options.setup(agentContext);

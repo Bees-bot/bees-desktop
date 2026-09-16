@@ -9,7 +9,7 @@ import { AccountIcon, BookIcon, SettingsIcon, ChevronDownIcon } from "./icons.js
 import { Home, GuidePage } from "./home.js";
 import { GettingStarted, GettingStartedBar, onboardingAiKey, planningAgents, starterDescription } from "./getting-started.js";
 import { BasicsPage } from "./basics.js";
-import { dashboardsFrom } from "./dashboard-model.js";
+import { addDashboardWidget, dashboardsFrom } from "./dashboard-model.js";
 import { WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
 import { AppsPage } from "./apps.js";
@@ -346,8 +346,11 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
+  // the question is answered on the home dashboard, so put the widget there before jumping to it
   const openNeedsYou = () => {
-    setRoute("waiting"); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+    if (!dashboards.find(({ id }) => id === "home").widgets.some(({ kind }) => kind === "waiting"))
+      void preferences.set("dashboards", dashboards.map((row) => row.id === "home" ? addDashboardWidget(row, { kind: "waiting", w: 6, h: 4 }) : row));
+    navigate("home");
   };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");

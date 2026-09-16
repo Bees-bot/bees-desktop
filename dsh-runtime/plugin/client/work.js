@@ -812,7 +812,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
   );
 }
 
-function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
+export function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
   const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const [selectedId, setSelectedId] = useState(initialSelectedId);
@@ -845,18 +845,23 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   return { rows, selected, selectedId, setSelectedId, session, interaction, handled, working, answered };
 }
 
-export function NeedsYouWidget({ ctx, data, act, rowsForRoute, limit = 8 }) {
-  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
+/** The one list the Needs you count and the rows under it both read, so they cannot disagree. */
+export function needsYouRows(queue, data, rowsForRoute) {
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const records = rowsForRoute("waiting")
     .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
     .filter((record) => record.live);
   const listedItemIds = new Set(records.map(({ id }) => id));
+  // An Ask Bees run asks its questions before any work item exists, so it gets a row of its own.
   for (const live of queue.rows) {
     if (!live.item || !listedItemIds.has(live.item.id)) {
       records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
     }
   }
+  return records;
+}
+
+export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
   const visibleRecords = records.slice(0, limit);
   const selected = visibleRecords.find(({ live }) => live.run.id === queue.selectedId)?.live;
   const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);

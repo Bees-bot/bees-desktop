@@ -244,8 +244,11 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   const tools: any[] = [];
   const prompts: string[] = [];
   const restrictions: string[] = [];
+  const variables: Record<string, () => string> = {};
+  const expand = (text: string) => text.replace(/\{\{([a-z0-9_]+)\}\}/g, (_, name: string) => variables[name]!());
   await runtime.setup({
-    systemPrompt: { section: ({ text }: any) => prompts.push(text), context: () => undefined },
+    systemPrompt: { section: ({ text }: any) => prompts.push(expand(text)), context: () => undefined,
+      variable: (name: string, provider: any) => { variables[name] = provider; } },
     tools: { register: (tool: any) => tools.push(tool), restrict: ({ deny }: any) => restrictions.push(...deny) }
   }, payload.initialData, "ask-run", "/tmp");
   expect(restrictions).toContain("mcp__other__read");

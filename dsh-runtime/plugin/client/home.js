@@ -2,7 +2,7 @@ import { h, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
-import { NeedsYouWidget } from "./work.js";
+import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
@@ -96,9 +96,9 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
   );
 }
 
-function MetricsWidget({ rowsForRoute }) {
+function MetricsWidget({ rowsForRoute, records }) {
   const metrics = [
-    ["Needs you", rowsForRoute("waiting").length],
+    ["Needs you", records.length],
     ["Process runs", rowsForRoute("all-work").length],
     ["Process templates", rowsForRoute("all-processes").length],
     ["Agents", rowsForRoute("all-agents").length]
@@ -207,7 +207,9 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, createWork, createProcess, createRun, createAgent,
+  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
+  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue,
+    records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configureGoal: () => setSetup(true) };
 
   useEffect(() => {

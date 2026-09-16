@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { mkdir } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
@@ -35,7 +35,7 @@ const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-Work only in the session workspace. For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. The summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in to a service whose usable credential the task already gives. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
+For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is a short update, not the deliverable. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs information you cannot find, ask the owner for it with ask_user_question and continue from the answer; stop only when a tool you need is unavailable or the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in to a service whose usable credential the task already gives. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -550,7 +550,7 @@ export class AgentRuntime {
       ALTER TABLE bees_stage_results_next RENAME TO bees_stage_results;
     `));
     const active = database.prepare(`
-      SELECT e.execution_id, e.current_session_id, e.status,
+      SELECT e.execution_id, e.current_session_id, e.status, i.runtime_phase AS item_phase,
         i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled') AS item_done
       FROM execution_links e LEFT JOIN work_items i ON i.id = e.work_item_id
       WHERE e.status IN ('running', 'waiting_for_approval', 'waiting_for_input')
@@ -567,9 +567,9 @@ export class AgentRuntime {
       const executionId = String(run.execution_id);
       const sessionId = String(run.current_session_id);
       const pending = this.pendingInteraction(executionId);
-      // A run whose work item is already finished has nothing to recover. Without this the same
-      // runs came back on every launch: one here had 46 attempts against a cancelled item.
-      if ((run.item_done || run.status === "cancelled") && !pending) continue;
+      // a finished work item has nobody left to answer, so close its link instead of leaving it waiting for ever
+      if (run.item_done) this.setStatus(executionId, run.item_phase === "completed" ? "completed" : "cancelled");
+      if (run.item_done || (run.status === "cancelled" && !pending)) continue;
       const status = String(run.status);
       this.recovery.add(executionId);
       this.checkpoint(executionId, sessionId, "recovery_needed", {
@@ -591,17 +591,26 @@ export class AgentRuntime {
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
-      const run = targets.length && database.prepare("SELECT run_directory AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
-        .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
+      const link = database.prepare(`SELECT execution_id AS id, config_json AS config, run_directory AS directory
+        FROM execution_links WHERE current_session_id IN (?, ?)`)
+        .get(String(exec.agent?.session?.id), String(exec.agent?.session?.header?.parentSession ?? ""));
+      const approvals = () => link ? database.prepare(`SELECT metadata_json AS meta FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'human-work-approved'`)
+        .all(link.id).map(({ meta }) => Object.values(JSON.parse(meta ?? "{}") ?? {}).join("\n")) : [];
       const actual = (path) => { try { return realpathSync(path); } catch { return resolve(actual(dirname(path)), basename(path)); } };
       const inside = (path, root) => `${actual(path)}${sep}`.startsWith(`${actual(root)}${sep}`);
+      const home = actual(homedir()), top = (dir) => dir === home || dirname(dir) === dirname(dirname(dir));
+      // an approved review grants the path its text names, ended by a slash, space, quote or full stop, plus what sits below it; never home or a root folder
+      const named = (text, dir) => [dir, dir.startsWith(home + sep) ? `~${dir.slice(home.length)}` : ""].filter(Boolean).some((form) => new RegExp(
+        `${form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?(?=$|[\\s"'\`,;:)\\]*>|?!]|\\.(?:\\s|$))`, process.platform === "darwin" ? "i" : "").test(text));
+      const granted = (target) => approvals().some((text) => [target, actual(target)].some((start) => {
+        for (let dir = start; !top(dir); dir = dirname(dir)) if (named(text, dir)) return true; }));
       // dsh writes a big tool result under its temp root and tells the model to read it from there
       const spill = (path) => exec.name === "read" && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
       // Native uploads are durable, session-admitted references. Grant the exact object for reads,
       // never its attachment directory or another session's uploads.
       const uploads = new Set();
-      if (run && ["read", "read_image"].includes(exec.name)) {
-        for (const event of exec.agent.session.snapshotEvents()) {
+      if (link?.directory && ["read", "read_image"].includes(exec.name)) {
+        for (const event of exec.agent?.session?.snapshotEvents?.() ?? []) {
           if (event.type !== "user/message") continue;
           for (const part of event.data.content ?? []) {
             try {
@@ -612,20 +621,18 @@ export class AgentRuntime {
           }
         }
       }
-      // run is 0, not undefined, when the tool took no path argument; ?. does not stop a number
-      const outside = run ? targets.find((target) => !inside(resolve(run.directory, target), run.directory)
-        && !spill(resolve(run.directory, target)) && !uploads.has(actual(resolve(run.directory, target)))) : undefined;
+      // the run directory is the run's own; the rest of the disk is the person's, handed over one approved path at a time
+      const outside = link?.directory ? targets.map((target) => resolve(link.directory, target))
+        .find((path) => !inside(path, link.directory) && !spill(path) && !uploads.has(actual(path))) : undefined;
       // small local models write /outputs/x.md or /workspace/outputs/x.md and retry it for ever unless told the fix
       const rootless = outside?.replace(/^\/(?:(?:workspace|app|home|root)\/)?(?=(?:inputs|outputs)\/)/, "");
       if (rootless !== outside) return `${outside} starts at the disk root. Use the relative path ${rootless} instead, which is inside this run.`;
-      if (outside) return `${outside} is outside this run. Use a relative path like outputs/report.md under the run directory; team files come through bees_search_knowledge and bees_read_knowledge.`;
+      if (outside && !granted(outside))
+        return `${outside} is outside this run. That folder belongs to the person, so ask for it with bees_request_work_review, naming this full path and why you need it, and try again once they approve; team files come through bees_search_knowledge and bees_read_knowledge.`;
       // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it
       if (exec.name.startsWith("mcp__") && (/^(?!get|list|search|read|fetch).*(send|post|submit|delete|trash|place|publish|reply|pay|bid|transfer)/i.test(exec.name.split("__").pop())
         || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))) {
-        const link = database.prepare("SELECT execution_id AS id, config_json AS config FROM execution_links WHERE current_session_id IN (?, ?)")
-          .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""));
-        if (link && JSON.parse(link.config).requiresHumanApproval && !database.prepare(`SELECT 1 FROM dsh_audit_events
-          WHERE execution_id = ? AND event_type = 'human-work-approved' LIMIT 1`).get(link.id))
+        if (link && JSON.parse(link.config).requiresHumanApproval && !approvals().length)
           return "This stage needs the person's approval before anything goes out. Show exactly what this call will send with bees_request_work_review, then make the call.";
       }
       if (exec.name !== "ask_user_question") return;
@@ -959,20 +966,20 @@ export class AgentRuntime {
     const agent = agentCtx.on ? scopeOf(agentCtx) : null;
     if (agent?.session?.id) this.policySessions.add(String(agent.session.id));
     const systemInstructions = String(this.workContext.run(executionId)?.content.system.requirements ?? this.settings?.get?.()?.systemInstructions ?? "").trim();
-    agentCtx.systemPrompt.section({
-      name: "deployment:persona", order: 0,
-      text: [
-        data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
-        systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
-        String(data.instructions ?? ""),
-        installedApp ? "" : "Choose the most specific available tool that directly supports each part of the task, using its description and input schema. The listed tools are ready to call, but connected MCP tools may require discovery: when a task concerns a service or capability not directly covered by a listed specialized tool, use bees_find_tools with the service or capability words before falling back to a general browser or web tool. A visible browser or web tool is not a reason to skip a relevant connected MCP. Use browser/web tools for public internet research, necessary web interaction, or when no authorized specialized tool supports the operation. Combine specialized tools and web tools when different parts of the task require them; do not invoke irrelevant tools or ask the user to choose when the task and permissions are clear. Newly connected MCPs follow the same description/schema-based selection. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
-        !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
-        data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
-        installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
-        ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
-        appInstructions
-      ].filter(Boolean).join("\n\n"), complete: true
-    });
+    // requirements and folder names are user text, and the prompt library reads {{name}} in text, so pass them as one value
+    const persona = [
+      data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
+      systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
+      String(data.instructions ?? ""),
+      installedApp ? "" : "Choose the most specific available tool that directly supports each part of the task, using its description and input schema. The listed tools are ready to call, but connected MCP tools may require discovery: when a task concerns a service or capability not directly covered by a listed specialized tool, use bees_find_tools with the service or capability words before falling back to a general browser or web tool. A visible browser or web tool is not a reason to skip a relevant connected MCP. Use browser/web tools for public internet research, necessary web interaction, or when no authorized specialized tool supports the operation. Combine specialized tools and web tools when different parts of the task require them; do not invoke irrelevant tools or ask the user to choose when the task and permissions are clear. Newly connected MCPs follow the same description/schema-based selection. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
+      !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
+      data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
+      installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
+      ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
+      appInstructions
+    ].filter(Boolean).join("\n\n");
+    agentCtx.systemPrompt.variable("bees_persona", () => persona);
+    agentCtx.systemPrompt.section({ name: "deployment:persona", order: 0, text: "{{bees_persona}}", complete: true });
     if (!installedApp) agentCtx.tools.register(defineTool({
       name: "bees_search_knowledge",
       description: "Search work-item descriptions and mapped source files in the current Bees team. Generated run files are available separately through bees_read_context and file tools. Use bees_read_knowledge with a result id for its full source.",
@@ -1017,7 +1024,7 @@ export class AgentRuntime {
       description: "Request human approval of completed work or permission to continue after completed work, including approval after each entry, step, or child task. Use for approve, accept, reject, review, sign-off, continue, or stop decisions. If rejected, revise from the returned feedback and request review again; continue only after approval.",
       timeoutMs: 2_147_483_647,
       parameters: {
-        summary: { type: "string", required: true, description: "Concise description of what is ready for review and where to inspect it." }
+        summary: { type: "string", required: true, description: "Concise description of what is ready for review and where to inspect it. To reach a file or folder outside this run, give its full path." }
       },
       output: {
         schema: {
@@ -1426,11 +1433,8 @@ export class AgentRuntime {
     `).all(currentIdentity(this.database).deviceId, JSON.stringify(grantIds()), data.workspaceId);
     const grants = installedApp || data.mode !== "work" ? [] : granted();
     if (grants.length) {
-      agentCtx.systemPrompt.context({
-        name: "bees:publication-grants",
-        order: 90,
-        text: `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`
-      });
+      agentCtx.systemPrompt.variable("bees_publication_grants", () => `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`);
+      agentCtx.systemPrompt.context({ name: "bees:publication-grants", order: 90, text: "{{bees_publication_grants}}" });
     }
     if (!installedApp && data.mode === "work") agentCtx.tools.register(defineTool({
         name: "bees_publish_outputs",

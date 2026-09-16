@@ -33,7 +33,7 @@ describe("completion recording and visible discussion", () => {
       const document = join(directory, "outputs", "strategy.md");
       writeFileSync(document, "Completed CMO strategy");
       const tools: any[] = [];
-      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
+      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
         tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined } }, {
         mode: "work", stagePurpose: "worker", agentName: "CMO", agentPresetId: "standard",
         workItemId: "cmo", workspaceId: stage.workspaceId, mcpAccess: "none", mcpServers: [], grants: []
