@@ -399,6 +399,8 @@ export class ProcessRuntime {
           )
         )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
+        AND NOT (w.runtime_phase = 'ready' AND EXISTS (SELECT 1 FROM bees_work_receipts r
+          WHERE r.work_item_id = w.id AND r.idempotency_key LIKE 'proposal:%'))
     `).all();
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
@@ -588,6 +590,7 @@ export class ProcessRuntime {
     const item = this.item(workItemId);
     if (!this.isAutomatic(item.processId)) throw new Error("This process is manually driven");
     const allowed = {
+      start: ["ready"],
       pause: ["running", "waiting"],
       resume: ["paused"],
       retry: ["failed"],
@@ -595,6 +598,7 @@ export class ProcessRuntime {
     };
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
+    if (type === "start") return this.startItem(workItemId);
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     if (type === "cancel") {
       // Stop local model/tool execution now, without waiting for Temporal's next heartbeat.

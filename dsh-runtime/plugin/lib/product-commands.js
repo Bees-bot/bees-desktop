@@ -441,7 +441,8 @@ export async function executeProductCommand(action, input) {
         .run(workspace.id, receiptKey, id, at);
       return { id };
       });
-      if (created.reused) return created;
+      // an applied plan only sets work up, the owner presses Start
+      if (created.reused || input.idempotencyKey?.startsWith("proposal:")) return created;
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
@@ -494,8 +495,8 @@ export async function executeProductCommand(action, input) {
       // fails, so without this a retry mints a second live schedule firing the same work twice.
       const existing = this.database.prepare(`
         SELECT id, source_work_item_id AS sourceWorkItemId FROM recurring_work
-        WHERE workspace_id = ? AND name = ? AND status = 'active'
-      `).get(item.workspaceId, name);
+        WHERE workspace_id = ? AND name = ? AND status = ?
+      `).get(item.workspaceId, name, input.paused ? "paused" : "active");
       if (existing) return { ...existing, reused: true };
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
@@ -509,9 +510,9 @@ export async function executeProductCommand(action, input) {
           INSERT INTO recurring_work
             (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
              schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, item.workspaceId, item.processId, sourceWorkItemId, name, schedule.kind,
-          JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, at, at);
+          JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, input.paused ? "paused" : "active", at, at);
         this.database.prepare(`
           INSERT INTO work_items
             (id, process_id, stage_id, parent_id, kind, title, description, owner,
@@ -634,7 +635,7 @@ export async function executeProductCommand(action, input) {
       `).get(specialization.id, specialization.revision);
       return savePlaybook(this.database, specialization, prior?.playbook ?? "", "undo");
     });
-    if (["pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
+    if (["start_item", "pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.signal(item.id, action.replace("_item", ""));
     }
@@ -1124,7 +1125,7 @@ export async function executeProductCommand(action, input) {
             payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
             if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
           }
-          if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
+          if (change.action === "create_recurring_work") Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
           if (change.action === "set_stage_route") {
             payload.stageId = this.database.prepare(`
               SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL

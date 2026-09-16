@@ -241,6 +241,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
           : latestResult ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, `Agent update: ${OUTCOME_LABELS[latestResult.resultOutcome] || "finished"}`) : null
       ),
       h("div", { className: "bees-tab-actions" },
+        schedulable && item.runtimePhase === "ready" && !isScheduleDefinition(item) ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "start_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Start") : null,
         !plan && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
         run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
         run && !plan && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
