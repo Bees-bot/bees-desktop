@@ -516,11 +516,11 @@ export async function executeProductCommand(action, input) {
           INSERT INTO work_items
             (id, process_id, stage_id, parent_id, kind, title, description, owner,
              agent_assignment_id, agent_ids_json, priority, output_location_id, recurring_work_id,
-             archived_at, deleted_at, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+             account_user_id, archived_at, deleted_at, created_at, updated_at)
+          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
         `).run(sourceWorkItemId, item.processId, stageId, item.kind === "goal" ? "goal" : "work",
           item.title, item.description, item.owner, item.agentAssignmentId, JSON.stringify(item.agentIds), item.priority,
-          item.outputLocationId, id, at, at);
+          item.outputLocationId, id, item.accountUserId ?? null, at, at);
         this.database.prepare(`
           INSERT INTO work_item_locations
           SELECT DISTINCT ?, location_id, relative_path FROM work_item_locations

@@ -267,9 +267,9 @@ export function claudeChunks(result, tools) {
     ...result.usage.cache_creation_input_tokens > 0 ? { cacheWriteTokens: Number(result.usage.cache_creation_input_tokens) } : {}
   } };
   if (result.structured?.tool) {
+    // a name outside this turn's list is not fatal: tool discovery hides schemas it evicted but the
+    // registry still runs them, and a made-up name comes back as a tool error the model can recover from
     const name = String(result.structured.tool);
-    if (!tools.some((tool) => tool.name === name))
-      throw new LlmError(`Claude Code selected unknown DSH tool ${name}`, "CLAUDE_CODE");
     const args = result.structured.arguments;
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw new LlmError("Claude Code returned invalid DSH tool arguments", "CLAUDE_CODE");

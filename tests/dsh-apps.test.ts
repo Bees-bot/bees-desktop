@@ -426,27 +426,30 @@ it("guards every alternate execution path, including tools registered later", ()
 
 it("mounts app restrictions in the actual agent setup without browser or unrelated tools", async () => {
   const s = setup(); const installed = await s.install(); const work = await s.run(installed.id);
-  const registered: any[] = []; const guards: any[] = []; const sections: any[] = [];
+  const registered: any[] = []; const guards: any[] = []; const sections: any[] = []; const variables: any[] = [];
   const browser = vi.spyOn(s.runtime, "startBrowserIfGranted");
   const folders = vi.spyOn(s.runtime, "boundFolders");
   await s.runtime.setup({
-    systemPrompt: { section: (section: any) => sections.push(section), context: vi.fn() },
+    systemPrompt: { section: (section: any) => sections.push(section), context: vi.fn(),
+      variable: (name: string, provider: any) => variables.push([name, provider]) },
     tools: { register: (tool: any) => registered.push(tool), restrict: vi.fn(), guard: (fn: any) => guards.push(fn) }
   }, { mode: "work", stagePurpose: "worker", agentPresetId: "standard", workspaceId: s.workspaceId,
     workItemId: work.id, mcpAccess: "none", mcpServers: [], grants: [] }, "app-test", "/tmp");
   const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
   const { Context } = require("@deepseek-ai/cordis");
-  const { SystemPrompt } = require("@deepseek-ai/dsh-system-prompt");
+  const { SystemPrompt, renderPrompt } = require("@deepseek-ai/dsh-system-prompt");
   const { createScope } = require("@deepseek-ai/dsh-scope");
   const ctx = new Context(); const prompt = new SystemPrompt(ctx, {});
   const owner = {}; const scope = createScope(ctx, owner);
   try {
     for (const section of sections) scope.ctx.systemPrompt.section(section);
+    for (const [name, provider] of variables) scope.ctx.systemPrompt.variable(name, provider);
     const assembled = await prompt.assemble({ scope: owner });
+    const rendered = renderPrompt(assembled);
     expect(assembled.sections).toHaveLength(1);
-    expect(assembled.sections[0].text).toContain("App mode overrides generic file/delegation instructions");
-    expect(assembled.sections[0].text).toContain('"topic":"Useful research"');
-    expect(assembled.sections[0].text).toContain("End with bees_submit_stage_result");
+    expect(rendered).toContain("App mode overrides generic file/delegation instructions");
+    expect(rendered).toContain('"topic":"Useful research"');
+    expect(rendered).toContain("End with bees_submit_stage_result");
   } finally { await scope.dispose(); }
   expect(browser).not.toHaveBeenCalled(); expect(folders).not.toHaveBeenCalled();
   expect(registered.map((t) => t.name)).toEqual(expect.arrayContaining(["bees_app_read", "bees_app_record", "bees_submit_stage_result"]));

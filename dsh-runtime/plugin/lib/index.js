@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { LocalMemory } from "./local-memory.js";
+import { LOCAL_MEMORY_URL, LocalMemory } from "./local-memory.js";
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import z from "@deepseek-ai/schemastery";
@@ -210,6 +210,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   });
   memory = product.memory;
   memory.local = new LocalMemory(ctx.settings, beesSettings, join(dirname(databasePath), "memory"));
+  memory.local.onStart = () => capabilities.remountUrl(LOCAL_MEMORY_URL).catch((error) =>
+    ctx.logger.warn(`bees: memory server remount failed: ${userMessage(error)}`));
   memory.start();
   // A run that needs a process, an agent or an MCP server builds it through the commands the screens use.
   agents.command = (input) => product.command(input);

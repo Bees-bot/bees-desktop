@@ -208,7 +208,7 @@ const ENTRIES = [
       help: "Leave this blank and Bees asks the API where its document is." },
     { name: "curl", flag: "", optional: true, textarea: true,
       label: "Or paste a curl command that already works",
-      help: "For an API that publishes no document at all. One request describes one endpoint." }
+      help: "For an API that publishes no document at all. One request describes one endpoint. Write an id that changes per call as {name}, like /orders/{order_id}." }
     ],
     env: [{
     name: "API_HEADERS",

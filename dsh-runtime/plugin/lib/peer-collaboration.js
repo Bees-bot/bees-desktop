@@ -35,8 +35,8 @@ export function mountPeerCollaboration(runtime, agentCtx, data, executionId, { t
   if (!data.workItemId || !runtime.workContext.run(executionId)) return;
   const context = runtime.workContext;
   const pinned = context.run(executionId);
-  agentCtx.systemPrompt.context({ name: "bees:shared-work-context", order: 110,
-    text: () => (tools ? DISCUSSION_PROTOCOL + "\n\n" : "") + context.prompt(executionId) });
+  agentCtx.systemPrompt.variable("bees_work_context", () => (tools ? DISCUSSION_PROTOCOL + "\n\n" : "") + context.prompt(executionId));
+  agentCtx.systemPrompt.context({ name: "bees:shared-work-context", order: 110, text: "{{bees_work_context}}" });
   if (!tools) return;
   agentCtx.tools.register(defineTool({
     name: "bees_read_context",
