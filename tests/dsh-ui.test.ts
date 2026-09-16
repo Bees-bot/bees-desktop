@@ -185,7 +185,7 @@ describe("Bees work cockpit UI", () => {
 
   it("reuses the agent interaction card in work details, Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(3);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
     expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');
@@ -212,7 +212,7 @@ describe("Bees work cockpit UI", () => {
       { id: "schedule", kind: "work", recurringWorkId: "recurring" }
     ].map((item) => ({ title: item.id, processId: "process", ...item }));
     const props = { route: "all-work", workspaceIds: ["workspace"], setWorkItemId, act,
-      data: { items, stages: [], processes: [{ id: "process", workspaceId: "workspace", name: "Template" }] } };
+      data: { items, stages: [], runs: [], processes: [{ id: "process", workspaceId: "workspace", name: "Template" }] } };
     const panels = WorkPage(props).children[1].props.panels;
     const table = panels["active-work"].content;
     expect(table.tag).toBe("table");
@@ -267,7 +267,7 @@ describe("Bees work cockpit UI", () => {
       { id: "outside", accountUserId: "outside", processId: "other-process" }
     ].map((item) => ({ title: "Report", processId: "process", kind: "work", ...item }));
     const props = { route: "all-work", workspaceIds: ["workspace"], workspaceId: "workspace",
-      data: { items, stages: [], processes: [
+      data: { items, stages: [], runs: [], processes: [
         { id: "process", name: "Reports", workspaceId: "workspace" },
         { id: "other-template", name: "Other template", workspaceId: "workspace" }
       ],

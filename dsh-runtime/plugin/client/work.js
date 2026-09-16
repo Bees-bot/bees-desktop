@@ -4,7 +4,7 @@ import {
 import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
-  accountLabel, ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
+  accountLabel, ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, ProposalCard, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
@@ -899,9 +899,42 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
   );
 }
 
+const pendingProposals = (data, run) => data.proposals.filter(({ sessionId, status }) => status === "pending" && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
+const LIVE_RUN = ["queued", "running", "waiting_for_input", "waiting_for_approval"];
 
+/** One run on its own page. A plan has no work item, so its questions, stop and proposal live here. */
+export function RunDetail({ ctx, act, data, run, backLabel, onBack, openWorkItem }) {
+  const [handled, setHandled] = useState(() => new Set());
+  const binding = run.sessionId ? ctx.sessions.binding(run.sessionId) : null;
+  const session = useSnapshot(binding?.session);
+  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
+  const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
+  const item = data.items.find(({ id }) => id === run.workItemId);
+  const asking = ["waiting_for_input", "waiting_for_approval"].includes(run.status);
+  const apply = async (proposal) => {
+    const result = await act({ action: "apply_proposal", proposalId: proposal.id });
+    const created = (...actions) => result?.results[proposal.changes.findIndex(({ action }) => actions.includes(action))]?.id;
+    const itemId = created("create_item", "create_goal"), processId = created("create_process");
+    if (itemId) openWorkItem(itemId);
+    else if (processId) openWorkItem(null, processId);
+  };
+  return h("div", { className: "bees-native-conversation" },
+    h("div", { className: "bees-row" }, h(Button, { onClick: onBack }, backLabel), h("strong", { className: "bees-row-title bees-grow" }, runTitle(data, run)),
+      !run.workItemId && (asking || run.status === "running") ? h(Button, { onClick: () => act({ action: "stop_run", executionId: run.id }) }, "Stop") : null,
+      h("span", { className: `bees-status bees-${run.status}` }, run.status.replaceAll("_", " "))),
+    asking && run.sessionId && !run.ranElsewhere ? h(AgentInteractionPanel, { run, item, title: runTitle(data, run), session, interaction, handled, act, data,
+      onAnswered: (key) => setHandled((current) => new Set(current).add(key)) }) : null,
+    ...pendingProposals(data, run).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
+    run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
+      h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
+      h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
+    run.outputs?.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
+    h(NativeConversation, { ctx, act, run, item })
+  );
+}
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, openWorkItem, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [processFilter, setProcessFilter] = useState("all");
@@ -909,6 +942,9 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const [owner, setOwner] = useState("all");
   useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); }, [route]);
   useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
+  // a plan has no work item yet, so it opens here by its run id
+  const run = data.runs.find(({ id }) => id === workItemId);
+  if (run) return h(RunDetail, { key: run.id, ctx, act, data, run, backLabel: "← Process runs", onBack: () => setWorkItemId(""), openWorkItem });
   if (workItemId) return h(WorkItemCockpit, {
     ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
@@ -945,8 +981,11 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     (processFilter === "all" || item.processId === processFilter) &&
     (itemScope === "all" || !item.parentId) &&
     (owner === "all" || ownerId(item) === owner));
-  const renderRows = (records, empty, showColumns = false, includeReRun = false) => {
-    if (!records.length) return h(Empty, null, empty);
+  const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
+    : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) &&
+      (LIVE_RUN.includes(run.status) || pendingProposals(data, run).length) && runTitle(data, run).toLocaleLowerCase().includes(needle));
+  const renderRows = (records, empty, showColumns = false, includeReRun = false, planRows = []) => {
+    if (!records.length && !planRows.length) return h(Empty, null, empty);
     const rendered = records.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
@@ -971,7 +1010,12 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     });
     return showColumns ? h("table", { className: "bees-work-table", "aria-label": "Active work" },
       h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
-      h("tbody", null, ...rendered)) : rendered;
+      h("tbody", null, ...planRows.map((run) => h("tr", { key: run.id },
+        h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
+          h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
+        h("td", null, "Plan"), h("td"),
+        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) ? run.status.replaceAll("_", " ") : "ready to apply")),
+        h("td"))), ...rendered)) : rendered;
   };
   return h("div", null,
     h("div", { className: "bees-row" },
@@ -995,7 +1039,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules"), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules", false, plans), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
         "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true) }
       }
     })

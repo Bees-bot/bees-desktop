@@ -26,7 +26,7 @@ it("combines template, scope, owner, search, and status filters independently of
     id, title: id, processId, kind: "work", runtimePhase: "running", ...extra
   });
   const data = {
-    processes: [
+    runs: [], processes: [
       { id: "goals", name: "Goals", kind: "goals", workspaceId: "team" },
       { id: "custom", name: "Custom", kind: "standard", workspaceId: "team" },
       { id: "empty", name: "Unused template", kind: "standard", workspaceId: "team" },

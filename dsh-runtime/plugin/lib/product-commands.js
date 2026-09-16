@@ -189,7 +189,7 @@ function executionAccount(database, teamId, input) {
 /** A run is only reachable through the work item or workspace that owns it. */
 function runContext(database, executionId, roles = ["admin", "member"]) {
   const run = database.prepare(`
-    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson
+    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson, status
     FROM execution_links WHERE execution_id = ?
   `).get(executionId);
   if (!run) throw new Error("Execution not found");
@@ -1196,7 +1196,10 @@ export async function executeProductCommand(action, input) {
           agentName: "Ask Bees", purpose: outcome, model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
-          instructions: "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
+          // Build with Bees on Process Templates asks for the process itself, and the person starts its runs
+          instructions: input.process
+            ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome: the exact name of a listed process built for this job, never Goals, or a new one with a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
+            : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
           mcpAccess: policy.access, mcpServers: this.database.prepare(`
             SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
@@ -1288,8 +1291,10 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
-      runContext(this.database, executionId);
+      const { status } = runContext(this.database, executionId);
       const stopped = this.agents.abort(executionId);
+      // a run parked on a question has nothing live to abort, the same as a plan ask_bees supersedes
+      if (!stopped && ["waiting_for_input", "waiting_for_approval"].includes(status)) this.agents.setStatus(executionId, "cancelled");
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
       this.agents.track(hideAgentBrowser());
       return { stopped };

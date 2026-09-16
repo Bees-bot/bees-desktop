@@ -1,6 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { NativeConversation } from "./native-conversation.js";
-import { FilePreview } from "./work.js";
+import { FilePreview, RunDetail } from "./work.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision
 } from "./shared.js";
@@ -75,17 +74,10 @@ export function ActivityPage({ ctx, act, data, route, workspaceIds, setRoute, op
       openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template" });
   }) : [h(Empty, { key: "empty" }, "No audit events yet")]));
   const run = runs.find(({ id }) => id === runId);
-  if (run) return h("div", null,
-    h("div", { className: "bees-row" }, h(Button, { onClick: () => setRunId("") }, "← Executions"), h("strong", null, runTitle(data, run)), h("div", { className: "bees-grow" }), h("span", { className: `bees-status bees-${run.status}` }, run.status)),
-    run.resolvedAgentId ? h("section", { className: "bees-box" }, h("h3", null, "Agent dispatch"),
-      h("p", null, data.assignments.find(({ id }) => id === run.resolvedAgentId)?.name ?? "Unavailable agent"),
-      h("p", { className: "bees-muted" }, run.dispatchReason)) : null,
-    run.outputs?.length ? h("section", { className: "bees-box" }, h("h3", null, "Outputs"), h("p", null, run.outputs.join(", "))) : null,
-    h(NativeConversation, { ctx, act, run, item: data.items.find(({ id }) => id === run.workItemId) })
-  );
+  if (run) return h(RunDetail, { key: run.id, ctx, act, data, run, backLabel: "← Executions", onBack: () => setRunId(""), openWorkItem });
   return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
     h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
-    h("span", { className: `bees-status bees-${row.status}` }, row.status))) : [h(Empty, { key: "empty" }, "No executions yet")]))
+    h("span", { className: `bees-status bees-${row.status}` }, row.status.replaceAll("_", " ")))) : [h(Empty, { key: "empty" }, "No executions yet")]))
   ;
 }
 

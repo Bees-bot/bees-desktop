@@ -119,7 +119,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
   return h("section", { className: "bees-box bees-system-default" },
     h("h2", null, "System default"),
     h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
-    h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, onSubmit: save },
+    h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, className: "bees-form-row", onSubmit: save },
       h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: JSON.stringify(activeModelSettings) }),
       h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
