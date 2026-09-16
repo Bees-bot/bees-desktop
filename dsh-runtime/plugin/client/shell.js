@@ -172,7 +172,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const [creatingOrganizationName, setCreatingOrganizationName] = useState("");
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
-  const [runId, setRunId] = useState("");
   const setPageActions = (actions) => headerEmitter.setActions(actions);
   const setPageHeader = (header) => headerEmitter.setHeader(header);
   const load = async () => {
@@ -250,7 +249,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   useEffect(() => { setAiTest(null); }, [JSON.stringify(modelConfig), JSON.stringify(data?.systemDefaultModel)]);
   const setScope = (next, nextConnectionId = connectionId) => {
     setConnectionId(nextConnectionId);
-    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+    setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
     void preferences.set("lastScope", next);
     void preferences.set("lastConnectionId", nextConnectionId);
   };
@@ -292,7 +291,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     }
     if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
-    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId(""); setRunId("");
+    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
   };
   const finishOrganization = async (organizationId, nextConnectionId = "") => {
     const fresh = await load();
@@ -357,7 +356,6 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create workspace" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
-  const openRun = (id) => { setRoute("runs"); setRunId(id); setProcessId(""); setWorkItemId(""); setCreating(""); };
   const openWorkItem = (id, processForWork = "") => {
     setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
@@ -387,7 +385,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (target.id === "files" || targetRoute === "sources") return data.locations.filter((row) => row.teamId === parts.teamId && !row.archivedAt)
       .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
     if (targetRoute === "runs") return viewData.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
-      id: row.id, label: runTitle(viewData, row), open: () => openRun(row.id)
+      id: row.id, label: runTitle(viewData, row), open: () => openWorkItem(row.workItemId ?? row.id)
     }));
     if (targetRoute === "artifacts") return viewData.runs.filter((row) =>
       row.workspaceId === parts.workspaceId && row.outputs?.length)
@@ -496,7 +494,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
         : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act, onOpenConnections: () => navigate("connections") })
-            : section.id === "activity" ? h(ActivityPage, { ctx, act, data: viewData, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId })
+            : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
                 : h(SettingsPage, { ctx, data: viewData, route, teamId: parts.teamId,
                     organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,

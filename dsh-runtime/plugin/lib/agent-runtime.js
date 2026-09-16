@@ -1806,14 +1806,21 @@ export class AgentRuntime {
     // One unit: a crash between the delivery and the queue delete used to leave a delivery row with
     // no outcome and no queue row, and the next admit returned that row instead of starting a
     // session. The run then sat at running for ever with nothing able to clear it.
+    let stopped = false;
     transaction(this.database, () => {
+      // stop_run deletes the queue row of a run it stops while this start was opening its session
+      stopped = prepared && !this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId).changes;
+      if (stopped) return;
       this.database.prepare(`
         INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
         VALUES (?, ?, ?, ?)
       `).run(payload.idempotencyKey, executionId, submissionId, at);
       this.setStatus(executionId, activeStatus, at);
-      this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
     });
+    if (stopped) {
+      await handle.dispose().catch(() => undefined);
+      throw new Error("The run was stopped before it started");
+    }
     this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,

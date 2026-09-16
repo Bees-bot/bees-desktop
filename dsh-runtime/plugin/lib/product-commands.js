@@ -1293,8 +1293,11 @@ export async function executeProductCommand(action, input) {
       const executionId = required(input.executionId, "Execution");
       const { status } = runContext(this.database, executionId);
       const stopped = this.agents.abort(executionId);
-      // a run parked on a question has nothing live to abort, the same as a plan ask_bees supersedes
-      if (!stopped && ["waiting_for_input", "waiting_for_approval"].includes(status)) this.agents.setStatus(executionId, "cancelled");
+      // a queued or parked run has nothing live to abort; dropping its queue row stops a start in flight
+      if (!stopped && ["queued", "waiting_for_input", "waiting_for_approval"].includes(status)) {
+        this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+        this.agents.setStatus(executionId, "cancelled");
+      }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
       this.agents.track(hideAgentBrowser());
       return { stopped };

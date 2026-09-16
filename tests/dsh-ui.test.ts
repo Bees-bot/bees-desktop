@@ -185,7 +185,7 @@ describe("Bees work cockpit UI", () => {
 
   it("reuses the agent interaction card in work details, Needs you and the dashboard", () => {
     expect(client).toContain("function AgentInteractionPanel");
-    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(3);
+    expect(client.match(/h\(AgentInteractionPanel,/g)).toHaveLength(2);
     expect(client.match(/className: "bees-box bees-answer-card"/g)).toHaveLength(1);
     expect(client).toContain('"aria-expanded": isSelected');
     expect(client).toContain('className: "bees-dashboard-launch"');

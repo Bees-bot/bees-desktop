@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { FilePreview, RunDetail } from "./work.js";
+import { FilePreview } from "./work.js";
 import {
   ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision
 } from "./shared.js";
@@ -48,7 +48,7 @@ export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
   );
 }
 
-export function ActivityPage({ ctx, act, data, route, workspaceIds, setRoute, openWorkItem, openProcess, runId, setRunId }) {
+export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProcess }) {
   const runs = data.runs.filter((run) => workspaceIds.includes(run.workspaceId));
   const [events, setEvents] = useState([]);
   const liveRevision = useBeesChangeRevision();
@@ -68,14 +68,12 @@ export function ActivityPage({ ctx, act, data, route, workspaceIds, setRoute, op
       workspaceIds.includes(workspaceId) && [event.metadata?.processId, event.metadata?.resultId].includes(id));
     const runItem = run ? data.items.find(({ id }) => id === run.workItemId) : null;
     const detail = runItem?.title ?? item?.title ?? process?.name ?? event.metadata?.action ?? event.metadata?.outcome;
-    const onOpen = run ? () => { setRunId(run.id); setRoute("runs"); }
+    const onOpen = run ? () => openWorkItem(run.workItemId ?? run.id)
       : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
     return h(AuditEvent, { event, detail, onOpen, key: event.id,
       openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template" });
   }) : [h(Empty, { key: "empty" }, "No audit events yet")]));
-  const run = runs.find(({ id }) => id === runId);
-  if (run) return h(RunDetail, { key: run.id, ctx, act, data, run, backLabel: "← Executions", onBack: () => setRunId(""), openWorkItem });
-  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => setRunId(row.id) },
+  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => openWorkItem(row.workItemId ?? row.id) },
     h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
     h("span", { className: `bees-status bees-${row.status}` }, row.status.replaceAll("_", " ")))) : [h(Empty, { key: "empty" }, "No executions yet")]))
   ;
