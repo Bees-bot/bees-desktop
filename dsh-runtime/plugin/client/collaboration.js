@@ -16,14 +16,15 @@ export function SharedWorkContext({ item, executionId }) {
     }).catch((reason) => active && setError(reason.message));
     return () => { active = false; };
   }, [item.id, executionId, revision]);
+  const context = view?.context ?? view?.runContext;
   return h("div", { className: "bees-stack" },
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
-    h("h3", null, "Shared task context"),
-    h("p", { className: "bees-muted" }, view?.context
-      ? `Requirements version ${view.context.version}. This execution and its reviewer use the same requirements. Discussion and memories do not change them.`
+    h("h3", null, "Shared run context"),
+    h("p", { className: "bees-muted" }, context
+      ? `Requirements version ${context.version}. Every work item uses this run's shared context. Each execution preserves the requirements used for its review.`
       : "Requirements are pinned when execution starts. Edit the work item or process to change requirements for a new execution."),
-    view?.context ? h("details", { open: true }, h("summary", null, "Exact requirements and assigned scope"),
-      h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, JSON.stringify({ requirements: view.context.content, scope: view.context.scope }, null, 2))) : null,
+    context ? h("details", { open: true }, h("summary", null, "Exact requirements and assigned scope"),
+      h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, JSON.stringify({ requirements: context.content, scope: context.scope }, null, 2))) : null,
     view?.humanReview?.entries?.length ? h("details", { open: Boolean(view.humanReview.requiredCorrections.length) },
       h("summary", null, `Human review feedback (revision ${view.humanReview.version})`),
       h("p", { className: "bees-muted" }, "Original feedback is preserved here. Unresolved rejections are required corrections for this run, not ordinary discussion or recalled memory."),
@@ -31,8 +32,8 @@ export function SharedWorkContext({ item, executionId }) {
         h("strong", null, `${review.approved ? "Approved" : "Rejected"}: ${review.workItemId}`),
         h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, review.feedback || review.summary),
         h("small", null, `Execution: ${review.executionId}`)))) : null,
-    view?.context?.memories?.length ? h("details", null, h("summary", null, "Recalled experience"),
-      ...view.context.memories.map((memory, index) => h("p", { key: memory.id ?? index }, memory.text))) : null);
+    context?.memories?.length ? h("details", null, h("summary", null, "Recalled experience"),
+      ...context.memories.map((memory, index) => h("p", { key: memory.id ?? index }, memory.text))) : null);
 }
 
 export function WorkDiscussion({ item, onOpenWork }) {

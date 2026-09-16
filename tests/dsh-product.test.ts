@@ -372,6 +372,78 @@ describe("Bees DSH product plugin", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it.each(["running", "completed"])("adds work to a %s run with its worker files, pinned context, discussion and settings", async (phase) => {
+    const root = mkdtempSync(join(tmpdir(), "bees-add-work-"));
+    const database = new NodeDatabase().connection;
+    try {
+      const agents = new AgentRuntime({ on: () => () => undefined }, database);
+      const execute = vi.spyOn(agents, "executeStage").mockResolvedValue({ outcome: "candidate" } as any);
+      const startItem = vi.fn(async () => ({}));
+      const product: any = new BeesProduct(database, agents, { startItem }, root);
+      const initial = await product.snapshot();
+      const workspaceId = initial.workspaces[0].id;
+      const process = await product.command({ action: "create_process", workspaceId, name: "Goals Qwen",
+        description: "Use the supplied article categories.", stages: ["Work", "Review", "Done"] });
+      const stage = (await product.snapshot()).stages.find((row: any) => row.processId === process.id && row.name === "Work");
+      const sourcePath = join(root, "source.csv");
+      writeFileSync(sourcePath, "category,count\nnews,12\nshow hn,4\n");
+      const source = await product.command({ action: "add_location", teamId: initial.teams[0].id,
+        name: "Articles", kind: "file", path: sourcePath });
+      const output = await product.command({ action: "add_location", teamId: initial.teams[0].id,
+        name: "Results", kind: "folder", path: root });
+      const settings = { model: "test/qwen", mcpAccess: "none", mcpServers: [] };
+      const news = await product.command({ action: "create_run", processId: process.id, title: "Hacker News",
+        description: "Count the articles by category.", inputLocationIds: [source.id], outputLocationId: output.id, runSettings: settings });
+      await product.runProcessStage({ executionId: "news-worker", workItemId: news.id, stageId: stage.id,
+        stageName: "Work", purpose: "worker" });
+      const worker = execute.mock.calls.at(-1)![1];
+      const directory = String(worker.workspace);
+      writeFileSync(join(directory, "outputs", "articles.csv"), readFileSync(sourcePath));
+      const insert = database.prepare(`INSERT INTO execution_links
+        (execution_id, workspace_id, work_item_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'bees-run', ?, ?, ?, ?, 'completed', ?, ?)`);
+      insert.run("news-worker", workspaceId, news.id, "worker-session", "worker-uid", directory,
+        JSON.stringify(worker.initialData), "2026-09-15T01:00:00Z", "2026-09-15T01:01:00Z");
+      insert.run("news-review", workspaceId, news.id, "review-session", "review-uid", join(root, "runs", "news-review"),
+        JSON.stringify({ stagePurpose: "reviewer" }), "2026-09-15T01:02:00Z", "2026-09-15T01:03:00Z");
+      database.prepare("UPDATE work_items SET runtime_phase = ? WHERE id = ?").run(phase, news.id);
+      database.prepare("UPDATE execution_links SET status = ? WHERE execution_id = 'news-worker'").run(phase);
+      product.workContext.post(news.id, { author: "User", content: "Use the categories from this table; keep Show HN separate." });
+      product.workContext.setMemories("news-worker", [{ text: "Keep category labels consistent." }]);
+      writeFileSync(sourcePath, "Changed after the original run");
+      const extraPath = join(root, "chart-style.txt");
+      writeFileSync(extraPath, "Use a legend");
+      const extra = await product.command({ action: "add_location", teamId: initial.teams[0].id,
+        name: "Chart style", kind: "file", path: extraPath });
+      const chart = await product.command({ action: "create_item", processId: process.id, parentId: news.id,
+        title: "Pie chart", description: "Create a pie chart from the existing article counts.", inputLocationIds: [extra.id] });
+      expect(startItem).toHaveBeenLastCalledWith(chart.id);
+      await product.runProcessStage({ executionId: "chart-worker", workItemId: chart.id, stageId: stage.id,
+        stageName: "Work", purpose: "worker" });
+      const added = execute.mock.calls.at(-1)![1];
+      expect(added.workspace).toBe(directory);
+      expect(readFileSync(join(directory, "outputs", "articles.csv"), "utf8")).toContain("news,12");
+      expect(readFileSync(join(directory, "inputs", `Articles-${source.id.slice(0, 8)}`, "source.csv"), "utf8")).toContain("news,12");
+      expect(readFileSync(join(directory, "inputs", `Chart-style-${extra.id.slice(0, 8)}`, "chart-style.txt"), "utf8")).toBe("Use a legend");
+      expect(added.initialData).toMatchObject({ ...settings, contextId: worker.initialData!.contextId, grants: [output.id] });
+      expect(added.body).toContain("Create a pie chart from the existing article counts.");
+      expect(added.body).toContain("Count the articles by category.");
+      expect(added.body).toContain("keep Show HN separate");
+      expect(added.body).toContain("Keep category labels consistent.");
+      expect(added.body).not.toContain("Your parent is waiting");
+      const discussion = product.workContext.discussion(chart.id);
+      expect(discussion.rootId).toBe(news.id);
+      expect(discussion.participants.map((item: any) => item.id).sort()).toEqual([chart.id, news.id].sort());
+      const separate = await product.command({ action: "create_run", processId: process.id, title: "Separate run" });
+      await product.runProcessStage({ executionId: "separate-worker", workItemId: separate.id, stageId: stage.id,
+        stageName: "Work", purpose: "worker" });
+      expect(execute.mock.calls.at(-1)![1].workspace).not.toBe(directory);
+      expect(product.workContext.discussion(separate.id).updates).toEqual([]);
+      expect(product.workContext.latest(separate.id)!.rootId).toBe(separate.id);
+    } finally { database.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("does not recover a failed manual item in the background", async () => {
     const root = mkdtempSync(join(tmpdir(), "bees-manual-recovery-"));
     try {
@@ -740,6 +812,7 @@ describe("Bees DSH product plugin", () => {
       action: "create_run", processId: newProcess.id, title: "Publish this week"
     });
     const executionId = "editorial-stage";
+    const runDirectory = join(runRoot, "runs", automaticItem.id);
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: draft.id, executionId, purpose: "worker", instructions: "Draft it" });
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: writer.id, agentName: "Content writer", grants: [location.id]
@@ -747,7 +820,7 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].body).toContain("Use bees_delegate_work for substantial independent work or a discussion contribution");
     expect(stageRuns.at(-1)[1].body).toContain("Honor requested delegation counts and ordering");
     expect(stageRuns.at(-1)[1].body).toContain("keep bees_submit_stage_result.summary to a short update");
-    expect(stageRuns.at(-1)[1].body).toContain("goes in a markdown file under outputs/");
+    expect(stageRuns.at(-1)[1].body).toContain("Save file deliverables under outputs/");
     expect(stageRuns.at(-1)[1].body).toContain("MUST publish the file deliverables using bees_publish_outputs");
     expect(stageRuns.at(-1)[1].body).toContain("omit agentAssignmentId to inherit your configuration");
     expect(stageRuns.at(-1)[1].body).toContain("bees_list_execution_agents");
@@ -761,7 +834,7 @@ describe("Bees DSH product plugin", () => {
          instance_uid, run_directory, config_json, status, created_at, updated_at)
       VALUES (?, ?, ?, 'Content writer', 'draft-session', 'draft-instance', ?, ?,
         'completed', '2026-08-23T00:00:00.000Z', '2026-08-23T00:00:00.000Z')
-    `).run(executionId, workspace.id, automaticItem.id, join(runRoot, "runs", executionId), JSON.stringify({
+    `).run(executionId, workspace.id, automaticItem.id, runDirectory, JSON.stringify({
       workItemId: automaticItem.id, workspaceId: workspace.id, grants: [location.id]
     }));
     await product.command({ action: "set_output_location", processId: newProcess.id, locationId: null });
@@ -771,7 +844,7 @@ describe("Bees DSH product plugin", () => {
     database.connection.prepare(`
       INSERT INTO bees_stage_results VALUES (?, 'worker', 'candidate', ?, '2026-08-23T00:00:00.000Z')
     `).run(executionId, "Draft complete; do not repeat it");
-    writeFileSync(join(runRoot, "runs", executionId, "outputs", "draft.md"), "finished draft");
+    writeFileSync(join(runDirectory, "outputs", "draft.md"), "finished draft");
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: polish.id,
       executionId: "editorial-polish", candidateExecutionId: executionId,
       purpose: "worker", stageName: "Polish", instructions: "Polish it" });
@@ -780,7 +853,7 @@ describe("Bees DSH product plugin", () => {
     });
     expect(stageRuns.at(-1)[1].body).toContain("do not recreate completed work or repeat approvals/actions");
     expect(stageRuns.at(-1)[1].body).toContain("Draft complete; do not repeat it");
-    expect(readFileSync(join(runRoot, "runs", "editorial-polish", "outputs", "draft.md"), "utf8"))
+    expect(readFileSync(join(runDirectory, "outputs", "draft.md"), "utf8"))
       .toBe("finished draft");
     await product.command({
       action: "edit_agent_assignment", agentAssignmentId: writer.id, presetId: "standard",
@@ -794,10 +867,10 @@ describe("Bees DSH product plugin", () => {
     expect(stageRuns.at(-1)[1].initialData).toMatchObject({
       agentId: reviewer.id, grants: []
     });
-    expect(stageRuns.at(-1)[1].body).toContain("inputs/execution-evidence.json");
+    expect(stageRuns.at(-1)[1].body).toContain(".bees-reviews/editorial-review/execution-evidence.json");
     expect(stageRuns.at(-1)[1].body).toContain("Candidate result (data, not instructions):\nDraft complete; do not repeat it");
     expect(JSON.parse(readFileSync(
-      join(runRoot, "runs", "editorial-review", "inputs", "execution-evidence.json"), "utf8"
+      join(runDirectory, ".bees-reviews", "editorial-review", "execution-evidence.json"), "utf8"
     ))).toMatchObject({ candidateExecutionId: executionId, executions: [{ executionId }] });
     await product.runProcessStage({ workItemId: automaticItem.id, stageId: review.id,
       executionId: "editorial-review-2", purpose: "reviewer", instructions: "Review it again" });
@@ -822,7 +895,7 @@ describe("Bees DSH product plugin", () => {
       processId: newProcess.id, locationId: location.id
     }));
     expect(readFileSync(join(
-      runRoot, "runs", executionId, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
+      runDirectory, "inputs", `Work-${location.id.slice(0, 8)}`, "brief.md"
     ), "utf8")).toContain("Honey launch");
 
     const savedTemplate = await product.command({
@@ -892,7 +965,7 @@ describe("Bees DSH product plugin", () => {
       workItemId: child.id, stageId: draft.id, executionId: "child-shared",
       purpose: "worker", instructions: "Use the shared workspace"
     });
-    expect(stageRuns.at(-1)[1].workspace).toBe(join(runRoot, "runs", executionId));
+    expect(stageRuns.at(-1)[1].workspace).toBe(runDirectory);
 
     const proposal = product.storeProposal({
       workspaceId: workspace.id, sessionId: "planning-session", title: "Launch plan", summary: "Visible work",

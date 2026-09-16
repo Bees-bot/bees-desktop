@@ -1,9 +1,12 @@
 import { createRequire } from "node:module";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 // @ts-expect-error Client modules are plain JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are plain JavaScript.
 import { WorkPage } from "../dsh-runtime/plugin/client/work.js";
+
+// @ts-expect-error Client modules are plain JavaScript.
+import { ResourceFields } from "../dsh-runtime/plugin/client/location-fields.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const React = require("react");
@@ -77,6 +80,93 @@ it("combines template, scope, owner, search, and status filters independently of
     view.controls["Filter by process template"].onChange({ target: { value: "empty" } });
     expect(render().ids).toEqual([]);
   } finally {
+    configureRuntime((id: string) => id === "react" ? React : {});
+  }
+});
+
+it("starts a fresh run from the list and adds work inside the opened run without losing navigation", async () => {
+  const slots = new Map<string, any[]>();
+  let current: any[] = [], cursor = 0;
+  let effects: (() => void)[] = [];
+  const hooks = { ...React,
+    useState(initial: any) {
+      const values = current, index = cursor++;
+      if (!(index in values)) values[index] = initial;
+      return [values[index], (next: any) => { values[index] = typeof next === "function" ? next(values[index]) : next; }];
+    },
+    useRef(initial: any) {
+      const index = cursor++;
+      return current[index] ??= { current: initial };
+    },
+    useEffect(callback: () => void, deps: any[]) {
+      const index = cursor++;
+      if (!current[index] || deps.some((value, i) => value !== current[index][i])) effects.push(callback);
+      current[index] = deps;
+    }
+  };
+  const render = (key: string, component: any, props: any) => {
+    current = slots.get(key) ?? []; slots.set(key, current); cursor = 0; effects = [];
+    const tree = component(props);
+    for (const effect of effects) effect();
+    return tree;
+  };
+  const elements = (tree: any): any[] => !React.isValidElement(tree) ? []
+    : [tree, ...React.Children.toArray(tree.props.children).flatMap(elements)];
+  const button = (tree: any, label: string) => elements(tree).find((el) => el.props.children === label);
+  const parent = { id: "news", title: "Hacker News", processId: "qwen", stageId: "done",
+    kind: "run", runtimePhase: "completed", completed: true, outputLocationId: "results" };
+  const data = { processes: [{ id: "goals", name: "Goals", workspaceId: "workspace" },
+    { id: "qwen", name: "Goals Qwen", workspaceId: "workspace" }],
+    workspaces: [{ id: "workspace", teamId: "team" }], assignments: [], runs: [], locations: [],
+    processAttachments: [], agentAttachments: [], attachments: [{ workItemId: "news", locationId: "source" }],
+    items: [parent], stages: [{ id: "work", processId: "qwen", name: "Work", driver: "agent" },
+      { id: "done", processId: "qwen", name: "Done", driver: "terminal" }] };
+  let actions: any;
+  const props: any = { data, route: "all-work", workspaceIds: ["workspace"], workspaceId: "workspace", teamId: "team",
+    preference: {}, preferences: {}, workItemId: "", defaultProcessId: "qwen",
+    act: vi.fn(async () => ({ id: "chart" })), setWorkItemId: vi.fn(),
+    setCreating: (value: string) => { props.creating = value; },
+    setWorkProcessId: (value: string) => { props.defaultProcessId = value; },
+    setPageActions: (value: any) => { actions = value; } };
+  configureRuntime((id: string) => id === "react" ? hooks : {});
+  vi.stubGlobal("FormData", class { constructor(public values: Map<string, string>) {} get(key: string) { return this.values.get(key); } });
+  const submit = (form: any) => form.props.onSubmit({ preventDefault() {},
+    currentTarget: new Map([["title", "Pie chart"], ["description", "Chart the article counts"]]) });
+  try {
+    const list = render("page", WorkPage, props);
+    button(list, "New work").props.onClick();
+    expect(props.creating).toBe("run");
+    expect(props.defaultProcessId).toBe("");
+    const fresh = render("page", WorkPage, props);
+    await submit(render("fresh-form", fresh.type, fresh.props));
+    expect(props.act).toHaveBeenLastCalledWith(expect.objectContaining({ action: "create_run", processId: "goals" }));
+    expect(props.act.mock.calls.at(-1)[0]).not.toHaveProperty("parentId");
+    props.workItemId = parent.id;
+    const cockpit = render("page", WorkPage, props);
+    render("cockpit", cockpit.type, cockpit.props);
+    expect(button(actions, "New work")).toBeUndefined();
+    button(actions, "Add work item").props.onClick();
+    const add = render("cockpit", cockpit.type, cockpit.props);
+    expect(add.props.parent).toBe(parent);
+    const form = render("add-form", add.type, add.props);
+    expect(elements(form).some((el) => el.props.name === "processId")).toBe(false);
+    expect(button(form, "Add work item")).toBeTruthy();
+    const resources = elements(form).find((el) => el.type === ResourceFields);
+    expect(resources.props.defaultOutputId).toBe("results");
+    expect(resources.props.inherited).toContainEqual(expect.objectContaining({ locationId: "source", source: "Process run" }));
+    props.setWorkItemId.mockClear();
+    await submit(form);
+    expect(props.act).toHaveBeenLastCalledWith(expect.objectContaining({ action: "create_item", processId: "qwen", parentId: "news" }));
+    const child = { ...parent, id: "chart", parentId: "news", title: "Pie chart", stageId: "work", completed: false };
+    data.items.push(child);
+    const details = render("cockpit", cockpit.type, cockpit.props).props.children[0];
+    expect(details.props.item.id).toBe("chart");
+    expect(props.setWorkItemId).not.toHaveBeenCalled();
+    button(actions, "Add work item").props.onClick();
+    render("cockpit", cockpit.type, cockpit.props).props.onCancel();
+    expect(render("cockpit", cockpit.type, cockpit.props).props.children[0].props.item.id).toBe("chart");
+  } finally {
+    vi.unstubAllGlobals();
     configureRuntime((id: string) => id === "react" ? React : {});
   }
 });

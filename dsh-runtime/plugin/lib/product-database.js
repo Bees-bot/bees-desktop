@@ -117,6 +117,27 @@ export function processContext(database, processId, roles = ["admin", "member", 
   return row;
 }
 
+export function workItemLineage(database, itemId) {
+  const items = [];
+  let item = itemContext(database, itemId);
+  const processId = item.processId;
+  while (item) {
+    if (items.length >= 100 || items.some(({ id }) => id === item.id)) throw new Error("Invalid work hierarchy");
+    if (item.processId !== processId) throw new Error("Work context cannot cross processes");
+    items.unshift(item);
+    item = item.parentId ? itemContext(database, item.parentId) : null;
+  }
+  return items;
+}
+
+export function workRunItems(database, itemId) {
+  const root = workItemLineage(database, itemId)[0];
+  return database.prepare(`WITH RECURSIVE tree(id) AS (
+    SELECT ? UNION SELECT w.id FROM work_items w JOIN tree ON w.parent_id = tree.id
+    WHERE w.process_id = ? AND w.deleted_at IS NULL)
+    SELECT id FROM tree`).all(root.id, root.processId).map(({ id }) => id);
+}
+
 export function parentFor(database, itemId, processId, parentId) {
   if (!parentId) return null;
   let current = String(parentId);

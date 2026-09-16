@@ -392,7 +392,7 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain("schedulable && !item.parentId");
     expect(client).toContain("result.sourceWorkItemId");
     expect(client).toContain('!item.parentId && item.kind !== "run" && Boolean(item.recurringWorkId)');
-    expect(client).toContain('item.kind === "run" ? "scheduled run" : item.kind');
+    expect(client).toContain('item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind');
     expect(client).toContain('item.kind === "run" && data.processes.find');
     expect(client).toContain('route !== "goals" || process?.kind === "goals"');
     expect(client).not.toContain('workspaceId) && item.kind !== "run"');
