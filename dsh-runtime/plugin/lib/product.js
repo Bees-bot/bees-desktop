@@ -178,12 +178,23 @@ export class BeesProduct {
       throw error;
     }
 
+    // Dispatches freeze instructions and grants, but an explicit retry must honor an AI repair.
+    if (stage.retryRequest > 0) {
+      const current = findAssignment(this.database, assignment.id, item.workspaceId);
+      const selection = Object.hasOwn(item.runSettings ?? {}, "model") ? item.runSettings : current;
+      assignment = { ...assignment, model: selection.model, reasoningEffort: selection.reasoningEffort };
+    }
+    const retry = stage.retryRequest > 0 ? {
+      retryId: `process:${executionId}:retry:${stage.retryRequest}`,
+      refreshedModel: assignment.model || null,
+      refreshedReasoningEffort: assignment.reasoningEffort ?? null
+    } : {};
     const existing = stage.durableWaits ? this.agents.run(stage.executionId) : null;
     if (existing?.workItemId === item.id && !this.agents.needsRecovery(stage.executionId)) {
       // Reattach after a wait or lost activity reply without copying inputs or admitting a new run.
       return this.agents.executeStage(stage.executionId, {
         idempotencyKey: `process:${stage.executionId}:start`, durableWaits: true,
-        ...(stage.retryRequest > 0 ? { retryId: `process:${stage.executionId}:retry:${stage.retryRequest}`, refreshedModel: assignment.model || null } : {}),
+        ...retry,
         body: `Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
       }, signal);
     }
@@ -254,7 +265,7 @@ export class BeesProduct {
     return this.agents.executeStage(executionId, {
       idempotencyKey: `process:${executionId}:start`,
       durableWaits: Boolean(stage.durableWaits),
-      ...(stage.retryRequest > 0 ? { retryId: `process:${executionId}:retry:${stage.retryRequest}` } : {}),
+      ...retry,
       workspace: runDirectory,
       body: body + "\n\n" + this.workContext.prompt(executionId),
       initialData: {

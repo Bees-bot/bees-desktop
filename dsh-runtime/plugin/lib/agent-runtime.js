@@ -1774,6 +1774,7 @@ export class AgentRuntime {
       const staleResolvedModel = data.resolvedModel && (recovery || Boolean(payload.retryId));
       if (staleResolvedModel || (!data.resolvedModel && (prepared || !existed))) {
         if (Object.hasOwn(payload, "refreshedModel")) data.model = payload.refreshedModel;
+        if (Object.hasOwn(payload, "refreshedReasoningEffort")) data.reasoningEffort = payload.refreshedReasoningEffort;
         // Strip the old resolved fields so resolveRunModel re-derives them from data.model.
         const { resolvedModel: _rm, resolvedReasoningEffort: _rre, ...base } = data;
         data = { ...base, ...await resolveRunModel(this.ctx, base) };
@@ -1982,6 +1983,17 @@ export class AgentRuntime {
 
   async finish(executionId, submissionId, sessionId, handle, result) {
     if (this.closing) return;
+    if (result.outcome === "failed" && result.error) {
+      const data = JSON.parse(this.run(executionId)?.configJson ?? "{}");
+      const model = data.resolvedModel ?? data.model;
+      const detail = `${data.stagePurpose ?? data.mode ?? "agent"}${data.agentName ? ` (${data.agentName})` : ""}${model ? ` using ${model}` : ""}`;
+      const hint = result.error.code === "TRANSPORT"
+        ? " Check this agent's model under Agents and its connection under Settings → AI before retrying."
+        : "";
+      result = { ...result, error: { ...result.error,
+        message: `${detail}: ${result.error.message}${hint}` } };
+      this.ctx.logger?.warn?.(`bees: execution=${executionId} session=${sessionId} code=${result.error.code ?? "unknown"}: ${result.error.message}`);
+    }
     const at = new Date().toISOString();
     this.database.prepare(`
       UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
