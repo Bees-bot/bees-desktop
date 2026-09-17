@@ -2,11 +2,10 @@ import {
   lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { json, stable } from "./document-extractor.js";
 import { drive } from "@googleapis/drive";
 import { OAuth2Client } from "google-auth-library";
 import { googleConsent } from "./google-consent.js";
-import { knowledgeMarkdown, officeMarkdown } from "./document-extractor.js";
+import { json, knowledgeMarkdown, officeMarkdown, stable } from "./document-extractor.js";
 
 const tokenCredential = "BEES_GOOGLE_DRIVE_OAUTH";
 const profileCredential = "BEES_GOOGLE_DRIVE_PROFILE";
@@ -14,7 +13,7 @@ const requiredScopes = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/forms.body.readonly"
 ];
-const pointerFormats = {
+export const pointerFormats = {
   ".gdoc": {
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     fileType: "docx", type: "document"
@@ -179,20 +178,11 @@ export function formMarkdown(form) {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-async function exportedMarkdown(api, auth, id, format, title) {
-  if (format.type === "form") {
-    const { data } = await auth.request({
-      method: "GET",
-      url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(id)}`
-    });
-    return formMarkdown(data);
-  }
-  const { data } = await api.files.export(
-    { fileId: id, mimeType: format.mimeType },
-    { responseType: "arraybuffer" }
-  );
-  const contents = Buffer.from(data);
-  if (contents.length > 20_000_000) throw new Error("Google document export is larger than 20 MB");
+/** `get(url, options)` resolves to the response body, so the Drive MCP can pass its own error-mapped caller. */
+export async function exportedMarkdown(get, id, format, title) {
+  if (format.type === "form") return formMarkdown(await get(`https://forms.googleapis.com/v1/forms/${encodeURIComponent(id)}`));
+  const contents = Buffer.from(await get(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}/export`,
+    { params: { mimeType: format.mimeType }, responseType: "arraybuffer" }));
   if (format.type === "drawing") return drawingMarkdown(contents.toString("utf8"), title);
   return officeMarkdown(contents, format.fileType);
 }
@@ -331,7 +321,8 @@ export class GoogleDriveConnection {
             fileId: id, supportsAllDrives: true,
             fields: "id,name,createdTime,modifiedTime,webViewLink"
           }),
-          exportedMarkdown(api, auth, id, format, basename(path, extname(path)))
+          exportedMarkdown(async (url, options) => (await auth.request({ url, retry: true, ...options })).data,
+            id, format, basename(path, extname(path)))
         ]);
         if (!markdown) continue;
         const fromRoot = (location.kind === "folder" ? relative(location.localPath, path) : basename(path))

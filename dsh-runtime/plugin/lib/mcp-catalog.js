@@ -192,6 +192,27 @@ const ENTRIES = [
     headers: []
   },
   {
+    id: "google-drive",
+    serverName: "drive",
+    label: "Google Drive",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-drive-mcp.js",
+    summary: "Find and read your Google Drive files: Docs, Sheets, Slides, Forms, PDFs and Office files.",
+    access: "Every file you can open in Google Drive, including ones shared with you and shared drives, and the "
+      + "questions in your Google Forms. It only reads, and cannot change, share or delete anything. Every agent set "
+      + "to all MCPs, and any agent you select it for, can read those files without asking first, and a file it reads "
+      + "can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/forms.body.readonly"
+    ],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/google-drive-mcp.js"],
+    env: googleSignIn,
+    headers: []
+  },
+  {
     id: "firecrawl",
     serverName: "firecrawl",
     label: "Web scraping",
