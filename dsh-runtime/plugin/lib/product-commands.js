@@ -97,7 +97,7 @@ function inheritedRunSettings(database, parent) {
 export function enabledServers(database) {
   return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
     .all().map(({ id, name, label, catalogId }) => ({
-      id, names: [id, name, label, catalogId].filter(Boolean).map((value) => String(value).toLocaleLowerCase())
+      id, name, names: [id, name, label, catalogId].filter(Boolean).map((value) => String(value).toLocaleLowerCase())
     }));
 }
 

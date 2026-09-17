@@ -881,6 +881,13 @@ export function initializeProductDatabase(database) {
       WHERE catalog_id = 'chrome-devtools';
     PRAGMA user_version = 28;
   `);
+  // the old api bridge sent a list as one "a,b" value, which an api reading key=a&key=b ignores
+  if (version < 29) database.exec(`
+    UPDATE mcp_servers
+      SET command = '{node}', args_json = '["{lib}/openapi-mcp.js",' || substr(args_json, 59)
+      WHERE catalog_id = 'openapi-bridge' AND args_json LIKE '["-y","@ivotoby/openapi-mcp-server","--transport","stdio",%';
+    PRAGMA user_version = 29;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';

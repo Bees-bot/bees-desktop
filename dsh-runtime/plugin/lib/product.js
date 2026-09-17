@@ -750,8 +750,8 @@ export class BeesProduct {
 
   storeProposal({ workspaceId, sessionId, title, summary, changes, runSettings = {}, request = "" }) {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
-    if (!Array.isArray(changes) || !changes.length || changes.length > 20)
-      throw new Error("A proposal needs between 1 and 20 changes");
+    if (!Array.isArray(changes) || !changes.length || changes.length > 40)
+      throw new Error("A proposal needs between 1 and 40 changes");
     const resolvedRequest = resolveReferences(this.database, workspaceId, request);
     const requestReferences = resolvedRequest.references;
     const requestAgents = leadingAgentInvocation(resolvedRequest.text)?.agents ?? [];
@@ -766,10 +766,15 @@ export class BeesProduct {
       access: settings.mcpAccess, servers: settings.mcpServers
     }).servers;
     // Names an agent may list in mcpServers: what is installed, plus what this same proposal installs.
-    const servers = new Set(enabledServers(this.database).flatMap(({ names }) => names));
+    const installed = enabledServers(this.database);
+    const servers = new Set(installed.flatMap(({ names }) => names));
     for (const change of changes) {
       const entry = change?.action === "install_mcp_server" ? catalogEntry(change.catalogId) : null;
-      for (const name of entry ? [entry.id, entry.serverName, entry.label] : change?.action === "add_mcp_server" ? [change.serverName] : [])
+      // install names a bridge after its API host, read from the pasted request when there is one
+      const given = change?.inputs ?? {};
+      const curl = entry?.nameFrom && !String(given.openapiSpec ?? "").trim() && String(given.curl ?? "").trim();
+      const host = entry?.nameFrom && this.capabilities.hostServerName(curl ? this.capabilities.specFromRequest(curl).apiBaseUrl : given[entry.nameFrom]);
+      for (const name of entry ? [entry.id, entry.serverName, entry.label, host] : change?.action === "add_mcp_server" ? [change.serverName] : [])
         servers.add(String(name ?? "").toLocaleLowerCase());
     }
     const folder = (name) => proposedFolder(this.database, workspaceId, name).name;
@@ -784,7 +789,10 @@ export class BeesProduct {
       if (!set.has(name.toLocaleLowerCase())) return proposalResource(this.database, workspaceId, kind, name);
     };
     const added = changes.filter((change) => change?.action === "add_agent_assignment").length;
-    if (added > 4) throw new Error(`This plan adds ${added} agents; route the work through at most four and reuse the team's agents for the rest`);
+    // a new process may staff each stage, plus the watcher that feeds it
+    const stages = changes.find((change) => change?.action === "create_process")?.stages;
+    const most = Math.max(4, (Array.isArray(stages) ? stages.length : 0) + 1);
+    if (added > most) throw new Error(`This plan adds ${added} agents; add at most ${most}, one per stage, and reuse the team's agents for the rest`);
     if (changes.filter((change) => change?.action === "create_process").length > 1)
       throw new Error("Propose one process at a time; a second one is a separate request");
     const normalized = changes.map((change) => {
@@ -806,7 +814,7 @@ export class BeesProduct {
         if (adding) assertUsableInstructions({ ...change, name });
         if (change.mcpAccess === "listed") for (const server of change.mcpServers ?? [])
           if (!servers.has(String(server).toLocaleLowerCase()))
-            throw new Error(`No MCP server is called ${server}; use an installed server name or install one in this proposal`);
+            throw new Error(`No MCP server is called ${server}; the installed ones are ${installed.map(({ name }) => name).join(", ") || "none"}, or install one in this proposal`);
         const access = change.mcpAccess ? { mcpAccess: change.mcpAccess, mcpServers: change.mcpServers ?? [] } : {};
         if (!adding) return { action: "edit_agent_assignment", agent: name, ...access,
           ...Object.fromEntries(["description", "instructions", "model"].filter((key) => change[key] != null).map((key) => [key, String(change[key])])) };

@@ -15,7 +15,7 @@ export const SKILL_CATALOG = [
 const MAX_FILES = 120;
 /** The Agent Skills naming rule, which doubles as the guard keeping a folder inside the skills root. */
 const SKILL_NAME = /^[\p{L}\p{N}-]+$/u;
-/** owner/name, the only shape the GitHub tree API can be asked for. */
+/** owner/name, the only shape GitHub's repository addresses take. */
 const REPO_NAME = /^[\w.-]{1,39}\/[\w.-]{1,100}$/;
 
 function repoOrThrow(repo) {
@@ -31,31 +31,32 @@ export function skillsRoot() {
   return join(home, "skills");
 }
 
-/**
- * GitHub allows 60 unauthenticated calls an hour per address, and browsing a collection then
- * installing from it asks for the same listing twice. Holding it for ten minutes keeps a person
- * clicking through the catalog well inside that budget without asking them for a token.
- */
+/** Browsing a collection then installing from it asks for the same listing twice. */
 const trees = new Map();
 const TREE_TTL = 10 * 60 * 1000;
 
-/** GitHub cuts a large tree short, and a cut listing would install half a skill. */
+/**
+ * The REST api allows 60 anonymous calls an hour, so this reads the commit off git's own
+ * endpoint and the file list off github's file finder, neither of which counts against it.
+ */
 async function treeOf(repo) {
   const held = trees.get(repo);
   if (held && Date.now() - held.at < TREE_TTL) return held.tree;
-  const url = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`;
-  const response = await fetch(url, {
-    // Anonymous is 60 calls an hour for the whole machine, which a person browsing a few
-    // repositories burns through. A token, when the user has set one, buys 5000.
-    headers: {
-      accept: "application/vnd.github+json",
-      ...(process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {})
-    },
-    signal: AbortSignal.timeout(20_000)
-  });
-  if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
-  const { tree = [], truncated } = await response.json().catch(() => { throw new Error(`GitHub did not answer with JSON for ${url}`); });
-  if (truncated) throw new Error(`${repo} is too large for GitHub to list in one call`);
+  const read = async (url, headers) => {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}`);
+    return response.text();
+  };
+  // git asks for a login when the repository is missing or private
+  const refs = await read(`https://github.com/${repo}.git/info/refs?service=git-upload-pack`)
+    .catch((error) => { throw /answered 40[134]/.test(error.message) ? new Error(`GitHub has no public repository called ${repo}`) : error; });
+  const commit = refs.match(/([0-9a-f]{40}) HEAD\0/)?.[1];
+  if (!commit) throw new Error(`${repo} has no default branch to read`);
+  const listing = await read(`https://github.com/${repo}/tree-list/${commit}`, { accept: "application/json" });
+  let paths;
+  try { paths = JSON.parse(listing).paths; } catch {}
+  if (!Array.isArray(paths)) throw new Error(`GitHub did not list the files of ${repo}`);
+  const tree = { commit, paths };
   trees.set(repo, { tree, at: Date.now() });
   return tree;
 }
@@ -87,8 +88,8 @@ function frontmatter(text, directory) {
 /** Read live off the default branch. Nothing is written until a specific skill is installed. */
 export async function listPack(repo) {
   repo = repoOrThrow(repo);
-  const tree = await treeOf(repo);
-  return tree.map(({ path }) => path).filter((path) => path?.endsWith("/SKILL.md"))
+  const { paths } = await treeOf(repo);
+  return paths.filter((path) => path.endsWith("/SKILL.md"))
     .map((path) => {
       const directory = path.slice(0, -"/SKILL.md".length);
       const name = directory.split("/").pop();
@@ -100,27 +101,32 @@ export async function listPack(repo) {
 export async function installSkill(repo, directory) {
   repo = repoOrThrow(repo);
   if (!directory || directory.includes("..")) throw new Error("That skill path is unusable");
-  const tree = await treeOf(repo);
-  const files = tree.filter((entry) => entry.type === "blob" && entry.path.startsWith(`${directory}/`));
-  if (!files.some(({ path }) => path === `${directory}/SKILL.md`)) throw new Error("That skill has no SKILL.md");
+  const { commit, paths } = await treeOf(repo);
+  const files = paths.filter((path) => path.startsWith(`${directory}/`));
+  if (!files.includes(`${directory}/SKILL.md`)) throw new Error("That skill has no SKILL.md");
   if (files.length > MAX_FILES) throw new Error(`That skill ships ${files.length} files, more than Bees installs`);
-  if (files.reduce((sum, { size }) => sum + (size ?? 0), 0) > MAX_BYTES) throw new Error("That skill is larger than Bees installs");
 
   const folder = directory.split("/").pop();
   if (!SKILL_NAME.test(folder)) throw new Error("That skill path is unusable");
   const target = join(skillsRoot(), folder);
   // Fetch everything before writing anything, so a failure halfway leaves no half-skill on disk.
   const fetched = [];
-  for (const file of files) {
-    const relative = file.path.slice(directory.length + 1);
+  let bytes = 0;
+  for (const path of files) {
+    const relative = path.slice(directory.length + 1);
     const destination = resolve(target, relative);
     if (!destination.startsWith(`${target}/`)) throw new Error(`${relative} escapes the skill folder`);
+    // pinned to the listed commit, so a push in between cannot mix two versions of one skill
     const response = await fetch(
-      `https://raw.githubusercontent.com/${repo}/HEAD/${file.path.split("/").map(encodeURIComponent).join("/")}`,
+      `https://raw.githubusercontent.com/${repo}/${commit}/${path.split("/").map(encodeURIComponent).join("/")}`,
       { signal: AbortSignal.timeout(20_000) }
     );
     if (!response.ok) throw new Error(`Could not read ${relative} (${response.status})`);
-    fetched.push({ destination, body: Buffer.from(await response.arrayBuffer()) });
+    // the listing carries no sizes, so the cap is checked before each body is read and again after
+    if (bytes + Number(response.headers.get("content-length") ?? 0) > MAX_BYTES) throw new Error("That skill is larger than Bees installs");
+    const body = Buffer.from(await response.arrayBuffer());
+    if ((bytes += body.length) > MAX_BYTES) throw new Error("That skill is larger than Bees installs");
+    fetched.push({ destination, body });
   }
   const skill = fetched.find(({ destination }) => destination === join(target, "SKILL.md"));
   const { name, description } = frontmatter(skill.body.toString("utf8"), folder);

@@ -254,16 +254,16 @@ const ENTRIES = [
     // the model sees on each tool. Name it after the host instead.
     nameFrom: "apiBaseUrl",
     label: "Any REST API (OpenAPI bridge)",
-    publisher: "Ivo Toby, openapi-mcp-server",
-    homepage: "https://github.com/ivo-toby/mcp-openapi-server",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/openapi-mcp.js",
     summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
     + "MCP server of their own.",
     access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
     transport: "stdio",
-    command: "npx",
+    command: "{node}",
     // --tools dynamic keeps three lookup tools in context instead of one per endpoint, which is what
     // makes a large API usable at all.
-    args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
+    args: ["{lib}/openapi-mcp.js", "--tools", "dynamic"],
     inputs: [
     // The bridge will not start without it, so a spec URL alone is not enough.
     { name: "apiBaseUrl", flag: "--api-base-url", label: "API base URL",

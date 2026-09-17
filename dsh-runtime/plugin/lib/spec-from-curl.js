@@ -35,8 +35,9 @@ function parseCurl(command) {
     origin: parsed.origin,
     path,
     pathParams: [...path.matchAll(/\{([\w.-]+)\}/g)].map(([, name]) => name),
-    // a[]=x&a[]=y is one parameter, and a spec that names it twice is refused
-    query: [...new Map(parsed.searchParams.entries())],
+    // a[]=x&a[]=y is one list parameter, and a spec that names it twice is refused
+    query: [...parsed.searchParams.keys()].filter((name, at, names) => names.indexOf(name) === at)
+      .map((name) => [name, parsed.searchParams.getAll(name)]),
     headers,
     ...(body ? { body } : {})
   };
@@ -130,7 +131,8 @@ export function specFromCurl(command) {
           // No example: a key pasted in the query string would otherwise land in the spec file.
           parameters: [
             ...request.pathParams.map((name) => ({ name, in: "path", required: true, schema: { type: "string" } })),
-            ...request.query.map(([name, value]) => ({ name, in: "query", required: false, schema: schemaFor(value) }))
+            ...request.query.map(([name, values]) => ({ name, in: "query", required: false,
+              schema: values.length > 1 || name.endsWith("[]") ? { type: "array", items: schemaFor(values[0]) } : schemaFor(values[0]) }))
           ],
           ...(body ? { requestBody: body } : {}),
           responses: { 200: { description: "Success", content: { "application/json": { schema: { type: "object" } } } } }
