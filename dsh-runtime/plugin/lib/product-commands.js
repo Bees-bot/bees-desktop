@@ -493,13 +493,6 @@ export async function executeProductCommand(action, input) {
         throw new Error("Recurring work requires an automatic process");
       const name = required(input.name, "Recurring work name").slice(0, 120);
       const schedule = recurringSchedule(input);
-      // apply_proposal commits each change on its own and can be re-applied after a later one
-      // fails, so without this a retry mints a second live schedule firing the same work twice.
-      const existing = this.database.prepare(`
-        SELECT id, source_work_item_id AS sourceWorkItemId FROM recurring_work
-        WHERE workspace_id = ? AND name = ? AND status = ?
-      `).get(item.workspaceId, name, input.paused ? "paused" : "active");
-      if (existing) return { ...existing, reused: true };
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
       const temporalScheduleId = `bees/recurring/${id}`;
@@ -1128,7 +1121,28 @@ export async function executeProductCommand(action, input) {
             if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
             if (change.agents) payload.agentIds = change.agents.map((name) => idOf("agent", name));
           }
-          if (change.action === "create_recurring_work") Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
+          if (change.action === "create_recurring_work") {
+            Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
+            // planning a schedule again, or re-applying after a failure, updates it instead of adding a copy
+            const existing = this.database.prepare(`
+              SELECT r.id, r.source_work_item_id AS definition FROM recurring_work r JOIN work_items w ON w.id = ?
+              WHERE r.workspace_id = ? AND lower(r.name) = lower(?) AND r.process_id = w.process_id
+            `).get(payload.itemId, proposal.workspaceId, String(change.name ?? ""));
+            if (existing) {
+              results[index] = await this.execute("edit_recurring_work", { ...payload, recurringWorkId: existing.id });
+              transaction(this.database, () => {
+                this.database.prepare(`
+                  UPDATE work_items SET (title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, updated_at) =
+                    (SELECT title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, ? FROM work_items WHERE id = ?)
+                  WHERE id = ?
+                `).run(at, payload.itemId, existing.definition);
+                this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ?").run(existing.definition);
+                this.database.prepare("INSERT INTO work_item_locations SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?")
+                  .run(existing.definition, payload.itemId);
+              });
+              continue;
+            }
+          }
           if (change.action === "set_stage_route") {
             payload.stageId = this.database.prepare(`
               SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
