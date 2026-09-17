@@ -413,7 +413,9 @@ export function recoveryToolContext(events, pending, ownerChecked = false) {
     result: excerpt(call.result, 4_000)
   }));
   const unknown = uncertain.map(({ name }) => name).join(", ");
-  return (unknown ? `\n\nBees restarted while ${unknown} was executing and its result was never recorded. The owner has confirmed the check. Establish what it did before running it again, and never repeat it blindly.` : "") +
+  const delegated = [...calls.values()].filter((call) => !call.result && call.name === "bees_delegate_work").map((call) => excerpt(call.arguments, 2_000));
+  return (delegated.length ? `\n\nBees restarted during bees_delegate_work, so its peers may already be running. Repeat it with the same titles to pick them up, not new ones: ${JSON.stringify(delegated)}` : "") +
+    (unknown ? `\n\nBees restarted while ${unknown} was executing and its result was never recorded. The owner has confirmed the check. Establish what it did before running it again, and never repeat it blindly.` : "") +
     (completed.length ? `\n\nThese tools already returned in the interrupted turn. Reuse their results; do not repeat their actions. Full results remain in the previous session's work evidence:\n${JSON.stringify(completed)}` : "");
 }
 
