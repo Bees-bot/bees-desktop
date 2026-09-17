@@ -596,10 +596,12 @@ export class Capabilities {
     const entry = catalogEntry(required(input.catalogId, "Catalog entry"));
     if (!entry?.scopes) throw new Error("That catalog entry has no sign-in");
     const { googleDesktopClientId: clientId, googleDesktopClientSecret: clientSecret } = await this.connected.authConfig();
-    const consent = await googleConsent({ clientId, clientSecret }, entry.scopes, async (client) => {
-      const { emailAddress } = (await client.request({ url: "https://gmail.googleapis.com/gmail/v1/users/me/profile" })).data;
+    const scopes = [...entry.scopes, "openid", "https://www.googleapis.com/auth/userinfo.email"];
+    const consent = await googleConsent({ clientId, clientSecret }, scopes, async (client) => {
+      // the id token came straight from Google over TLS, so its email needs no signature check
+      const { email } = JSON.parse(Buffer.from(client.credentials.id_token.split(".")[1], "base64url"));
       const signIn = {
-        label: `${entry.label} (${emailAddress})`,
+        label: `${entry.label} (${email})`,
         secrets: { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REFRESH_TOKEN: client.credentials.refresh_token }
       };
       // signing in to the same account again renews that server, so agents listed on it keep it

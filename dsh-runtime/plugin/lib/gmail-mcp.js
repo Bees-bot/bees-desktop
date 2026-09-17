@@ -1,26 +1,7 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
+import { googleServer } from "./google-mcp.js";
 
-const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = process.env;
-if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
-  console.error("Gmail has no Google sign-in. Connect Gmail again on the MCP servers page with the same Google account.");
-  process.exit(1);
-}
-const auth = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
-auth.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
-
-async function gmail(path, options) {
-  try {
-    return (await auth.request({ url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`, ...options })).data;
-  } catch (error) {
-    const reason = error?.response?.data?.error;
-    if (reason === "invalid_grant" || reason === "invalid_client")
-      throw new Error("Google no longer accepts this Gmail sign-in. Connect Gmail again on the MCP servers page with the same Google account.");
-    throw new Error(reason?.message ?? error?.message ?? String(error));
-  }
-}
+const { google: gmail, tool, serve } = googleServer("Gmail", "https://gmail.googleapis.com/gmail/v1/users/me/");
 
 const id = encodeURIComponent;
 const parts = (part) => [part, ...(part.parts ?? []).flatMap(parts)];
@@ -54,9 +35,6 @@ async function mime({ to, cc, bcc, subject, body, threadId }) {
   return { raw: Buffer.from([...head.filter(Boolean), "", ...encoded].join("\r\n")).toString("base64url"), threadId };
 }
 
-const server = new McpServer({ name: "gmail", version: "1.0.0" });
-const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema },
-  async (input) => ({ content: [{ type: "text", text: JSON.stringify(await run(input)) }] }));
 const email = {
   to: z.string().describe("Recipients, comma separated"),
   subject: z.string(),
@@ -102,4 +80,4 @@ tool("modify_thread", "Add or remove labels on a conversation. Archive: remove I
   async ({ threadId, addLabelIds, removeLabelIds }) =>
     gmail(`threads/${id(threadId)}/modify`, { method: "POST", data: { addLabelIds, removeLabelIds } }));
 
-await server.connect(new StdioServerTransport());
+await serve();

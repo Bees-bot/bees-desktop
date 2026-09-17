@@ -1,6 +1,11 @@
 /** The chips that drive a browser. They mount per run; only the Chrome itself is shared. */
 export const isBrowserCatalog = (catalogId) => ["playwright", "chrome-devtools"].includes(catalogId);
 
+// a Google sign-in fills these, so nobody pastes them and an agent cannot install the server alone
+const googleSignIn = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"].map((name) => ({
+  name, label: "a Google sign-in"
+}));
+
 /** Servers offered out of the box. Nothing installs without review, because each one is a program
  *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
 const ENTRIES = [
@@ -157,14 +162,33 @@ const ENTRIES = [
     access: "Everything in your mailbox. Every agent set to all MCPs, and any agent you select it for, can "
       + "read, label, draft and send email as you without asking first, and an email or page it reads can "
       + "try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
-    // a Google sign-in fills the env below, so nobody pastes these and an agent cannot install it alone
     scopes: ["https://www.googleapis.com/auth/gmail.modify"],
     transport: "stdio",
     command: "{node}",
     args: ["{lib}/gmail-mcp.js"],
-    env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"].map((name) => ({
-      name, label: "a Google sign-in"
-    })),
+    env: googleSignIn,
+    headers: []
+  },
+  {
+    id: "google-calendar",
+    serverName: "calendar",
+    label: "Google Calendar",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-calendar-mcp.js",
+    summary: "Find, add, change and answer events in your Google Calendar, and check when people are free.",
+    access: "Every calendar you can see or edit, including ones shared with you, and when anyone whose calendar "
+      + "you can see is busy. Every agent set to all MCPs, and any agent you select it for, can read, add, change "
+      + "and delete events and invite people as you without asking first, and Google emails the guests. An event "
+      + "or page it reads can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    scopes: [
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      "https://www.googleapis.com/auth/calendar.events.freebusy"
+    ],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/google-calendar-mcp.js"],
+    env: googleSignIn,
     headers: []
   },
   {
