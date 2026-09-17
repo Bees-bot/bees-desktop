@@ -29,7 +29,7 @@ export async function recurringWorkWorkflow(input) {
     args: [{ ...work, releasesSchedule: true }],
     parentClosePolicy: ParentClosePolicy.ABANDON
   });
-  return Promise.race([child.result(), condition(() => failed).then(() => ({ failed: true }))]);
+  return Promise.race([child.result(), condition(() => failed)]);
 }
 const durableActivities = proxyActivities({
   startToCloseTimeout: "36500 days",

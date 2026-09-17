@@ -100,8 +100,9 @@ export class ProcessRuntime {
         if (!work) return null;
         // a failed run no longer holds its schedule, so the next run replaces it instead of piling up
         for (const { id } of this.database.prepare(`
-          SELECT id FROM work_items WHERE recurring_work_id = ? AND runtime_phase = 'failed'
-        `).all(recurringWorkId))
+          SELECT id FROM work_items
+          WHERE recurring_work_id = ? AND parent_id IS NULL AND coalesce(account_user_id, '') = ? AND runtime_phase = 'failed'
+        `).all(recurringWorkId, accountUserId))
           await this.client.workflow.getHandle(processWorkflowId(id)).cancel().catch(() => undefined);
         const recurring = this.recurring(recurringWorkId, accountUserId);
         await this.refreshNextRun(
@@ -214,7 +215,7 @@ export class ProcessRuntime {
         taskQueue: PROCESS_TASK_QUEUE,
         args: [{ recurringWorkId: recurring.id, accountUserId: recurring.accountUserId }]
       },
-      policies: { overlap: "SKIP", catchupWindow: "1 minute", pauseOnFailure: true },
+      policies: { overlap: "SKIP", catchupWindow: "1 minute" },
       state: { paused: recurring.status === "paused" },
       memo: {
         recurringWorkId: recurring.id,
