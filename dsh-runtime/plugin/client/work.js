@@ -908,7 +908,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
   );
 }
 
-const pendingProposals = (data, run, wanted = "pending") => data.proposals.filter(({ sessionId, status }) => status === wanted && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
+const pendingProposals = (data, run) => data.proposals.filter(({ sessionId, status }) => status === "pending" && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
 const LIVE_RUN = ["queued", "running", "waiting_for_input", "waiting_for_approval"];
 
 // a plan has no work item yet, so the process run screen shows its run as one
@@ -964,9 +964,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     (itemScope === "all" || !item.parentId) &&
     (owner === "all" || ownerId(item) === owner));
   const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
-    : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) &&
-      (LIVE_RUN.includes(run.status) || pendingProposals(data, run).length || pendingProposals(data, run, "applied").length) && runTitle(data, run).toLocaleLowerCase().includes(needle));
-  // an applied plan already built its template, so it sits with completed work instead of vanishing
+    : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) && runTitle(data, run).toLocaleLowerCase().includes(needle));
+  // a plan with nothing live and nothing left to apply is finished, however it ended
   const planDone = (run) => !LIVE_RUN.includes(run.status) && !pendingProposals(data, run).length;
   const renderRows = (records, empty, showColumns = false, includeReRun = false, planRows = []) => {
     if (!records.length && !planRows.length) return h(Empty, null, empty);
@@ -998,7 +997,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
           h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
         h("td", null, "Plan"), h("td"),
-        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) ? run.status.replaceAll("_", " ") : planDone(run) ? "completed" : "ready to apply")),
+        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
         h("td"))), ...rendered)) : rendered;
   };
   return h("div", null,
