@@ -911,7 +911,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
   );
 }
 
-const pendingProposals = (data, run) => data.proposals.filter(({ sessionId, status }) => status === "pending" && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
+const pendingProposals = (data, run, wanted = "pending") => data.proposals.filter(({ sessionId, status }) => status === wanted && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
 const LIVE_RUN = ["queued", "running", "waiting_for_input", "waiting_for_approval"];
 
 // a plan has no work item yet, so the process run screen shows its run as one
@@ -968,7 +968,9 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     (owner === "all" || ownerId(item) === owner));
   const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
     : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) &&
-      (LIVE_RUN.includes(run.status) || pendingProposals(data, run).length) && runTitle(data, run).toLocaleLowerCase().includes(needle));
+      (LIVE_RUN.includes(run.status) || pendingProposals(data, run).length || pendingProposals(data, run, "applied").length) && runTitle(data, run).toLocaleLowerCase().includes(needle));
+  // an applied plan already built its template, so it sits with completed work instead of vanishing
+  const planDone = (run) => !LIVE_RUN.includes(run.status) && !pendingProposals(data, run).length;
   const renderRows = (records, empty, showColumns = false, includeReRun = false, planRows = []) => {
     if (!records.length && !planRows.length) return h(Empty, null, empty);
     const rendered = records.map((item) => {
@@ -999,7 +1001,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
           h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
         h("td", null, "Plan"), h("td"),
-        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) ? run.status.replaceAll("_", " ") : "ready to apply")),
+        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) ? run.status.replaceAll("_", " ") : planDone(run) ? "completed" : "ready to apply")),
         h("td"))), ...rendered)) : rendered;
   };
   return h("div", null,
@@ -1024,8 +1026,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules", false, plans), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
-        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true) }
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules", false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
+        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true, plans.filter(planDone)) }
       }
     })
   );
