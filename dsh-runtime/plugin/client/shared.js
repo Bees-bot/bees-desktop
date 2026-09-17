@@ -150,7 +150,9 @@ export const css = `
 .bees-native-main{flex:1;min-width:0;max-width:100%;height:100%}
 .bees-embedded-rightbar{flex:0 1 auto;max-width:40%;min-width:0}
 @media(max-width:800px){.bees-native-widgets{flex-direction:column}.bees-native-main{min-height:240px}.bees-embedded-rightbar{width:100%!important;max-width:none;flex:1;min-height:0}}
-.bees-native-conversation{min-height:180px;display:flex;flex-direction:column;gap:12px;padding:16px;min-width:0;overflow:auto}
+/* DSH's own conversation screen, hosted inside the Details "Chat" tab. It stays mounted even
+   when another Details tab is active (see DshRunPanels); only this display toggle follows it. */
+.bees-dsh-tab{min-height:0}
 .bees-app [hidden]{display:none!important}
 .bees-ask-setup{max-width:none;margin:0;padding:4px 0;min-width:0}
 .bees-ask-heading{padding:14px 0 12px}.bees-ask-heading h1{font-size:28px;margin:6px 0 6px}.bees-ask-heading h1:focus{outline:none}

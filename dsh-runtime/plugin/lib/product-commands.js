@@ -1,6 +1,7 @@
 import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
-import { hideAgentBrowser, showAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
+
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
@@ -1276,9 +1277,13 @@ export async function executeProductCommand(action, input) {
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      await showAgentBrowser();
+      // When the agent supplies a URL (e.g. a login page), navigate Chrome there directly so the
+      // user sees the actual page rather than the initial about:blank tab.
+      const url = typeof input.url === "string" && input.url.startsWith("https://") ? input.url : null;
+      await (url ? navigateAgentBrowser(url) : showAgentBrowser());
       return { opened: true };
     }
+
     if (action === "open_in_explorer") {
       const targetPath = required(input.path, "Path");
       if (!targetPath.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(targetPath))

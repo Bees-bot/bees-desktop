@@ -43,7 +43,9 @@ async function cdp(method, params) {
  *  whatever they were doing and cannot move the Chrome they were already using. */
 async function setWindow(windowState) {
   const targets = await fetch(`${base}/json/list`).then((r) => r.json());
-  const targetId = targets.find(({ type }) => type === "page")?.id;
+  const pages = targets.filter(({ type }) => type === "page");
+  // Prefer a real page the devtools server navigated to over the initial about:blank.
+  const targetId = (pages.find(({ url }) => url && url !== "about:blank") ?? pages[0])?.id;
   if (!targetId) return;
   const { windowId } = await cdp("Browser.getWindowForTarget", { targetId });
   await cdp("Browser.setWindowBounds", { windowId, bounds: { windowState } });
@@ -115,8 +117,37 @@ export function startAgentBrowser() {
 }
 
 /** Put the window on screen so a person can sign in, and land on the tab the agent is reading. */
-export async function showAgentBrowser() {
+export async function showAgentBrowser(url) {
+  if (url) return navigateAgentBrowser(url);
   await startAgentBrowser();
+  await setWindow("normal");
+  await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
+}
+
+/**
+ * Navigate Bees' Chrome to a specific URL and bring it forward. Used when an agent hits a login
+ * wall so the person lands directly on the sign-in page rather than about:blank.
+ */
+export async function navigateAgentBrowser(url) {
+  await startAgentBrowser();
+  // Navigate the active (or first) tab to the requested URL via the target's own CDP session.
+  const targets = await fetch(`${base}/json/list`).then((r) => r.json());
+  const pages = targets.filter(({ type }) => type === "page");
+  const target = pages.find(({ url: u }) => u && u !== "about:blank") ?? pages[0];
+  if (target?.webSocketDebuggerUrl) {
+    const socket = new WebSocket(target.webSocketDebuggerUrl);
+    try {
+      await new Promise((resolve, reject) => {
+        socket.onerror = () => reject(new Error("CDP session refused"));
+        socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Page.navigate", params: { url } }));
+        socket.onmessage = ({ data }) => {
+          const { error } = JSON.parse(data);
+          error ? reject(new Error(error.message)) : resolve();
+        };
+      });
+    } catch { /* Navigation failures are non-fatal; the user can type the URL themselves. */ }
+    finally { socket.close(); }
+  }
   await setWindow("normal");
   await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
 }

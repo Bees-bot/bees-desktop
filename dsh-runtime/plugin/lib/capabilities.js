@@ -93,18 +93,27 @@ export class Capabilities {
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
-    // Whatever a person has signed in to since the last run is what this one inherits.
-    await saveBrowserState().catch((error) =>
-      this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
     await this.mountFor(agentCtx, row);
-    // devtools attaches to Bees' Chrome and no run starts that any more, so a run that never browses
-    // opens no window. the first browser call brings it up minimised, or every call fails to connect.
-    if (row.catalogId === "chrome-devtools") agentCtx.on("tools/pre-execute", async (exec, next) => {
-      if (exec.name.startsWith(`mcp__${row.serverName}__`)) await startAgentBrowser().catch((error) =>
-        this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+    // Sync cookies and start Chrome lazily — only when the agent actually calls a browser tool.
+    // This avoids spawning Chrome for runs that have browser access but never browse anything.
+    let browserReady = false;
+    agentCtx.on("tools/pre-execute", async (exec, next) => {
+      if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
+      if (!browserReady) {
+        browserReady = true;
+        // Whatever a person has signed in to since the last run is what this one inherits.
+        await saveBrowserState().catch((error) =>
+          this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
+        // devtools attaches to Bees' Chrome — bring it up minimised so the MCP server can connect.
+        if (row.catalogId === "chrome-devtools") {
+          await startAgentBrowser().catch((error) =>
+            this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+        }
+      }
       return next();
     });
   }
+
 
   /** On the run's own context, which dies with the run. */
   async mountFor(agentCtx, row) {

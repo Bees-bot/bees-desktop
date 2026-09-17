@@ -5,7 +5,18 @@ import { Script } from "node:vm";
 import { embedBeesContent } from "../scripts/embed-dsh-content.mjs";
 
 const source = readFileSync(new URL("../dsh-runtime/plugin/client/work.js", import.meta.url), "utf8");
-const render = new Script(source.slice(source.indexOf("  const conversation ="), source.indexOf("  const controls =")) + "conversation");
+const render = new Script(source.slice(source.indexOf("  const isWorking ="), source.indexOf("  const controls =")) + "conversation");
+
+/** Depth-first search through the stubbed `h(component, props, ...children)` tree. */
+function findComponent(node, component) {
+  if (!node) return undefined;
+  if (node.component === component) return node;
+  for (const child of node.children ?? []) {
+    const found = findComponent(child, component);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 test("native layout slots reach the Bees conversation and file destinations", () => {
   for (const legacy of [false, true]) {
@@ -34,20 +45,31 @@ test("native layout slots reach the Bees conversation and file destinations", ()
   }
 });
 
-test("run details retain the selected conversation while input or approval is pending", () => {
+test("conversation history and composer follow the selected run, independent of a pending interaction", async () => {
   const run = { id: "selected-execution", sessionId: "selected-session" };
   for (const status of [null, "waiting_for_input", "waiting_for_approval"]) {
     const pendingRun = status ? { id: "pending-execution", sessionId: "pending-session", status } : undefined;
+    let submitted;
     const tree = render.runInNewContext({
       h: (component, props, ...children) => ({ component, props, children }),
-      NativeConversation: "conversation", AgentInteractionPanel: "interaction",
-      ctx: {}, run, pendingRun, item: {}, session: {}, interaction: {},
-      handled: new Set(), answered() {}, act() {}, data: {}
+      GoalMessage: "goal", UserMessage: "user", AgentInteractionPanel: "interaction", ProposalCard: "proposal",
+      conversationMessages: () => [], useEffect: () => {}, setTimeout: () => {},
+      ctx: {}, run, pendingRun, item: { runtimePhase: "completed" }, session: {}, interaction: {},
+      handled: new Set(), answered() {}, act: (payload) => { submitted = payload; return Promise.resolve(true); },
+      data: { runs: [] }, plan: false, subitems: [], assignments: [], history: null, historyError: "",
+      sending: false, composerText: "Keep going", sendError: "", activeBinding: null,
+      convoRef: { current: null }, isScrolledUpRef: { current: false },
+      setSending() {}, setSendError() {}, setComposerText() {}, setRefreshCount() {}
     });
-    const conversation = tree.children.find(child => child?.component === "conversation");
-    assert.ok(conversation, `Conversation must remain mounted with status ${status}`);
-    assert.equal(conversation.props.run, run, "Use the selected execution, not another pending execution");
-    const card = tree.children.find(child => child?.component === "interaction");
+    // The Bees-native panel is always mounted here (DSH's own screens live in the Details tabs now).
+    assert.equal(tree.component, "div", `Conversation panel must remain mounted with status ${status}`);
+    assert.equal(tree.props.className, "bees-convo-panel");
+    const card = findComponent(tree, "interaction");
     assert.equal(card?.props.run, pendingRun, "Keep the existing pending interaction available");
+
+    const form = tree.children.find(child => child?.component === "form");
+    await form.props.onSubmit({ preventDefault() {} });
+    assert.equal(submitted?.action, "continue_run");
+    assert.equal(submitted?.executionId, run.id, "Send composer text to the selected execution, not a pending one");
   }
 });

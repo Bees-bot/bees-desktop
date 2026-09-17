@@ -11,8 +11,23 @@ import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
-import { OUTCOME_LABELS } from "./conversation-model.js";
-import { NativeConversation } from "./native-conversation.js";
+import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
+import { DshRunPanels } from "./native-conversation.js";
+
+const UserMessage = ({ children, label }) => {
+  const [expanded, setExpanded] = useState(false);
+  const truncated = children.length > 280;
+  return h("div", { className: "bees-convo-msg user" },
+    label ? h("strong", null, label) : null,
+    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
+    truncated ? h("button", {
+      type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
+      style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }
+    }, expanded ? "Show less" : "Show more") : null);
+};
+
+/** The goal opens the conversation, so a run reads from the ask down. */
+const GoalMessage = ({ item }) => h(UserMessage, { label: "Goal" }, item.description || item.title);
 
 const WORK_PAGE_LAYOUT = [
   { kind: "active-work", x: 0, y: 0, w: 12, h: 6 },
@@ -179,13 +194,44 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   }, [activeTab, seenKey, fileRevision, unreadFiles, preferences]);
 
   const [handled, setHandled] = useState(() => new Set());
+  const [history, setHistory] = useState(null);
+  const [historyError, setHistoryError] = useState("");
+  const convoRef = React.useRef(null);
+  const [composerText, setComposerText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [refreshCount, setRefreshCount] = useState(0);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
   const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : run?.sessionId ? ctx.sessions.binding(run.sessionId) : null;
   const session = useSnapshot(binding?.session);
   const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
-  useEffect(() => { setSelectedRun(""); setHandled(new Set()); setActiveTab("files"); }, [item.id]);
+  // The composer sends into the selected run's own session, not whichever session happens to
+  // have a pending question — those can differ once a work item has more than one execution.
+  const activeRun = run?.ranElsewhere ? null : run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
+  const activeBinding = activeRun ? ctx.sessions.binding(activeRun.sessionId) : null;
+  const liveRevision = useBeesChangeRevision();
+  useEffect(() => {
+    setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
+    setHistory(null); setComposerText(""); setSending(false);
+  }, [item.id]);
+  useEffect(() => {
+    setHistoryError("");
+    // The transcript lives with the session that produced it, and that is on the other device.
+    if (!run || run.ranElsewhere) { setHistory(null); return; }
+    return pollConversation(run.id, {
+      request,
+      isVisible: () => document.visibilityState !== "hidden",
+      onHistory: (next) => {
+        setHistory((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+        setHistoryError("");
+      },
+      onError: (error) => setHistoryError(error instanceof Error ? error.message : String(error))
+    });
+  }, [run?.id, refreshCount, liveRevision]);
+  const isScrolledUpRef = React.useRef(false);
+  useEffect(() => { isScrolledUpRef.current = false; }, [item.id]);
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
     const description = await ask("Description", item.description) ?? item.description;
@@ -223,11 +269,92 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
   const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
   const isWorking = ["queued", "running"].includes(run?.status) || item.runtimePhase === "running";
-  const conversation = h("div", { className: "bees-native-conversation" },
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data }) : null,
-    ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
-      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
-    h(NativeConversation, { ctx, run, item, act }));
+  const isAgentBusy = isWorking || sending;
+  const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
+  const visibleHistory = history?.executionId === run?.id ? history : null;
+  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  useEffect(() => {
+    if (isScrolledUpRef.current) return;
+    const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    scrollToBottom();
+    const timer = setTimeout(scrollToBottom, 50);
+    return () => clearTimeout(timer);
+  }, [history, pendingRun, interaction, item.runtimePhase]);
+  const convoItems = [h(GoalMessage, { item, key: "start" })];
+  for (const message of messages) {
+    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
+      style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
+    else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
+      h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
+      h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
+        h("strong", null, message.label),
+        message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
+        h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
+  }
+  if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
+    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+  else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
+  const conversation = h("div", { className: "bees-convo-panel" },
+    h("div", { className: "bees-convo-header" },
+      h("div", { className: "bees-convo-title" }, "Conversation"),
+      isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null),
+    h("div", {
+      className: "bees-convo-history", ref: convoRef,
+      onScroll: (event) => {
+        const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+        isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
+      }
+    },
+      ...convoItems,
+      pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
+        h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
+      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
+      !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
+        h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
+        run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
+    sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
+    h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
+      event.preventDefault();
+      const text = composerText.trim();
+      if (!text || isAgentBusy || run?.ranElsewhere) return;
+      isScrolledUpRef.current = false;
+      setSendError("");
+      if (!activeBinding) {
+        if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
+          setSending(true);
+          try {
+            await act({ action: "continue_run", executionId: run.id, text });
+            setComposerText("");
+          } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+          finally {
+            setSending(false);
+            setRefreshCount((count) => count + 1);
+            setTimeout(() => setRefreshCount((count) => count + 1), 500);
+          }
+        }
+        return;
+      }
+      setSending(true);
+      try {
+        await activeBinding.session.prompt([{ type: "text", text }], "queue");
+        setComposerText("");
+      } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+      finally {
+        setSending(false);
+        setRefreshCount((count) => count + 1);
+        setTimeout(() => setRefreshCount((count) => count + 1), 500);
+      }
+    } },
+      h("textarea", {
+        className: "bees-composer-input",
+        placeholder: pendingRun ? "Answer above or add a note..." : isWorking ? "Agent is working..." : "Add a note or instruction to continue...",
+        disabled: isAgentBusy, value: composerText, rows: 2,
+        onChange: (event) => setComposerText(event.target.value),
+        onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
+      }),
+      h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || run?.ranElsewhere || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
 
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },
@@ -257,6 +384,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
       plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context"),
@@ -266,6 +394,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
 
     // tab content
     h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
+      // DSH's own Chat screen stays mounted here regardless of activeTab; only its CSS
+      // visibility follows it, because unmounting it would drop DSH's portal and session state.
+      h(DshRunPanels, { key: item.id, ctx, run, item, activeTab }),
       activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
         plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),

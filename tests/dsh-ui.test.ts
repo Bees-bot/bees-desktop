@@ -76,7 +76,6 @@ describe("Bees work cockpit UI", () => {
     expect(client).toContain('window.dispatchEvent(new window.CustomEvent("bees-change"');
     expect(client).toContain('window.addEventListener("bees-change", changed)');
     expect(client).toContain("setInterval(() => void load(), 30_000)");
-    expect(client).not.toContain("pollConversation");
   });
 
   it("registers the bundled client module", () => {
@@ -135,17 +134,21 @@ describe("Bees work cockpit UI", () => {
     expect(tabContents).not.toContain('"Files & folders"');
   });
 
-  it("uses DSH conversation rendering and preserves managed continuation", () => {
-    expect(client).toContain('className: "bees-native-widgets"');
+  it("hosts DSH's chat screen as an always-mounted Details tab", () => {
+    expect(client).toContain('className: "bees-dsh-tab"');
     expect(client).toContain('createPortal(');
+    expect(client).toContain('setActiveTab("chat")');
+    expect(client).toContain('display: activeTab === "chat" ? "flex" : "none"');
+    expect(client).not.toContain('setActiveTab("trajectory")');
     expect(client).not.toContain('openNative');
     expect(client).not.toContain('display: native ? "none"');
     expect(client).not.toContain('src: `/?session=');
-    expect(client).toContain('pendingRun ? h(AgentInteractionPanel');
+    expect(client).toContain('pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" }');
+    expect(client).toContain('h(AgentInteractionPanel, { run: pendingRun');
     expect(client).toContain('toggleAttribute("data-bees-debug-dsh")');
     expect(client).toContain('action: "continue_run"');
     expect(client).toContain('bees-managed-continuation');
-    expect(client).not.toContain("function conversationMessages");
+    expect(client).toContain("function conversationMessages");
   });
 
   it("keeps work widgets at their chosen dimensions with scrollable content", () => {
@@ -170,8 +173,10 @@ describe("Bees work cockpit UI", () => {
   });
 
   it("uses theme-aware conversation bubbles, expandable tool cards, and a compact composer", () => {
-
-    expect(client).toContain('className: "bees-native-conversation"');
+    expect(client).toContain('className: "bees-convo-panel"');
+    expect(client).toContain('className: "bees-convo-history"');
+    expect(client).toContain('className: "bees-agent-turn"');
+    expect(client).toContain('className: "bees-composer-input"');
     expect(client).toContain('background: var(--dsw-alias-interactive-bg-hover) !important;');
     expect(client).not.toContain("#9F8BFF");
   });
