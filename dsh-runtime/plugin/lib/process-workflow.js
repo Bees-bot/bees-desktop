@@ -190,10 +190,10 @@ export async function processWorkflow(input) {
         await waitForRetry(result.summary || `${stage.name} is blocked`);
         continue;
       }
-      if (purpose !== "reviewer" && result.outcome === "candidate") {
+      if (purpose !== "reviewer" && ["candidate", "skipped"].includes(result.outcome)) {
         // A peer was delegated one assignment, not the rest of the process. Walking it on ran
         // every later stage a second time and held the parent waiting for all of them.
-        if (input.peerAssignment && index === startedAt) {
+        if (result.outcome === "skipped" || input.peerAssignment && index === startedAt) {
           state.executionId = null;
           await project("completed", null);
           return state;

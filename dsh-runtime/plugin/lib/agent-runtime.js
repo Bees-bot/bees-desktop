@@ -45,9 +45,9 @@ const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest s
 
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals has automatic agent selection in Work, followed by independent Review and Done; keep those stages. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. A schedule already in the brief for the same work keeps its exact name, which updates it instead of adding a copy. Every new request starts fresh work, even if an earlier item has the same title.
 
-Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
+Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment only for a missing role, at most four in a plan. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Every filter, exclusion and limit the person gave goes into the process description, which every stage agent reads, not only into one agent's instructions. An agent that finds an item needs nothing more, such as a duplicate, a record that does not qualify or a reached limit, ends the item at its own stage instead of passing it through the later ones. Give it the servers its work needs: mcpAccess "listed" with the installed servers from the brief it will actually use, or "all" when the work is open-ended. An agent left on "none" has no mcp__ tool at all, so one that has to read a file, open a page or call an API cannot do its job. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
 
-A schedule that watches for new things (new mail, new jobs, new tickets) is not the pipeline that handles them. Give the handling its own process with its stages and approval point, and schedule a watcher goal (create_goal with agents naming the agent that watches, then create_recurring_work) that checks the source, remembers what it already saw, and creates one item per new thing with bees_control create_item, naming that process exactly as process. An empty check then ends after one stage instead of walking every stage and asking the owner to approve nothing, and each new thing shows up on its own in the owner's attention list. Write the first handling agent's instructions so a run the owner starts by hand, with no record in it, takes the next new thing at the source that the process has no item for yet instead of asking the owner for one.
+A schedule that watches for new things (new mail, new jobs, new tickets) is not the pipeline that handles them. Give the handling its own process with its stages and approval point, and schedule a watcher goal (create_goal with agents naming the agent that watches, then create_recurring_work) that checks the source, remembers what it already saw, and creates one item per new thing with bees_control create_item, naming that process exactly as process. An empty check then ends after one stage instead of walking every stage and asking the owner to approve nothing, and each new thing shows up on its own in the owner's attention list. The owner can also start a run in that process by hand, and without being told otherwise it would ask them which record to handle, so always end that process's description with this sentence, filled in for the source: "A run started here by hand, with no record in it, takes the next new <thing> from <source> that matches these filters and is not yet under <the key the watcher remembers filed things under>, adds it there, and continues with it."
 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
@@ -65,6 +65,7 @@ const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the
 
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
+- What your tools can look up is not missing. A run meant for one record from an outside source, such as a project, an email or a ticket, that carries none takes the next one there that your instructions or the process requirements select and that is not handled yet, instead of asking the owner which one.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
 - Never create Approve, Reject, Continue, or Stop choices with ask_user_question.
 - Ask for everything you are missing in one call, one entry per item, not a fresh question after each answer.
@@ -211,7 +212,7 @@ const MAX_PARALLEL_PEERS = 4;
 const STAGE_RESULT_COLUMNS = `
         execution_id TEXT PRIMARY KEY REFERENCES execution_links(execution_id) ON DELETE CASCADE,
         purpose TEXT NOT NULL CHECK (purpose IN ('worker', 'reviewer')),
-        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'pass', 'revise')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('candidate', 'blocked', 'skipped', 'pass', 'revise')),
         summary TEXT NOT NULL,
         created_at TEXT NOT NULL
       ) STRICT;`;
@@ -554,7 +555,7 @@ export class AgentRuntime {
     const stageResultSchema = database.prepare(`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bees_stage_results'
     `).get()?.sql ?? "";
-    if (!stageResultSchema.includes("'blocked'")) transaction(database, () => database.exec(`
+    if (!stageResultSchema.includes("'skipped'")) transaction(database, () => database.exec(`
       CREATE TABLE bees_stage_results_next (${STAGE_RESULT_COLUMNS}
       INSERT INTO bees_stage_results_next SELECT * FROM bees_stage_results;
       DROP TABLE bees_stage_results;
@@ -1336,17 +1337,17 @@ export class AgentRuntime {
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
       name: "bees_submit_stage_result",
-      description: "Finish this automatic process stage. Workers submit candidate when complete or blocked when they cannot continue; reviewers submit pass or revise. The first submitted result is immutable.",
+      description: "Finish this automatic process stage. Workers submit candidate when complete, blocked when they cannot continue, or skipped when this item needs nothing more (nothing new, a duplicate, it does not qualify, or a limit is reached), which ends the item without the later stages; reviewers submit pass or revise. The first submitted result is immutable.",
       parameters: {
         outcome: {
           type: "string", required: true,
-          enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"],
+          enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked", "skipped"],
           description: "The allowed result for this stage."
         },
         ...(data.stagePurpose === "worker" ? {
           acceptance_criteria_met: {
             type: "boolean", required: true,
-            description: "True only for a verified candidate; use false when submitting blocked."
+            description: "True only for a verified candidate; false otherwise."
           }
         } : {}),
         ...(data.stagePurpose === "reviewer" ? { findings_json: { type: "string", description: "Required for revise: JSON array of {criterion: goal|process|system|scope, evidence, change}. Cite the exact violated requirement and a concrete correction." } } : {}),
@@ -1366,7 +1367,7 @@ export class AgentRuntime {
         try {
         if (exec.agent?.session.header.parentSession)
           throw new Error("Only the lead work agent can submit the stage result");
-        const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked"];
+        const allowed = data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked", "skipped"];
         if (!allowed.includes(args.outcome)) throw new Error("That outcome is not allowed for this stage");
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
@@ -1402,17 +1403,20 @@ export class AgentRuntime {
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
+        const pinned = this.workContext.run(executionId);
+        // a reviewer or a person asked for changes, so ending the item here would skip that review
+        if (args.outcome === "skipped" && pinned?.scope.reviewFeedback)
+          throw new Error("This item was sent back with changes to make. Make them and submit candidate, or submit blocked if you cannot");
         const lastReview = this.database.prepare(`SELECT event_type AS type FROM dsh_audit_events
           WHERE execution_id = ? AND event_type IN ('human-work-approved', 'human-work-rejected')
           ORDER BY rowid DESC LIMIT 1`).get(executionId);
         const rejected = this.workContext.humanReviews(executionId).requiredCorrections
           .some((review) => review.workItemId === data.workItemId);
-        if (["candidate", "pass"].includes(args.outcome) &&
+        if (["candidate", "skipped", "pass"].includes(args.outcome) &&
             (rejected || lastReview?.type === "human-work-rejected" ||
               data.requiresHumanApproval && lastReview?.type !== "human-work-approved"))
-          throw new Error("This stage requires human approval through bees_request_work_review before it can pass; resolve the rejection feedback and request review again");
-        if (args.outcome === "candidate") assertPeersSettled(this, data);
-        const pinned = this.workContext.run(executionId);
+          throw new Error("This stage requires human approval through bees_request_work_review before it can finish; resolve the rejection feedback and request review again");
+        if (args.outcome !== "blocked") assertPeersSettled(this, data);
         const evidence = pinned ? this.workContext.resultEvidence(executionId, data, workspace, result, findings) : null;
         transaction(this.database, () => {
           this.database.prepare("INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)")
