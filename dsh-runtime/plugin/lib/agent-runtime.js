@@ -384,6 +384,12 @@ export function safeRecoverySeed(events) {
   });
 }
 
+// a restart mid-call is no reason to stop the run: these only look, and delegating again reuses peers by title
+const REPEATABLE_TOOLS = ["read", "read_image", "glob", "grep", "web_search", "web_fetch", "bees_fetch_page",
+  "bees_search_web", "bees_search_news", "bees_search_knowledge", "bees_read_knowledge", "bees_read_context",
+  "bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_search_mcp_registry", "bees_wait_for_peers",
+  "bees_delegate_work"];
+
 /** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
 export function recoveryToolContext(events, pending, ownerChecked = false) {
   const boundary = [...events].reverse().find((event) => event.type === "turn/end")?.seq ?? -1;
@@ -397,7 +403,7 @@ export function recoveryToolContext(events, pending, ownerChecked = false) {
     }
   }
   const uncertain = [...calls.values()].filter((call) => !call.result &&
-    !["ask_user_question", WORK_REVIEW_TOOL].includes(call.name) &&
+    !["ask_user_question", WORK_REVIEW_TOOL, ...REPEATABLE_TOOLS].includes(call.name) &&
     !(pending?.kind === "approval" && pending.callId === call.callId));
   // Whether an in-flight call ran is unknowable, so Bees refuses to continue by itself. Retrying
   // never cleared that, which left the run stuck for good; the owner continuing it says they looked.
