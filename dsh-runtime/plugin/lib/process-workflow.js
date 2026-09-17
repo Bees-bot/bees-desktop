@@ -1,12 +1,13 @@
 import {
-  CancellationScope, condition, defineSignal, isCancellation,
-  executeChild, proxyActivities, setHandler, sleep, workflowInfo
+  CancellationScope, condition, defineSignal, getExternalWorkflowHandle, isCancellation,
+  ParentClosePolicy, proxyActivities, setHandler, sleep, startChild, workflowInfo
 } from "@temporalio/workflow";
 
 const pauseSignal = defineSignal("pause");
 const resumeSignal = defineSignal("resume");
 const retrySignal = defineSignal("retry");
 const stageChangedSignal = defineSignal("stageChanged");
+const runFailedSignal = defineSignal("runFailed");
 
 const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
   startToCloseTimeout: "10 seconds",
@@ -20,10 +21,15 @@ export async function recurringWorkWorkflow(input) {
   const at = new Date(scheduled ?? workflowInfo().startTime);
   const work = await createRecurringWorkItem({ ...input, occurrenceAt: at.toISOString().slice(0, 19) + "Z" });
   if (!work) return { skipped: true };
-  return executeChild(processWorkflow, {
+  // a failed run waits for Retry, and the schedule skips every tick while this workflow is open
+  let failed = false;
+  setHandler(runFailedSignal, () => { failed = true; });
+  const child = await startChild(processWorkflow, {
     workflowId: `bees/work-item/${work.workItemId}`,
-    args: [work]
+    args: [{ ...work, releasesSchedule: true }],
+    parentClosePolicy: ParentClosePolicy.ABANDON
   });
+  return Promise.race([child.result(), condition(() => failed).then(() => ({ failed: true }))]);
 }
 const durableActivities = proxyActivities({
   startToCloseTimeout: "36500 days",
@@ -87,6 +93,8 @@ export async function processWorkflow(input) {
     const recoverInterruptedWait = /heartbeat timeout|Stage completion was not recorded|The agent runtime completed without calling bees_submit_stage_result|This run ended without a completed stage result/i.test(error);
     retryRequested = false;
     await project("failed", error);
+    // an input flag, so runs recorded before it keep replaying; the parent is gone after the first failure
+    if (input.releasesSchedule) await getExternalWorkflowHandle(workflowInfo().parent.workflowId).signal(runFailedSignal).catch(() => undefined);
     await condition(() => retryRequested);
     retryRequested = false;
     state.retryRequest = ++retryRequests;

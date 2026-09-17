@@ -98,6 +98,11 @@ export class ProcessRuntime {
       const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt, accountUserId = "" }) => {
         const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt, accountUserId);
         if (!work) return null;
+        // a failed run no longer holds its schedule, so the next run replaces it instead of piling up
+        for (const { id } of this.database.prepare(`
+          SELECT id FROM work_items WHERE recurring_work_id = ? AND runtime_phase = 'failed'
+        `).all(recurringWorkId))
+          await this.client.workflow.getHandle(processWorkflowId(id)).cancel().catch(() => undefined);
         const recurring = this.recurring(recurringWorkId, accountUserId);
         await this.refreshNextRun(
           recurringWorkId, accountUserId, this.client.schedule.getHandle(recurring.temporalScheduleId)
