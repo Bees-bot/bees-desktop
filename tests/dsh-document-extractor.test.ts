@@ -156,19 +156,19 @@ describe("team document extraction", () => {
   it("requires one reconnect when an older Drive token lacks Forms scope", async () => {
     const credentials = {
       resolve: vi.fn(async (name: string) => name === "BEES_GOOGLE_DRIVE_OAUTH"
-        ? { value: JSON.stringify({ clientId: "client", tokens: { refresh_token: "old" } }) }
+        ? { value: JSON.stringify({ app: { clientId: "client", clientSecret: "secret" }, tokens: { refresh_token: "old" } }) }
         : undefined),
       set: vi.fn(),
       unset: vi.fn()
     };
     const connection = new GoogleDriveConnection(credentials, "/tmp");
-    connection.configure("client");
+    connection.configure({ googleDesktopClientId: "client", googleDesktopClientSecret: "secret" });
     await expect(connection.status()).resolves.toMatchObject({ connected: false, needsReconnect: true });
   });
 
   it("requests only Drive permissions in the desktop OAuth flow", async () => {
     const connection = new GoogleDriveConnection({ resolve: vi.fn() }, "/tmp");
-    connection.configure("desktop-client.apps.googleusercontent.com");
+    connection.configure({ googleDesktopClientId: "desktop-client.apps.googleusercontent.com", googleDesktopClientSecret: "secret" });
     const { url } = await connection.start();
     connection.close();
 

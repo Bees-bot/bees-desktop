@@ -148,6 +148,26 @@ const ENTRIES = [
     }]
   },
   {
+    id: "gmail",
+    serverName: "gmail",
+    label: "Gmail",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/gmail-mcp.js",
+    summary: "Search, read, label, draft and send email in your Gmail.",
+    access: "Everything in your mailbox. Every agent set to all MCPs, and any agent you select it for, can "
+      + "read, label, draft and send email as you without asking first, and an email or page it reads can "
+      + "try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    // a Google sign-in fills the env below, so nobody pastes these and an agent cannot install it alone
+    scopes: ["https://www.googleapis.com/auth/gmail.modify"],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/gmail-mcp.js"],
+    env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"].map((name) => ({
+      name, label: "a Google sign-in"
+    })),
+    headers: []
+  },
+  {
     id: "firecrawl",
     serverName: "firecrawl",
     label: "Web scraping",

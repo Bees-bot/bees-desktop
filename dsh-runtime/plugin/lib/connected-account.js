@@ -168,10 +168,7 @@ export class ConnectedAccount {
       this.cachedAuthConfig = { value, expiresAt: Date.now() + 5 * 60_000 };
       return value;
     } catch {
-      return {
-        socialProviders: ["google", "github"], ssoEnabled: true,
-        googleDriveDesktopClientId: ""
-      };
+      return { socialProviders: ["google", "github"], ssoEnabled: true };
     }
   }
 

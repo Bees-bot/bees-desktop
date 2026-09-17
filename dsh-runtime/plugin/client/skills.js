@@ -188,14 +188,17 @@ export function SkillsPage({ capabilities, onAddTools }) {
  * The review screen for one catalog entry. Nothing installs until the publisher, the reach, and the
  * inputs have all been shown once, because installing runs someone else's program on this machine.
  */
-export function CatalogReview({ ctx, entry, onCancel, onInstall }) {
+export function CatalogReview({ ctx, entry, onCancel, onDone }) {
   const [directory, setDirectory] = useState("");
+  const [error, setError] = useState("");
   const [secrets, setSecrets] = useState({});
   const [inputs, setInputs] = useState({});
   const [busy, setBusy] = useState(false);
+  // a sign-in fills the secrets, so there is nothing to paste
+  const secretFields = entry.scopes ? [] : entry.secrets ?? [];
   const blank = (bag) => ({ name, optional }) => !optional && !String(bag[name] ?? "").trim();
   const ready = !busy && (!entry.requiresDirectory || directory)
-    && !(entry.secrets ?? []).some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
+    && !secretFields.some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
   const pick = async () => {
     const path = await ctx.uiWorkspace.pickDirectory();
     if (path) setDirectory(path);
@@ -216,7 +219,9 @@ export function CatalogReview({ ctx, entry, onCancel, onInstall }) {
     h("div", { className: "bees-row" },
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, "How it runs"),
-        h("div", { className: "bees-muted" }, entry.transport === "stdio"
+        h("div", { className: "bees-muted" }, entry.scopes
+          ? `Bees runs this server on this machine. Connect with Google opens your browser: allow access there and ${entry.label} shows up on this page.`
+          : entry.transport === "stdio"
           ? `Bees starts \`${entry.command} ${(entry.args ?? []).join(" ")}\` on this machine.`
           : `Bees calls ${entry.url} over the internet.`),
         entry.prerequisite ? h("div", { className: "bees-muted" }, entry.prerequisite) : null)),
@@ -234,22 +239,29 @@ export function CatalogReview({ ctx, entry, onCancel, onInstall }) {
         onChange: (event) => setInputs({ ...inputs, [field.name]: event.target.value })
       }),
       field.help ? h("span", { className: "bees-muted" }, field.help) : null)),
-    ...(entry.secrets ?? []).map((secret) => h("label", { className: "bees-form", key: secret.name },
+    ...secretFields.map((secret) => h("label", { className: "bees-form", key: secret.name },
       h("span", null, secret.label),
       h("input", {
         className: "bees-input", type: "password", autoComplete: "off", value: secrets[secret.name] ?? "",
         onChange: (event) => setSecrets({ ...secrets, [secret.name]: event.target.value })
       }),
       secret.help ? h("span", { className: "bees-muted" }, secret.help) : null)),
-    entry.secrets?.length ? h("p", { className: "bees-muted" },
+    secretFields.length ? h("p", { className: "bees-muted" },
       "Secrets are kept in your local credential store, not in the Bees database.") : null,
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-detail-actions" },
       h(Button, {
         className: "primary", disabled: !ready, onClick: async () => {
-          setBusy(true);
-          try { await onInstall({ directory, secrets, inputs }); } finally { setBusy(false); }
+          setBusy(true); setError("");
+          try {
+            const done = await request("/bees-api/capabilities", { method: "POST", body: JSON.stringify({
+              action: entry.scopes ? "connect_mcp_server" : "install_mcp_server", catalogId: entry.id, directory, secrets, inputs
+            }) });
+            if (done.url) await openExternal(done.url);
+            onDone(done);
+          } catch (reason) { setError(reason.message); } finally { setBusy(false); }
         }
-      }, busy ? "Adding…" : "Add and turn on"),
+      }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Adding…" : "Add and turn on"),
       h(Button, { onClick: onCancel }, "Cancel")));
 }
 
@@ -306,7 +318,7 @@ function ManualServerForm({ onCancel, act, setPageHeader, initial }) {
 }
 
 export function McpPage({ ctx, capabilities }) {
-  const { data, error, act } = capabilities;
+  const { data, error, act, reload } = capabilities;
   const [reviewing, setReviewing] = useState("");
   const [manual, setManual] = useState(false);
   const [query, setQuery] = useState("");
@@ -322,10 +334,7 @@ export function McpPage({ ctx, capabilities }) {
   if (manual) return h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual });
   if (entry) return h(CatalogReview, {
     ctx, entry, onCancel: () => setReviewing(""),
-    onInstall: async ({ directory, secrets, inputs }) => {
-      const created = await act({ action: "install_mcp_server", catalogId: entry.id, directory, secrets, inputs });
-      if (created?.id) setReviewing("");
-    }
+    onDone: () => { setReviewing(""); void reload({ quiet: true }); }
   });
   const needle = query.trim().toLocaleLowerCase();
   const catalog = data.catalog.filter((row) => matches(needle, row.label, row.summary, row.publisher));

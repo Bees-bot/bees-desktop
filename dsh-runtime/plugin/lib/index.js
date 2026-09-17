@@ -183,13 +183,12 @@ export async function apply(ctx, _config = {}, internals = {}) {
   }, "bees shutdown");
   const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
   step("bees.database.initialize", () => initializeProductDatabase(database));
-  capabilities = new Capabilities(ctx, database, workspace);
+  connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
+  capabilities = new Capabilities(ctx, database, workspace, connected);
   agents = step("bees.agents.initialize", () => new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities));
   mountEvidenceCapture(ctx, database, ctx.logger);
-  connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
-  void connected.authConfig().then((config) =>
-    googleDrive.configure(config.googleDriveDesktopClientId));
+  void connected.authConfig().then((config) => googleDrive.configure(config));
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify,
     abortAgent: (executionId) => agents.abort(executionId),
@@ -356,8 +355,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
     try {
-      const config = await connected.authConfig();
-      googleDrive.configure(config.googleDriveDesktopClientId);
+      googleDrive.configure(await connected.authConfig());
       if (req.method === "GET") return reply(res, 200, { googleDrive: await googleDrive.status() });
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       const input = await body(req);

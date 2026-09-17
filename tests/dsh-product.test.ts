@@ -1408,8 +1408,7 @@ Current international expansion strategy`);
 
     await expect(connected.authConfig()).resolves.toEqual({
       socialProviders: ["google", "github"],
-      ssoEnabled: true,
-      googleDriveDesktopClientId: ""
+      ssoEnabled: true
     });
   });
 
@@ -1438,11 +1437,11 @@ Current international expansion strategy`);
     const connected = new ConnectedAccount({} as never, {} as never, "https://api.example");
     const request = vi.spyOn(connected as any, "request")
       .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValue({ googleDriveDesktopClientId: "drive-client" });
+      .mockResolvedValue({ googleDesktopClientId: "drive-client" });
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
     try {
-      expect((await connected.authConfig()).googleDriveDesktopClientId).toBe("");
-      expect((await connected.authConfig()).googleDriveDesktopClientId).toBe("drive-client");
+      expect((await connected.authConfig()).googleDesktopClientId).toBeUndefined();
+      expect((await connected.authConfig()).googleDesktopClientId).toBe("drive-client");
       await connected.authConfig();
       expect(request).toHaveBeenCalledTimes(2);
       now.mockReturnValue(301_000);
