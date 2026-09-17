@@ -42,7 +42,7 @@ describe("DSH stage results", () => {
       expect(result).toMatchObject({ status: "completed", summary, artifacts: ["outputs/yahoo-news.md"],
         evidence: [{ session_id: "child-session", call_id: "rss", tool: "bees_fetch_page" }] });
       const tools: any[] = [];
-      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
+      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
         tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined } }, {
         mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
         workItemId: "parent", workspaceId: stage.workspaceId, grants: []
@@ -80,7 +80,7 @@ describe("DSH stage results", () => {
           run_directory, config_json, status, created_at, updated_at FROM execution_links WHERE execution_id = 'child-run'`).run();
       database.connection.prepare("INSERT INTO bees_stage_results VALUES ('parent-source', 'worker', 'candidate', ?, '2026-01-02')").run(summary);
       const chartTools: any[] = [];
-      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
+      await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
         tools: { register: (tool: any) => chartTools.push(tool), restrict: () => undefined } }, {
         mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
         workItemId: "chart", workspaceId: stage.workspaceId, grants: []
@@ -129,11 +129,14 @@ describe("DSH stage results", () => {
     const tools: any[] = [];
     const restrictions: string[][] = [];
     const prompts: string[] = [];
+    const variables: Record<string, () => string> = {};
+    const expand = (text: string) => text.replace(/\{\{([a-z0-9_]+)\}\}/g, (_, name: string) => variables[name]!());
     await (runtime as any).setup(
       {
         systemPrompt: {
-          section: ({ text }: { text: string }) => prompts.push(text),
+          section: ({ text }: { text: string }) => prompts.push(expand(text)),
           context: () => undefined,
+          variable: (name: string, provider: any) => { variables[name] = provider; },
         },
         tools: {
           register: (tool: any) => tools.push(tool),
@@ -322,7 +325,7 @@ describe("DSH stage results", () => {
     await runtime.setup({
       on: (event: string, handler: (...args: any[]) => void) => { listeners.set(event, handler); return () => listeners.delete(event); },
       effect: () => () => undefined,
-      systemPrompt: { section: () => undefined, context: () => undefined },
+      systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
       mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [],
@@ -387,7 +390,7 @@ describe("DSH stage results", () => {
     ).get() as { id: string };
     const tools: any[] = [];
     await runtime.setup({
-      systemPrompt: { section: () => undefined, context: () => undefined },
+      systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
       tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
     }, {
       mode: "work", agentPresetId: "standard", mcpAccess: "all", mcpServers: [], capabilities: ["start-work"],

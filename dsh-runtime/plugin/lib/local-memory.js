@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { step } from "./startup.js";
 
 export const LOCAL_MEMORY_URL = "http://127.0.0.1:8898";
 const version = "0.10.0";
@@ -73,7 +74,7 @@ export class LocalMemory {
 
   ensure() {
     if (this.stop.signal.aborted || this.pending || Date.now() < this.retryAt) return;
-    this.pending = this.launch().catch(async (error) => {
+    this.pending = (this.ready ? this.launch() : step("background.hindsight.launch", () => this.launch())).catch(async (error) => {
       if (!this.stop.signal.aborted) {
         this.status = error.message;
         this.retryAt = Date.now() + 60000;
@@ -104,12 +105,33 @@ export class LocalMemory {
     return child;
   }
 
+  healthy() {
+    return fetch(`${LOCAL_MEMORY_URL}/health`, { redirect: "error", signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(2000)]) })
+      .then((response) => response.ok, () => false);
+  }
+
+  listeners() {
+    return new Promise((resolve) => execFile("lsof", ["-t", "-i", "tcp:8898", "-sTCP:LISTEN"], (error, stdout) =>
+      resolve(error ? [] : [...new Set(stdout.split("\n").map(Number).filter(Boolean))])));
+  }
+
+  // a server orphaned (parent 1) by an earlier launch still holds the port; retire it or ours can never bind
+  async retire() {
+    const [pid, ...more] = await this.listeners();
+    if (!pid || more.length) return;
+    const parent = await new Promise((resolve) => execFile("ps", ["-o", "ppid=", "-p", String(pid)], (error, stdout) => resolve(error ? "" : stdout.trim())));
+    if (parent !== "1") return;
+    const kill = (signal) => { try { process.kill(-pid, signal); } catch { try { process.kill(pid, signal); } catch { /* gone */ } } };
+    kill("SIGTERM");
+    for (let i = 0; i < 100 && (await this.listeners()).length; i++) await delay(200);
+    kill("SIGKILL");
+    for (let i = 0; i < 50 && (await this.listeners()).length; i++) await delay(100);
+  }
+
   async launch() {
     if (this.ready) {
       await this.target();
-      const response = await fetch(`${LOCAL_MEMORY_URL}/health`, { redirect: "error",
-        signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(2000)]) });
-      if (!response.ok) throw new Error("Local memory stopped; restarting automatically");
+      if (!(await this.healthy())) throw new Error("Local memory stopped; restarting automatically");
       return;
     }
     await mkdir(this.directory, { recursive: true });
@@ -121,12 +143,12 @@ export class LocalMemory {
       const uv = fileURLToPath(new URL(`../../memory-runtime/uv${suffix}`, import.meta.url));
       if (!existsSync(uv)) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
       this.spawn(uv, ["tool", "install", "--python", "3.12", "--with", "flashrank", `hindsight-api-slim[local-onnx,embedded-db]==${version}`], env);
-      const result = await this.exit;
+      const result = await step("background.hindsight.install", () => this.exit);
       this.child = undefined;
       if (result.error || result.code !== 0) throw new Error("Local memory installation failed; check internet access. Bees will retry automatically.");
     }
     this.stop.signal.throwIfAborted();
-    await this.target();
+    await step("background.hindsight.find-local-model", () => this.target());
     this.status = "Starting local Hindsight and its embedding model";
     const token = randomBytes(32).toString("hex");
     this.bridge = createServer((request, response) => { void this.forward(request, response, token); });
@@ -143,17 +165,20 @@ export class LocalMemory {
       EMBEDDINGS_ONNX_MODEL_ID: "sentence-transformers/all-MiniLM-L6-v2",
       EMBEDDINGS_ONNX_QUERY_PREFIX: "", EMBEDDINGS_ONNX_PASSAGE_PREFIX: "", RERANKER_PROVIDER: "flashrank" }))
       env[`HINDSIGHT_API_${key}`] = value;
+    await this.retire();
     this.spawn(executable, ["--host", "127.0.0.1", "--port", "8898"], env);
     let exited = false;
     void this.exit.then(() => { exited = true; this.ready = false; });
     for (let attempt = 0; attempt < 300; attempt++) {
       await delay(1000, undefined, { signal: this.stop.signal });
       if (exited) throw new Error("Local Hindsight could not start. Check available disk space and port 8898; Bees will retry.");
-      try {
-        const response = await fetch(`${LOCAL_MEMORY_URL}/health`, { redirect: "error",
-          signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(2000)]) });
-        if (response.ok) { this.ready = true; this.status = "Local Hindsight running"; return; }
-      } catch { /* Dependencies and embeddings can take time on first launch. */ }
+      // Dependencies and embeddings can take time on first launch, so an unreachable port is not fatal here.
+      if (await this.healthy()) {
+        this.ready = true; this.status = "Local Hindsight running";
+        // a fresh process knows none of the sessions the boot mount opened against the one retire() killed
+        void this.onStart?.();
+        return;
+      }
     }
     throw new Error("Local memory startup timed out; Bees will retry automatically.");
   }
@@ -175,9 +200,11 @@ export class LocalMemory {
       catch { response.writeHead(400).end(); return; }
       if (!body || typeof body !== "object" || Array.isArray(body)) { response.writeHead(400).end(); return; }
       const target = await this.target();
+      // qwen thinks for 2k to 8k tokens before each fact extraction, past hindsight's timeout, so every retain failed
       const upstream = await fetch(`${target.base}/chat/completions`, { method: "POST", redirect: "error",
         signal: AbortSignal.any([this.stop.signal, controller.signal, AbortSignal.timeout(300000)]),
-        headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, model: target.model }) });
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, model: target.model, chat_template_kwargs: { ...body.chat_template_kwargs, enable_thinking: false } }) });
       response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json" });
       if (upstream.body) await pipeline(Readable.fromWeb(upstream.body), response); else response.end();
     } catch (error) {

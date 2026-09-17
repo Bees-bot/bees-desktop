@@ -1,5 +1,5 @@
 import { h, useEffect, useState, React } from "./runtime.js";
-import { accountLabel, ask, Button, confirmAction, Empty, ProposalCard, useSubmit, PageHead} from "./shared.js";
+import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
@@ -117,63 +117,24 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
 }
 
 
-/** A parked plan takes the person to its own question once. Coming back to this page afterwards has
- *  to leave them alone, or the page is unusable while a plan is waiting. */
-const redirected = new Set();
-
-/** Describe the work once and Bees builds the process, its agents and its schedule to run it again. */
-function ProcessPlanner({ data, workspaceId, act, onClose, plan, setPlan, openNeedsYou }) {
-  const { outcome = "", runId = "" } = plan;
-  const setOutcome = (value) => setPlan({ outcome: value, runId: "" });
-  const [error, setError] = useState("");
+/** Bees plans the process as a run in Process Runs, where it asks what it needs and proposes the process. */
+function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
+  const [outcome, setOutcome] = useState("");
   const [busy, submit] = useSubmit(async () => {
-    if (!workspaceId || !outcome.trim()) return;
-    setError("");
-    try {
-      const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim() });
-      if (result?.executionId) setPlan({ outcome, runId: result.executionId });
-      else setError("Bees could not start planning this. Please try again.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true });
+    if (result?.executionId) openWorkItem(result.executionId);
   });
-  // a planning run outlives this panel: coming back to the page picks the workspace's live one up again
-  const run = runId ? data.runs.find(({ id }) => id === runId) : data.runs.find((row) => row.workspaceId === workspaceId && row.mode === "planning"
-    && !row.workItemId && ["queued", "running", "waiting_for_input", "waiting_for_approval"].includes(row.status)) ?? null;
-  const planning = run && ["queued", "running"].includes(run.status);
-  const asking = run && ["waiting_for_input", "waiting_for_approval"].includes(run.status);
-  const stopped = run && ["failed", "cancelled"].includes(run.status);
-  const proposals = data.proposals.filter((row) => row.workspaceId === workspaceId && row.status === "pending");
-  useEffect(() => {
-    if (!asking || redirected.has(run.id)) return;
-    redirected.add(run.id);
-    openNeedsYou();
-  }, [asking, run?.id]);
-  return h("div", { className: "bees-stack" },
-    h("form", { className: "bees-composer", onSubmit: submit },
-      h("textarea", {
-        className: "bees-composer-input", value: outcome || run?.purpose || "", disabled: busy || planning || !workspaceId,
-        "aria-label": "What should this process do?",
-        placeholder: workspaceId ? "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each" : "Choose a team first",
-        onInput: (event) => setOutcome(event.target.value)
-      }),
-      error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
-      h("div", { className: "bees-composer-foot" },
-        h("span", { className: "bees-composer-hint" }, stopped
-          ? "That planning run stopped before it proposed anything. Try again, or say more about what you need."
-          : asking
-          ? "Bees needs an answer before it can finish this plan."
-          : planning ? "Bees is working out the stages, agents, tools and schedule. It takes about a minute."
-          : proposals.length ? "Bees finished planning. Approve the proposal below to create this process."
-          : "Bees proposes the stages, agents and schedule. Approve it and the process is yours to run whenever you need it."),
-        h("div", { className: "bees-detail-actions" },
-          h(Button, { disabled: busy, onClick: planning || asking ? () => void act({ action: "stop_run", executionId: run.id }) : onClose },
-            planning || asking ? "Stop planning" : "Cancel"),
-          asking ? h(Button, { className: "primary", onClick: openNeedsYou }, "Answer Bees")
-            : h("button", { type: "submit", className: "bees-btn primary",
-              disabled: busy || planning || !workspaceId || !outcome.trim() },
-              busy || planning ? "Planning…" : "Build this process")))),
-    ...proposals.map((proposal) => h(ProposalCard, { key: proposal.id, proposal,
-      onApply: async () => { await act({ action: "apply_proposal", proposalId: proposal.id }); setPlan({}); },
-      onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
+  return h("form", { className: "bees-composer", onSubmit: submit },
+    h("textarea", {
+      className: "bees-composer-input", value: outcome, disabled: busy, "aria-label": "What should this process do?",
+      placeholder: "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each",
+      onChange: (event) => setOutcome(event.target.value)
+    }),
+    h("div", { className: "bees-composer-foot" },
+      h("span", { className: "bees-composer-hint" }, "Bees plans it in Process Runs and asks you what it needs."),
+      h("div", { className: "bees-detail-actions" },
+        h(Button, { disabled: busy, onClick: onClose }, "Cancel"),
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !outcome.trim() }, busy ? "Starting…" : "Build this process"))));
 }
 
 export function ProcessListActions({ process, act, openWorkItem }) {
@@ -208,12 +169,11 @@ export function ProcessListActions({ process, act, openWorkItem }) {
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, openNeedsYou, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
+export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, route, workspaceIds, workspaceId, teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader }) {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");
   const [planning, setPlanning] = useState(false);
   const [templateStatus, setTemplateStatus] = useState("active");
-  const [plan, setPlan] = useState({});
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
     ctx, data, kind: creating, draft: processDraft, workspaceId, teamId, act,
@@ -366,7 +326,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
             onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")),
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
-          planning ? h(ProcessPlanner, { data, workspaceId, act, plan, setPlan, openNeedsYou, onClose: () => setPlanning(false) }) : null,
+          planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, onClose: () => setPlanning(false) }) : null,
           processList)
       }
     }

@@ -1,7 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { embedBeesContent } from "./embed-dsh-content.mjs";
+import { batchDshClientModules } from "./batch-dsh-client-modules.mjs";
+import { bootTimings, loaderTimings, profileTimings, timeDshStartup } from "./time-dsh-startup.mjs";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeRoot = path.join(desktopRoot, "dsh-runtime");
@@ -10,6 +12,18 @@ const manifest = JSON.parse(
 );
 if (manifest.version !== "0.1.5-rc.2") {
   throw new Error(`Installed DSH ${manifest.version}; expected 0.1.5-rc.2`);
+}
+
+const dshLib = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh", "lib");
+const profiles = await readdir(dshLib);
+const profile = (await Promise.all(profiles.filter((name) => name.startsWith("profile-boot-")).map(async (name) => ({
+  entry: path.join(dshLib, name), source: await readFile(path.join(dshLib, name), "utf8")
+})))).find(({ source }) => source.includes("async function runProfile(options)"));
+if (!profile) throw new Error("DSH startup timing cannot find the pinned profile entry");
+await writeFile(profile.entry, timeDshStartup(profile.source, profileTimings));
+for (const [packageName, timings] of [["dsh-app-boot", bootTimings], ["cordis-plugin-loader", loaderTimings]]) {
+  const entry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", packageName, "lib", "index.js");
+  await writeFile(entry, timeDshStartup(await readFile(entry, "utf8"), timings));
 }
 
 // Preserve the native slot owner and session providers while Bees embeds its widgets.
@@ -53,3 +67,4 @@ await writeFile(hmrEntry, hmrSource
   .replace(hmrServe, "\t\tconst response = this.responses.get(resourceUrl) ?? retiredResponses.get(resourceUrl);"));
 
 }
+await writeFile(hmrEntry, batchDshClientModules(await readFile(hmrEntry, "utf8")));

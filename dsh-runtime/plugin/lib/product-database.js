@@ -881,6 +881,13 @@ export function initializeProductDatabase(database) {
       WHERE catalog_id = 'chrome-devtools';
     PRAGMA user_version = 28;
   `);
+  // the old api bridge sent a list as one "a,b" value, which an api reading key=a&key=b ignores
+  if (version < 29) database.exec(`
+    UPDATE mcp_servers
+      SET command = '{node}', args_json = '["{lib}/openapi-mcp.js",' || substr(args_json, 59)
+      WHERE catalog_id = 'openapi-bridge' AND args_json LIKE '["-y","@ivotoby/openapi-mcp-server","--transport","stdio",%';
+    PRAGMA user_version = 29;
+  `);
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -930,7 +937,7 @@ export function initializeProductDatabase(database) {
  */
 export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   const row = database.prepare(`
-    SELECT mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
+    SELECT name, mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
   `).get(required(agentAssignmentId, "Agent"));
   if (!row) throw new Error("Agent not found");
   if (row.access === "none" || runSettings.mcpAccess === "none") return { mcpAccess: "none", mcpServers: [] };
@@ -939,13 +946,15 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   const servers = row.access === "listed" ? JSON.parse(row.servers) : runSettings.mcpServers;
   const allowed = runSettings.mcpAccess === "listed"
     ? servers.filter((id) => runSettings.mcpServers.includes(id)) : servers;
-  return {
-    mcpAccess: "listed",
-    mcpServers: database.prepare(`
-      SELECT server_name AS name FROM mcp_servers
-      WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
-    `).all(JSON.stringify(allowed)).map(({ name }) => name)
-  };
+  const rows = database.prepare(`
+    SELECT server_name AS name, enabled FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+  `).all(JSON.stringify(allowed));
+  // server ids are per device: an agent set up on a teammate's computer names servers this one never
+  // installed, and it used to run with no tools at all and report itself blocked an hour later.
+  // a server the person turned off here is skipped, as before
+  const missing = new Set(allowed).size - rows.length;
+  if (missing > 0) throw new Error(`${row.name} uses ${missing} MCP server(s) that are not installed on this computer. Run this where they were set up, or edit the agent.`);
+  return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
 }
 
 /** Goal overrides travel with work; validate remote metadata as well as local commands. */

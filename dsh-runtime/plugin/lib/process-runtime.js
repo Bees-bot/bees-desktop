@@ -6,6 +6,7 @@ import {
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { iso, message, transaction } from "./product-database.js";
+import { step } from "./startup.js";
 
 export const PROCESS_TASK_QUEUE = "bees-processes-v1";
 export const processWorkflowId = (workItemId) => `bees/work-item/${workItemId}`;
@@ -88,15 +89,21 @@ export class ProcessRuntime {
     const address = process.env.BEES_TEMPORAL_ADDRESS;
     if (!this.client) {
       if (!address) throw new Error("bees: missing embedded Temporal address");
-      this.connection = await Connection.connect({ address });
+      this.connection = await step("temporal.client.connect", () => Connection.connect({ address }));
       this.client = new Client({ connection: this.connection, namespace: "default" });
     }
     if (!this.worker && (address || this.workerFactory)) {
-      this.workerConnection = this.workerFactory ? undefined : await NativeConnection.connect({ address });
+      this.workerConnection = this.workerFactory ? undefined : await step("temporal.worker.connect", () => NativeConnection.connect({ address }));
       const projectWorkItem = (state) => this.project(state);
       const createRecurringWorkItem = async ({ recurringWorkId, occurrenceAt, accountUserId = "" }) => {
         const work = await this.createRecurringWorkItem(recurringWorkId, occurrenceAt, accountUserId);
         if (!work) return null;
+        // a failed run no longer holds its schedule, so the next run replaces it instead of piling up
+        for (const { id } of this.database.prepare(`
+          SELECT id FROM work_items
+          WHERE recurring_work_id = ? AND parent_id IS NULL AND coalesce(account_user_id, '') = ? AND runtime_phase = 'failed'
+        `).all(recurringWorkId, accountUserId))
+          await this.client.workflow.getHandle(processWorkflowId(id)).cancel().catch(() => undefined);
         const recurring = this.recurring(recurringWorkId, accountUserId);
         await this.refreshNextRun(
           recurringWorkId, accountUserId, this.client.schedule.getHandle(recurring.temporalScheduleId)
@@ -126,12 +133,12 @@ export class ProcessRuntime {
         workflowsPath: fileURLToPath(new URL("./process-workflow.js", import.meta.url)),
         activities: { projectWorkItem, createRecurringWorkItem, runDshStage }
       };
-      this.worker = this.workerFactory
-        ? await this.workerFactory(workerOptions)
-        : await Worker.create(workerOptions);
+      this.worker = await step("temporal.worker.create-and-bundle", () => this.workerFactory
+        ? this.workerFactory(workerOptions)
+        : Worker.create(workerOptions));
       this.running = this.worker.run().catch((error) => this.logger.error?.(error));
     }
-    await this.reconcile();
+    await step("temporal.reconcile", () => this.reconcile());
   }
 
   recurring(recurringWorkId, accountUserId = "") {
@@ -151,11 +158,17 @@ export class ProcessRuntime {
   }
 
   executorAccounts(recurringWorkId) {
+    // a shared schedule runs as the account whose item was scheduled, on whichever of that person's
+    // devices is connected here: their servers and sign-ins live there. every other member's device
+    // would fire the same tick under its own account and the server keeps claims per account, so two
+    // devices meant two runs. a schedule from before this had no owner and still runs for everyone.
     const connected = this.database.prepare(`
       SELECT DISTINCT c.account_user_id AS accountUserId
       FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
+      LEFT JOIN work_items d ON d.id = r.source_work_item_id
       JOIN bees_connection_teams ct ON ct.team_id = w.team_id
       JOIN bees_connections c ON c.id = ct.connection_id
+        AND c.account_user_id = COALESCE(d.account_user_id, c.account_user_id)
       WHERE r.id = ? ORDER BY c.account_user_id
     `).all(recurringWorkId).map(({ accountUserId }) => accountUserId);
     if (connected.length) return connected;
@@ -202,7 +215,7 @@ export class ProcessRuntime {
         taskQueue: PROCESS_TASK_QUEUE,
         args: [{ recurringWorkId: recurring.id, accountUserId: recurring.accountUserId }]
       },
-      policies: { overlap: "SKIP", catchupWindow: "1 minute", pauseOnFailure: true },
+      policies: { overlap: "SKIP", catchupWindow: "1 minute" },
       state: { paused: recurring.status === "paused" },
       memo: {
         recurringWorkId: recurring.id,
@@ -392,6 +405,8 @@ export class ProcessRuntime {
           )
         )
         AND NOT EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id)
+        AND NOT (w.runtime_phase = 'ready' AND EXISTS (SELECT 1 FROM bees_work_receipts r
+          WHERE r.work_item_id = w.id AND r.idempotency_key LIKE 'proposal:%'))
     `).all();
     // One work item that cannot start must not reject startup: reconcile runs before the plugin
     // registers its routes, so a single bad row used to leave the app with no /healthz at all.
@@ -581,6 +596,7 @@ export class ProcessRuntime {
     const item = this.item(workItemId);
     if (!this.isAutomatic(item.processId)) throw new Error("This process is manually driven");
     const allowed = {
+      start: ["ready"],
       pause: ["running", "waiting"],
       resume: ["paused"],
       retry: ["failed"],
@@ -588,6 +604,7 @@ export class ProcessRuntime {
     };
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
+    if (type === "start") return this.startItem(workItemId);
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     if (type === "cancel") {
       // Stop local model/tool execution now, without waiting for Temporal's next heartbeat.

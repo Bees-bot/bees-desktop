@@ -1,6 +1,11 @@
 /** The chips that drive a browser. They mount per run; only the Chrome itself is shared. */
 export const isBrowserCatalog = (catalogId) => ["playwright", "chrome-devtools"].includes(catalogId);
 
+// a Google sign-in fills these, so nobody pastes them and an agent cannot install the server alone
+const googleSignIn = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"].map((name) => ({
+  name, label: "a Google sign-in"
+}));
+
 /** Servers offered out of the box. Nothing installs without review, because each one is a program
  *  we run with its tools handed to a model. `access` is the review screen's sentence: keep it true. */
 const ENTRIES = [
@@ -148,6 +153,66 @@ const ENTRIES = [
     }]
   },
   {
+    id: "gmail",
+    serverName: "gmail",
+    label: "Gmail",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/gmail-mcp.js",
+    summary: "Search, read, label, draft and send email in your Gmail.",
+    access: "Everything in your mailbox. Every agent set to all MCPs, and any agent you select it for, can "
+      + "read, label, draft and send email as you without asking first, and an email or page it reads can "
+      + "try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    scopes: ["https://www.googleapis.com/auth/gmail.modify"],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/gmail-mcp.js"],
+    env: googleSignIn,
+    headers: []
+  },
+  {
+    id: "google-calendar",
+    serverName: "calendar",
+    label: "Google Calendar",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-calendar-mcp.js",
+    summary: "Find, add, change and answer events in your Google Calendar, and check when people are free.",
+    access: "Every calendar you can see or edit, including ones shared with you, and when anyone whose calendar "
+      + "you can see is busy. Every agent set to all MCPs, and any agent you select it for, can read, add, change "
+      + "and delete events and invite people as you without asking first, and Google emails the guests. An event "
+      + "or page it reads can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    scopes: [
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      "https://www.googleapis.com/auth/calendar.events.freebusy"
+    ],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/google-calendar-mcp.js"],
+    env: googleSignIn,
+    headers: []
+  },
+  {
+    id: "google-drive",
+    serverName: "drive",
+    label: "Google Drive",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-drive-mcp.js",
+    summary: "Find and read your Google Drive files: Docs, Sheets, Slides, Forms, PDFs and Office files.",
+    access: "Every file you can open in Google Drive, including ones shared with you and shared drives, and the "
+      + "questions in your Google Forms. It only reads, and cannot change, share or delete anything. Every agent set "
+      + "to all MCPs, and any agent you select it for, can read those files without asking first, and a file it reads "
+      + "can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/forms.body.readonly"
+    ],
+    transport: "stdio",
+    command: "{node}",
+    args: ["{lib}/google-drive-mcp.js"],
+    env: googleSignIn,
+    headers: []
+  },
+  {
     id: "firecrawl",
     serverName: "firecrawl",
     label: "Web scraping",
@@ -189,16 +254,16 @@ const ENTRIES = [
     // the model sees on each tool. Name it after the host instead.
     nameFrom: "apiBaseUrl",
     label: "Any REST API (OpenAPI bridge)",
-    publisher: "Ivo Toby, openapi-mcp-server",
-    homepage: "https://github.com/ivo-toby/mcp-openapi-server",
+    publisher: "Bees",
+    homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/openapi-mcp.js",
     summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
     + "MCP server of their own.",
     access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
     transport: "stdio",
-    command: "npx",
+    command: "{node}",
     // --tools dynamic keeps three lookup tools in context instead of one per endpoint, which is what
     // makes a large API usable at all.
-    args: ["-y", "@ivotoby/openapi-mcp-server", "--transport", "stdio", "--tools", "dynamic"],
+    args: ["{lib}/openapi-mcp.js", "--tools", "dynamic"],
     inputs: [
     // The bridge will not start without it, so a spec URL alone is not enough.
     { name: "apiBaseUrl", flag: "--api-base-url", label: "API base URL",
@@ -208,7 +273,7 @@ const ENTRIES = [
       help: "Leave this blank and Bees asks the API where its document is." },
     { name: "curl", flag: "", optional: true, textarea: true,
       label: "Or paste a curl command that already works",
-      help: "For an API that publishes no document at all. One request describes one endpoint." }
+      help: "For an API that publishes no document at all. One request describes one endpoint. Write an id that changes per call as {name}, like /orders/{order_id}." }
     ],
     env: [{
     name: "API_HEADERS",

@@ -108,6 +108,7 @@ async function runCommand(runtime, input) {
 }
 
 export async function apply(ctx) {
+  const time = globalThis.__beesStartup?.step ?? ((_phase, run) => run());
   let runtime;
   let startupError;
   try {
@@ -120,13 +121,13 @@ export async function apply(ctx) {
     process.env.FREEAPI_ENV_PATH = join(dataRoot, ".env");
     process.env.FREEAPI_DB_DIR_HARDENING = "1";
     const { embedded, handle } = await hideBootstrapKey(async () => {
-      const embedded = await import(pathToFileURL(modulePath).href);
-      const handle = await embedded.startServer({
+      const embedded = await time("free-ai.module.import", () => import(pathToFileURL(modulePath).href));
+      const handle = await time("free-ai.server.start", () => embedded.startServer({
         dbPath: join(dataRoot, "freeapi.db"),
         clientDist: join(runtimeRoot, "freellmapi"),
         host: "127.0.0.1",
         preferredPort: 31415
-      });
+      }));
       return { embedded, handle };
     });
     // Registered before anything else that can throw, or a failure leaks a listening server.

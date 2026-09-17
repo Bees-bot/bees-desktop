@@ -1,6 +1,7 @@
 import { catalogEntry } from "./mcp-catalog.js";
 import { randomUUID } from "node:crypto";
-import { hideAgentBrowser, showAgentBrowser } from "./agent-browser.js";
+import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
+
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
@@ -97,7 +98,7 @@ function inheritedRunSettings(database, parent) {
 export function enabledServers(database) {
   return database.prepare("SELECT id, server_name AS name, label, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1")
     .all().map(({ id, name, label, catalogId }) => ({
-      id, names: [id, name, label, catalogId].filter(Boolean).map((value) => String(value).toLocaleLowerCase())
+      id, name, names: [id, name, label, catalogId].filter(Boolean).map((value) => String(value).toLocaleLowerCase())
     }));
 }
 
@@ -189,7 +190,7 @@ function executionAccount(database, teamId, input) {
 /** A run is only reachable through the work item or workspace that owns it. */
 function runContext(database, executionId, roles = ["admin", "member"]) {
   const run = database.prepare(`
-    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson
+    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson, status
     FROM execution_links WHERE execution_id = ?
   `).get(executionId);
   if (!run) throw new Error("Execution not found");
@@ -364,7 +365,9 @@ export async function executeProductCommand(action, input) {
     }
     if (["create_item", "create_run", "create_goal"].includes(action)) {
       const created = transaction(this.database, () => {
-      let processId = input.processId ? required(input.processId, "Process") : null;
+      // a watcher knows its pipeline by name only, and an empty pipeline shows up nowhere else
+      let processId = input.processId ? required(input.processId, "Process")
+        : input.process ? proposalResource(this.database, input.workspaceId, "process", String(input.process).trim()).id : null;
       if (action === "create_goal") {
         const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
         processId = this.database.prepare(`
@@ -441,7 +444,8 @@ export async function executeProductCommand(action, input) {
         .run(workspace.id, receiptKey, id, at);
       return { id };
       });
-      if (created.reused) return created;
+      // an applied plan only sets work up, the owner presses Start
+      if (created.reused || input.idempotencyKey?.startsWith("proposal:")) return created;
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
@@ -490,13 +494,6 @@ export async function executeProductCommand(action, input) {
         throw new Error("Recurring work requires an automatic process");
       const name = required(input.name, "Recurring work name").slice(0, 120);
       const schedule = recurringSchedule(input);
-      // apply_proposal commits each change on its own and can be re-applied after a later one
-      // fails, so without this a retry mints a second live schedule firing the same work twice.
-      const existing = this.database.prepare(`
-        SELECT id, source_work_item_id AS sourceWorkItemId FROM recurring_work
-        WHERE workspace_id = ? AND name = ? AND status = 'active'
-      `).get(item.workspaceId, name);
-      if (existing) return { ...existing, reused: true };
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
       const temporalScheduleId = `bees/recurring/${id}`;
@@ -509,18 +506,18 @@ export async function executeProductCommand(action, input) {
           INSERT INTO recurring_work
             (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
              schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, item.workspaceId, item.processId, sourceWorkItemId, name, schedule.kind,
-          JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, at, at);
+          JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, input.paused ? "paused" : "active", at, at);
         this.database.prepare(`
           INSERT INTO work_items
             (id, process_id, stage_id, parent_id, kind, title, description, owner,
              agent_assignment_id, agent_ids_json, priority, output_location_id, recurring_work_id,
-             archived_at, deleted_at, created_at, updated_at)
-          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+             account_user_id, archived_at, deleted_at, created_at, updated_at)
+          VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
         `).run(sourceWorkItemId, item.processId, stageId, item.kind === "goal" ? "goal" : "work",
           item.title, item.description, item.owner, item.agentAssignmentId, JSON.stringify(item.agentIds), item.priority,
-          item.outputLocationId, id, at, at);
+          item.outputLocationId, id, item.accountUserId ?? null, at, at);
         this.database.prepare(`
           INSERT INTO work_item_locations
           SELECT DISTINCT ?, location_id, relative_path FROM work_item_locations
@@ -634,7 +631,7 @@ export async function executeProductCommand(action, input) {
       `).get(specialization.id, specialization.revision);
       return savePlaybook(this.database, specialization, prior?.playbook ?? "", "undo");
     });
-    if (["pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
+    if (["start_item", "pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.signal(item.id, action.replace("_item", ""));
     }
@@ -1123,8 +1120,30 @@ export async function executeProductCommand(action, input) {
             payload.idempotencyKey = `proposal:${proposalId}:${index}`;
             payload.inputLocationIds = (change.inputLocations ?? []).map(folderId);
             if (change.outputLocation) payload.outputLocationId = folderId(change.outputLocation);
+            if (change.agents) payload.agentIds = change.agents.map((name) => idOf("agent", name));
           }
-          if (change.action === "create_recurring_work") payload.itemId = idOf("item", change.item);
+          if (change.action === "create_recurring_work") {
+            Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
+            // planning a schedule again, or re-applying after a failure, updates it instead of adding a copy
+            const existing = this.database.prepare(`
+              SELECT r.id, r.source_work_item_id AS definition FROM recurring_work r JOIN work_items w ON w.id = ?
+              WHERE r.workspace_id = ? AND lower(r.name) = lower(?) AND r.process_id = w.process_id
+            `).get(payload.itemId, proposal.workspaceId, String(change.name ?? ""));
+            if (existing) {
+              results[index] = await this.execute("edit_recurring_work", { ...payload, recurringWorkId: existing.id });
+              transaction(this.database, () => {
+                this.database.prepare(`
+                  UPDATE work_items SET (title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, updated_at) =
+                    (SELECT title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, ? FROM work_items WHERE id = ?)
+                  WHERE id = ?
+                `).run(at, payload.itemId, existing.definition);
+                this.database.prepare("DELETE FROM work_item_locations WHERE work_item_id = ?").run(existing.definition);
+                this.database.prepare("INSERT INTO work_item_locations SELECT ?, location_id, relative_path FROM work_item_locations WHERE work_item_id = ?")
+                  .run(existing.definition, payload.itemId);
+              });
+              continue;
+            }
+          }
           if (change.action === "set_stage_route") {
             payload.stageId = this.database.prepare(`
               SELECT id FROM stages WHERE process_id = ? AND lower(name) = lower(?) AND archived_at IS NULL
@@ -1196,7 +1215,10 @@ export async function executeProductCommand(action, input) {
           agentName: "Ask Bees", purpose: outcome, model: optionalModelRoute(input.model),
           reasoningEffort,
           capabilities: [],
-          instructions: "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
+          // Build with Bees on Process Templates asks for the process itself, and the person starts its runs
+          instructions: input.process
+            ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome: the exact name of a listed process built for this job, never Goals, or a new one with a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
+            : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
           mcpAccess: policy.access, mcpServers: this.database.prepare(`
             SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
@@ -1255,9 +1277,13 @@ export async function executeProductCommand(action, input) {
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
       runContext(this.database, executionId);
-      await showAgentBrowser();
+      // When the agent supplies a URL (e.g. a login page), navigate Chrome there directly so the
+      // user sees the actual page rather than the initial about:blank tab.
+      const url = typeof input.url === "string" && input.url.startsWith("https://") ? input.url : null;
+      await (url ? navigateAgentBrowser(url) : showAgentBrowser());
       return { opened: true };
     }
+
     if (action === "open_in_explorer") {
       const targetPath = required(input.path, "Path");
       if (!targetPath.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(targetPath))
@@ -1288,8 +1314,13 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
-      runContext(this.database, executionId);
+      const { status } = runContext(this.database, executionId);
       const stopped = this.agents.abort(executionId);
+      // a queued or parked run has nothing live to abort; dropping its queue row stops a start in flight
+      if (!stopped && ["queued", "waiting_for_input", "waiting_for_approval"].includes(status)) {
+        this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
+        this.agents.setStatus(executionId, "cancelled");
+      }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
       this.agents.track(hideAgentBrowser());
       return { stopped };

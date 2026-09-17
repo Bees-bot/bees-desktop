@@ -7,7 +7,7 @@ import { OfficeParser } from "officeparser";
 
 const DOCUMENT_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf"]);
 
-const MAX_SOURCE_BYTES = 20_000_000;
+export const MAX_SOURCE_BYTES = 20_000_000;
 const MAX_KNOWLEDGE_BYTES = 1_000_000;
 const EXTRACTION_TIMEOUT = 60_000;
 
@@ -43,6 +43,8 @@ export async function officeDocument(file, fileType) {
     const ast = await OfficeParser.parseOffice(file, {
       ...(fileType ? { fileType } : {}),
       abortSignal: controller.signal,
+      // the 512 MB default lets a small shared zip bomb exhaust memory before the timeout can fire
+      decompressionLimits: { maxUncompressedBytes: 50_000_000 },
       extractAttachments: false,
       ignoreSlideMasters: true,
       ocr: false

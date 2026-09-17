@@ -18,8 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run build:dsh-client && vitest run tests/dsh-*.test.ts",
     "check": "npm run test:release && npm run typecheck && npm test && npm run build",
-    "tauri:dev": "tauri dev",
-    "tauri:prod": "BEES_ACCOUNT_API_URL=https://app.bees.bot tauri dev",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:prod": "BEES_ACCOUNT_API_URL=https://app.bees.bot tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build"
   },
   "dependencies": {

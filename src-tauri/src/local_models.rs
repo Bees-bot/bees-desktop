@@ -928,6 +928,7 @@ fn start_local_model_blocking_inner(
     spec: &ModelSpec,
     cancelled: &AtomicBool,
 ) -> Result<LocalModelStatus, String> {
+    let _startup = crate::startup::start("background.local-model.start");
     let path = model_path(app, spec)?;
     if !is_complete(&path, spec.bytes) {
         return Err("Load the model before starting it".into());

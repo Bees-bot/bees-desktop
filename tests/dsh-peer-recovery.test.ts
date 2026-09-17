@@ -25,7 +25,7 @@ async function fixture() {
     agentPresets: { mount: async () => undefined } }, db);
   new BeesProduct(db, runtime, processes, tmpdir());
   const tools: any[] = [];
-  await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined },
+  await runtime.setup({ systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
     tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined } }, {
     mode: "work", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
     workItemId: "parent", workspaceId: stage.workspaceId, grants: []
@@ -69,7 +69,7 @@ describe("failed peer recovery", () => {
         result: { id: "failed", status: "running" } });
       expect(h.signal).toHaveBeenCalledWith("retry");
       expect(h.cancel).not.toHaveBeenCalled();
-      expect(() => assertPeersSettled(h.runtime, { workItemId: "parent" })).toThrow("unfinished");
+      expect(() => assertPeersSettled(h.runtime, { workItemId: "parent" })).toThrow("is running");
       await h.tool.execute(args, h.exec);
       expect(h.signal).toHaveBeenCalledTimes(1);
       h.db.exec("UPDATE work_items SET runtime_phase = 'completed' WHERE id = 'failed'");

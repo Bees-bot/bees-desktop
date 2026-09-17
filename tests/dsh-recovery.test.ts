@@ -818,7 +818,7 @@ describe("DSH-owned desktop and recovery", () => {
     await expect((runtime as any).waitForDelivery("run", "submission", cancelled.signal)).rejects.toThrow(reason);
   });
 
-  it("re-resolves the model on an explicit retry so a model change made before retrying takes effect", async () => {
+  it.each([false, true])("re-resolves the model on an explicit retry (repaired assignment=%s)", async (repairedAssignment) => {
     const database = new NodeDatabase();
     const workspace = database.connection.prepare(
       "SELECT id FROM workspaces ORDER BY created_at LIMIT 1"
@@ -851,7 +851,8 @@ describe("DSH-owned desktop and recovery", () => {
          run_directory, config_json, status, created_at, updated_at)
       VALUES ('retry-run', ?, NULL, 'bees-run', 'session', 'uid', ?, ?, 'failed', ?, ?)
     `).run(workspace.id, runDirectory, JSON.stringify({
-      version: 1, model: null, resolvedModel: "openai-codex/gpt-5.9-sol",
+      version: 1, model: repairedAssignment ? "local-openai/active" : null, resolvedModel: "openai-codex/gpt-5.9-sol",
+      reasoningEffort: repairedAssignment ? "high" : null,
       resolvedReasoningEffort: null, mode: "planning", executionId: "retry-run",
       workItemId: null, agentId: "bees-plan", agentName: "Ask Bees", purpose: "Outcome",
       instructions: "", workspaceId: workspace.id, agentPresetId: "standard",
@@ -865,7 +866,8 @@ describe("DSH-owned desktop and recovery", () => {
 
     // Retry the failed run — should use the new model, not the locked Codex model.
     await expect(runtime.executeStage("retry-run", {
-      body: "Retry the work", retryId: "process:retry-run:retry:1"
+      body: "Retry the work", retryId: "process:retry-run:retry:1",
+      ...(repairedAssignment ? { refreshedModel: null, refreshedReasoningEffort: null } : {})
     })).rejects.toThrow("stop after selection");
 
     expect(resolvedOptions).toHaveLength(1);

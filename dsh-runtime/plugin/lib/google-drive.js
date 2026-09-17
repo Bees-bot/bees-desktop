@@ -1,13 +1,11 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { createServer } from "node:http";
 import {
   lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { json, stable } from "./document-extractor.js";
 import { drive } from "@googleapis/drive";
-import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
-import { knowledgeMarkdown, officeMarkdown } from "./document-extractor.js";
+import { OAuth2Client } from "google-auth-library";
+import { googleConsent } from "./google-consent.js";
+import { json, knowledgeMarkdown, officeMarkdown, stable } from "./document-extractor.js";
 
 const tokenCredential = "BEES_GOOGLE_DRIVE_OAUTH";
 const profileCredential = "BEES_GOOGLE_DRIVE_PROFILE";
@@ -15,7 +13,7 @@ const requiredScopes = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/forms.body.readonly"
 ];
-const pointerFormats = {
+export const pointerFormats = {
   ".gdoc": {
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     fileType: "docx", type: "document"
@@ -180,20 +178,11 @@ export function formMarkdown(form) {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-async function exportedMarkdown(api, auth, id, format, title) {
-  if (format.type === "form") {
-    const { data } = await auth.request({
-      method: "GET",
-      url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(id)}`
-    });
-    return formMarkdown(data);
-  }
-  const { data } = await api.files.export(
-    { fileId: id, mimeType: format.mimeType },
-    { responseType: "arraybuffer" }
-  );
-  const contents = Buffer.from(data);
-  if (contents.length > 20_000_000) throw new Error("Google document export is larger than 20 MB");
+/** `get(url, options)` resolves to the response body, so the Drive MCP can pass its own error-mapped caller. */
+export async function exportedMarkdown(get, id, format, title) {
+  if (format.type === "form") return formMarkdown(await get(`https://forms.googleapis.com/v1/forms/${encodeURIComponent(id)}`));
+  const contents = Buffer.from(await get(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}/export`,
+    { params: { mimeType: format.mimeType }, responseType: "arraybuffer" }));
   if (format.type === "drawing") return drawingMarkdown(contents.toString("utf8"), title);
   return officeMarkdown(contents, format.fileType);
 }
@@ -202,14 +191,13 @@ export class GoogleDriveConnection {
   constructor(credentials, root) {
     this.credentials = credentials;
     this.root = root;
-    this.clientId = "";
+    this.app = { clientId: "", clientSecret: "" };
     this.pending = null;
     this.exported = new Map();
   }
 
-  configure(clientId) {
-    const value = String(clientId ?? "").trim();
-    if (value) this.clientId = value;
+  configure({ googleDesktopClientId: clientId, googleDesktopClientSecret: clientSecret }) {
+    if (clientId && clientSecret) this.app = { clientId, clientSecret };
   }
 
   async stored(name) {
@@ -218,22 +206,20 @@ export class GoogleDriveConnection {
 
   async tokenRecord() {
     const value = await this.stored(tokenCredential);
-    if (!this.clientId && value?.clientId) this.clientId = value.clientId;
+    if (!this.app.clientId && value?.app) this.app = value.app;
     return value;
   }
 
   async tokens() {
     const value = await this.tokenRecord();
     const scopes = new Set(value?.scopes ?? []);
-    return value?.clientId === this.clientId && requiredScopes.every((scope) => scopes.has(scope))
+    return value?.app?.clientId === this.app.clientId && requiredScopes.every((scope) => scopes.has(scope))
       ? value.tokens
       : null;
   }
 
   async saveTokens(tokens) {
-    await this.credentials.set(tokenCredential, JSON.stringify({
-      clientId: this.clientId, scopes: requiredScopes, tokens
-    }));
+    await this.credentials.set(tokenCredential, JSON.stringify({ app: this.app, scopes: requiredScopes, tokens }));
   }
 
   async status() {
@@ -242,7 +228,7 @@ export class GoogleDriveConnection {
     ]);
     const exports = [...this.exported.values()];
     return {
-      available: Boolean(this.clientId),
+      available: Boolean(this.app.clientId),
       connected: Boolean(tokens?.refresh_token || tokens?.access_token),
       needsReconnect: Boolean(record?.tokens && !tokens),
       profile: profile ?? null,
@@ -256,89 +242,20 @@ export class GoogleDriveConnection {
   }
 
   async start() {
-    if (!this.clientId) throw new Error("Google Drive is not configured by your Bees server");
-    if (this.pending?.timer) clearTimeout(this.pending.timer);
-    this.pending?.server?.close();
-    const server = createServer((request, response) => {
-      void this.complete(new URL(request.url ?? "/", "http://127.0.0.1").searchParams)
-        .then(() => {
-          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          response.end("<!doctype html><title>Bees</title><p>Google Drive is connected locally. You can close this window.</p>");
-        }, (error) => {
-          response.writeHead(400, { "content-type": "text/html; charset=utf-8" });
-          response.end(`<!doctype html><title>Bees</title><p>${String(error?.message ?? error)
-            .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`);
-        });
+    const pending = await googleConsent(this.app, requiredScopes, async (auth) => {
+      const { data } = await drive({ version: "v3", auth }).about.get({ fields: "user(displayName,emailAddress,permissionId)" });
+      await Promise.all([
+        this.saveTokens(auth.credentials),
+        this.credentials.set(profileCredential, JSON.stringify(data.user ?? {}))
+      ]);
     });
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("The local Drive callback is unavailable");
-    const redirectUri = `http://127.0.0.1:${address.port}`;
-    const client = new OAuth2Client(this.clientId, undefined, redirectUri);
-    const verifier = await client.generateCodeVerifierAsync();
-    const state = randomBytes(24).toString("hex");
-    this.pending = {
-      state, redirectUri, codeVerifier: verifier.codeVerifier,
-      expiresAt: Date.now() + 5 * 60_000, server
-    };
-    this.pending.timer = setTimeout(() => {
-      if (this.pending?.state !== state) return;
-      this.pending.server.close();
-      this.pending = null;
-    }, 5 * 60_000);
-    this.pending.timer.unref();
-    return {
-      url: client.generateAuthUrl({
-        access_type: "offline",
-        prompt: "consent select_account",
-        scope: requiredScopes,
-        state,
-        code_challenge: verifier.codeChallenge,
-        code_challenge_method: CodeChallengeMethod.S256
-      })
-    };
-  }
-
-  async complete(params) {
-    const pending = this.pending;
-    const offered = Buffer.from(String(params.get("state") ?? ""));
-    const expected = Buffer.from(String(pending?.state ?? ""));
-    if (!pending || pending.expiresAt < Date.now()) {
-      this.pending = null;
-      if (pending?.timer) clearTimeout(pending.timer);
-      pending?.server?.close();
-      throw new Error("This Drive connection expired; try again");
-    }
-    if (offered.length !== expected.length || !timingSafeEqual(offered, expected)) {
-      throw new Error("This Drive connection did not match the active request");
-    }
-    this.pending = null;
-    if (pending.timer) clearTimeout(pending.timer);
-    pending.server?.close();
-    if (params.get("error")) throw new Error("Google Drive access was not granted");
-    const code = params.get("code");
-    if (!code) throw new Error("Google did not return an authorization code");
-    const client = new OAuth2Client(this.clientId, undefined, pending.redirectUri);
-    const record = await this.tokenRecord();
-    const previous = record?.clientId === this.clientId ? record.tokens : null;
-    const { tokens } = await client.getToken({ code, codeVerifier: pending.codeVerifier });
-    client.setCredentials({ ...previous, ...tokens, refresh_token: tokens.refresh_token ?? previous?.refresh_token });
-    const api = drive({ version: "v3", auth: client });
-    const { data } = await api.about.get({ fields: "user(displayName,emailAddress,permissionId)" });
-    await Promise.all([
-      this.saveTokens(client.credentials),
-      this.credentials.set(profileCredential, JSON.stringify(data.user ?? {}))
-    ]);
-    return this.status();
+    this.close();
+    this.pending = pending;
+    return { url: pending.url };
   }
 
   async disconnect() {
-    if (this.pending?.timer) clearTimeout(this.pending.timer);
-    this.pending?.server?.close();
-    this.pending = null;
+    this.close();
     await Promise.all([
       this.credentials.unset(tokenCredential),
       this.credentials.unset(profileCredential)
@@ -348,15 +265,14 @@ export class GoogleDriveConnection {
   }
 
   close() {
-    if (this.pending?.timer) clearTimeout(this.pending.timer);
-    this.pending?.server?.close();
+    this.pending?.close();
     this.pending = null;
   }
 
   async client() {
     const tokens = await this.tokens();
     if (!tokens) return null;
-    const client = new OAuth2Client(this.clientId, undefined);
+    const client = new OAuth2Client(this.app.clientId, this.app.clientSecret);
     client.setCredentials(tokens);
     return client;
   }
@@ -405,7 +321,8 @@ export class GoogleDriveConnection {
             fileId: id, supportsAllDrives: true,
             fields: "id,name,createdTime,modifiedTime,webViewLink"
           }),
-          exportedMarkdown(api, auth, id, format, basename(path, extname(path)))
+          exportedMarkdown(async (url, options) => (await auth.request({ url, retry: true, ...options })).data,
+            id, format, basename(path, extname(path)))
         ]);
         if (!markdown) continue;
         const fromRoot = (location.kind === "folder" ? relative(location.localPath, path) : basename(path))

@@ -4,15 +4,30 @@ import {
 import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
-  accountLabel, ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
+  accountLabel, ask, AuditEvent, Button, clip, confirmAction, Empty, isDone, isScheduleDefinition, PageHead, ProposalCard, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip
 } from "./shared.js";
 import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
-import { OUTCOME_LABELS } from "./conversation-model.js";
-import { NativeConversation } from "./native-conversation.js";
+import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
+import { DshRunPanels } from "./native-conversation.js";
+
+const UserMessage = ({ children, label }) => {
+  const [expanded, setExpanded] = useState(false);
+  const truncated = children.length > 280;
+  return h("div", { className: "bees-convo-msg user" },
+    label ? h("strong", null, label) : null,
+    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
+    truncated ? h("button", {
+      type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
+      style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }
+    }, expanded ? "Show less" : "Show more") : null);
+};
+
+/** The goal opens the conversation, so a run reads from the ask down. */
+const GoalMessage = ({ item }) => h(UserMessage, { label: "Goal" }, item.description || item.title);
 
 const WORK_PAGE_LAYOUT = [
   { kind: "active-work", x: 0, y: 0, w: 12, h: 6 },
@@ -139,6 +154,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
 }
 
 function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
+  const plan = item.kind === "plan";
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -178,13 +194,44 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   }, [activeTab, seenKey, fileRevision, unreadFiles, preferences]);
 
   const [handled, setHandled] = useState(() => new Set());
+  const [history, setHistory] = useState(null);
+  const [historyError, setHistoryError] = useState("");
+  const convoRef = React.useRef(null);
+  const [composerText, setComposerText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [refreshCount, setRefreshCount] = useState(0);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
   const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : run?.sessionId ? ctx.sessions.binding(run.sessionId) : null;
   const session = useSnapshot(binding?.session);
   const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
-  useEffect(() => { setSelectedRun(""); setHandled(new Set()); setActiveTab("files"); }, [item.id]);
+  // The composer sends into the selected run's own session, not whichever session happens to
+  // have a pending question — those can differ once a work item has more than one execution.
+  const activeRun = run?.ranElsewhere ? null : run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
+  const activeBinding = activeRun ? ctx.sessions.binding(activeRun.sessionId) : null;
+  const liveRevision = useBeesChangeRevision();
+  useEffect(() => {
+    setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
+    setHistory(null); setComposerText(""); setSending(false);
+  }, [item.id]);
+  useEffect(() => {
+    setHistoryError("");
+    // The transcript lives with the session that produced it, and that is on the other device.
+    if (!run || run.ranElsewhere) { setHistory(null); return; }
+    return pollConversation(run.id, {
+      request,
+      isVisible: () => document.visibilityState !== "hidden",
+      onHistory: (next) => {
+        setHistory((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+        setHistoryError("");
+      },
+      onError: (error) => setHistoryError(error instanceof Error ? error.message : String(error))
+    });
+  }, [run?.id, refreshCount, liveRevision]);
+  const isScrolledUpRef = React.useRef(false);
+  useEffect(() => { isScrolledUpRef.current = false; }, [item.id]);
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
     const description = await ask("Description", item.description) ?? item.description;
@@ -213,14 +260,101 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   };
   const restore = () => act({ action: "archive_item", itemId: item.id, restore: true });
   const answered = (key) => setHandled((current) => new Set(current).add(key));
+  const apply = async (proposal) => {
+    // an applied plan is done, so go back to the list where it now sits under completed
+    if (await act({ action: "apply_proposal", proposalId: proposal.id })) onArchived?.();
+  };
   const subitems = data.items.filter((child) => child.parentId === item.id && !child.archivedAt);
   const latestResult = itemRuns.filter((row) => row.resultSummary)
     .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
   const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
   const isWorking = ["queued", "running"].includes(run?.status) || item.runtimePhase === "running";
-  const conversation = h("div", { className: "bees-native-conversation" },
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data }) : null,
-    h(NativeConversation, { ctx, run, item, act }));
+  const isAgentBusy = isWorking || sending;
+  const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
+  const visibleHistory = history?.executionId === run?.id ? history : null;
+  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  useEffect(() => {
+    if (isScrolledUpRef.current) return;
+    const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    scrollToBottom();
+    const timer = setTimeout(scrollToBottom, 50);
+    return () => clearTimeout(timer);
+  }, [history, pendingRun, interaction, item.runtimePhase]);
+  const convoItems = [h(GoalMessage, { item, key: "start" })];
+  for (const message of messages) {
+    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
+      style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
+    else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
+      h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
+      h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
+        h("strong", null, message.label),
+        message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
+        h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
+  }
+  if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
+    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+  else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
+  const conversation = h("div", { className: "bees-convo-panel" },
+    h("div", { className: "bees-convo-header" },
+      h("div", { className: "bees-convo-title" }, "Conversation"),
+      isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null),
+    h("div", {
+      className: "bees-convo-history", ref: convoRef,
+      onScroll: (event) => {
+        const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+        isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
+      }
+    },
+      ...convoItems,
+      pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
+        h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
+      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
+      !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
+        h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
+        run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
+    sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
+    h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
+      event.preventDefault();
+      const text = composerText.trim();
+      if (!text || isAgentBusy || run?.ranElsewhere) return;
+      isScrolledUpRef.current = false;
+      setSendError("");
+      if (!activeBinding) {
+        if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
+          setSending(true);
+          try {
+            await act({ action: "continue_run", executionId: run.id, text });
+            setComposerText("");
+          } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+          finally {
+            setSending(false);
+            setRefreshCount((count) => count + 1);
+            setTimeout(() => setRefreshCount((count) => count + 1), 500);
+          }
+        }
+        return;
+      }
+      setSending(true);
+      try {
+        await activeBinding.session.prompt([{ type: "text", text }], "queue");
+        setComposerText("");
+      } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+      finally {
+        setSending(false);
+        setRefreshCount((count) => count + 1);
+        setTimeout(() => setRefreshCount((count) => count + 1), 500);
+      }
+    } },
+      h("textarea", {
+        className: "bees-composer-input",
+        placeholder: pendingRun ? "Answer above or add a note..." : isWorking ? "Agent is working..." : "Add a note or instruction to continue...",
+        disabled: isAgentBusy, value: composerText, rows: 2,
+        onChange: (event) => setComposerText(event.target.value),
+        onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
+      }),
+      h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || run?.ranElsewhere || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
 
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },
@@ -231,12 +365,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
           : latestResult ? h("span", { className: "bees-muted", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis" } }, `Agent update: ${OUTCOME_LABELS[latestResult.resultOutcome] || "finished"}`) : null
       ),
       h("div", { className: "bees-tab-actions" },
-        item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
+        schedulable && item.runtimePhase === "ready" && !isScheduleDefinition(item) ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "start_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Start") : null,
+        !plan && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
         run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
-        run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
-        run && item.runtimePhase === "running" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
+        run && !plan && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
+        run && (plan ? LIVE_RUN.includes(run.status) : item.runtimePhase === "running") ? h("button", { className: "bees-btn-danger-ghost",
+          onClick: () => act(plan ? { action: "stop_run", executionId: run.id } : { action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
         run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
-        !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
+        plan ? null : !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
           : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
           item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
@@ -248,17 +384,21 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion"),
+      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context"),
+      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion"),
       h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
     ),
 
     // tab content
     h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
+      // DSH's own Chat screen stays mounted here regardless of activeTab; only its CSS
+      // visibility follows it, because unmounting it would drop DSH's portal and session state.
+      h(DshRunPanels, { key: item.id, ctx, run, item, activeTab }),
       activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
-        h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
+        plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work")),
         // Description
@@ -272,7 +412,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
           h(MarkdownText, { text: process.description })
         ) : null,
 
-        h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
+        plan ? null : h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
           outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId, act })
       ) : activeTab === "files" ? h(React.Fragment, null,
         h(WorkFiles, { key: processRunId, runs: fileRuns, filesRef, act })
@@ -396,7 +536,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
         !root.archivedAt && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
         h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout"),
-        !editing && !root.archivedAt && !isScheduleDefinition(root) ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
+        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
       )
     );
     return () => {
@@ -729,7 +869,7 @@ const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "w
 
 function WorkItemControls({ item, act, onDone, showUnavailable = false, data, allowReRun = false }) {
   const [busy, setBusy] = useState("");
-  if (!item || !act) return null;
+  if (!item || !act || item.kind === "plan") return null;
   const canRetry = item.runtimePhase === "failed";
   const canStop = ["running", "waiting", "paused", "failed"].includes(item.runtimePhase);
   const invoke = async (action, payload = {}) => {
@@ -812,7 +952,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
   );
 }
 
-function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
+export function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
   const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
   const [selectedId, setSelectedId] = useState(initialSelectedId);
@@ -845,18 +985,23 @@ function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoS
   return { rows, selected, selectedId, setSelectedId, session, interaction, handled, working, answered };
 }
 
-export function NeedsYouWidget({ ctx, data, act, rowsForRoute, limit = 8 }) {
-  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
+/** The one list the Needs you count and the rows under it both read, so they cannot disagree. */
+export function needsYouRows(queue, data, rowsForRoute) {
   const liveByItemId = new Map(queue.rows.filter(({ item }) => item).map((row) => [row.item.id, row]));
   const records = rowsForRoute("waiting")
     .map((row) => ({ id: row.id, label: row.label, open: row.open, live: liveByItemId.get(row.id) }))
     .filter((record) => record.live);
   const listedItemIds = new Set(records.map(({ id }) => id));
+  // An Ask Bees run asks its questions before any work item exists, so it gets a row of its own.
   for (const live of queue.rows) {
     if (!live.item || !listedItemIds.has(live.item.id)) {
       records.push({ id: live.run.id, label: live.item?.title ?? runTitle(data, live.run) ?? live.session?.displayTitle, live });
     }
   }
+  return records;
+}
+
+export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
   const visibleRecords = records.slice(0, limit);
   const selected = visibleRecords.find(({ live }) => live.run.id === queue.selectedId)?.live;
   const select = (runId) => queue.setSelectedId((current) => current === runId ? "" : runId);
@@ -894,7 +1039,15 @@ export function NeedsYouWidget({ ctx, data, act, rowsForRoute, limit = 8 }) {
   );
 }
 
+const pendingProposals = (data, run) => data.proposals.filter(({ sessionId, status }) => status === "pending" && sessionId && [run.sessionId, run.previousSessionId].includes(sessionId));
+const LIVE_RUN = ["queued", "running", "waiting_for_input", "waiting_for_approval"];
 
+// a plan has no work item yet, so the process run screen shows its run as one
+const planView = (data, run) => ({ ...data,
+  processes: [...data.processes, { id: run.id, name: "Build with Bees", workspaceId: run.workspaceId }],
+  stages: [...data.stages, { id: run.id, processId: run.id, name: "Plan" }],
+  items: [...data.items, { id: run.id, kind: "plan", processId: run.id, stageId: run.id, title: runTitle(data, run), description: run.purpose, runtimePhase: run.status }],
+  runs: data.runs.map((row) => row.id === run.id ? { ...row, workItemId: run.id } : row) });
 
 export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
@@ -904,8 +1057,9 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const [owner, setOwner] = useState("all");
   useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); }, [route]);
   useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
+  const plan = data.runs.find((run) => run.id === workItemId && !run.workItemId);
   if (workItemId) return h(WorkItemCockpit, {
-    ctx, data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
+    ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
     setPageActions, setPageHeader
   });
@@ -940,8 +1094,12 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     (processFilter === "all" || item.processId === processFilter) &&
     (itemScope === "all" || !item.parentId) &&
     (owner === "all" || ownerId(item) === owner));
-  const renderRows = (records, empty, showColumns = false, includeReRun = false) => {
-    if (!records.length) return h(Empty, null, empty);
+  const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
+    : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) && runTitle(data, run).toLocaleLowerCase().includes(needle));
+  // a plan with nothing live and nothing left to apply is finished, however it ended
+  const planDone = (run) => !LIVE_RUN.includes(run.status) && !pendingProposals(data, run).length;
+  const renderRows = (records, empty, showColumns = false, includeReRun = false, planRows = []) => {
+    if (!records.length && !planRows.length) return h(Empty, null, empty);
     const rendered = records.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
@@ -966,7 +1124,12 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     });
     return showColumns ? h("table", { className: "bees-work-table", "aria-label": "Active work" },
       h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
-      h("tbody", null, ...rendered)) : rendered;
+      h("tbody", null, ...planRows.map((run) => h("tr", { key: run.id },
+        h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
+          h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
+        h("td", null, "Plan"), h("td"),
+        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
+        h("td"))), ...rendered)) : rendered;
   };
   return h("div", null,
     h("div", { className: "bees-row" },
@@ -990,8 +1153,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules"), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
-        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true) }
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules", false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
+        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true, plans.filter(planDone)) }
       }
     })
   );

@@ -1,16 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserStatePath, closeAgentBrowser, saveBrowserState } from "./agent-browser.js";
+import { browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
 import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
+import { googleConsent } from "./google-consent.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
 import { discoverApi } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
 import { specFromCurl } from "./spec-from-curl.js";
+import { startStep } from "./startup.js";
 
 /** DSH's own limit on an MCP namespace; a longer or odd name fails at plugin load, not here. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -40,6 +43,9 @@ function secretRef(server, name) {
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
 const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
+// rows keep placeholders so one server definition works wherever Bees and its state directory live
+const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
+  : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url)));
 
 function rowToServer(row) {
   return {
@@ -55,10 +61,11 @@ function rowToServer(row) {
 /** Skills and tools come from DSH. MCP servers are ours: one mounted fiber per enabled row,
  *  except the browser, which mounts per run. */
 export class Capabilities {
-  constructor(ctx, database, defaultWorkspace) {
+  constructor(ctx, database, defaultWorkspace, connected) {
     this.ctx = ctx;
     this.database = database;
     this.defaultWorkspace = defaultWorkspace;
+    this.connected = connected;
     /** serverId -> { fiber, error } for every row we have tried to mount. */
     this.mounted = new Map();
     /** serverId -> the mutation currently in flight for it. */
@@ -80,23 +87,47 @@ export class Capabilities {
    * its agent context, which dies with the run: either a headless session signed in from the one
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
-  async mountBrowserFor(agentCtx) {
-    const row = this.servers().find(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
+  async mountBrowserFor(agentCtx, granted = null) {
+    // the run's grant picks which one: with devtools and playwright both installed, the older row won
+    // every time and an agent listed on "browser" hunted for mcp__browser__ tools that never existed
+    const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
+      && (!granted || granted.includes(serverName)));
     if (!row) return;
-    // Whatever a person has signed in to since the last run is what this one inherits.
-    await saveBrowserState().catch((error) =>
-      this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
     await this.mountFor(agentCtx, row);
+    // Sync cookies and start Chrome lazily — only when the agent actually calls a browser tool.
+    // This avoids spawning Chrome for runs that have browser access but never browse anything.
+    let browserReady = false;
+    agentCtx.on("tools/pre-execute", async (exec, next) => {
+      if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
+      if (!browserReady) {
+        browserReady = true;
+        // Whatever a person has signed in to since the last run is what this one inherits.
+        await saveBrowserState().catch((error) =>
+          this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
+        // devtools attaches to Bees' Chrome — bring it up minimised so the MCP server can connect.
+        if (row.catalogId === "chrome-devtools") {
+          await startAgentBrowser().catch((error) =>
+            this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+        }
+      }
+      return next();
+    });
   }
+
 
   /** On the run's own context, which dies with the run. */
   async mountFor(agentCtx, row) {
     if (!row.enabled) return;
-    await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
+    const finish = startStep(`mcp.per-run:${row.serverName}`);
+    try {
+      await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
+      finish();
+    } catch (error) { finish("failed"); throw error; }
   }
 
   async close() {
     closeAgentBrowser();
+    this.consent?.close();
     const fibers = [...this.mounted.values()].map(({ fiber }) => fiber).filter(Boolean);
     this.mounted.clear();
     // One bad teardown must not strand the rest, and disposal is best-effort during shutdown.
@@ -128,12 +159,11 @@ export class Capabilities {
         [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
         .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
       if (headers.length) env.API_HEADERS = headers.join(",");
-      // The row keeps a placeholder so one server definition works wherever the state directory lives.
       return {
         transport: "stdio",
         serverName: server.serverName,
-        command: server.command,
-        args: server.args.map((arg) => arg === "{browserState}" ? browserStatePath() : arg),
+        command: placed(server.command),
+        args: server.args.map(placed),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
@@ -157,24 +187,41 @@ export class Capabilities {
     if (isBrowserCatalog(server.catalogId)) return;
     if (this.mounted.has(server.id)) return this.mounted.get(server.id);
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
-    const entry = { fiber: null, error: "", ready: false };
+    const entry = { fiber: null, error: "", ready: false, at: Date.now() };
     this.mounted.set(server.id, entry);
+    const finish = startStep(`mcp.shared:${server.serverName}`);
     try {
       const fiber = this.ctx.plugin(mcpClient, await this.configFor(server));
       entry.fiber = fiber;
       await started(fiber, server.serverName);
       entry.ready = true;
+      finish();
     } catch (error) {
+      finish("failed");
       const reason = message(error);
       // The client names the server but never what it tried, which is what you need.
       const attempted = server.transport === "stdio"
-        ? `Bees tried to run: ${[server.command, ...server.args].join(" ")}`
+        ? `Bees tried to run: ${[server.command, ...server.args].map(placed).join(" ")}`
         : `Bees tried to reach ${server.url}`;
       entry.error = `${reason}. ${attempted}`;
     }
     // A row removed while its fiber was starting must not leave the child process behind.
     if (!this.mounted.has(server.id) && entry.fiber) await stop(this.ctx, entry.fiber, server.serverName);
     return entry;
+  }
+
+  /** The memory launcher comes up after the plugin, so its boot mount fails and nothing ever tried again:
+   *  an agent listed on it ran without one mcp__memory__ tool. A run that may use a failed server retries it. */
+  async retryFailed(names = null) {
+    const rows = this.servers().filter(({ id, enabled, serverName, catalogId }) => enabled && !isBrowserCatalog(catalogId)
+      && (!names || names.includes(serverName)) && this.mounted.get(id)?.error && Date.now() - this.mounted.get(id).at > 60_000);
+    await Promise.all(rows.map((row) => this.serialize(row.id, () => this.remount(row))));
+  }
+
+  /** the local memory server was just started, so every session opened on the old process is gone */
+  async remountUrl(url) {
+    const rows = this.servers().filter((row) => row.enabled && row.transport === "streamable-http" && URL.parse(row.url)?.origin === url);
+    await Promise.all(rows.map((row) => this.serialize(row.id, () => this.remount(row))));
   }
 
   async unmount(serverId) {
@@ -255,6 +302,8 @@ export class Capabilities {
         const perRun = isBrowserCatalog(server.catalogId);
         return {
           ...server,
+          command: placed(server.command),
+          args: server.args.map(placed),
           toolCount,
           perRun,
           error: state?.error ?? "",
@@ -269,27 +318,33 @@ export class Capabilities {
     };
   }
 
-  /** The public MCP registry, remote servers only: a stdio row would mean installing a package. */
+  /** The public MCP registry: a package Bees runs here with npx or uvx, else a hosted server by its url. */
   async searchRegistry(query) {
     const search = String(query ?? "").trim();
     const response = await fetch(
-      `https://registry.modelcontextprotocol.io/v0/servers?limit=40${search ? `&search=${encodeURIComponent(search)}` : ""}`,
+      `https://registry.modelcontextprotocol.io/v0/servers?limit=40&version=latest${search ? `&search=${encodeURIComponent(search)}` : ""}`,
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
     const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
     const seen = new Set();
+    const runners = { npm: "npx -y", pypi: "uvx" };
     return servers.flatMap(({ server }) => {
+      const pkg = server?.packages?.find(({ registryType, transport }) => runners[registryType] && transport?.type === "stdio");
       const remote = server?.remotes?.find(({ type }) => type === "streamable-http");
-      if (!remote || !server.name || seen.has(server.name)) return [];
+      if ((!pkg && !remote) || !server.name || seen.has(server.name)) return [];
       seen.add(server.name);
       return [{
         name: server.name,
         title: server.title || server.name,
         description: server.description ?? "",
-        url: remote.url,
+        website: server.websiteUrl ?? server.repository?.url ?? "",
         // Reverse-domain names carry dots and slashes the namespace pattern refuses.
-        serverName: server.name.split("/").pop().replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32)
+        serverName: server.name.split("/").pop().replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32),
+        // pinned, so an approved plan runs the version the owner saw
+        ...(pkg ? { transport: "stdio", command: `${runners[pkg.registryType]} ${pkg.identifier}${pkg.version ? `@${pkg.version}` : ""}`,
+          settings: (pkg.environmentVariables ?? []).map(({ name, description }) => ({ name, description })) }
+          : { transport: "streamable-http", url: remote.url })
       }];
     });
   }
@@ -337,6 +392,7 @@ export class Capabilities {
     if (action === "install_skill") return installSkill(String(input.repo ?? ""), String(input.directory ?? ""));
     if (action === "remove_skill") return removeSkill(String(input.name ?? ""));
     if (action === "install_mcp_server") return this.install(input);
+    if (action === "connect_mcp_server") return this.connect(input);
     if (action === "add_mcp_server") return this.add(input);
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
     if (action === "remove_mcp_server") return this.remove(input);
@@ -485,15 +541,17 @@ export class Capabilities {
     }
   }
 
-  async install(input) {
+  /** `signIn` only ever comes from connect, so no request or agent can hand a sign-in entry made-up secrets. */
+  async install(input, signIn) {
     const entry = catalogEntry(required(input.catalogId, "Catalog entry"));
     if (!entry) throw new Error("That catalog entry is unavailable");
+    if (entry.scopes && !signIn) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page`);
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
     assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
     const secrets = {};
     for (const secret of [...entry.env, ...entry.headers]) {
-      const value = String(input.secrets?.[secret.name] ?? "").trim();
+      const value = String((signIn ?? input).secrets?.[secret.name] ?? "").trim();
       if (!value && !secret.optional) throw new Error(`${entry.label} needs ${secret.label}`);
       if (value) secrets[secret.name] = value;
     }
@@ -529,7 +587,7 @@ export class Capabilities {
       serverName: this.freeServerName(
         (entry.nameFrom && this.hostServerName(given[entry.nameFrom])) || entry.serverName
       ),
-      label: entry.label,
+      label: signIn?.label ?? entry.label,
       transport: entry.transport,
       command: entry.command,
       args,
@@ -539,6 +597,31 @@ export class Capabilities {
       catalogId: entry.id,
       source: "catalog"
     }, secrets);
+  }
+
+  /** Only a person can start a sign-in, so this action stays out of bees_control. The server is
+   *  installed once Google redirects back; the page picks it up on its next poll. */
+  async connect(input) {
+    const entry = catalogEntry(required(input.catalogId, "Catalog entry"));
+    if (!entry?.scopes) throw new Error("That catalog entry has no sign-in");
+    const { googleDesktopClientId: clientId, googleDesktopClientSecret: clientSecret } = await this.connected.authConfig();
+    const scopes = [...entry.scopes, "openid", "https://www.googleapis.com/auth/userinfo.email"];
+    const consent = await googleConsent({ clientId, clientSecret }, scopes, async (client) => {
+      // the id token came straight from Google over TLS, so its email needs no signature check
+      const { email } = JSON.parse(Buffer.from(client.credentials.id_token.split(".")[1], "base64url"));
+      const signIn = {
+        label: `${entry.label} (${email})`,
+        secrets: { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REFRESH_TOKEN: client.credentials.refresh_token }
+      };
+      // signing in to the same account again renews that server, so agents listed on it keep it
+      const known = this.servers().find((row) => row.catalogId === entry.id && row.label === signIn.label);
+      if (!known) return this.install({ catalogId: entry.id }, signIn);
+      await this.storeSecrets(known, signIn.secrets);
+      await this.serialize(known.id, () => this.remount(known));
+    });
+    this.consent?.close();
+    this.consent = consent;
+    return { url: consent.url };
   }
 
   async add(input) {
@@ -588,18 +671,6 @@ export class Capabilities {
     this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, server.id);
     await this.serialize(server.id, () => this.remount({ ...server, enabled }));
     return { id: server.id, enabled };
-  }
-
-  async setSecret(input) {
-    const server = this.row(input.serverId);
-    const name = String(input.name ?? "").trim();
-    if (!server.envNames.includes(name) && !server.headerNames.includes(name))
-      throw new Error(`${server.label} has no ${name || "such"} setting`);
-    const value = String(input.value ?? "").trim();
-    if (!value) throw new Error(`${name} cannot be blank`);
-    await this.ctx.credentials.set(secretRef(server, name), value);
-    await this.serialize(server.id, () => this.remount(server));
-    return { id: server.id };
   }
 
   async remove(input) {

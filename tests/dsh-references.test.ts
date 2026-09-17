@@ -80,7 +80,7 @@ it("carries all reference identities and exact file snapshots through Ask, Apply
   expect(readdirSync(inputDirectory)).toEqual(["proposal.pdf"]);
   expect(readFileSync(join(inputDirectory, "proposal.pdf"), "utf8")).toBe("PDF fixture bytes");
   const tools: any[] = [];
-  await runtime.setup({ systemPrompt: { section: () => {}, context: () => {} },
+  await runtime.setup({ systemPrompt: { section: () => {}, context: () => {}, variable: () => undefined },
     tools: { register: (tool: any) => tools.push(tool), restrict: () => {} }
   }, payload.initialData, "plan", payload.workspace);
   const proposal = await tools.find(({ name }) => name === "bees_propose_changes").execute({
@@ -101,7 +101,7 @@ it("carries all reference identities and exact file snapshots through Ask, Apply
     expect(database.prepare("SELECT location_id AS id, relative_path AS path FROM work_item_locations WHERE work_item_id = ?").all(id))
       .toEqual([{ id: location.id, path: "nested/proposal.pdf" }]);
   }
-  expect(stages.startItem).toHaveBeenCalledWith(applied.results[0].id);
+  expect(stages.startItem).not.toHaveBeenCalledWith(applied.results[0].id);
   const execute = vi.spyOn(runtime, "executeStage").mockResolvedValue({ outcome: "candidate" });
   const stage = database.prepare("SELECT id, name FROM stages WHERE process_id = ? ORDER BY position LIMIT 1").get(process.id)!;
   await product.runProcessStage({ workItemId: applied.results[0].id, stageId: stage.id, stageName: stage.name, purpose: "worker", executionId: "execute-refs" });

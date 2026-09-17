@@ -18,7 +18,11 @@ function fixture() {
   runtime.workContext.pin("peer-run", itemContext(db, "peer"));
   const mount = (id: string) => {
     const tools: any[] = [], contexts: any[] = [];
-    mountPeerCollaboration(runtime, { tools: { register: (tool: any) => tools.push(tool) }, systemPrompt: { context: (value: any) => contexts.push(value) } },
+    const variables: Record<string, () => string> = {};
+    const expand = (text: string) => text.replace(/\{\{([a-z0-9_]+)\}\}/g, (_, name: string) => variables[name]!());
+    mountPeerCollaboration(runtime, { tools: { register: (tool: any) => tools.push(tool) },
+      systemPrompt: { variable: (name: string, provider: any) => { variables[name] = provider; },
+        context: (value: any) => contexts.push({ ...value, text: () => expand(value.text) }) } },
       { workItemId: id, agentName: id }, `${id}-run`);
     return { tool: (name: string) => tools.find((tool) => tool.name === name), contexts };
   };
@@ -56,7 +60,7 @@ describe("one peer collaboration path", () => {
 
   it("requires completed peer contributions before the lead finishes", () => {
     const { db, runtime } = fixture();
-    expect(() => assertPeersSettled(runtime, { workItemId: "root" })).toThrow("unfinished");
+    expect(() => assertPeersSettled(runtime, { workItemId: "root" })).toThrow("is running");
     db.prepare("UPDATE work_items SET runtime_phase = 'completed' WHERE id = 'peer'").run();
     expect(() => assertPeersSettled(runtime, { workItemId: "root" })).not.toThrow();
     expect(() => assertPeersSettled(runtime, { workItemId: "root", participantIds: ["missing"] })).toThrow("assigned participant");

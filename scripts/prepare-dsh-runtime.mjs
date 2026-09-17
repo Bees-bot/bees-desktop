@@ -10,7 +10,6 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync
@@ -19,6 +18,7 @@ import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { publishArtifact } from "./publish-artifact.mjs";
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dshEntry = resolve(
@@ -297,7 +297,7 @@ function stageExecutable(source, destination, label) {
     // Publish only a complete, signed executable. Tauri watches externalBin and can otherwise copy
     // the destination while copyFileSync is still writing it, producing a truncated Mach-O.
     signMacBinary(staged, label);
-    renameSync(staged, destination);
+    publishArtifact(staged, destination);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }

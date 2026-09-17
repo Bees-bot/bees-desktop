@@ -220,8 +220,11 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       let event;
       try { event = JSON.parse(line); } catch { return; }
       if (event.type === "result") final = event;
-      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use" && part.name === "StructuredOutput" && typeof part.input?.tool === "string");
-      if (block && !early) { early = { structured: block.input, usage: event.message.usage ?? {} }; stop(); }
+      const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use");
+      // a dsh tool called by its own name gets "No such tool available" from the cli, and the model then reports every tool as down
+      const structured = block?.name === "StructuredOutput" ? typeof block.input?.tool === "string" && block.input
+        : block && schema?.properties.tool.enum.some(Boolean) && { tool: block.name, arguments: block.input ?? {}, text: "" };
+      if (structured && !early) { early = { structured, usage: event.message.usage ?? {} }; stop(); }
     };
     const stop = () => child.kill("SIGKILL");
     const timer = setTimeout(() => { timedOut = true; stop(); }, 15 * 60 * 1000);
@@ -267,9 +270,9 @@ export function claudeChunks(result, tools) {
     ...result.usage.cache_creation_input_tokens > 0 ? { cacheWriteTokens: Number(result.usage.cache_creation_input_tokens) } : {}
   } };
   if (result.structured?.tool) {
+    // a name outside this turn's list is not fatal: tool discovery hides schemas it evicted but the
+    // registry still runs them, and a made-up name comes back as a tool error the model can recover from
     const name = String(result.structured.tool);
-    if (!tools.some((tool) => tool.name === name))
-      throw new LlmError(`Claude Code selected unknown DSH tool ${name}`, "CLAUDE_CODE");
     const args = result.structured.arguments;
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw new LlmError("Claude Code returned invalid DSH tool arguments", "CLAUDE_CODE");
@@ -355,6 +358,7 @@ async function findClaude(ctx) {
 }
 
 export async function apply(ctx) {
+  const time = globalThis.__beesStartup?.step ?? ((_phase, run) => run());
   let pending = null;
   let claudeRegistration = null;
   let refreshingCodex = null;
@@ -372,8 +376,8 @@ export async function apply(ctx) {
     if ((!enabled || !path) && claudeRegistration) { claudeRegistration(); claudeRegistration = null; }
   };
   const syncClaude = (reset = false) => { claudeSync = claudeSync.then(() => updateClaude(reset), () => updateClaude(reset)); return claudeSync; };
-  await ensureCodex().catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
-  await syncClaude();
+  await time("subscriptions.codex.refresh", ensureCodex).catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
+  await time("subscriptions.claude.configure", syncClaude);
   ctx.on("credentials/updated", (ref) => {
     if (ref === CLAUDE_PATH_REF || ref === CLAUDE_ENABLED_REF) void syncClaude();
   });

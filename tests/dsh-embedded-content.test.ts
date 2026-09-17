@@ -6,7 +6,7 @@ import { embedBeesContent } from "../scripts/embed-dsh-content.mjs";
 // @ts-expect-error Client modules are JavaScript.
 import { configureRuntime } from "../dsh-runtime/plugin/client/runtime.js";
 // @ts-expect-error Client modules are JavaScript.
-import { NativeContentHost, NativeConversation, nativeEmbedding } from "../dsh-runtime/plugin/client/native-conversation.js";
+import { DshRunPanels, NativeContentHost, nativeEmbedding } from "../dsh-runtime/plugin/client/native-conversation.js";
 
 const require = createRequire(new URL("../dsh-runtime/package.json", import.meta.url));
 const React = require("react");
@@ -32,6 +32,18 @@ it("keeps native conversation and resource content in Bees, with an explicit deb
   expect(destinations).toHaveLength(2);
   nativeEmbedding.update({ debug: false, target: null });
   expect(render("main")).toBe("<p>Native content</p>");
+});
+
+it("keeps DSH's Chat panel mounted in the Details panel regardless of which tab is active", () => {
+  const run = { sessionId: "run-session", status: "running" };
+  const chat = renderToStaticMarkup(React.createElement(DshRunPanels, { ctx: {}, run, activeTab: "chat" }));
+  const files = renderToStaticMarkup(React.createElement(DshRunPanels, { ctx: {}, run, activeTab: "files" }));
+  // The Chat container renders regardless of which Details tab is active; only its CSS display
+  // differs, because unmounting it would drop DSH's own createPortal target and session state.
+  expect(chat).toContain("bees-dsh-tab");
+  expect(files).toContain("bees-dsh-tab");
+  expect(chat).toContain('display:flex');
+  expect(files).toContain('display:none');
 });
 
 it("patches the pinned frame idempotently and rejects an incompatible upgrade", () => {
@@ -63,12 +75,12 @@ it.each(["ready", "queued", "unmounted"])("opens only a listed run and follows s
   const unsubscribe = vi.fn();
   let cleanup: (() => void) | undefined;
   try {
-    renderToStaticMarkup(React.createElement(NativeConversation, {
+    renderToStaticMarkup(React.createElement(DshRunPanels, {
       ctx: { uiWorkspace: {}, sessions: { refresh, open, list: {
         getSnapshot: () => snapshot,
         subscribe: (listener: () => void) => { notify = listener; return unsubscribe; }
       } } },
-      run: { sessionId: "run-session", status: "running" }
+      run: { sessionId: "run-session", status: "running" }, activeTab: "chat"
     }));
     cleanup = effect!();
     expect(open).not.toHaveBeenCalled();

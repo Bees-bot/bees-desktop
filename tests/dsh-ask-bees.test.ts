@@ -184,7 +184,7 @@ it("reuses Goals and custom processes without replacing routes or same-title wor
   expect(database.prepare("SELECT * FROM stage_routes ORDER BY stage_id").all()).toEqual(before);
   expect(database.prepare("SELECT count(*) AS count FROM agent_assignments").get()).toEqual(agentsBefore);
   expect(database.prepare("SELECT count(*) AS count FROM processes").get()).toEqual(processesBefore);
-  expect(processes.startItem).toHaveBeenCalledTimes(4);
+  expect(processes.startItem).not.toHaveBeenCalled();
 });
 
 it.each(["create_goal", "create_item"])("retries %s and its schedule without starting the work twice", async (action) => {
@@ -198,7 +198,7 @@ it.each(["create_goal", "create_item"])("retries %s and its schedule without sta
   expect(database.prepare("SELECT status FROM bees_proposals WHERE id = ?").get(proposal.id)).toEqual({ status: "pending" });
   const applied = await product.command({ action: "apply_proposal", proposalId: proposal.id });
   expect(applied.results[0].reused).toBe(true);
-  expect(processes.startItem).toHaveBeenCalledTimes(1);
+  expect(processes.startItem).not.toHaveBeenCalled();
   expect(database.prepare("SELECT count(*) AS count FROM recurring_work").get()).toEqual({ count: 1 });
   await expect(product.command({ action: "apply_proposal", proposalId: proposal.id })).rejects.toThrow("no longer pending");
   expect(() => propose([
@@ -244,8 +244,11 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
   const tools: any[] = [];
   const prompts: string[] = [];
   const restrictions: string[] = [];
+  const variables: Record<string, () => string> = {};
+  const expand = (text: string) => text.replace(/\{\{([a-z0-9_]+)\}\}/g, (_, name: string) => variables[name]!());
   await runtime.setup({
-    systemPrompt: { section: ({ text }: any) => prompts.push(text), context: () => undefined },
+    systemPrompt: { section: ({ text }: any) => prompts.push(expand(text)), context: () => undefined,
+      variable: (name: string, provider: any) => { variables[name] = provider; } },
     tools: { register: (tool: any) => tools.push(tool), restrict: ({ deny }: any) => restrictions.push(...deny) }
   }, payload.initialData, "ask-run", "/tmp");
   expect(restrictions).toContain("mcp__other__read");

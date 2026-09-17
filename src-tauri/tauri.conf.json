@@ -4,8 +4,8 @@
   "version": "0.2.0",
   "identifier": "bot.bees.desktop",
   "build": {
-    "beforeBuildCommand": "npm run build && npm run prepare:dsh",
-    "beforeDevCommand": "npm run build && npm run prepare:dsh",
+    "beforeBuildCommand": "node scripts/prepare-desktop.mjs",
+    "beforeDevCommand": "node scripts/prepare-desktop.mjs",
     "frontendDist": "../dist"
   },
   "app": {

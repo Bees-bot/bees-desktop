@@ -119,7 +119,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
   return h("section", { className: "bees-box bees-system-default" },
     h("h2", null, "System default"),
     h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
-    h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, onSubmit: save },
+    h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, className: "bees-form-row", onSubmit: save },
       h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: JSON.stringify(activeModelSettings) }),
       h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
@@ -152,10 +152,8 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
         h("option", { value: "listed" }, "Only selected MCPs"))),
     mode === "all" ? h("div", { className: "bees-mcp-count" }, `${connected.length} MCP${connected.length === 1 ? "" : "s"} connected`) : null,
     mode === "listed" && entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
-      onInstall: async ({ directory, secrets, inputs }) => {
-        const created = await onServerAction?.({ action: "install_mcp_server", catalogId: entry.id, directory, secrets, inputs });
-        if (created?.id) { setPicked([...picked, created.id]); setReviewing(""); }
-      } }) : mode === "listed" ? h(React.Fragment, null,
+      // a Google sign-in lands later, so that server shows up to add once it is connected
+      onDone: ({ id }) => { if (id) setPicked([...picked, id]); setReviewing(""); } }) : mode === "listed" ? h(React.Fragment, null,
       ...picked.map((id) => h("input", { key: id, type: "hidden", name: "mcpServers", value: id })),
       h("input", { className: "bees-input", value: query, placeholder: "Search MCPs or tools", "aria-label": "Search MCPs or tools",
         onChange: (event) => setQuery(event.target.value) }),
