@@ -11,8 +11,8 @@ export const DEFAULT_WIDGETS = [
 const DEFAULT_WORK_ITEM_WIDGETS = [
   { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
   { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
-  { kind: "conversation", x: 0, y: 5, w: 6, h: 8 },
-  { kind: "details", x: 6, y: 5, w: 6, h: 8 }
+  { kind: "conversation", x: 6, y: 5, w: 6, h: 8 },
+  { kind: "details", x: 0, y: 5, w: 6, h: 8 }
 ];
 
 const number = (value, fallback, min, max) => {
