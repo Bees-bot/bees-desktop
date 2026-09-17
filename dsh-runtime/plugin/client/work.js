@@ -138,7 +138,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
   }));
 }
 
-function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences, openWorkItem }) {
+function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
   const plan = item.kind === "plan";
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
@@ -215,11 +215,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const restore = () => act({ action: "archive_item", itemId: item.id, restore: true });
   const answered = (key) => setHandled((current) => new Set(current).add(key));
   const apply = async (proposal) => {
-    const result = await act({ action: "apply_proposal", proposalId: proposal.id });
-    const created = (...actions) => result?.results[proposal.changes.findIndex(({ action }) => actions.includes(action))]?.id;
-    const itemId = created("create_item", "create_goal"), processId = created("create_process");
-    if (itemId) openWorkItem(itemId);
-    else if (processId) openWorkItem(null, processId);
+    // an applied plan is done, so go back to the list where it now sits under completed
+    if (await act({ action: "apply_proposal", proposalId: proposal.id })) onArchived?.();
   };
   const subitems = data.items.filter((child) => child.parentId === item.id && !child.archivedAt);
   const latestResult = itemRuns.filter((row) => row.resultSummary)
@@ -332,7 +329,7 @@ function RunTraces({ run }) {
     : h(Empty, null, "No audit events for this execution yet.");
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader, openWorkItem }) {
+function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader }) {
   const opened = data.items.find(({ id }) => id === rootId);
   const processRunId = opened?.processRunId ?? rootId;
   const root = data.items.find(({ id }) => id === processRunId);
@@ -425,7 +422,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
 
   return h("div", { style: { display: "flex", flexDirection: "column" } },
     h(WorkItemDetails, {
-      ctx, data, item: selected, teamId, act, onOpenWork: setSelectedId, onArchived: onBack, onScheduleCreated, board, layout, editing, openWorkItem,
+      ctx, data, item: selected, teamId, act, onOpenWork: setSelectedId, onArchived: onBack, onScheduleCreated, board, layout, editing,
       onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value)),
       onEditSchedule: setScheduleEditor,
       setPageHeader, preference, preferences
@@ -921,7 +918,7 @@ const planView = (data, run) => ({ ...data,
   items: [...data.items, { id: run.id, kind: "plan", processId: run.id, stageId: run.id, title: runTitle(data, run), description: run.purpose, runtimePhase: run.status }],
   runs: data.runs.map((row) => row.id === run.id ? { ...row, workItemId: run.id } : row) });
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, openWorkItem, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [processFilter, setProcessFilter] = useState("all");
@@ -931,7 +928,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
   const plan = data.runs.find((run) => run.id === workItemId && !run.workItemId);
   if (workItemId) return h(WorkItemCockpit, {
-    ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""), openWorkItem,
+    ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
     setPageActions, setPageHeader
   });
