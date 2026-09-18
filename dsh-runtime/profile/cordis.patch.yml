@@ -43,6 +43,9 @@
 
 # Provider transport remains in DSH's llm-pi-ai plugin. The Bees feature
 # plugins own their setup UI and lifecycle without registering duplicate routes.
+- id: llm-deepseek
+  disabled: true
+
 - id: llm-pi-ai
   config:
     providers:
