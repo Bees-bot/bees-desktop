@@ -98,7 +98,7 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
       h("div", { className: "bees-card-actions" }, h(Button, { onClick: loadCatalog }, "Refresh")),
       catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.error) : null,
       ...catalog.apps.map((entry) => {
-        const installed = view?.apps.find((app) => app.package_id === entry.id && app.status !== 'removed');
+        const installed = view?.apps.find((app) => app.package_id === entry.id && app.status !== 'removed'), supported = [1, 2].includes(entry.schemaVersion);
         return h("article", { key: entry.id, className: "bees-box bees-stack" },
           h("strong", null, entry.name), h("p", null, entry.description),
           h("small", { className: "bees-muted" }, `${entry.author} · ${entry.version} · ${entry.license}`),
@@ -106,14 +106,14 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
           entry.sources.length ? h("details", null, h("summary", null, "Public sources"), ...entry.sources.map((source) =>
             h("p", { key: source.url, style: { overflowWrap: "anywhere" } }, `${source.label}: ${source.url}`))) : null,
           installed ? h(Button, { onClick: () => openApp(installed.id) }, installed.needsSetup ? "Finish setup" : "Open") :
-            h(Button, { primary: true, disabled: busy || !view || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: async () => {
+            h(Button, { primary: true, disabled: busy || !view || catalog.stale || !supported, onClick: async () => {
               const result = await act({ action: 'install', appId: entry.id, version: entry.version, checksum: entry.sha256 });
               if (result?.id) openApp(result.id);
-            } }, [1, 2].includes(entry.schemaVersion) ? "Install" : "Requires newer Bees"),
+            } }, supported ? "Install" : "Requires newer Bees"),
           installed?.status === 'active' && installed.version !== entry.version ? h("details", null,
             h("summary", null, `Update available: ${installed.version} → ${entry.version}`),
             h("p", null, `New access: ${entry.permissions.filter((p) => !installed.manifest.permissions.includes(p)).join(', ') || 'none'}. Review the publisher and access above. Pause schedules and finish or cancel active work before updating. Existing results are kept; new schedules stay off.`),
-            h(Button, { disabled: busy || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: () => act({ action: 'update', installationId: installed.id, appId: entry.id, version: entry.version, checksum: entry.sha256 }) }, "Approve update")) : null);
+            h(Button, { disabled: busy || catalog.stale || !supported, onClick: () => act({ action: 'update', installationId: installed.id, appId: entry.id, version: entry.version, checksum: entry.sha256 }) }, "Approve update")) : null);
       }),
       !catalog.apps.length && !catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.loaded ? "No apps published yet." : "Loading app directory…") : null)),
     view ? h("details", { className: "bees-box" }, h("summary", null, "Portfolio goal and limits"),
