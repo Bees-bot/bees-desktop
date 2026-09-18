@@ -102,14 +102,22 @@ export function enabledServers(database) {
     }));
 }
 
-/** A name that resolves to nothing would silently grant the agent nothing at all. */
-export function checkMcpServers(database, policy) {
+/**
+ * A name that resolves to nothing would silently grant the agent nothing at all.
+ *
+ * Stores the server name, not its row id: ids are per device, so an agent shared with a teammate
+ * used to name servers their computer could not find. `keep` is the agent's current list, which
+ * passes through unresolved so editing an agent here does not drop a server only they installed.
+ */
+export function checkMcpServers(database, policy, keep = []) {
   if (policy.access !== "listed") return policy;
   const rows = enabledServers(database);
+  const kept = new Set(keep.map((name) => String(name).toLocaleLowerCase()));
   const servers = policy.servers.map((wanted) => {
     const row = rows.find(({ names }) => names.includes(String(wanted).toLocaleLowerCase()));
-    if (!row) throw new Error(`No MCP server matches ${wanted}`);
-    return row.id;
+    if (row) return row.name;
+    if (kept.has(String(wanted).toLocaleLowerCase())) return String(wanted);
+    throw new Error(`No MCP server matches ${wanted}`);
   });
   return { access: policy.access, servers: [...new Set(servers)] };
 }
@@ -959,9 +967,10 @@ export async function executeProductCommand(action, input) {
         ? optionalReasoningEffort(input.reasoningEffort) : assignment.reasoningEffort;
       if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000)
         throw new Error("Agent concurrency must be an integer from 0 to 1000");
+      const current = JSON.parse(assignment.mcpServers || "[]");
       const policy = checkMcpServers(this.database, mcpPolicy(input, {
-        access: assignment.mcpAccess ?? "all", servers: JSON.parse(assignment.mcpServers || "[]")
-      }));
+        access: assignment.mcpAccess ?? "all", servers: current
+      }), current);
       if (input.viaAgent && Object.hasOwn(input, "mcpAccess"))
         assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
       this.database.prepare(`
@@ -1238,9 +1247,7 @@ export async function executeProductCommand(action, input) {
             ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome: the exact name of a listed process built for this job, never Goals, or a new one with a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
             : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
-          mcpAccess: policy.access, mcpServers: this.database.prepare(`
-            SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?)) AND enabled = 1
-          `).all(JSON.stringify(policy.servers)).map(({ name }) => name),
+          mcpAccess: policy.access, mcpServers: policy.servers,
           grants: []
         }
       });

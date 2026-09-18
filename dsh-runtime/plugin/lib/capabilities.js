@@ -439,7 +439,7 @@ export class Capabilities {
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     await this.storeSecrets(server, secrets);
     await this.serialize(server.id, () => this.mount({ ...server, enabled: true }));
-    return { id: server.id };
+    return { id: server.id, serverName: server.serverName };
   }
 
   async storeSecrets(server, secrets) {
@@ -472,7 +472,7 @@ export class Capabilities {
       .run(JSON.stringify(server.args), JSON.stringify(server.headerNames), server.id);
     await this.storeSecrets(server, secrets);
     await this.serialize(server.id, () => this.remount(server));
-    return { id: server.id };
+    return { id: server.id, serverName: server.serverName };
   }
 
   // a pasted credential header moves to the credential store; the text keeps a reference insert() resolves
