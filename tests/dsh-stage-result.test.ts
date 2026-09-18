@@ -405,4 +405,58 @@ describe("DSH stage results", () => {
       workspaceId: workspace.id, agentId: "watcher", idempotencyKey: "slack:evt-42",
     }));
   });
+
+  it("carries the candidate's summary into a reviewer's pass, so the final message states what was built, not just review evidence", async () => {
+    const database = new NodeDatabase();
+    const runtime: any = new AgentRuntime({
+      on: () => () => undefined,
+      tools: { schemas: () => [] },
+      agentPresets: { defaultId: "standard", mount: async () => undefined },
+    }, database.connection);
+    const workspace = database.connection.prepare(
+      "SELECT id FROM workspaces ORDER BY created_at LIMIT 1",
+    ).get() as { id: string };
+    const candidateSummary = "Wrote outputs/report.md with the Q3 numbers and a one-line takeaway.";
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('worker-run', ?, 'bees-run', 'worker-session', 'worker-uid', '/tmp/work', '{}',
+        'completed', '2026-01-01', '2026-01-01')
+    `).run(workspace.id);
+    database.connection.prepare(
+      "INSERT INTO bees_stage_results VALUES ('worker-run', 'worker', 'candidate', ?, '2026-01-02')",
+    ).run(candidateSummary);
+    database.connection.prepare(`
+      INSERT INTO execution_links
+        (execution_id, workspace_id, agent_name, current_session_id, instance_uid,
+         run_directory, config_json, status, created_at, updated_at)
+      VALUES ('review-run', ?, 'bees-run', 'review-session', 'review-uid', '/tmp/review', '{}',
+        'running', '2026-01-01', '2026-01-01')
+    `).run(workspace.id);
+    const tools: any[] = [];
+    await runtime.setup({
+      systemPrompt: { section: () => undefined, context: () => undefined, variable: () => undefined },
+      tools: { register: (tool: any) => tools.push(tool), restrict: () => undefined },
+    }, {
+      mode: "review", agentPresetId: "standard", mcpAccess: "none", mcpServers: [],
+      stagePurpose: "reviewer", candidateExecutionId: "worker-run", grants: [], workspaceId: workspace.id,
+    }, "review-run", "/tmp");
+    const submit = tools.find(({ name }: any) => name === "bees_submit_stage_result");
+    const exec = { concludeTurn: () => undefined };
+    const result = await submit.execute({
+      outcome: "pass", summary: "Numbers check out against the source sheet.",
+    }, exec);
+    expect(result.summary).toContain(candidateSummary);
+    expect(result.summary).toContain("Numbers check out against the source sheet.");
+    expect(database.connection.prepare(
+      "SELECT summary FROM bees_stage_results WHERE execution_id = 'review-run'",
+    ).get()).toEqual({ summary: result.summary });
+    // A retried submission (e.g. after a restart) must reproduce the same combined text, or the
+    // immutable-result check would reject it as "a different result".
+    const replay = await submit.execute({
+      outcome: "pass", summary: "Numbers check out against the source sheet.",
+    }, exec);
+    expect(replay.summary).toBe(result.summary);
+  });
 });

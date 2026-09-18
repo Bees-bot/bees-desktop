@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Completed reviews now show the worker's plain-language result and files in the conversation,
+  followed by the review verdict, while detailed evidence remains separate.
 - Releases build installers for Apple Silicon, Intel Mac, Linux x64, and Windows x64.
   All builds must succeed before the release becomes public. Downloads include SHA-256 checksums.
 - Published release notes are announced to the community's Discord updates channel.
