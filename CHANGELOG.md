@@ -4,6 +4,11 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Fixed an issue where the same output folder could not be selected multiple times by returning the existing mapped folder.
+- The custom answer box for conversational reviews with options is now a multi-line text area instead of a single-line input.
+- Planning runs (Process planner executions) now properly show up in the Process Runs list ("Recent process runs").
+
+
 - Completed reviews now show the worker's plain-language result and files in the conversation,
   followed by the review verdict, while detailed evidence remains separate.
 - Releases build installers for Apple Silicon, Intel Mac, Linux x64, and Windows x64.

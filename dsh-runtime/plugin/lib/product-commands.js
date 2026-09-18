@@ -984,11 +984,23 @@ export async function executeProductCommand(action, input) {
       const kind = input.kind === "file" ? "file" : "folder";
       const canonical = input.path ? canonicalMapping(input.path, kind) : null;
       return transaction(this.database, () => {
-        const id = randomUUID();
         const { deviceId } = currentIdentity(this.database);
+        const name = required(input.name, "Name");
+
+        if (canonical) {
+          const existing = this.database.prepare(`
+            SELECT l.id, m.absolute_path AS path 
+            FROM team_locations l
+            LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
+            WHERE l.team_id = ? AND (lower(l.name) = lower(?) OR m.absolute_path = ?)
+          `).get(deviceId, teamId, name, canonical);
+          if (existing && existing.path === canonical) return { id: existing.id, reused: true };
+        }
+
+        const id = randomUUID();
         this.database.prepare(`
           INSERT INTO team_locations VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-        `).run(id, teamId, stableUuid(`${teamId}:${id}`), required(input.name, "Name"), kind, String(input.description ?? ""), at, at);
+        `).run(id, teamId, stableUuid(`${teamId}:${id}`), name, kind, String(input.description ?? ""), at, at);
         if (canonical) this.database.prepare(`INSERT INTO device_location_mappings VALUES (?, ?, ?, ?)`)
           .run(id, deviceId, canonical, at);
         return { id };

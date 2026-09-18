@@ -1261,7 +1261,18 @@ const planLabel = (purpose) => clip(String(purpose)
 export const clip = (text, limit) => [...String(text ?? "")].slice(0, limit).join("");
 
 export function workItemsFor(data, route, workspaceIds) {
-  let rows = data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId));
+  let plans = (data.runs || [])
+    .filter((run) => !run.workItemId && run.mode === "planning" && workspaceIds.includes(run.workspaceId))
+    .map((run) => ({
+      id: run.id,
+      kind: "plan",
+      processId: run.id,
+      stageId: run.id,
+      title: runTitle(data, run),
+      description: run.purpose,
+      runtimePhase: run.status
+    }));
+  let rows = [...data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId)), ...plans];
   rows = rows.filter((item) => route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item));
   if (route === "goals") rows = rows.filter((item) => item.kind === "goal" ||
     (item.kind === "run" && data.processes.find(({ id }) => id === item.processId)?.kind === "goals"));

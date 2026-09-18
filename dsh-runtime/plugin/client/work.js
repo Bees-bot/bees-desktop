@@ -813,15 +813,13 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
       }),
-      (question.options ?? []).length ? h("input", {
-        className: "bees-input", type: "text", value: draft.custom, disabled: busy,
-        placeholder: question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer",
-        onChange: custom, onKeyDown: (event) => {
-          if (event.key === "Enter" && !event.nativeEvent?.isComposing) { event.preventDefault(); continueFlow(); }
-        }
-      }) : h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy, ref: focusWithoutScroll,
-        placeholder: "Type your answer", onChange: custom,
+      h("textarea", {
+        className: "bees-textarea", value: draft.custom, disabled: busy,
+        ...( (question.options ?? []).length ? {} : { ref: focusWithoutScroll } ),
+        placeholder: (question.options ?? []).length 
+          ? (question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer") 
+          : "Type your answer",
+        onChange: custom,
         onKeyDown: (event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); continueFlow(); }
         }
