@@ -347,10 +347,8 @@ export class ConnectedAccount {
           "SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?"
         ).all(connectionId).map(({ teamId }) => teamId));
         // A team whose roster did not load must keep its row, or sync goes quiet for it with nothing said.
-        const unread = JSON.stringify(teams.filter(({ members }) => members === null).map(({ team }) => team.id));
-        this.database.prepare(
-          "DELETE FROM bees_connection_teams WHERE connection_id = ? AND team_id NOT IN (SELECT value FROM json_each(?))"
-        ).run(connectionId, unread);
+        this.database.prepare("DELETE FROM bees_connection_teams WHERE connection_id = ? AND team_id NOT IN (SELECT value FROM json_each(?))")
+          .run(connectionId, JSON.stringify(teams.filter(({ members }) => members === null).map(({ team }) => team.id)));
         for (const { team, members } of teams) {
           // An admin sees org teams they are not on, and an emptied one still reads as a healthy roster.
           if (!Array.isArray(members)) continue;
