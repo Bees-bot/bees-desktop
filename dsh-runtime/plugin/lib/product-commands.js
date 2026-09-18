@@ -788,7 +788,8 @@ export async function executeProductCommand(action, input) {
     if (action === "edit_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
       processContext(this.database, processId, ["admin", "member"]);
-      if (this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId))
+      // a failed run is not in flight, same rule as archiving
+      if (this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId, ["completed", "cancelled", "failed"]))
         throw new Error("Finish or cancel active automatic work before editing this process");
       const names = processStages(input.stages);
       const existing = this.database.prepare(`

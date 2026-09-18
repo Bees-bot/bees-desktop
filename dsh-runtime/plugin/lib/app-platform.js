@@ -12,6 +12,7 @@ const bounded = (value, name, max = 8000) => {
 };
 const amount = (n) => { if (!Number.isSafeInteger(n) || n < 0) throw new Error("Use nonnegative integer USD cents"); return n; };
 const recordRow = (row) => ({ ...row, data: JSON.parse(row.data ?? "{}"), evidence: JSON.parse(row.evidence) });
+const APP_STAGES = [{ name: "Work", driver: "agent" }, { name: "Review", driver: "review" }, { name: "Done", driver: "terminal" }];
 
 /** Generic installation and portfolio storage, not marketing tables. No package code loads here. */
 export class AppPlatform {
@@ -184,7 +185,7 @@ export class AppPlatform {
       let processId = row.process_id;
       if (!processId) {
         const process = await this.product.command({ action: "create_process", workspaceId, name: `${manifest.name} · ${manifest.version}`,
-          description: manifest.description, stages: [{ name: "Work", driver: "agent" }, { name: "Review", driver: "review" }, { name: "Done", driver: "terminal" }] });
+          description: manifest.description, stages: APP_STAGES });
         processId = process.id;
         this.db.prepare("UPDATE app_installations SET process_id=? WHERE id=?").run(processId, row.id);
       }
@@ -297,10 +298,21 @@ export class AppPlatform {
       const manifest = validateApp(input.manifest);
       if (manifest.id !== app.package_id || app.status !== 'active') throw new Error('Choose an update for this installed app');
       if (hash(manifest) === app.digest) return { id: app.id, reused: true };
-      // Reuse removal's active-work checks, retain data, and revoke the previous process.
-      await this.localCommand({ ...input, action: 'remove' });
-      const config = Object.fromEntries(manifest.inputs.filter((field) => field.key in app.config).map((field) => [field.key, app.config[field.key]]));
-      return this.install(workspaceId, { manifest, config });
+      if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before updating this app");
+      const agentIds = JSON.parse(app.agent_ids);
+      if (!app.process_id || agentIds.length < 2) throw new Error("This installation is incomplete; repair it before updating");
+      // Rewrite the process and agents in place: rebuilding them would leave this app's schedules and work items on the archived process.
+      const config = appConfig(manifest, Object.fromEntries(manifest.inputs.filter((field) => field.key in app.config).map((field) => [field.key, app.config[field.key]])), true);
+      await this.product.command({ action: "edit_process", processId: app.process_id, name: `${manifest.name} · ${manifest.version}`, description: manifest.description, stages: APP_STAGES });
+      for (const [index, id] of agentIds.entries()) await this.product.command({ action: "edit_agent_assignment", agentAssignmentId: id,
+        name: `${manifest.name} ${index ? "reviewer" : "worker"} · ${app.id.slice(0, 8)} · ${manifest.version}`, instructions: index ? manifest.review : manifest.task });
+      // Last, so a failure above leaves the old version installed and a retry simply repeats it.
+      transaction(this.db, () => {
+        this.db.prepare("UPDATE app_installations SET version=?,digest=?,manifest=?,config=? WHERE id=?")
+          .run(manifest.version, hash(manifest), JSON.stringify(manifest), JSON.stringify(config), app.id);
+        this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE installation_id=? AND status IN ('draft','approved')").run(app.id);
+      });
+      return { id: app.id, processId: app.process_id, agentIds };
     }
     if (action === "remove") {
       if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before removing this app; uncertain history will be retained");

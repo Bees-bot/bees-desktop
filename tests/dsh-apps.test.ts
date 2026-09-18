@@ -44,7 +44,7 @@ function setup(connected?: any, connector?: any) {
   return { db, apps, runtime, product, processes, fetcher, workspaceId, install, run };
 }
 
-it('installs before configuration but cannot run until required setup is saved; updates retain data and revoke old processes', async () => {
+it('installs before configuration but cannot run until required setup is saved; updates rewrite the app in place', async () => {
   const s = setup();
   const first = await s.apps.command({ action: 'install', workspaceId: s.workspaceId, manifest });
   expect(s.apps.snapshot(s.workspaceId).apps[0].needsSetup).toBe(true);
@@ -53,12 +53,13 @@ it('installs before configuration but cannot run until required setup is saved; 
   const work = await s.run(first.id); const app = s.apps.context(work.id);
   s.apps.record(app, work.id, { key: 'kept', kind: 'finding', title: 'Test', body: 'Keep me' });
   const update = () => s.apps.command({ action: 'update', workspaceId: s.workspaceId, installationId: first.id, manifest: { ...manifest, version: '0.2.0' } });
-  await expect(update()).rejects.toThrow('active work');
+  await expect(update()).rejects.toThrow('active automatic work');
   s.db.prepare("UPDATE work_items SET runtime_phase='completed' WHERE id=?").run(work.id);
-  const updated = await update(); expect(updated.id).toBe(first.id); expect(updated.processId).not.toBe(first.processId);
+  const updated = await update(); expect(updated.id).toBe(first.id); expect(updated.processId).toBe(first.processId);
   expect(s.apps.snapshot(s.workspaceId).records).toHaveLength(1);
   expect(s.apps.installation(first.id).config.topic).toBe('Configured');
-  expect(() => s.apps.context(work.id)).toThrow('older app version');
+  expect(s.apps.installation(first.id).version).toBe('0.2.0');
+  expect(s.apps.context(work.id).id).toBe(first.id);
 });
 
 const structuredManifest = { ...manifest, schemaVersion: 2,
