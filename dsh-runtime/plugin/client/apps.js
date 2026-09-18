@@ -1,5 +1,5 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { request, Button } from "./shared.js";
+import { request, Button, oneLine } from "./shared.js";
 
 const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
 
@@ -46,41 +46,19 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
   };
   const inputFields = (definition, values, change) => (definition.inputs ?? []).map((field) =>
     h("label", { key: field.key }, blankInput(field, values) ? `${field.label} · blank` : field.label,
-      h("textarea", { className: "bees-textarea", rows: 2, required: field.required, maxLength: 4000,
-        value: values[field.key] ?? "", onChange: (event) => change({ ...values, [field.key]: event.target.value }) }),
-      field.help ? h("small", { className: "bees-muted" }, field.help) : null));
+      field.help ? h("small", { className: "bees-muted" }, field.help) : null,
+      h("textarea", { className: "bees-textarea", rows: 3, required: field.required, maxLength: 4000,
+        value: values[field.key] ?? "", onChange: (event) => change({ ...values, [field.key]: event.target.value }) })));
 
   return h("div", { className: "bees-stack", style: { maxWidth: 880, margin: "0 auto" } },
     h("header", null, h("h1", null, "Apps"), h("p", { className: "bees-muted" }, "Small apps. One place for results and decisions.")),
     h("p", { className: "bees-callout" }, view?.sendingEnabled ? "An action connector is available. Every external action still needs independent review and the designated approver's exact approval. Model charges are not capped here." : "Apps research and write drafts. Nothing is sent: no account connector is configured, so an approved draft still waits for a person to post it. Model charges are not capped here."),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     !workspaceId ? h("p", null, "Choose a workspace to install apps.") : null,
-    h("section", { className: "bees-box bees-stack" },
-      h("div", { className: "bees-card-actions" }, h("h2", null, "App directory"), h(Button, { onClick: loadCatalog }, "Refresh")),
-      catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.error) : null,
-      ...catalog.apps.map((entry) => {
-        const installed = view?.apps.find((app) => app.package_id === entry.id && app.status !== 'removed');
-        return h("article", { key: entry.id, className: "bees-box bees-stack" },
-          h("strong", null, entry.name), h("p", null, entry.description),
-          h("small", { className: "bees-muted" }, `${entry.author} · ${entry.version} · ${entry.license}`),
-          h("small", null, `Access: ${entry.permissions.join(', ') || 'own app records'}`),
-          entry.sources.length ? h("details", null, h("summary", null, "Public sources"), ...entry.sources.map((source) =>
-            h("p", { key: source.url, style: { overflowWrap: "anywhere" } }, `${source.label}: ${source.url}`))) : null,
-          installed ? h(Button, { onClick: () => openApp(installed.id) }, installed.needsSetup ? "Finish setup" : "Open") :
-            h(Button, { primary: true, disabled: busy || !view || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: async () => {
-              const result = await act({ action: 'install', appId: entry.id, version: entry.version, checksum: entry.sha256 });
-              if (result?.id) openApp(result.id);
-            } }, [1, 2].includes(entry.schemaVersion) ? "Install" : "Requires newer Bees"),
-          installed?.status === 'active' && installed.version !== entry.version ? h("details", null,
-            h("summary", null, `Update available: ${installed.version} → ${entry.version}`),
-            h("p", null, `New access: ${entry.permissions.filter((p) => !installed.manifest.permissions.includes(p)).join(', ') || 'none'}. Review the publisher and access above. Pause schedules and finish or cancel active work before updating. Existing results are kept; new schedules stay off.`),
-            h(Button, { disabled: busy || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: () => act({ action: 'update', installationId: installed.id, appId: entry.id, version: entry.version, checksum: entry.sha256 }) }, "Approve update")) : null);
-      }),
-      !catalog.apps.length && !catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.loaded ? "No apps published yet." : "Loading app directory…") : null),
     workspaceId ? h("section", { className: "bees-box bees-stack" },
       h("h2", null, "Your apps"),
       ...(view?.apps ?? []).filter((app) => app.status !== "removed").map((app) => h(InstalledApp, { key: app.id, app, busy, act, inputFields, openWorkItem, opened: opened?.id === app.id ? opened.revision : 0 })),
-      view && !view.apps.some((app) => app.status !== "removed") ? h("p", { className: "bees-muted" }, "Choose an app from the directory above.") : null) : null,
+      view && !view.apps.some((app) => app.status !== "removed") ? h("p", { className: "bees-muted" }, "Choose an app from the directory below.") : null) : null,
     view ? h("section", { className: "bees-box bees-stack" },
       h("h2", null, "Needs your review"),
       h("p", { className: "bees-muted" }, "The independent reviewer checks the exact draft first. Only the designated human can then approve it for 48 hours. Approval does not send it; editing requires a new draft and decision."),
@@ -116,6 +94,28 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
           void act({ action: "reconcile_action", actionId: action.id, attemptId: action.execution.attemptId, evidence: form.get("evidence") }); } },
           h("label", null, "Reconciliation evidence (does not retry)", h("textarea", { className: "bees-textarea", name: "evidence", required: true, maxLength: 4000, defaultValue: action.execution.reconciliation?.evidence ?? "" })),
           h("button", { className: "bees-btn", disabled: busy || view.actorUserId !== view.portfolio.approver_user_id }, "Save evidence")) : null))) : null,
+    h("details", { className: "bees-box" }, h("summary", null, "App directory"), h("div", { className: "bees-stack" },
+      h("div", { className: "bees-card-actions" }, h(Button, { onClick: loadCatalog }, "Refresh")),
+      catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.error) : null,
+      ...catalog.apps.map((entry) => {
+        const installed = view?.apps.find((app) => app.package_id === entry.id && app.status !== 'removed');
+        return h("article", { key: entry.id, className: "bees-box bees-stack" },
+          h("strong", null, entry.name), h("p", null, entry.description),
+          h("small", { className: "bees-muted" }, `${entry.author} · ${entry.version} · ${entry.license}`),
+          h("small", null, `Access: ${entry.permissions.join(', ') || 'own app records'}`),
+          entry.sources.length ? h("details", null, h("summary", null, "Public sources"), ...entry.sources.map((source) =>
+            h("p", { key: source.url, style: { overflowWrap: "anywhere" } }, `${source.label}: ${source.url}`))) : null,
+          installed ? h(Button, { onClick: () => openApp(installed.id) }, installed.needsSetup ? "Finish setup" : "Open") :
+            h(Button, { primary: true, disabled: busy || !view || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: async () => {
+              const result = await act({ action: 'install', appId: entry.id, version: entry.version, checksum: entry.sha256 });
+              if (result?.id) openApp(result.id);
+            } }, [1, 2].includes(entry.schemaVersion) ? "Install" : "Requires newer Bees"),
+          installed?.status === 'active' && installed.version !== entry.version ? h("details", null,
+            h("summary", null, `Update available: ${installed.version} → ${entry.version}`),
+            h("p", null, `New access: ${entry.permissions.filter((p) => !installed.manifest.permissions.includes(p)).join(', ') || 'none'}. Review the publisher and access above. Pause schedules and finish or cancel active work before updating. Existing results are kept; new schedules stay off.`),
+            h(Button, { disabled: busy || catalog.stale || ![1, 2].includes(entry.schemaVersion), onClick: () => act({ action: 'update', installationId: installed.id, appId: entry.id, version: entry.version, checksum: entry.sha256 }) }, "Approve update")) : null);
+      }),
+      !catalog.apps.length && !catalog.error ? h("p", { role: "status", className: "bees-muted" }, catalog.loaded ? "No apps published yet." : "Loading app directory…") : null)),
     view ? h("details", { className: "bees-box" }, h("summary", null, "Portfolio goal and limits"),
       h("form", { className: "bees-stack", key: JSON.stringify(view.portfolio), onSubmit: (event) => {
         event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -162,7 +162,7 @@ function AppRecords({ apps, recordCounts, act, busy, openWorkItem }) {
   const requestId = useRef(0);
   const pendingLoad = useRef(false);
   const app = apps.find((entry) => entry.id === installationId);
-  const definition = app?.manifest.recordTypes?.find((record) => record.key === kind);
+  const kindLabel = (key) => app?.manifest.recordTypes?.find((record) => record.key === key)?.label ?? key;
   const counts = {}; let held = 0;
   for (const row of recordCounts ?? []) if (row.installation_id === installationId) { counts[row.kind] = row.n; held += row.n; }
   useEffect(() => {
@@ -197,8 +197,8 @@ function AppRecords({ apps, recordCounts, act, busy, openWorkItem }) {
   };
   return h("section", { className: "bees-box bees-stack" }, h("h2", null, "App records"),
     h("p", { className: "bees-muted" }, "Each app defines its own fields. Imported or manually edited records are not verified source evidence, approvals or delivery receipts."),
-    h("label", null, "App", h("select", { className: "bees-input", value: installationId, onChange: (event) => { setInstallationId(event.target.value); setKind(""); setQuery(""); setImportText(""); } },
-      h("option", { value: "" }, "Choose an app"), ...apps.map((entry) => h("option", { key: entry.id, value: entry.id }, entry.manifest.name)))),
+    apps.length > 1 ? h("label", null, "App", h("select", { className: "bees-input", value: installationId, onChange: (event) => { setInstallationId(event.target.value); setSelected(null); setKind(""); setQuery(""); setImportText(""); } },
+      h("option", { value: "" }, "Choose an app"), ...apps.map((entry) => h("option", { key: entry.id, value: entry.id }, entry.manifest.name)))) : null,
     app ? h("div", { className: "bees-card-actions" },
       h(Button, { primary: kind === "", onClick: () => setKind("") }, `Everything · ${held}`),
       ...(app.manifest.recordTypes ?? []).map((record) => h(Button, { key: record.key, primary: kind === record.key, onClick: () => setKind(record.key) },
@@ -206,18 +206,20 @@ function AppRecords({ apps, recordCounts, act, busy, openWorkItem }) {
     app ? h("form", { className: "bees-card-actions", onSubmit: (event) => { event.preventDefault(); void load(); } },
       h("label", null, "Search fields and notes", h("input", { className: "bees-input", value: query, maxLength: 1000, onChange: (event) => setQuery(event.target.value) })),
       h("button", { className: "bees-btn", disabled: busy }, "Search / refresh")) : null,
-    page ? h("div", { style: { overflowX: "auto" } },
-      h("p", { role: "status" }, `${page.total} records · showing ${page.records.length ? page.offset + 1 : 0}–${page.offset + page.records.length}`),
-      h("table", { className: "bees-table", style: { width: "100%", textAlign: "left" } },
-        h("thead", null, h("tr", null, h("th", null, "Record"), h("th", null, "Provenance"), ...(definition?.fields ?? []).map((field) => h("th", { key: field.key }, field.label)))),
-        h("tbody", null, ...page.records.map((record) => h("tr", { key: record.id },
-          h("td", null, h(Button, { onClick: () => { setSelected(record); setReceipt(null); } }, record.title), h("small", null, ` ${record.kind}`)),
-          h("td", null, record.provenance), ...(definition?.fields ?? []).map((field) => h("td", { key: field.key, style: { overflowWrap: "anywhere", maxWidth: 260 } }, String(record.data[field.key] ?? "—"))))))),
+    page ? h("div", { className: "bees-stack" },
+      h("p", { role: "status" }, `${page.total} ${page.total === 1 ? "record" : "records"} · showing ${page.records.length ? page.offset + 1 : 0}–${page.offset + page.records.length}`),
+      ...page.records.map((record) => h("button", { key: record.id, type: "button", className: "bees-work-item-row", onClick: () => { setSelected(record); setReceipt(null); } },
+        h("span", { className: "bees-row-title" }, record.title),
+        h("span", { className: "bees-muted" }, [kindLabel(record.kind), record.provenance === "agent" ? null : record.provenance, oneLine(record.body)].filter(Boolean).join(" · ")))),
       h("div", { className: "bees-card-actions" }, h(Button, { disabled: busy || page.offset === 0, onClick: () => load(Math.max(0, page.offset - page.limit)) }, "Previous"),
         h(Button, { disabled: busy || page.nextOffset === null, onClick: () => load(page.nextOffset) }, "Next"),
         h(Button, { disabled: busy || !page.records.length, onClick: exportPage }, "Export this page (JSON)"))) : null,
     selected ? h("article", { className: "bees-box bees-stack", key: selected.id }, h("h3", null, selected.title),
       h("small", null, `Canonical key: ${selected.record_key}`), h("p", { style: { whiteSpace: "pre-wrap" } }, selected.body),
+      ...(app.manifest.recordTypes?.find((record) => record.key === selected.kind)?.fields ?? [])
+        .filter((field) => ![undefined, null, ""].includes(selected.data[field.key]))
+        .map((field) => h("div", { key: field.key }, h("small", { className: "bees-muted" }, field.label),
+          h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, String(selected.data[field.key])))),
       selected.item_id ? h(Button, { onClick: () => openWorkItem(selected.item_id) }, "Open source work") : null,
       h("div", { className: "bees-card-actions" }, ...selected.evidence.map((id) => h(Button, { key: id, disabled: busy, onClick: async () => {
         const result = await act({ action: "receipt", installationId, receiptId: id }); if (result) setReceipt(result);

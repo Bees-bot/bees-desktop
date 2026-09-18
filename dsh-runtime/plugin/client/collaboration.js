@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, request, useBeesChangeRevision } from "./shared.js";
+import { ask, Button, oneLine, request, useBeesChangeRevision } from "./shared.js";
 
 const command = (action, input) => request("/bees-api/command", {
   method: "POST", body: JSON.stringify({ action, ...input })
@@ -171,14 +171,15 @@ export function MemorySettings({ workspace, canManage = false }) {
         h(Button, { type: "button", disabled: !canManage || busy || !state.enabled, onClick: () => act("memory_retry") }, "Retry synchronization"))) : null,
     h("h4", null, "Remembered outcomes"),
     state && !state.memories?.length ? h("p", { className: "bees-muted" }, "No outcomes yet. Accepted work completed after memory is enabled will appear here.") : null,
-    ...(state?.memories ?? []).map((memory) => h("article", { key: memory.id, className: "bees-box" },
+    ...(state?.memories ?? []).map((memory) => h("details", { key: memory.id, className: "bees-box" },
+      h("summary", null, oneLine(String(memory.content ?? "").split("Accepted outcome:").pop()) || "Remembered outcome",
+        " ", h("span", { className: "bees-badge" }, memory.error || memory.status)),
       h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, memory.content),
-      h("p", { className: "bees-muted" }, memory.evidence),
-      h("small", null, memory.error || memory.status),
+      memory.evidence ? h("p", { className: "bees-muted", style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, memory.evidence) : null,
       h("div", { className: "bees-row" },
         h(Button, { disabled: !canManage || busy || memory.status === "deleting", onClick: async () => {
           if (!canManage) return;
-          const content = await ask("Correct remembered outcome", memory.content);
+          const content = await ask("Correct remembered outcome", memory.content, "textarea");
           if (content) await act("memory_edit", { id: memory.id, content });
         } }, "Correct"),
         h(Button, { disabled: !canManage || busy || memory.status === "deleting", onClick: () => act("memory_delete", { id: memory.id }) }, "Forget")))));
