@@ -4,8 +4,9 @@ import { readable } from "./web-page.js";
 
 // fetched bytes reach the model through these two tools only, and a page is mostly markup;
 // json and atom bodies open with { [ or <?xml, so only a real page matches and the receipt keeps the whole body
+// a source receipt is this app's evidence, so it gets more room than the generic page tool: a forum thread arrives whole
 const shrink = (body) => typeof body?.content !== "string" ? body
-  : { ...body, content: readable({ kind: /^\s*(?:<!doctype html|<html\b)/i.test(body.content) ? "html" : "text", content: body.content }) };
+  : { ...body, content: readable({ kind: /^\s*(?:<!doctype html|<html\b)/i.test(body.content) ? "html" : "text", content: body.content }, 40_000) };
 const evidence = (name, result) => name === "bees_app_source" ? shrink(result)
   : name === "bees_app_receipt" ? { ...result, result: shrink(result.result) } : result;
 
