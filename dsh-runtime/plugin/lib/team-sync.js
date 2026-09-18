@@ -472,14 +472,18 @@ function applyRun(database, record) {
     p.createdAt, p.updatedAt);
 }
 
-export function applyTeamRecords(database, organizationId, records, authoritativeApps = false) {
+export function applyTeamRecords(database, organizationId, records, authoritativeApps = false, connectionId = null) {
   // A deleted team publishes tombstones carrying only a teamId. Only work items have a local
   // delete path; feeding the rest to their apply functions throws and takes the whole batch down.
   const applicable = records.filter(({ recordType, deleted, payload }) => ORDER.has(recordType)
     && (!deleted || recordType === "team_work_item")
     && database.prepare(`
       SELECT 1 FROM teams WHERE id = ? AND organization_id = ? AND status = 'active'
-    `).get(payload.teamId, organizationId)).sort(
+    `).get(payload.teamId, organizationId)
+    // Push only sends this connection's teams, so pulling the whole org built workspaces for teams you were never on.
+    && (!connectionId || database.prepare(
+      "SELECT 1 FROM bees_connection_teams WHERE connection_id = ? AND team_id = ?"
+    ).get(connectionId, payload.teamId))).sort(
     (left, right) => ORDER.get(left.recordType) - ORDER.get(right.recordType)
   );
   let deferred = false;
@@ -539,7 +543,7 @@ async function pull(database, request, organizationId, connectionId, cursor) {
   }
   // A record whose rows are missing keeps its version, so a cursor moved past it never offers it
   // again. Hold the cursor until the batch applies whole.
-  if (applyTeamRecords(database, organizationId, records)) return { cursor, count: records.length };
+  if (applyTeamRecords(database, organizationId, records, false, connectionId)) return { cursor, count: records.length };
   database.prepare(`
     INSERT INTO bees_connection_sync_cursors VALUES (?, ?, ?)
     ON CONFLICT(connection_id) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at

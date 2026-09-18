@@ -966,6 +966,9 @@ export class AgentRuntime {
 
   async setup(agentCtx, data, executionId, workspace) {
     const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
+    // The sandbox is mounted from the item's process, so an app agent put on any other process would run unrestricted.
+    if (!installedApp && data.agentId && this.database.prepare("SELECT 1 FROM app_agent_owners WHERE agent_id = ?").get(data.agentId))
+      throw new Error("This agent belongs to an app and can only run that app's own work.");
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
     if (data.mcpAccess !== "none") await this.capabilities?.retryFailed?.(data.mcpAccess === "listed" ? data.mcpServers : null);

@@ -162,6 +162,7 @@ export class BeesProduct {
 
   async runProcessStage(stage, signal) {
     const item = itemContext(this.database, stage.workItemId, ["admin", "member"]);
+    this.agents?.apps?.requireInstalledApp(item.processId);
     const parent = item.parentId ? itemContext(this.database, item.parentId, ["admin", "member"]) : null;
     const executionId = required(stage.executionId, "Execution");
     const reviewer = stage.purpose === "reviewer";

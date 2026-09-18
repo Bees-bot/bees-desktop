@@ -4,6 +4,7 @@ import { applyTeamRecords, teamRecords } from './team-sync.js';
 import { validateApp } from './app-contract.js';
 
 const tables = ['app_installations','app_records','app_sources','app_actions','app_portfolios','app_admissions','app_process_owners','app_agent_owners','app_suppressions'];
+const shared = new Set(['agent', 'team_process']);
 const scoped = new Set(['app_installations', 'app_portfolios', 'app_suppressions']);
 const json = (value) => { try { JSON.parse(value); return typeof value === 'string'; } catch { return false; } };
 
@@ -19,12 +20,14 @@ export class AppSharedState {
       .map(({ workspace_id, ...row }) => row);
     const ids = new Set(result.app_installations.map((row) => row.id));
     const nativeRecords = teamRecords(this.db, workspace.organizationId, '', true)
-      .filter((r) => ids.has(r.payload.appInstallationId) && ['agent', 'team_process'].includes(r.recordType));
+      .filter((r) => ids.has(r.payload.appInstallationId) && shared.has(r.recordType));
     return { tables: result, nativeRecords };
   }
 
   import(workspace, state) {
-    const source = state?.tables ?? Object.fromEntries(tables.map((name) => [name, []]));
+    // A team the server has never held app state for reads back null, and importing that wipes every local install.
+    if (state == null) return;
+    const source = state.tables ?? {};
     const installs = source.app_installations;
     if (!Array.isArray(installs)) throw new Error('Invalid shared app state');
     const ids = new Set(installs.map((row) => row.id));
@@ -34,7 +37,8 @@ export class AppSharedState {
       const existing = this.db.prepare('SELECT workspace_id FROM app_installations WHERE id=?').get(row.id);
       if (existing && existing.workspace_id !== workspace.id) throw new Error('Shared app belongs to another workspace');
     }
-    if (state?.nativeRecords) applyTeamRecords(this.db, workspace.organizationId, state.nativeRecords, true);
+    if (state.nativeRecords) applyTeamRecords(this.db, workspace.organizationId,
+      state.nativeRecords.filter((r) => shared.has(r.recordType) && ids.has(r.payload?.appInstallationId)), true);
     transaction(this.db, () => {
       for (const table of [...tables].reverse()) {
         if (table.endsWith('_owners')) continue; // Retain revocation markers even for failed/removed installs.

@@ -844,8 +844,13 @@ export async function executeProductCommand(action, input) {
       const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
         : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
-      for (const id of ids) if (!assignment(this.database, id, stage.workspaceId))
-        throw new Error("Agent is not in this team");
+      for (const id of ids) {
+        if (!assignment(this.database, id, stage.workspaceId)) throw new Error("Agent is not in this team");
+        // An app agent runs with no MCP access; on an ordinary process nothing mounts the sandbox that holds it in.
+        if (this.database.prepare(`SELECT 1 FROM app_agent_owners a WHERE a.agent_id = ?
+          AND NOT EXISTS (SELECT 1 FROM app_process_owners p WHERE p.process_id = ? AND p.installation_id = a.installation_id)`).get(id, stage.processId))
+          throw new Error("Manage app agents through Apps to preserve their permission boundary");
+      }
       if (!ids.length && !requiredCapabilities.length) {
         this.database.prepare("DELETE FROM stage_routes WHERE stage_id = ?").run(stage.id);
         this.database.prepare("UPDATE processes SET updated_at = ? WHERE id = ?").run(at, stage.processId);
@@ -1232,6 +1237,7 @@ export async function executeProductCommand(action, input) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       if (this.processes.isAutomatic(item.processId))
         throw new Error("Temporal runs this process automatically");
+      this.agents?.apps?.requireInstalledApp(item.processId);
       const executionId = randomUUID();
       if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
         return { executionId };

@@ -116,6 +116,16 @@ export class AppPlatform {
     return { ...row, manifest: JSON.parse(row.manifest), config: JSON.parse(row.config) };
   }
 
+  /** Refuse at dispatch. Both states otherwise surface mid-run, once the run row and a failed attempt exist. */
+  requireInstalledApp(processId) {
+    const owned = this.db.prepare(`SELECT p.name, a.manifest, a.config FROM app_process_owners o JOIN processes p ON p.id=o.process_id
+      LEFT JOIN app_installations a ON a.id=o.installation_id WHERE o.process_id=?`).get(processId);
+    if (!owned) return;
+    if (!owned.manifest) throw new Error(`${owned.name} is not installed on this computer any more, so this work cannot start. Open Apps to install it again.`);
+    try { appConfig(JSON.parse(owned.manifest), JSON.parse(owned.config)); }
+    catch ({ message }) { throw new Error(`${owned.name} still needs setup, so this work cannot start. Open Apps and finish setting it up: ${message}`); }
+  }
+
   ownsProcess(processId) {
     return Boolean(this.db.prepare("SELECT 1 FROM app_process_owners WHERE process_id=?").get(processId));
   }
@@ -144,14 +154,14 @@ export class AppPlatform {
     const config = appConfig(manifest, input.config ?? {}, true);
     const key = `${workspaceId}:${manifest.id}`;
     if (this.installing.has(key)) throw new Error("This app is already installing");
+    let row = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id=? AND package_id=?").get(workspaceId, manifest.id);
+    if (row?.status === "active") {
+      if (row.digest !== hash(manifest)) throw new Error("Remove the installed version before upgrading. Existing work and data are preserved.");
+      return { id: row.id, reused: true };
+    }
+    if (row?.status === "installing" && row.digest !== hash(manifest)) throw new Error("Retry the same package to repair partial installation");
     this.installing.add(key);
     try {
-      let row = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id=? AND package_id=?").get(workspaceId, manifest.id);
-      if (row?.status === "active") {
-        if (row.digest !== hash(manifest)) throw new Error("Remove the installed version before upgrading. Existing work and data are preserved.");
-        return { id: row.id, reused: true };
-      }
-      if (row?.status === "installing" && row.digest !== hash(manifest)) throw new Error("Retry the same package to repair partial installation");
       if (!row) {
         const id = randomUUID();
         this.db.prepare("INSERT INTO app_installations (id,workspace_id,package_id,version,digest,manifest,config,status,created_at) VALUES (?,?,?,?,?,?,?,'installing',?)")

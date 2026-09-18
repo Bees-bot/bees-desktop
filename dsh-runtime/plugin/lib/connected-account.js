@@ -323,8 +323,8 @@ export class ConnectedAccount {
         team,
         members: await this.request(`/api/teams/${team.id}/members`, {
           organizationId: organization.id, accountUserId: account.userId
-        // A team whose roster will not load is skipped this pass; guessing its role writes the wrong one.
-        }).then(({ members }) => members).catch(() => null)
+        // Only these two mean you are off the team. Every other failure is transient, and guessing a role writes the wrong one.
+        }).then(({ members = [] }) => members).catch((error) => ([403, 404].includes(error.status) ? false : null))
       }))) };
     }));
     const localUser = this.database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
@@ -346,9 +346,14 @@ export class ConnectedAccount {
         const knownTeams = new Set(this.database.prepare(
           "SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?"
         ).all(connectionId).map(({ teamId }) => teamId));
-        this.database.prepare("DELETE FROM bees_connection_teams WHERE connection_id = ?").run(connectionId);
+        // A team whose roster did not load must keep its row, or sync goes quiet for it with nothing said.
+        const unread = JSON.stringify(teams.filter(({ members }) => members === null).map(({ team }) => team.id));
+        this.database.prepare(
+          "DELETE FROM bees_connection_teams WHERE connection_id = ? AND team_id NOT IN (SELECT value FROM json_each(?))"
+        ).run(connectionId, unread);
         for (const { team, members } of teams) {
-          if (!members) continue;
+          // An admin sees org teams they are not on, and an emptied one still reads as a healthy roster.
+          if (!Array.isArray(members)) continue;
           this.database.prepare(`
             INSERT INTO teams(id, organization_id, name, personal, created_by, status, created_at, updated_at)
             VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
