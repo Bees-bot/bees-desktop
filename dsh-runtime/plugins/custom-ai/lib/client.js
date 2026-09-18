@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     const { useEffect, useMemo, useState } = React;
 
     const PROVIDERS = [
-      { id: "openrouter", name: "OpenRouter", signup: "https://openrouter.ai/keys", note: "Uses API credits and paid models" },
+      { id: "openrouter", name: "OpenRouter", api: "openai-completions", signup: "https://openrouter.ai/keys", note: "Uses API credits and paid models" },
       { id: "google", name: "Google AI Studio", signup: "https://aistudio.google.com/apikey", note: "Gemini API" },
       { id: "groq", name: "Groq", signup: "https://console.groq.com/keys", note: "Fast hosted models" },
       { id: "cerebras", name: "Cerebras", signup: "https://cloud.cerebras.ai", note: "Fast hosted models" },
@@ -90,19 +90,20 @@ window.__ModuleLoader__.load({
       };
       const modelsFor = (id) => config.providers?.[id]?.models ?? ui.generalAiModels?.[id] ?? [];
       const saveModels = async (id, models) => {
-        await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [id]: models });
-        const providers = { ...(config.providers ?? {}) };
+        const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
         if (providers[id]) {
-          providers[id] = { ...providers[id] };
+          providers[id] = { api: BY_ID[id].api, ...providers[id] };
           if (models.length) providers[id].models = models;
           else delete providers[id].models;
           await modelSettings.set("providers", providers);
         }
+        await preferences.set("generalAiModels", { ...(preferences.getSnapshot().value?.generalAiModels ?? {}), [id]: models });
       };
       const setEnabled = async (id, enabled, requestedModels = modelsFor(id)) => {
-        const providers = { ...(config.providers ?? {}) };
+        const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
         if (enabled) {
-          providers[id] = { ...(providers[id] ?? {}), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
+          // Custom OpenRouter model IDs need the wire protocol declared explicitly.
+          providers[id] = { api: BY_ID[id].api, ...(providers[id] ?? {}), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
           if (requestedModels.length) providers[id].models = requestedModels;
         } else {
           if (requestedModels.length) await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [id]: requestedModels });
@@ -122,9 +123,9 @@ window.__ModuleLoader__.load({
         await saveKey(chosen, key.trim());
         const result = await testProvider(chosen);
         setTests((current) => ({ ...current, [chosen]: result.message }));
+        await setEnabled(chosen, true, models);
         await saveProviderIds([...new Set([...ids, chosen])]);
         await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
-        await setEnabled(chosen, true, models);
         setKey(""); setModel(""); setSelected(""); setAdding(false);
       });
       const addModel = (id) => perform(`model:${id}`, async () => {
