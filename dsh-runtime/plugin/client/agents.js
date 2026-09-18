@@ -126,6 +126,8 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 }
 
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
 export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction }) {
   const [mode, setMode] = useState(access ?? "all");
@@ -139,10 +141,13 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
     const serverTools = tools.filter(({ serverName }) => serverName === server.serverName);
     return !needle || [server.label, server.serverName, ...serverTools.map(({ name }) => name)]
       .some((value) => String(value ?? "").toLocaleLowerCase().includes(needle));
-  }).sort((left, right) => Number(picked.includes(right.id)) - Number(picked.includes(left.id)));
+  }).sort((left, right) => Number(picked.includes(right.serverName)) - Number(picked.includes(left.serverName)));
   const available = catalog.filter(({ installedAs, label, serverName, summary, publisher }) => !installedAs
     && (!needle || [label, serverName, summary, publisher].some((value) => String(value ?? "").toLocaleLowerCase().includes(needle))));
   const entry = catalog.find(({ id }) => id === reviewing);
+  // Grants travel between computers; a name this one never installed is shown so it can be added here.
+  const missing = picked.filter((name) => !servers.some((server) => server.serverName === name));
+
   return h("section", { className: "bees-mcp-access", "data-mcp-mode": mode },
     h("label", null, "MCP access",
       h("select", { className: "bees-select", name: "mcpAccess", value: mode,
@@ -153,20 +158,34 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
     mode === "all" ? h("div", { className: "bees-mcp-count" }, `${connected.length} MCP${connected.length === 1 ? "" : "s"} connected`) : null,
     mode === "listed" && entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
       // a Google sign-in lands later, so that server shows up to add once it is connected
-      onDone: ({ id }) => { if (id) setPicked([...picked, id]); setReviewing(""); } }) : mode === "listed" ? h(React.Fragment, null,
-      ...picked.map((id) => h("input", { key: id, type: "hidden", name: "mcpServers", value: id })),
+      onDone: ({ serverName }) => { if (serverName && !picked.includes(serverName)) setPicked([...picked, serverName]); setReviewing(""); } }) : mode === "listed" ? h(React.Fragment, null,
+      ...picked.map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
       h("input", { className: "bees-input", value: query, placeholder: "Search MCPs or tools", "aria-label": "Search MCPs or tools",
         onChange: (event) => setQuery(event.target.value) }),
+      missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
+        const item = catalog.find((one) => one.serverName === name && !one.installedAs);
+        return h("article", { className: "bees-mcp-card missing", key: `missing:${name}` },
+          h("div", { className: "bees-mcp-card-head" },
+            h("strong", null, item?.label ?? name),
+            h("span", { className: "bees-badge" }, "Not on this computer"),
+            item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
+            h(Button, { onClick: () => setPicked(picked.filter((one) => one !== name)) }, "Remove")),
+          h("div", { className: "bees-muted" }, item
+            ? `${item.summary} · runs here fail until it is added`
+            : UUID.test(name)
+              ? "This MCP server was removed. Take it off the agent and pick the one it should use."
+              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this agent.`));
+      })) : null,
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {
-          const added = picked.includes(server.id);
+          const added = picked.includes(server.serverName);
           const serverTools = tools.filter(({ serverName }) => serverName === server.serverName);
           return h("article", { className: `bees-mcp-card${added ? " added" : ""}`, key: server.id },
             h("div", { className: "bees-mcp-card-head" },
               h("strong", null, server.label),
               added ? h("span", { className: "bees-badge" }, "Added") : null,
-              added ? h(Button, { onClick: () => setPicked(picked.filter((id) => id !== server.id)) }, "Remove")
-                : server.enabled ? h(Button, { className: "primary", onClick: () => setPicked([...picked, server.id]) }, "Add") : null,
+              added ? h(Button, { onClick: () => setPicked(picked.filter((name) => name !== server.serverName)) }, "Remove")
+                : server.enabled ? h(Button, { className: "primary", onClick: () => setPicked([...picked, server.serverName]) }, "Add") : null,
               server.enabled ? null : h(Button, { disabled: !onServerAction, onClick: () => onServerAction?.({
                 action: "set_mcp_server_enabled", serverId: server.id, enabled: true
               }) }, "Enable")),
@@ -179,7 +198,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
             h("span", { className: "bees-badge" }, "Catalog"),
             h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add")),
           h("div", { className: "bees-muted" }, item.summary)))),
-      matching.length || available.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search")) : null);
+      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search")) : null);
 }
 
 function AgentDialog({ onClose, children }) {

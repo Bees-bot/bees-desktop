@@ -888,6 +888,25 @@ export function initializeProductDatabase(database) {
       WHERE catalog_id = 'openapi-bridge' AND args_json LIKE '["-y","@ivotoby/openapi-mcp-server","--transport","stdio",%';
     PRAGMA user_version = 29;
   `);
+  // agent grants used to hold per-device server row ids, so the same agent on a second computer
+  // resolved to nothing and its runs were refused. Names are the same everywhere; bump updated_at
+  // so the rewritten list syncs out instead of losing to the peer's older id list.
+  if (version < 30) transaction(database, () => {
+    for (const row of database.prepare(`
+      SELECT id, mcp_servers_json AS servers, updated_at AS updatedAt FROM agent_assignments
+      WHERE mcp_access = 'listed' AND mcp_servers_json IS NOT NULL AND mcp_servers_json != '[]'
+    `).all()) {
+      let wanted;
+      try { wanted = JSON.parse(row.servers); } catch { continue; }
+      if (!Array.isArray(wanted) || !wanted.length) continue;
+      const named = [...new Set(serverNames(database, wanted))];
+      if (JSON.stringify(named) === JSON.stringify(wanted)) continue;
+      const at = new Date(Math.max(Date.now(), (Date.parse(row.updatedAt) || 0) + 1)).toISOString();
+      database.prepare("UPDATE agent_assignments SET mcp_servers_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(named), at, row.id);
+    }
+    database.exec("PRAGMA user_version = 30");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
@@ -929,10 +948,23 @@ export function initializeProductDatabase(database) {
     insertDefaultWorkspace(database, teamId, { id: workspaceId, at });
   });
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Server names for a stored list. Names are the same on every computer that installed the server;
+ * row ids are not, so an older list, or one synced from a peer that has not migrated, still resolves.
+ */
+export function serverNames(database, values = []) {
+  const byId = new Map(database.prepare(`
+    SELECT id, server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+  `).all(JSON.stringify(values)).map(({ id, name }) => [id, name]));
+  return values.map((value) => byId.get(value) ?? value);
+}
+
 /**
  * The MCP servers one agent may use, as the names its tools are prefixed with.
  *
- * Read by id at dispatch, not carried through routing: a rerun reuses its recorded agent config,
+ * Read at dispatch, not carried through routing: a rerun reuses its recorded agent config,
  * which would pin a policy the owner has since changed.
  */
 export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
@@ -943,17 +975,25 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   if (row.access === "none" || runSettings.mcpAccess === "none") return { mcpAccess: "none", mcpServers: [] };
   if (row.access !== "listed" && runSettings.mcpAccess !== "listed") return { mcpAccess: row.access, mcpServers: [] };
   // A goal can narrow an agent's tool access, never widen its configured policy.
-  const servers = row.access === "listed" ? JSON.parse(row.servers) : runSettings.mcpServers;
-  const allowed = runSettings.mcpAccess === "listed"
-    ? servers.filter((id) => runSettings.mcpServers.includes(id)) : servers;
+  const narrow = runSettings.mcpAccess === "listed" ? serverNames(database, runSettings.mcpServers) : null;
+  const servers = row.access === "listed" ? serverNames(database, JSON.parse(row.servers)) : narrow;
+  const allowed = [...new Set(narrow && row.access === "listed"
+    ? servers.filter((name) => narrow.includes(name)) : servers)];
   const rows = database.prepare(`
-    SELECT server_name AS name, enabled FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+    SELECT server_name AS name, enabled FROM mcp_servers WHERE server_name IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(allowed));
-  // server ids are per device: an agent set up on a teammate's computer names servers this one never
-  // installed, and it used to run with no tools at all and report itself blocked an hour later.
   // a server the person turned off here is skipped, as before
-  const missing = new Set(allowed).size - rows.length;
-  if (missing > 0) throw new Error(`${row.name} uses ${missing} MCP server(s) that are not installed on this computer. Run this where they were set up, or edit the agent.`);
+  const here = new Set(rows.map(({ name }) => name));
+  const missing = allowed.filter((name) => !here.has(name));
+  // a leftover row id names a server that was removed, so there is no name left to show for it
+  const gone = missing.filter((name) => UUID.test(name));
+  const named = missing.filter((name) => !UUID.test(name));
+  if (missing.length) throw new Error([
+    `${row.name} cannot run on this computer.`,
+    named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
+    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that no longer exist.` : "",
+    "Add what is missing on the MCP servers page, or open the agent and choose its MCP servers again."
+  ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
 }
 
