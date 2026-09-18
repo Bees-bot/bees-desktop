@@ -142,10 +142,11 @@ export class AppPlatform {
       });
     const records = this.db.prepare(`SELECT r.* FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? ORDER BY r.updated_at DESC LIMIT 200`).all(workspaceId)
       .map(recordRow);
+    const recordCounts = this.db.prepare(`SELECT r.installation_id,r.kind,COUNT(*) AS n FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? GROUP BY r.installation_id,r.kind`).all(workspaceId);
     const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND (x.status IN ('draft','approved','executing','unknown') OR x.id IN (SELECT y.id FROM app_actions y JOIN app_installations b ON b.id=y.installation_id WHERE b.workspace_id=? AND y.status NOT IN ('draft','approved','executing','unknown') ORDER BY y.created_at DESC LIMIT 100)) ORDER BY CASE WHEN x.status IN ('draft','approved','executing','unknown') THEN 0 ELSE 1 END,x.created_at DESC`).all(workspaceId, workspaceId)
       .map((r) => ({ ...r, payload: JSON.parse(r.payload), execution: JSON.parse(r.execution) }));
     const connector = this.connectorFor(workspaceId, actor);
-    return { apps, records, actions, portfolio: this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId),
+    return { apps, records, recordCounts, actions, portfolio: this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId),
       reservedCents: this.reserved(workspaceId), sendingEnabled: Boolean(connector), connectors: connector ? [{ id: connector.id, account: connector.account }] : [], modelCost: null };
   }
 
@@ -323,7 +324,9 @@ export class AppPlatform {
     }
     if (app.status !== "active") throw new Error("App is not active");
     if (action === "configure") {
-      this.db.prepare("UPDATE app_installations SET config=? WHERE id=?").run(JSON.stringify(appConfig(app.manifest, input.config)), app.id);
+      appConfig(app.manifest, input.config, true); // rejects a non-object, which would merge to a silent no-op
+      // appConfig blanks every key the caller leaves out, so a partial save merges over the stored config
+      this.db.prepare("UPDATE app_installations SET config=? WHERE id=?").run(JSON.stringify(appConfig(app.manifest, { ...app.config, ...input.config })), app.id);
       return {};
     }
     if (action === "run") {

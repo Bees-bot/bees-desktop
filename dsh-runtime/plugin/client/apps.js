@@ -45,15 +45,14 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
     finally { inFlight.current = false; setBusy(false); }
   };
   const inputFields = (definition, values, change) => (definition.inputs ?? []).map((field) =>
-    h("label", { key: field.key }, field.label,
+    h("label", { key: field.key }, blankInput(field, values) ? `${field.label} · blank` : field.label,
       h("textarea", { className: "bees-textarea", rows: 2, required: field.required, maxLength: 4000,
         value: values[field.key] ?? "", onChange: (event) => change({ ...values, [field.key]: event.target.value }) }),
       field.help ? h("small", { className: "bees-muted" }, field.help) : null));
 
   return h("div", { className: "bees-stack", style: { maxWidth: 880, margin: "0 auto" } },
     h("header", null, h("h1", null, "Apps"), h("p", { className: "bees-muted" }, "Small apps. One place for results and decisions.")),
-    h("p", { className: "bees-muted" }, view?.sendingEnabled ? "An explicitly granted action connector is available. Each external action still requires independent review and the designated human's exact approval." : "Install apps in the selected workspace. Research and drafts are available; no sending or paid execution connector is configured. Model-provider charges are separate."),
-    h("p", { className: "bees-callout" }, "Research and draft review work in local or connected workspaces. External execution requires a configured account connector and a separate exact-action approval. Model-provider charges are not capped here."),
+    h("p", { className: "bees-callout" }, view?.sendingEnabled ? "An action connector is available. Every external action still needs independent review and the designated approver's exact approval. Model charges are not capped here." : "Apps research and write drafts. Nothing is sent: no account connector is configured, so an approved draft still waits for a person to post it. Model charges are not capped here."),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     !workspaceId ? h("p", null, "Choose a workspace to install apps.") : null,
     h("section", { className: "bees-box bees-stack" },
@@ -86,8 +85,7 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
       h("h2", null, "Needs your review"),
       h("p", { className: "bees-muted" }, "The independent reviewer checks the exact draft first. Only the designated human can then approve it for 48 hours. Approval does not send it; editing requires a new draft and decision."),
       h("p", null, view.portfolio.approver_user_id ? `Designated approver: ${view.portfolio.approver_user_id === view.actorUserId ? "you" : view.portfolio.approver_user_id}` : "No designated approver. A team admin must opt in before approving actions."),
-      !view.portfolio.approver_user_id ? h(Button, { disabled: busy, onClick: () => act({ action: "set_approver" }) }, "I will approve external actions") :
-        view.portfolio.approver_user_id === view.actorUserId ? h(Button, { disabled: busy, onClick: () => act({ action: "clear_approver" }) }, "Stop being approver; cancel outstanding approvals") : null,
+      !view.portfolio.approver_user_id ? h(Button, { primary: true, disabled: busy, onClick: () => act({ action: "set_approver" }) }, "I will approve external actions") : null,
       ...view.actions.filter((a) => a.status === "draft").map((action) => h("article", { key: action.id, className: "bees-box bees-stack" },
         h("strong", null, action.payload.destination), h("div", null, `From: ${action.payload.account} · Proposed commitment: ${dollars(action.cost_cents)}`),
         h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, action.payload.content),
@@ -98,8 +96,10 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
           h(Button, { primary: true, disabled: busy || action.reviewed_digest !== action.digest || view.portfolio.approver_user_id !== view.actorUserId, onClick: () => act({ action: "decide", actionId: action.id, digest: action.digest, decision: "approve" }) }, "Approve draft"),
           h(Button, { disabled: busy || view.portfolio.approver_user_id !== view.actorUserId, onClick: () => act({ action: "decide", actionId: action.id, digest: action.digest, decision: "reject" }) }, "Reject"),
           h(Button, { disabled: busy, onClick: () => act({ action: "suppress", destination: action.payload.destination }) }, "Do not contact")))),
-      !view.actions.some((a) => a.status === "draft") ? h("p", { className: "bees-muted" }, "No drafts waiting. Research can continue independently.") : null) : null,
-    view ? h(AppRecords, { apps: view.apps, act, busy, openWorkItem }) : null,
+      !view.actions.some((a) => a.status === "draft") ? h("p", { className: "bees-muted" }, "No drafts waiting. Research can continue independently.") : null,
+      view.portfolio.approver_user_id === view.actorUserId ? h("details", null, h("summary", null, "Change approver"),
+        h(Button, { disabled: busy, onClick: () => act({ action: "clear_approver" }) }, "Stop being approver; cancel outstanding approvals")) : null) : null,
+    view ? h(AppRecords, { apps: view.apps, recordCounts: view.recordCounts, act, busy, openWorkItem }) : null,
     view ? h("section", { className: "bees-box bees-stack" }, h("h2", null, "Action history and outcomes"),
       !view.sendingEnabled ? h("p", null, "No external-action connector is configured. Approved drafts are not sent.") : null,
       ...view.actions.filter((a) => a.status !== "draft").map((action) => h("article", { key: action.id, className: "bees-box bees-stack" },
@@ -127,27 +127,33 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
         h("button", { className: "bees-btn", type: "submit", disabled: busy }, "Save limits"))) : null);
 }
 
+const blankInput = (field, values) => !field.required && !String(values[field.key] ?? "").trim();
+
 function InstalledApp({ app, busy, act, inputFields, openWorkItem, opened }) {
   const card = useRef(null);
   const [config, setConfig] = useState(app.config);
   useEffect(() => setConfig(app.config), [JSON.stringify(app.config)]);
   useEffect(() => { if (opened) { card.current?.scrollIntoView({ block: 'start' }); card.current?.focus({ preventScroll: true }); } }, [opened]);
+  const blank = (app.manifest.inputs ?? []).filter((field) => blankInput(field, app.config));
   return h("article", { ref: card, tabIndex: -1, className: "bees-box bees-stack" },
     h("strong", null, app.manifest.name), h("p", { className: "bees-muted" }, app.manifest.description),
     app.needsSetup ? h("p", { role: "status" }, "Needs setup — add the details below before running.") : null,
+    !app.needsSetup && blank.length ? h("p", { role: "status" }, `Blank settings: ${blank.map((field) => field.label).join(" · ")}. A blank setting changes what a run does; each field below says how.`) : null,
     h("div", { className: "bees-card-actions" },
       h(Button, { primary: true, disabled: busy || app.status !== "active" || app.needsSetup, onClick: async () => {
         const result = await act({ action: "run", installationId: app.id }); if (result?.id) openWorkItem(result.id);
       } }, "Run once"),
       app.status === "installing" ? h(Button, { disabled: busy, onClick: () => act({ action: "repair", installationId: app.id }) }, "Repair installation") : null),
-    h("details", { open: Boolean(opened || app.needsSetup) || undefined }, h("summary", null, "Settings"),
+    h("details", { open: Boolean(opened || app.needsSetup || blank.length) || undefined },
+      h("summary", null, blank.length ? `Settings · ${blank.length} blank` : "Settings"),
       h("form", { className: "bees-stack", onSubmit: (event) => { event.preventDefault(); void act({ action: "configure", installationId: app.id, config }); } },
-        ...inputFields(app.manifest, config, setConfig), h("button", { type: "submit", className: "bees-btn", disabled: busy }, "Save settings")),
+        ...inputFields(app.manifest, config, setConfig), h("button", { type: "submit", className: "bees-btn", disabled: busy }, "Save settings"))),
+    h("details", null, h("summary", null, "Version and removal"),
       h("p", { className: "bees-muted" }, `Version ${app.version}. Schedules are off on installation. After a successful run, use its existing Bees schedule controls. Pause schedules and finish or cancel work before removal. Records, uncertain action history and its commitments are retained.`),
       h(Button, { disabled: busy, onClick: () => act({ action: "remove", installationId: app.id }) }, "Remove app; keep data")));
 }
 
-function AppRecords({ apps, act, busy, openWorkItem }) {
+function AppRecords({ apps, recordCounts, act, busy, openWorkItem }) {
   const [installationId, setInstallationId] = useState("");
   const [kind, setKind] = useState(""); const [query, setQuery] = useState("");
   const [page, setPage] = useState(null); const [selected, setSelected] = useState(null);
@@ -157,6 +163,8 @@ function AppRecords({ apps, act, busy, openWorkItem }) {
   const pendingLoad = useRef(false);
   const app = apps.find((entry) => entry.id === installationId);
   const definition = app?.manifest.recordTypes?.find((record) => record.key === kind);
+  const counts = {}; let held = 0;
+  for (const row of recordCounts ?? []) if (row.installation_id === installationId) { counts[row.kind] = row.n; held += row.n; }
   useEffect(() => {
     if (!apps.some((entry) => entry.id === installationId)) setInstallationId(apps[0]?.id ?? "");
   }, [apps.map((entry) => entry.id).join(","), installationId]);
@@ -191,9 +199,11 @@ function AppRecords({ apps, act, busy, openWorkItem }) {
     h("p", { className: "bees-muted" }, "Each app defines its own fields. Imported or manually edited records are not verified source evidence, approvals or delivery receipts."),
     h("label", null, "App", h("select", { className: "bees-input", value: installationId, onChange: (event) => { setInstallationId(event.target.value); setKind(""); setQuery(""); setImportText(""); } },
       h("option", { value: "" }, "Choose an app"), ...apps.map((entry) => h("option", { key: entry.id, value: entry.id }, entry.manifest.name)))),
+    app ? h("div", { className: "bees-card-actions" },
+      h(Button, { primary: kind === "", onClick: () => setKind("") }, `Everything · ${held}`),
+      ...(app.manifest.recordTypes ?? []).map((record) => h(Button, { key: record.key, primary: kind === record.key, onClick: () => setKind(record.key) },
+        `${record.label} · ${counts[record.key] ?? 0}`))) : null,
     app ? h("form", { className: "bees-card-actions", onSubmit: (event) => { event.preventDefault(); void load(); } },
-      h("label", null, "Record type", h("select", { className: "bees-input", value: kind, onChange: (event) => setKind(event.target.value) },
-        h("option", { value: "" }, "All types"), ...(app.manifest.recordTypes ?? []).map((record) => h("option", { key: record.key, value: record.key }, record.label)))),
       h("label", null, "Search fields and notes", h("input", { className: "bees-input", value: query, maxLength: 1000, onChange: (event) => setQuery(event.target.value) })),
       h("button", { className: "bees-btn", disabled: busy }, "Search / refresh")) : null,
     page ? h("div", { style: { overflowX: "auto" } },

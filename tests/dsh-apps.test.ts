@@ -502,6 +502,6 @@ it("renders a small empty UI without starting any work", () => {
   expect(markup).toContain("App directory");
   expect(markup).not.toContain('type="file"');
   expect(markup).not.toContain('Local workspaces only');
-  expect(markup).toContain("no sending or paid execution");
+  expect(markup).toContain("no account connector is configured");
   expect(markup).not.toContain("ACCOUNT-001");
 });
