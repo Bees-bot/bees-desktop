@@ -86,7 +86,7 @@ it("keeps MCP access compact unless selected servers need configuring", () => {
 
   expect(render({ access: "all" })).toContain("1 MCP connected");
   expect(render({ access: "none" })).toContain('data-mcp-mode="none"');
-  const selected = render({ access: "listed", chosen: ["news-id"] });
+  const selected = render({ access: "listed", chosen: ["news"] });
   expect(selected).toContain("Search MCPs or tools");
   expect(selected).toContain("bees-mcp-card added");
   expect(selected).toContain("search");
@@ -263,7 +263,7 @@ it.each(["provider/model", null])("carries Ask model %s and tool access through 
       { action: "create_recurring_work", item: "Brief", name: "Daily brief", frequency: "daily", hour: 9 }
     ])
   }, { agent: { session: { id: "ask-session" } } });
-  const settings = { ...(model ? { model, reasoningEffort: "high" } : {}), mcpAccess: "listed", mcpServers: ["news-id"] };
+  const settings = { ...(model ? { model, reasoningEffort: "high" } : {}), mcpAccess: "listed", mcpServers: ["news"] };
   const stored = JSON.parse(database.prepare("SELECT changes_json AS changes FROM bees_proposals WHERE id = ?").get(proposal.id)!.changes as string);
   expect(stored[0].runSettings).toEqual(settings);
   const applied = await product.command({ action: "apply_proposal", proposalId: proposal.id });

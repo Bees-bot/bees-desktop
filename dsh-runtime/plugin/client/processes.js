@@ -15,7 +15,25 @@ const PROCESS_DETAIL_LAYOUT = [
   { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
 ];
 
-function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Servers an agent lists that this computer never installed, so its runs are refused here. */
+function missingServers(agent, servers) {
+  if (agent?.mcpAccess !== "listed") return [];
+  return (agent.mcpServers ?? []).filter((name) => !servers.some((server) => server.serverName === name));
+}
+
+function needsNote(agent, servers) {
+  const missing = missingServers(agent, servers);
+  if (!missing.length) return null;
+  const named = missing.filter((name) => !UUID.test(name));
+  return h("div", { className: "bees-error", style: { fontSize: "12px", marginTop: "2px" } },
+    named.length
+      ? `Needs ${named.join(", ")}, not set up on this computer. Runs stop here until you add ${named.length === 1 ? "it" : "them"} under Configure.`
+      : "Lists MCP servers that were removed. Runs stop here until you pick its MCP servers again under Configure.");
+}
+
+function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
   const ids = stage.agentIds ?? [];
   const [nextId, setNextId] = useState("");
   useEffect(() => { if (ids.includes(nextId)) setNextId(""); }, [JSON.stringify(ids)]);
@@ -34,12 +52,13 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
   return h("div", { className: "bees-form", style: { marginTop: "8px" } },
     fallback ? h("div", { className: "bees-row" },
       h("div", { className: "bees-row-main" }, h("strong", null, fallback.name),
-        h("span", { className: "bees-muted" }, " · Automatic lead")),
+        h("span", { className: "bees-muted" }, " · Automatic lead"), needsNote(fallback, servers)),
       h(Button, { onClick: () => onOpenAgent(fallback.id) }, "Configure")) : null,
     ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
       h("div", { className: "bees-row-main" },
         h("strong", null, agent.name),
-        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Lead" : " · Assigned agent") : " · Participant")),
+        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Lead" : " · Assigned agent") : " · Participant"),
+        needsNote(agent, servers)),
       h(Button, { onClick: () => onOpenAgent(agent.id) }, "Configure"),
       h(Button, { disabled: index === 0, onClick: () => move(index, -1), title: "Move earlier" }, "↑"),
       h(Button, { disabled: index === ids.length - 1, onClick: () => move(index, 1), title: "Move later" }, "↓"),
@@ -58,7 +77,7 @@ function StageAgentRoute({ stage, agents, act, onOpenAgent, onCreateAgent }) {
   );
 }
 
-export function ProcessRoutingBoard({ stages, agents, act, onOpenAgent, onCreateAgent }) {
+export function ProcessRoutingBoard({ stages, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
   return h("div", { className: "bees-cockpit-board bees-routing-board" }, ...stages.map((stage) =>
     h("section", { className: "bees-column", key: stage.id },
       h("header", { className: "bees-column-head" }, stage.name),
@@ -68,7 +87,7 @@ export function ProcessRoutingBoard({ stages, agents, act, onOpenAgent, onCreate
             h("span", { className: "bees-badge" }, stage.driver === "terminal" ? "Terminal" : "Human"),
             h("p", { className: "bees-muted", style: { marginTop: "8px" } },
               stage.driver === "terminal" ? "Work completes here." : "A person moves work through this stage."))
-          : h(StageAgentRoute, { stage, agents, act, onOpenAgent,
+          : h(StageAgentRoute, { stage, agents, servers, act, onOpenAgent,
             onCreateAgent: () => onCreateAgent(stage.id) })))));
 }
 
@@ -215,7 +234,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       const creatingStage = processStages.find(({ id }) => id === creatingStageId);
       
       const routingBoard = h(ProcessRoutingBoard, {
-        stages: processStages, agents: processAgents, act,
+        stages: processStages, agents: processAgents, servers, act,
         onOpenAgent: (id) => { setCreatingStageId(""); setSelectedAgentId(id); },
         onCreateAgent: (id) => { setSelectedAgentId(""); setCreatingStageId(id); }
       });
