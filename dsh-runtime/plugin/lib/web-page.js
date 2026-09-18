@@ -11,7 +11,7 @@ const unescape = (text) => text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]
 }).trim();
 const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
-const readable = (body) => {
+export const readable = (body) => {
   const content = body.kind === "html" ? unescape(body.content
     .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^<>]*>/g, " "))
     .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;

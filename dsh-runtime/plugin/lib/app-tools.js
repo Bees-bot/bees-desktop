@@ -1,5 +1,15 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { APP_TOOLS, appToolDenial } from "./app-contract.js";
+import { readable } from "./web-page.js";
+
+// json and atom bodies open with { [ or <?xml, so only a real page matches
+const isHtml = (text) => /^\s*(?:<!doctype html|<html\b)/i.test(text);
+// fetched bytes reach the model through these two tools only, and a page is mostly markup;
+// the receipt row still keeps the whole body for the human
+const shrink = (body) => typeof body?.content !== "string" ? body
+  : { ...body, content: readable({ kind: isHtml(body.content) ? "html" : "text", content: body.content }) };
+const evidence = (name, result) => name === "bees_app_source" ? shrink(result)
+  : name === "bees_app_receipt" ? { ...result, result: shrink(result.result) } : result;
 
 export function mountAppTools(agentCtx, platform, app, data) {
   const reviewer = data.stagePurpose === "reviewer";
@@ -16,7 +26,7 @@ export function mountAppTools(agentCtx, platform, app, data) {
       const result = name === 'bees_app_source'
         ? await run(app, args, exec)
         : await platform.useApp(app, data.workItemId, !['bees_app_read', 'bees_app_query', 'bees_app_receipt'].includes(name), (current) => run(current, args, exec));
-      return { result: JSON.stringify(result) };
+      return { result: JSON.stringify(evidence(name, result)) };
     }
   }));
   const string = { type: "string", required: true };
