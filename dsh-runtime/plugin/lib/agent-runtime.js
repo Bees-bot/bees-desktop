@@ -219,6 +219,9 @@ const STAGE_RESULT_COLUMNS = `
         summary TEXT NOT NULL,
         created_at TEXT NOT NULL
       ) STRICT;`;
+/** A tool result names the call it answers in one of two shapes, depending on the provider. */
+const resultCallId = (data) => String(data?.message?.source?.callId ?? data?.message?.content?.[0]?.toolCallId ?? "");
+
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
@@ -228,7 +231,7 @@ function reviewTimeline(events) {
         tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
     }
     if (event.type === "tool/result") {
-      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
+      const callId = resultCallId(event.data);
       return calls.has(callId) ? [{ seq: event.seq, time: event.time, type: event.type,
         callId, error: Boolean(event.data.error), detail: excerpt(event.data.message?.content) }] : [];
     }
@@ -337,9 +340,9 @@ function eventsToConversation(events, settlements) {
         parts: [part],
         metadata: { timestamp: event.time }
       });
-      calls.set(event.data.callId, part);
+      calls.set(String(event.data.callId), part);
     } else if (event.type === "tool/result") {
-      const part = calls.get(event.data.message.source?.callId ?? event.data.message.content?.[0]?.toolCallId);
+      const part = calls.get(resultCallId(event.data));
       if (part) {
         part.state = event.data.error ? "output-error" : "output-available";
         part.output = textBlocks(event.data.message.content).join("\n") || event.data.message.content;
@@ -402,7 +405,7 @@ export function recoveryToolContext(events, pending, ownerChecked = false) {
   for (const event of events) {
     if (event.type === "tool/call") calls.set(String(event.data.callId), { ...event.data, seq: event.seq });
     if (event.type === "tool/result") {
-      const id = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
+      const id = resultCallId(event.data);
       const call = calls.get(id);
       if (call) call.result = event.data;
     }
@@ -777,8 +780,8 @@ export class AgentRuntime {
     const live = this.live.get(executionId);
     if (live) {
       live.lastEventAt = Date.now();
-      if (event.type === "tool/call") live.openTool = true;
-      else if (event.type === "tool/result" && event.surfaceOp?.op !== "replace") live.openTool = false;
+      if (event.type === "tool/call") live.openTools.add(String(event.data.callId));
+      else if (event.type === "tool/result" && event.surfaceOp?.op !== "replace") live.openTools.delete(resultCallId(event.data));
     }
     this.notify({ type: event.type, executionId, sessionId, seq: event.seq });
     // History projections are not another tool execution or human decision.
@@ -842,7 +845,7 @@ export class AgentRuntime {
       return;
     }
     if (event.type === "tool/result") {
-      const callId = String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "");
+      const callId = resultCallId(event.data);
       const pending = this.pendingInteraction(executionId);
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.error;
@@ -1880,7 +1883,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now(), openTool: false });
+    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
@@ -2014,7 +2017,7 @@ export class AgentRuntime {
       const live = this.live.get(executionId);
       // A tool that has not returned may be waiting on a person or on a peer, and a question
       // re-presented after a restart sends nothing either. Only a silently generating turn stalls.
-      const waiting = live?.openTool || this.pendingInteraction(executionId);
+      const waiting = live?.openTools.size || this.pendingInteraction(executionId);
       if (!waiting && Date.now() - (live?.lastEventAt ?? Date.now()) > RUN_STALL_MS)
         throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
     }
@@ -2268,16 +2271,5 @@ export class AgentRuntime {
     live.approvalAbort.abort();
     live.handle.agent.cancel({ kind: "user" });
     return true;
-  }
-
-  async purge(executionId) {
-    const live = this.live.get(executionId);
-    if (live) {
-      live.approvalAbort.abort();
-      live.handle.agent.cancel({ kind: "disposed" });
-      await live.handle.dispose();
-      this.live.delete(executionId);
-    }
-    this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
   }
 }
