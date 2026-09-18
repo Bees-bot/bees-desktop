@@ -57,7 +57,7 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
     !workspaceId ? h("p", null, "Choose a workspace to install apps.") : null,
     workspaceId ? h("section", { className: "bees-box bees-stack" },
       h("h2", null, "Your apps"),
-      ...(view?.apps ?? []).filter((app) => app.status !== "removed").map((app) => h(InstalledApp, { key: app.id, app, busy, act, inputFields, openWorkItem, opened: opened?.id === app.id ? opened.revision : 0 })),
+      ...(view?.apps ?? []).filter((app) => app.status !== "removed").map((app) => h(InstalledApp, { key: app.id, app, busy, act, inputFields, openWorkItem, runsLeft: view.portfolio.runsLeft, opened: opened?.id === app.id ? opened.revision : 0 })),
       view && !view.apps.some((app) => app.status !== "removed") ? h("p", { className: "bees-muted" }, "Choose an app from the directory below.") : null) : null,
     view ? h("section", { className: "bees-box bees-stack" },
       h("h2", null, "Needs your review"),
@@ -122,14 +122,14 @@ export function AppsPage({ workspaceId, connectionId = '', openWorkItem }) {
         void act({ action: "portfolio", goal: form.get("goal"), capCents: Math.round(Number(form.get("cap")) * 100), maxRuns: Number(form.get("runs")) });
       } }, h("label", null, "Shared goal", h("textarea", { className: "bees-textarea", name: "goal", maxLength: 4000, defaultValue: view.portfolio.goal })),
         h("label", null, "Commitment cap (USD; does not cap model charges)", h("input", { className: "bees-input", name: "cap", type: "number", min: 0, step: "0.01", required: true, defaultValue: view.portfolio.cap_cents / 100 })),
-        h("label", null, "New app work items per UTC day, shared across apps", h("input", { className: "bees-input", name: "runs", type: "number", min: 1, max: 50, required: true, defaultValue: view.portfolio.max_runs })),
+        h("label", null, "New app work items per UTC day, shared across apps", h("small", { className: "bees-muted" }, `${Math.max(view.portfolio.runsLeft, 0)} left today; the count resets at UTC midnight.`), h("input", { className: "bees-input", name: "runs", type: "number", min: 1, max: 50, required: true, defaultValue: view.portfolio.max_runs })),
         h("p", null, `${dollars(view.reservedCents)} committed across approved, in-flight, accepted or uncertain actions. Model charges are separate.`),
         h("button", { className: "bees-btn", type: "submit", disabled: busy }, "Save limits"))) : null);
 }
 
 const blankInput = (field, values) => !field.required && !String(values[field.key] ?? "").trim();
 
-function InstalledApp({ app, busy, act, inputFields, openWorkItem, opened }) {
+function InstalledApp({ app, busy, act, inputFields, openWorkItem, runsLeft, opened }) {
   const card = useRef(null);
   const [config, setConfig] = useState(app.config);
   useEffect(() => setConfig(app.config), [JSON.stringify(app.config)]);
@@ -140,9 +140,9 @@ function InstalledApp({ app, busy, act, inputFields, openWorkItem, opened }) {
     app.needsSetup ? h("p", { role: "status" }, "Needs setup — add the details below before running.") : null,
     !app.needsSetup && blank.length ? h("p", { role: "status" }, `Blank settings: ${blank.map((field) => field.label).join(" · ")}. A blank setting changes what a run does; each field below says how.`) : null,
     h("div", { className: "bees-card-actions" },
-      h(Button, { primary: true, disabled: busy || app.status !== "active" || app.needsSetup, onClick: async () => {
+      h(Button, { primary: true, disabled: busy || app.status !== "active" || app.needsSetup || runsLeft <= 0, onClick: async () => {
         const result = await act({ action: "run", installationId: app.id }); if (result?.id) openWorkItem(result.id);
-      } }, "Run once"),
+      } }, runsLeft <= 0 ? "No runs left today" : "Run once"),
       app.status === "installing" ? h(Button, { disabled: busy, onClick: () => act({ action: "repair", installationId: app.id }) }, "Repair installation") : null),
     h("details", { open: Boolean(opened || app.needsSetup || blank.length) || undefined },
       h("summary", null, blank.length ? `Settings · ${blank.length} blank` : "Settings"),

@@ -286,8 +286,7 @@ it('shares installations, records and approvals between distinct devices and rej
   expect(decisions.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   const shared = await b.apps.view(wb); expect(shared.reservedCents).toBe(60);
   expect(shared.actions.find((d: any) => d.status === 'approved').decided_by).toMatch(/^human-/);
-  const next = await b.apps.command({ action: 'run', workspaceId: wb, installationId: install.id });
-  await expect(b.apps.executionContext(next.id)).rejects.toThrow('daily app-run limit');
+  await expect(b.apps.command({ action: 'run', workspaceId: wb, installationId: install.id })).rejects.toThrow('app-run limit');
   b.db.prepare("UPDATE work_items SET runtime_phase='completed'").run(); rejectWrites = true;
   await expect(b.apps.command({ action: 'remove', workspaceId: wb, installationId: install.id })).rejects.toThrow('Server rejected');
   expect(b.apps.installation(install.id).status).toBe('active');
@@ -370,8 +369,11 @@ it("caps native work admission across apps while allowing retries of the same it
   const s = setup(); const installed = await s.install();
   await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 1 });
   const first = await s.run(installed.id); s.apps.context(first.id); s.apps.context(first.id);
+  await expect(s.run(installed.id)).rejects.toThrow("app-run limit");
+  await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 2 });
   const second = await s.run(installed.id);
-  expect(() => s.apps.context(second.id)).toThrow("daily app-run limit");
+  await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 1 });
+  expect(() => s.apps.context(second.id)).toThrow("app-run limit");
 });
 
 it("binds human decisions to immutable drafts and reserves shared budget atomically", async () => {

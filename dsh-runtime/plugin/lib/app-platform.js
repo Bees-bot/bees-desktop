@@ -12,6 +12,7 @@ const bounded = (value, name, max = 8000) => {
 };
 const amount = (n) => { if (!Number.isSafeInteger(n) || n < 0) throw new Error("Use nonnegative integer USD cents"); return n; };
 const recordRow = (row) => ({ ...row, data: JSON.parse(row.data ?? "{}"), evidence: JSON.parse(row.evidence) });
+const runLimitReached = 'Daily app-run limit reached. Raise "New app work items per UTC day" under Portfolio goal and limits, or wait for the UTC day to change.';
 const APP_STAGES = [{ name: "Work", driver: "agent" }, { name: "Review", driver: "review" }, { name: "Done", driver: "terminal" }];
 
 /** Generic installation and portfolio storage, not marketing tables. No package code loads here. */
@@ -146,7 +147,7 @@ export class AppPlatform {
     const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND (x.status IN ('draft','approved','executing','unknown') OR x.id IN (SELECT y.id FROM app_actions y JOIN app_installations b ON b.id=y.installation_id WHERE b.workspace_id=? AND y.status NOT IN ('draft','approved','executing','unknown') ORDER BY y.created_at DESC LIMIT 100)) ORDER BY CASE WHEN x.status IN ('draft','approved','executing','unknown') THEN 0 ELSE 1 END,x.created_at DESC`).all(workspaceId, workspaceId)
       .map((r) => ({ ...r, payload: JSON.parse(r.payload), execution: JSON.parse(r.execution) }));
     const connector = this.connectorFor(workspaceId, actor);
-    return { apps, records, recordCounts, actions, portfolio: this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId),
+    return { apps, records, recordCounts, actions, portfolio: { ...this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId), runsLeft: this.runsLeft(workspaceId) },
       reservedCents: this.reserved(workspaceId), sendingEnabled: Boolean(connector), connectors: connector ? [{ id: connector.id, account: connector.account }] : [], modelCost: null };
   }
 
@@ -331,6 +332,7 @@ export class AppPlatform {
     }
     if (action === "run") {
       appConfig(app.manifest, app.config);
+      if (this.runsLeft(workspaceId) <= 0) throw new Error(runLimitReached);
       // Native work and recurrence retain the same process. Runtime admission also checks limits.
       // the agent gets the task as its instructions and the config from bees_app_read, so the description stays readable
       return this.product.command({ action: "create_item", processId: app.process_id, title: app.manifest.name,
@@ -338,6 +340,11 @@ export class AppPlatform {
         runSettings: { mcpAccess: "none", mcpServers: [] } });
     }
     throw new Error("Unsupported app operation");
+  }
+
+  runsLeft(workspaceId) {
+    return this.db.prepare("SELECT max_runs FROM app_portfolios WHERE workspace_id=?").get(workspaceId).max_runs
+      - this.db.prepare(`SELECT COUNT(*) AS n FROM app_admissions r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? AND r.day=?`).get(workspaceId, iso().slice(0, 10)).n;
   }
 
   context(itemId) {
@@ -350,9 +357,7 @@ export class AppPlatform {
     const day = iso().slice(0, 10);
     transaction(this.db, () => {
       if (this.db.prepare("SELECT 1 FROM app_admissions WHERE item_id=?").get(itemId)) return;
-      const max = this.db.prepare("SELECT max_runs FROM app_portfolios WHERE workspace_id=?").get(app.workspace_id).max_runs;
-      const used = this.db.prepare(`SELECT COUNT(*) AS n FROM app_admissions r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? AND r.day=?`).get(app.workspace_id, day).n;
-      if (used >= max) throw new Error("Portfolio daily app-run limit reached (UTC)");
+      if (this.runsLeft(app.workspace_id) <= 0) throw new Error(runLimitReached);
       this.db.prepare("INSERT INTO app_admissions VALUES (?,?,?,?)").run(itemId, app.id, day, JSON.stringify(app.config));
     });
     return { ...app, accountUserId: row.account_user_id, config: JSON.parse(this.db.prepare("SELECT config FROM app_admissions WHERE item_id=?").get(itemId).config) };
