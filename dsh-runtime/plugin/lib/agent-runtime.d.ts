@@ -43,5 +43,4 @@ export declare class AgentRuntime {
   workResult(workItemId: string, evidenceOffset?: number): Promise<Record<string, unknown>>;
   reviewEvidence(executionId: string): Promise<Record<string, unknown>>;
   abort(executionId: string): boolean;
-  purge(executionId: string): Promise<void>;
 }

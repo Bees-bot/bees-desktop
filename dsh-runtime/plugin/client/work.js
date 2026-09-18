@@ -119,7 +119,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
           : h("p", { className: "bees-muted" }, "No learned guidance yet; this specialist currently behaves like its base agent."),
         h("div", { className: "bees-detail-actions" },
           h(Button, { onClick: async () => {
-            const playbook = await ask("Edit specialist playbook", specialist.playbook);
+            const playbook = await ask("Edit specialist playbook", specialist.playbook, "textarea");
             if (playbook !== null) await act({ action: "edit_specialist_playbook", specializationId: specialist.id, playbook });
           } }, "Edit"),
           h(Button, { disabled: specialist.revision < 1, onClick: () => act({ action: "undo_specialist_playbook", specializationId: specialist.id }) }, "Undo"),
@@ -234,14 +234,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   useEffect(() => { isScrolledUpRef.current = false; }, [item.id]);
   const edit = async () => { /* reuse edit logic */
     const title = await ask("Work title", item.title); if (!title) return;
-    const description = await ask("Description", item.description) ?? item.description;
+    const description = await ask("Description", item.description, "textarea") ?? item.description;
     const owner = await ask("Person responsible (optional)", item.owner ?? "") ?? item.owner ?? "";
     await act({ action: "edit_item", itemId: item.id, title, description, owner,
       priority: item.priority, parentId: item.parentId });
   };
   const addSubitem = async () => {
     const title = await ask("Delegated work title", ""); if (!title) return;
-    const description = await ask("What does success look like?", "") ?? "";
+    const description = await ask("What does success look like?", "", "textarea") ?? "";
     await act({ action: "create_item", processId: item.processId, parentId: item.id, title, description });
   };
   const publish = async () => {
@@ -813,15 +813,13 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
       }),
-      (question.options ?? []).length ? h("input", {
-        className: "bees-input", type: "text", value: draft.custom, disabled: busy,
-        placeholder: question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer",
-        onChange: custom, onKeyDown: (event) => {
-          if (event.key === "Enter" && !event.nativeEvent?.isComposing) { event.preventDefault(); continueFlow(); }
-        }
-      }) : h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy, ref: focusWithoutScroll,
-        placeholder: "Type your answer", onChange: custom,
+      h("textarea", {
+        className: "bees-textarea", value: draft.custom, disabled: busy,
+        ...( (question.options ?? []).length ? {} : { ref: focusWithoutScroll } ),
+        placeholder: (question.options ?? []).length 
+          ? (question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer") 
+          : "Type your answer",
+        onChange: custom,
         onKeyDown: (event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); continueFlow(); }
         }

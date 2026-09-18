@@ -18,3 +18,4 @@ coverage/
 services/api-bridge/bridge.mjs
 .playwright-cli/
 graphify-out/
+CLAUDE.md

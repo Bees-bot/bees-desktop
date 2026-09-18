@@ -44,7 +44,7 @@ function setup(connected?: any, connector?: any) {
   return { db, apps, runtime, product, processes, fetcher, workspaceId, install, run };
 }
 
-it('installs before configuration but cannot run until required setup is saved; updates retain data and revoke old processes', async () => {
+it('installs before configuration but cannot run until required setup is saved; updates rewrite the app in place', async () => {
   const s = setup();
   const first = await s.apps.command({ action: 'install', workspaceId: s.workspaceId, manifest });
   expect(s.apps.snapshot(s.workspaceId).apps[0].needsSetup).toBe(true);
@@ -53,12 +53,13 @@ it('installs before configuration but cannot run until required setup is saved; 
   const work = await s.run(first.id); const app = s.apps.context(work.id);
   s.apps.record(app, work.id, { key: 'kept', kind: 'finding', title: 'Test', body: 'Keep me' });
   const update = () => s.apps.command({ action: 'update', workspaceId: s.workspaceId, installationId: first.id, manifest: { ...manifest, version: '0.2.0' } });
-  await expect(update()).rejects.toThrow('active work');
+  await expect(update()).rejects.toThrow('active automatic work');
   s.db.prepare("UPDATE work_items SET runtime_phase='completed' WHERE id=?").run(work.id);
-  const updated = await update(); expect(updated.id).toBe(first.id); expect(updated.processId).not.toBe(first.processId);
+  const updated = await update(); expect(updated.id).toBe(first.id); expect(updated.processId).toBe(first.processId);
   expect(s.apps.snapshot(s.workspaceId).records).toHaveLength(1);
   expect(s.apps.installation(first.id).config.topic).toBe('Configured');
-  expect(() => s.apps.context(work.id)).toThrow('older app version');
+  expect(s.apps.installation(first.id).version).toBe('0.2.0');
+  expect(s.apps.context(work.id).id).toBe(first.id);
 });
 
 const structuredManifest = { ...manifest, schemaVersion: 2,
@@ -285,8 +286,7 @@ it('shares installations, records and approvals between distinct devices and rej
   expect(decisions.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   const shared = await b.apps.view(wb); expect(shared.reservedCents).toBe(60);
   expect(shared.actions.find((d: any) => d.status === 'approved').decided_by).toMatch(/^human-/);
-  const next = await b.apps.command({ action: 'run', workspaceId: wb, installationId: install.id });
-  await expect(b.apps.executionContext(next.id)).rejects.toThrow('daily app-run limit');
+  await expect(b.apps.command({ action: 'run', workspaceId: wb, installationId: install.id })).rejects.toThrow('app-run limit');
   b.db.prepare("UPDATE work_items SET runtime_phase='completed'").run(); rejectWrites = true;
   await expect(b.apps.command({ action: 'remove', workspaceId: wb, installationId: install.id })).rejects.toThrow('Server rejected');
   expect(b.apps.installation(install.id).status).toBe('active');
@@ -369,8 +369,11 @@ it("caps native work admission across apps while allowing retries of the same it
   const s = setup(); const installed = await s.install();
   await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 1 });
   const first = await s.run(installed.id); s.apps.context(first.id); s.apps.context(first.id);
+  await expect(s.run(installed.id)).rejects.toThrow("app-run limit");
+  await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 2 });
   const second = await s.run(installed.id);
-  expect(() => s.apps.context(second.id)).toThrow("daily app-run limit");
+  await s.apps.command({ action: "portfolio", workspaceId: s.workspaceId, goal: "Learn", capCents: 0, maxRuns: 1 });
+  expect(() => s.apps.context(second.id)).toThrow("app-run limit");
 });
 
 it("binds human decisions to immutable drafts and reserves shared budget atomically", async () => {
@@ -501,6 +504,6 @@ it("renders a small empty UI without starting any work", () => {
   expect(markup).toContain("App directory");
   expect(markup).not.toContain('type="file"');
   expect(markup).not.toContain('Local workspaces only');
-  expect(markup).toContain("no sending or paid execution");
+  expect(markup).toContain("no account connector is configured");
   expect(markup).not.toContain("ACCOUNT-001");
 });

@@ -11,13 +11,14 @@ const unescape = (text) => text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]
 }).trim();
 const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
-const readable = (body) => {
+export const readable = (body, max = MAX_CHARS) => {
   const content = body.kind === "html" ? unescape(body.content
     .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ").replace(/<[^<>]*>/g, " "))
     .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim() : body.content;
-  return content.length > MAX_CHARS
-    ? `${content.slice(0, MAX_CHARS)}\n[Page text truncated at ${MAX_CHARS} characters; omitted text was not inspected.]`
-    : content;
+  // keep the end as well: a discussion's later replies and a document's conclusion live there
+  const head = Math.floor(max * 0.7);
+  return content.length <= max ? content
+    : `${content.slice(0, head)}\n[${content.length - max} characters omitted from the middle and not inspected.]\n${content.slice(head - max)}`;
 };
 
 function newsItems(xml) {

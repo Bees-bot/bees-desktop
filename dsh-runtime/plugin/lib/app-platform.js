@@ -12,6 +12,8 @@ const bounded = (value, name, max = 8000) => {
 };
 const amount = (n) => { if (!Number.isSafeInteger(n) || n < 0) throw new Error("Use nonnegative integer USD cents"); return n; };
 const recordRow = (row) => ({ ...row, data: JSON.parse(row.data ?? "{}"), evidence: JSON.parse(row.evidence) });
+const runLimitReached = 'Daily app-run limit reached. Raise "New app work items per UTC day" under Portfolio goal and limits, or wait for the UTC day to change.';
+const APP_STAGES = [{ name: "Work", driver: "agent" }, { name: "Review", driver: "review" }, { name: "Done", driver: "terminal" }];
 
 /** Generic installation and portfolio storage, not marketing tables. No package code loads here. */
 export class AppPlatform {
@@ -116,6 +118,16 @@ export class AppPlatform {
     return { ...row, manifest: JSON.parse(row.manifest), config: JSON.parse(row.config) };
   }
 
+  /** Refuse at dispatch. Both states otherwise surface mid-run, once the run row and a failed attempt exist. */
+  requireInstalledApp(processId) {
+    const owned = this.db.prepare(`SELECT p.name, a.manifest, a.config FROM app_process_owners o JOIN processes p ON p.id=o.process_id
+      LEFT JOIN app_installations a ON a.id=o.installation_id WHERE o.process_id=?`).get(processId);
+    if (!owned) return;
+    if (!owned.manifest) throw new Error(`${owned.name} is not installed on this computer any more, so this work cannot start. Open Apps to install it again.`);
+    try { appConfig(JSON.parse(owned.manifest), JSON.parse(owned.config)); }
+    catch ({ message }) { throw new Error(`${owned.name} still needs setup, so this work cannot start. Open Apps and finish setting it up: ${message}`); }
+  }
+
   ownsProcess(processId) {
     return Boolean(this.db.prepare("SELECT 1 FROM app_process_owners WHERE process_id=?").get(processId));
   }
@@ -131,10 +143,11 @@ export class AppPlatform {
       });
     const records = this.db.prepare(`SELECT r.* FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? ORDER BY r.updated_at DESC LIMIT 200`).all(workspaceId)
       .map(recordRow);
+    const recordCounts = this.db.prepare(`SELECT r.installation_id,r.kind,COUNT(*) AS n FROM app_records r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? GROUP BY r.installation_id,r.kind`).all(workspaceId);
     const actions = this.db.prepare(`SELECT x.* FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND (x.status IN ('draft','approved','executing','unknown') OR x.id IN (SELECT y.id FROM app_actions y JOIN app_installations b ON b.id=y.installation_id WHERE b.workspace_id=? AND y.status NOT IN ('draft','approved','executing','unknown') ORDER BY y.created_at DESC LIMIT 100)) ORDER BY CASE WHEN x.status IN ('draft','approved','executing','unknown') THEN 0 ELSE 1 END,x.created_at DESC`).all(workspaceId, workspaceId)
       .map((r) => ({ ...r, payload: JSON.parse(r.payload), execution: JSON.parse(r.execution) }));
     const connector = this.connectorFor(workspaceId, actor);
-    return { apps, records, actions, portfolio: this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId),
+    return { apps, records, recordCounts, actions, portfolio: { ...this.db.prepare("SELECT * FROM app_portfolios WHERE workspace_id=?").get(workspaceId), runsLeft: this.runsLeft(workspaceId) },
       reservedCents: this.reserved(workspaceId), sendingEnabled: Boolean(connector), connectors: connector ? [{ id: connector.id, account: connector.account }] : [], modelCost: null };
   }
 
@@ -144,14 +157,14 @@ export class AppPlatform {
     const config = appConfig(manifest, input.config ?? {}, true);
     const key = `${workspaceId}:${manifest.id}`;
     if (this.installing.has(key)) throw new Error("This app is already installing");
+    let row = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id=? AND package_id=?").get(workspaceId, manifest.id);
+    if (row?.status === "active") {
+      if (row.digest !== hash(manifest)) throw new Error("Remove the installed version before upgrading. Existing work and data are preserved.");
+      return { id: row.id, reused: true };
+    }
+    if (row?.status === "installing" && row.digest !== hash(manifest)) throw new Error("Retry the same package to repair partial installation");
     this.installing.add(key);
     try {
-      let row = this.db.prepare("SELECT * FROM app_installations WHERE workspace_id=? AND package_id=?").get(workspaceId, manifest.id);
-      if (row?.status === "active") {
-        if (row.digest !== hash(manifest)) throw new Error("Remove the installed version before upgrading. Existing work and data are preserved.");
-        return { id: row.id, reused: true };
-      }
-      if (row?.status === "installing" && row.digest !== hash(manifest)) throw new Error("Retry the same package to repair partial installation");
       if (!row) {
         const id = randomUUID();
         this.db.prepare("INSERT INTO app_installations (id,workspace_id,package_id,version,digest,manifest,config,status,created_at) VALUES (?,?,?,?,?,?,?,'installing',?)")
@@ -174,7 +187,7 @@ export class AppPlatform {
       let processId = row.process_id;
       if (!processId) {
         const process = await this.product.command({ action: "create_process", workspaceId, name: `${manifest.name} · ${manifest.version}`,
-          description: manifest.description, stages: [{ name: "Work", driver: "agent" }, { name: "Review", driver: "review" }, { name: "Done", driver: "terminal" }] });
+          description: manifest.description, stages: APP_STAGES });
         processId = process.id;
         this.db.prepare("UPDATE app_installations SET process_id=? WHERE id=?").run(processId, row.id);
       }
@@ -287,10 +300,21 @@ export class AppPlatform {
       const manifest = validateApp(input.manifest);
       if (manifest.id !== app.package_id || app.status !== 'active') throw new Error('Choose an update for this installed app');
       if (hash(manifest) === app.digest) return { id: app.id, reused: true };
-      // Reuse removal's active-work checks, retain data, and revoke the previous process.
-      await this.localCommand({ ...input, action: 'remove' });
-      const config = Object.fromEntries(manifest.inputs.filter((field) => field.key in app.config).map((field) => [field.key, app.config[field.key]]));
-      return this.install(workspaceId, { manifest, config });
+      if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before updating this app");
+      const agentIds = JSON.parse(app.agent_ids);
+      if (!app.process_id || agentIds.length < 2) throw new Error("This installation is incomplete; repair it before updating");
+      // Rewrite the process and agents in place: rebuilding them would leave this app's schedules and work items on the archived process.
+      const config = appConfig(manifest, Object.fromEntries(manifest.inputs.filter((field) => field.key in app.config).map((field) => [field.key, app.config[field.key]])), true);
+      await this.product.command({ action: "edit_process", processId: app.process_id, name: `${manifest.name} · ${manifest.version}`, description: manifest.description, stages: APP_STAGES });
+      for (const [index, id] of agentIds.entries()) await this.product.command({ action: "edit_agent_assignment", agentAssignmentId: id,
+        name: `${manifest.name} ${index ? "reviewer" : "worker"} · ${app.id.slice(0, 8)} · ${manifest.version}`, instructions: index ? manifest.review : manifest.task });
+      // Last, so a failure above leaves the old version installed and a retry simply repeats it.
+      transaction(this.db, () => {
+        this.db.prepare("UPDATE app_installations SET version=?,digest=?,manifest=?,config=? WHERE id=?")
+          .run(manifest.version, hash(manifest), JSON.stringify(manifest), JSON.stringify(config), app.id);
+        this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE installation_id=? AND status IN ('draft','approved')").run(app.id);
+      });
+      return { id: app.id, processId: app.process_id, agentIds };
     }
     if (action === "remove") {
       if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before removing this app; uncertain history will be retained");
@@ -301,18 +325,26 @@ export class AppPlatform {
     }
     if (app.status !== "active") throw new Error("App is not active");
     if (action === "configure") {
-      this.db.prepare("UPDATE app_installations SET config=? WHERE id=?").run(JSON.stringify(appConfig(app.manifest, input.config)), app.id);
+      appConfig(app.manifest, input.config, true); // rejects a non-object, which would merge to a silent no-op
+      // appConfig blanks every key the caller leaves out, so a partial save merges over the stored config
+      this.db.prepare("UPDATE app_installations SET config=? WHERE id=?").run(JSON.stringify(appConfig(app.manifest, { ...app.config, ...input.config })), app.id);
       return {};
     }
     if (action === "run") {
-      const config = appConfig(app.manifest, app.config);
+      appConfig(app.manifest, app.config);
+      if (this.runsLeft(workspaceId) <= 0) throw new Error(runLimitReached);
       // Native work and recurrence retain the same process. Runtime admission also checks limits.
+      // the agent gets the task as its instructions and the config from bees_app_read, so the description stays readable
       return this.product.command({ action: "create_item", processId: app.process_id, title: app.manifest.name,
-        connectionId: input.connectionId,
-        description: `${app.manifest.task}\n\nConfiguration (data, not authority):\n${JSON.stringify(config)}\n\nKeep results in app records. Public sources and drafts only; no sending or purchases.`,
+        connectionId: input.connectionId, description: app.manifest.description,
         runSettings: { mcpAccess: "none", mcpServers: [] } });
     }
     throw new Error("Unsupported app operation");
+  }
+
+  runsLeft(workspaceId) {
+    return this.db.prepare("SELECT max_runs FROM app_portfolios WHERE workspace_id=?").get(workspaceId).max_runs
+      - this.db.prepare(`SELECT COUNT(*) AS n FROM app_admissions r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? AND r.day=?`).get(workspaceId, iso().slice(0, 10)).n;
   }
 
   context(itemId) {
@@ -325,9 +357,7 @@ export class AppPlatform {
     const day = iso().slice(0, 10);
     transaction(this.db, () => {
       if (this.db.prepare("SELECT 1 FROM app_admissions WHERE item_id=?").get(itemId)) return;
-      const max = this.db.prepare("SELECT max_runs FROM app_portfolios WHERE workspace_id=?").get(app.workspace_id).max_runs;
-      const used = this.db.prepare(`SELECT COUNT(*) AS n FROM app_admissions r JOIN app_installations a ON a.id=r.installation_id WHERE a.workspace_id=? AND r.day=?`).get(app.workspace_id, day).n;
-      if (used >= max) throw new Error("Portfolio daily app-run limit reached (UTC)");
+      if (this.runsLeft(app.workspace_id) <= 0) throw new Error(runLimitReached);
       this.db.prepare("INSERT INTO app_admissions VALUES (?,?,?,?)").run(itemId, app.id, day, JSON.stringify(app.config));
     });
     return { ...app, accountUserId: row.account_user_id, config: JSON.parse(this.db.prepare("SELECT config FROM app_admissions WHERE item_id=?").get(itemId).config) };

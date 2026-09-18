@@ -31,7 +31,7 @@ it("marks page truncation explicitly", async () => {
     fetch: async ({ url }: any) => ({ url, statusCode: 200, body: { kind: "text", content: "x".repeat(21_000) } })
   });
   const result = await registered.get("bees_fetch_page").execute({ url: "https://example.com/" }, {});
-  expect(result.page).toContain("Page text truncated at 20000 characters");
+  expect(result.page).toContain("1000 characters omitted from the middle");
 });
 
 it.each(["https://example.com/", "https://www.example.com/"])("preserves redirect failures without retrying %s", async (url) => {
