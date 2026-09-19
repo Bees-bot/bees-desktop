@@ -1,26 +1,31 @@
-import { h, useEffect, useState } from "./runtime.js";
+import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
 import { ProcessListActions } from "./processes.js";
-import { AgentListActions } from "./agents.js";
+import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
-export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
+export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
+  const goals = data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities });
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
-    try {
-      const result = await act(workFromOutcome(outcome, { workspaceId }));
-      if (result?.id) { setOutcome(""); openWorkItem(result.id); }
-      else setError("Could not start this work. Please try again.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    // the preflight may hold this back and run it once the person has added what is missing
+    await guardRun(goals?.id, async () => {
+      try {
+        const result = await act(workFromOutcome(outcome, { workspaceId }));
+        if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+        else setError("Could not start this work. Please try again.");
+      } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    });
   });
-  return h("form", {
+  const form = h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
   },
@@ -43,8 +48,9 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
           busy ? "Starting…" : "Run using defaults"),
-        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced")))
-  );
+        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced"))));
+  // the dialog stays outside the form so a click inside it can never submit this one
+  return preflight ? h(React.Fragment, null, preflight, form) : form;
 }
 
 function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
@@ -208,7 +214,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
   const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
-  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue,
+  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue, capabilities,
     records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configureGoal: () => setSetup(true) };
 

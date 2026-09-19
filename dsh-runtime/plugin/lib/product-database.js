@@ -985,13 +985,13 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   // a server the person turned off here is skipped, as before
   const here = new Set(rows.map(({ name }) => name));
   const missing = allowed.filter((name) => !here.has(name));
-  // a leftover row id names a server that was removed, so there is no name left to show for it
+  // a row id left from another computer, or from a server that was removed, has no name to show
   const gone = missing.filter((name) => UUID.test(name));
   const named = missing.filter((name) => !UUID.test(name));
   if (missing.length) throw new Error([
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
-    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that no longer exist.` : "",
+    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
     "Add what is missing on the MCP servers page, or open the agent and choose its MCP servers again."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
