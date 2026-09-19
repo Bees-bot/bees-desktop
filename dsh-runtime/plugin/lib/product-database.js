@@ -931,7 +931,9 @@ export function initializeProductDatabase(database) {
     const was = join(stateDirectory(), "api-specs");
     const now = join(dataDirectory(), "api-specs");
     // Copied rather than renamed: a shared folder is its own volume, and rename cannot cross one.
-    if (existsSync(was) && !existsSync(now)) {
+    // A half-finished copy is copied over rather than skipped, or the paths below would be rewritten
+    // to point at specs that never arrived.
+    if (existsSync(was)) {
       cpSync(was, now, { recursive: true });
       rmSync(was, { recursive: true, force: true });
     }

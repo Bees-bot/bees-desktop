@@ -48,6 +48,11 @@ export async function useDataFolder(database, directory) {
   if (target === dataDirectory()) return { path: target, shared: sharedFolder(), restart: false };
   const busy = folderHeldBy(target);
   if (busy) throw new Error(`${busy} has that Bees folder open. Quit Bees there first.`);
+  // The database is copied before the files are, so anything that writes while the copy runs would
+  // be left behind in the old folder. Nothing else writes on its own while a person sits in settings.
+  const running = database.prepare(`SELECT count(*) AS count FROM execution_links
+    WHERE status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')`).get().count;
+  if (running) throw new Error("Wait for what is running to finish, then choose the folder");
   const file = join(target, basename(env("BEES_DATABASE_PATH")));
   // A shared folder that already holds a database is the other computer's work: join it, never write
   // over it. This computer's own folder is the opposite, since the shared copy is always the newer one.
