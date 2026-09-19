@@ -583,9 +583,8 @@ function DataFolderSettings({ ctx, data, act }) {
     try {
       const moved = await act({ action: "set_data_folder", directory: picked });
       // Only read at launch, so Bees restarts itself instead of carrying on in the old folder.
-      const invoke = window.__TAURI__?.core?.invoke;
-      if (moved?.restart && invoke) await invoke("restart_app");
-      else if (moved?.restart) setNotice("Quit Bees and open it again to use that folder.");
+      if (moved?.restart) await window.__TAURI__.core.invoke("restart_app")
+        .catch(() => setNotice("Quit Bees and open it again to use that folder."));
     } catch (error) { setNotice(error.message || String(error)); }
   });
   return h("section", { className: "bees-box bees-stack" },

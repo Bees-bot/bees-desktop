@@ -20,7 +20,6 @@ use std::{
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     sync::Mutex,
-    sync::OnceLock,
     thread,
     time::Duration,
 };
@@ -281,9 +280,9 @@ fn device_id(app_data: &Path) -> Result<String, String> {
     Ok(id)
 }
 
-/// The lock this launch took, so quitting releases that one and never the folder we were refused
-/// or the folder the person switched to on the way out.
-static CLAIMED: OnceLock<PathBuf> = OnceLock::new();
+/// The lock this launch holds, so quitting releases that one and never the folder we were refused.
+/// Claiming a second folder releases the first, or a switch that never restarted would strand it.
+static CLAIMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// One computer at a time: two of them writing into the same synced folder corrupts the database.
 /// Nothing expires, because Google Drive can be slower to carry a lock than any wait worth having.
@@ -300,15 +299,22 @@ fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
         let mut lines = held.lines();
         if lines.next().unwrap_or_default().trim() != me {
             let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
+            // The file is named because a computer that never quit cleanly leaves one behind, and
+            // deleting it by hand is then the only way back in.
             return Err(format!(
-                "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here.",
-                computer.unwrap_or("Another computer")
+                "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here. If that computer is gone, delete {}.",
+                computer.unwrap_or("Another computer"),
+                lock.display()
             ));
         }
     }
     let computer = sysinfo::System::host_name().unwrap_or_default();
     fs::write(&lock, format!("{me}\n{computer}")).map_err(|error| error.to_string())?;
-    let _ = CLAIMED.set(lock);
+    if let Ok(mut claimed) = CLAIMED.lock() {
+        if let Some(stale) = claimed.replace(lock.clone()).filter(|held| *held != lock) {
+            let _ = fs::remove_file(stale);
+        }
+    }
     Ok(())
 }
 
@@ -853,7 +859,7 @@ pub fn run() {
                 }
                 // The only place the folder lock comes off. The harness cannot do it: quitting
                 // kills it outright, so a lock it held would outlive every ordinary quit.
-                if let Some(lock) = CLAIMED.get() {
+                if let Some(lock) = CLAIMED.lock().ok().and_then(|mut held| held.take()) {
                     let _ = fs::remove_file(lock);
                 }
             }
