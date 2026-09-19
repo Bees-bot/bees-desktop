@@ -12,7 +12,7 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
   const goals = data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
-  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities });
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
