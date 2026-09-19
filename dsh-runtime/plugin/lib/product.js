@@ -1,3 +1,4 @@
+import { dataDirectory, sharedFolder } from "./data-folder.js";
 import { WorkContext } from "./work-context.js";
 import { WorkMemory } from "./work-memory.js";
 import { randomUUID } from "node:crypto";
@@ -570,7 +571,8 @@ export class BeesProduct {
       presets, runs: [...runs, ...elsewhere.filter(({ id }) => !runs.some((run) => run.id === id))]
         .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
-      proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false
+      proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false,
+      dataFolder: { path: dataDirectory(), shared: sharedFolder() }
     };
   }
 

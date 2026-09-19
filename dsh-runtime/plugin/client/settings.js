@@ -573,9 +573,36 @@ function TeamSettings({ team, organization, connectionId, openOrganization, navi
     failure);
 }
 
+function DataFolderSettings({ ctx, data, act }) {
+  const { path, shared } = data.dataFolder ?? { path: "", shared: false };
+  const [notice, setNotice] = useState("");
+  const [busy, choose] = useSubmit(async (_event, reset) => {
+    const picked = reset ? "" : await ctx.uiWorkspace.pickDirectory();
+    if (!reset && !picked) return;
+    const moved = await act({ action: "set_data_folder", directory: picked });
+    if (moved?.restart) setNotice("Your work is copied. Quit Bees and open it again to use the new folder.");
+  });
+  return h("section", { className: "bees-box bees-stack" },
+    h("h2", null, "Data folder"),
+    h("p", { className: "bees-muted" }, shared
+      ? "Bees keeps your work in a shared folder. Every computer that opens this folder sees the same processes, agents, runs and conversations."
+      : "Bees keeps your work on this computer only."),
+    h("p", null, path),
+    h("p", { className: "bees-muted" },
+      "Put the folder in Google Drive, Dropbox or iCloud to share it. Pick an empty folder such as Drive/Bees. ",
+      "Only one computer can have it open at a time. Quit Bees on the other computer and let Google Drive finish syncing before you open it here."),
+    h("p", { className: "bees-muted" },
+      "Your models, logs and saved keys stay on this computer, so on the other computer you enter each connection's key once."),
+    notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
+    h("div", { className: "bees-detail-actions" },
+      h(Button, { onClick: choose, disabled: busy }, busy ? "Copying…" : "Choose a shared folder"),
+      shared ? h(Button, { onClick: (event) => choose(event, true), disabled: busy }, "Use this computer again") : null));
+}
+
 const GLOBAL_SETTINGS = [
   ["personal-ai", "AI connections"],
   ["appearance", "Appearance"],
+  ["data-folder", "Data folder"],
   ["system-instructions", "System instructions"],
   ["organizations", "Organizations"],
   ["connections", "Connections"]
@@ -605,7 +632,7 @@ function SettingsLayout({ route, navigate, organization, children }) {
 }
 
 export function SettingsPage({
-  ctx, data, route, teamId, organizationId, connectionId, modelSettings, preferences, reload,
+  ctx, data, act, route, teamId, organizationId, connectionId, modelSettings, preferences, reload,
   preference = {}, openOrganization, navigate = () => undefined
 }) {
   const connection = data.connections?.find(({ id }) => id === connectionId);
@@ -628,6 +655,7 @@ export function SettingsPage({
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
+    : route === "data-folder" ? h(DataFolderSettings, { ctx, data, act })
     : route === "organizations" ? h(OrganizationsSettings)
     : route === "connections" ? h(ConnectionsSettings)
     : ORGANIZATION_SETTINGS.some(([id]) => id === route)

@@ -496,7 +496,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act, onOpenConnections: () => navigate("connections") })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, onOpenConnections: () => navigate("connections") })
-                : h(SettingsPage, { ctx, data: viewData, route, teamId: parts.teamId,
+                : h(SettingsPage, { ctx, data: viewData, act, route, teamId: parts.teamId,
                     organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,
                     navigate,
                     openOrganization: async (organization) => {

@@ -1,4 +1,5 @@
 import { catalogEntry } from "./mcp-catalog.js";
+import { useDataFolder } from "./data-folder.js";
 import { randomUUID } from "node:crypto";
 import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
 
@@ -303,6 +304,7 @@ function producerSpecialization(database, executionId, itemId) {
 
 export async function executeProductCommand(action, input) {
     const at = iso();
+    if (action === "set_data_folder") return useDataFolder(this.database, input.directory);
     if (action === "create_organization") return transaction(this.database, () => {
       const { userId } = currentIdentity(this.database);
       const id = randomUUID();
