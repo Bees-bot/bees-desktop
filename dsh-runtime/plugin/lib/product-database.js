@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, renameSync } from "node:fs";
+import { hostname } from "node:os";
+import { join } from "node:path";
+import { dataDirectory, deviceId } from "./data-folder.js";
 import { EXECUTIVE_AGENTS } from "./executive-agents.js";
 
 export const DEFAULT_WORKSPACE_NAME = "Default workspace";
@@ -45,12 +49,9 @@ export function transaction(database, work) {
 }
 
 export function currentIdentity(database) {
-  const identity = database.prepare(`
-    SELECT u.id AS userId, d.id AS deviceId FROM users u CROSS JOIN devices d
-    ORDER BY u.created_at, d.created_at LIMIT 1
-  `).get();
-  if (!identity) throw new Error("The local Bees identity is unavailable");
-  return identity;
+  const user = database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
+  if (!user) throw new Error("The local Bees identity is unavailable");
+  return { userId: user.id, deviceId: deviceId() };
 }
 
 function membership(database, teamId) {
@@ -907,7 +908,36 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 30");
   });
+  // Which computer this is used to be whichever device row came first, which held while one
+  // computer owned the database. A folder shared between computers needs a row for each, so the
+  // id moved beside the app and the row that is already here becomes this computer's.
+  // API specs moved with it: they sit beside the database now, named by a placeholder, so the
+  // bridge finds them on every computer that opens the folder.
+  if (version < 31) transaction(database, () => {
+    const device = deviceId();
+    const devices = database.prepare("SELECT id, created_at AS at FROM devices").all();
+    // The new row lands before the mappings move: a mapping's device cannot be missing for an
+    // instant, and dropping the old row afterwards cascades onto nothing.
+    if (devices.length === 1 && devices[0].id !== device) {
+      const at = iso();
+      database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), devices[0].at, at);
+      database.prepare("UPDATE device_location_mappings SET device_id = ? WHERE device_id = ?")
+        .run(device, devices[0].id);
+      database.prepare("DELETE FROM devices WHERE id = ?").run(devices[0].id);
+    }
+    const was = join(stateDirectory(), "api-specs");
+    const now = join(dataDirectory(), "api-specs");
+    if (existsSync(was) && !existsSync(now)) renameSync(was, now);
+    for (const row of database.prepare("SELECT id, args_json AS args FROM mcp_servers").all()) {
+      if (!row.args.includes(was)) continue;
+      database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")
+        .run(row.args.replaceAll(was, "{data}/api-specs"), row.id);
+    }
+    database.exec("PRAGMA user_version = 31");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
+    const at = iso();
+    database.prepare("INSERT OR IGNORE INTO devices VALUES (?, ?, ?, ?)").run(deviceId(), hostname(), at, at);
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
@@ -931,12 +961,12 @@ export function initializeProductDatabase(database) {
   transaction(database, () => {
     const at = iso();
     const userId = randomUUID();
-    const deviceId = randomUUID();
+    const device = deviceId();
     const organizationId = randomUUID();
     const teamId = randomUUID();
     const workspaceId = randomUUID();
     database.prepare("INSERT INTO users VALUES (?, 'You', ?, ?)").run(userId, at, at);
-    database.prepare("INSERT INTO devices VALUES (?, 'This device', ?, ?)").run(deviceId, at, at);
+    database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), at, at);
     database.prepare(`INSERT INTO organizations VALUES (?, 'Personal Org', 1, ?, 'active', ?, ?)`)
       .run(organizationId, userId, at, at);
     database.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)")
