@@ -7,7 +7,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
-import { appDirectory, claimDataFolder, sharedFolder } from "./data-folder.js";
+import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
@@ -156,7 +156,6 @@ export async function apply(ctx, _config = {}, internals = {}) {
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
   if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
 
-  const release = step("bees.data.claim", () => claimDataFolder());
   const database = step("bees.database.open", () => new DatabaseSync(databasePath));
   // WAL keeps two sidecar files a sync service carries separately from the database, which is how
   // a shared folder ends up with half of one computer's work spliced into another's.
@@ -184,7 +183,6 @@ export async function apply(ctx, _config = {}, internals = {}) {
     await memory?.close();
     await capabilities?.close();
     database.close();
-    release();
   }, "bees shutdown");
   const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
   step("bees.database.initialize", () => initializeProductDatabase(database));

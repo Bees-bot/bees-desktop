@@ -609,7 +609,7 @@ export class AgentRuntime {
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
-      const link = database.prepare(`SELECT execution_id AS id, config_json AS config, run_directory AS directory
+      const link = database.prepare(`SELECT execution_id AS id, config_json AS config, mounted(run_directory) AS directory
         FROM execution_links WHERE current_session_id IN (?, ?)`)
         .get(String(exec.agent?.session?.id), String(exec.agent?.session?.header?.parentSession ?? ""));
       const approvals = () => link ? database.prepare(`SELECT metadata_json AS meta FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'human-work-approved'`)
@@ -886,7 +886,7 @@ export class AgentRuntime {
     return this.database.prepare(`
       SELECT execution_id AS executionId, work_item_id AS workItemId, agent_name AS agentName,
              current_session_id AS currentSessionId, previous_session_id AS previousSessionId,
-             instance_uid AS instanceUid, run_directory AS runDirectory, config_json AS configJson,
+             instance_uid AS instanceUid, mounted(run_directory) AS runDirectory, config_json AS configJson,
              status, recovery_count AS recoveryCount
       FROM execution_links WHERE execution_id = ?
     `).get(executionId);
@@ -1545,7 +1545,7 @@ export class AgentRuntime {
       throw new Error("evidence_offset must be a nonnegative integer");
     const run = this.database.prepare(`
       SELECT e.execution_id AS executionId, e.current_session_id AS sessionId,
-             e.previous_session_id AS previousSessionId, e.run_directory AS directory,
+             e.previous_session_id AS previousSessionId, mounted(e.run_directory) AS directory,
              r.outcome, r.summary FROM execution_links e
       JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE e.work_item_id = ? AND r.purpose = 'worker'

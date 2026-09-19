@@ -64,13 +64,13 @@ export class WorkContext {
       VALUES (?, (SELECT r.memories_json FROM bees_context_runs r
         JOIN bees_work_contexts c ON c.id = r.context_id WHERE c.root_id = ?
         ORDER BY r.rowid DESC LIMIT 1))`).run(root.id, root.id);
-    return this.database.prepare("SELECT root_id AS rootId, directory, memories_json AS memories FROM bees_run_resources WHERE root_id = ?").get(root.id);
+    return this.database.prepare("SELECT root_id AS rootId, mounted(directory) AS directory, memories_json AS memories FROM bees_run_resources WHERE root_id = ?").get(root.id);
   }
 
   directory(itemId, workspace) {
     const resources = this.resources(itemId);
     if (resources.directory) return resources.directory;
-    const executions = this.database.prepare(`SELECT e.run_directory AS directory FROM execution_links e
+    const executions = this.database.prepare(`SELECT mounted(e.run_directory) AS directory FROM execution_links e
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE e.work_item_id IN (SELECT value FROM json_each(?))
         AND coalesce(json_extract(e.config_json, '$.stagePurpose'), r.purpose, json_extract(e.config_json, '$.mode'), 'worker')
