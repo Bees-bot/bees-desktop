@@ -45,9 +45,9 @@ const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
 const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
 // rows keep placeholders so one server definition works on every computer that opens the folder
-const ROOTS = { "{lib}": () => dirname(fileURLToPath(import.meta.url)), "{data}": dataDirectory };
-const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
-  : value.replace(/\{lib\}|\{data\}/, (root) => ROOTS[root]());
+const ROOTS = { node: () => process.execPath, browserState: browserStatePath,
+  lib: () => dirname(fileURLToPath(import.meta.url)), data: dataDirectory };
+const placed = (value) => value.replace(/^\{(\w+)\}/, (whole, root) => ROOTS[root]?.() ?? whole);
 
 function rowToServer(row) {
   return {
@@ -364,10 +364,11 @@ export class Capabilities {
   /** Hashed name, or a second endpoint on one host would overwrite the first server's spec.
    *  Returns the placeholder form: the spec sits beside the database and travels with it. */
   async writeSpec(host, spec) {
-    await mkdir(join(dataDirectory(), "api-specs"), { recursive: true });
+    const directory = join(dataDirectory(), "api-specs");
+    await mkdir(directory, { recursive: true });
     const stamp = createHash("sha256").update(spec).digest("hex").slice(0, 12);
     const name = `${host.replace(/[^a-z0-9.-]/gi, "-")}-${stamp}.json`;
-    await writeFile(join(dataDirectory(), "api-specs", name), spec);
+    await writeFile(join(directory, name), spec);
     return `{data}/api-specs/${name}`;
   }
 

@@ -20,6 +20,7 @@ use std::{
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     sync::Mutex,
+    sync::OnceLock,
     thread,
     time::Duration,
 };
@@ -243,11 +244,16 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
 
 /// The work travels; the machine does not. A person can point this at a folder they share
 /// between computers, and only the database and the workspaces move there.
-fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
-    let chosen = fs::read_to_string(app_data.join("data-folder")).unwrap_or_default();
+fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
+    let pointer = app_data.join("data-folder");
+    let chosen = if pointer.exists() {
+        fs::read_to_string(&pointer)
+            .map_err(|error| format!("Bees could not read {}: {error}", pointer.display()))?
+    } else {
+        String::new()
+    };
     if chosen.trim().is_empty() {
-        return Ok(app_data);
+        return Ok(app_data.to_path_buf());
     }
     let path = PathBuf::from(chosen.trim());
     // Starting on the old folder instead would open an empty database and split the person's work
@@ -256,10 +262,54 @@ fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         return Err(format!(
             "Bees keeps your work in {}, and that folder is not on this computer right now. Reconnect it and open Bees again, or delete {} to go back to this computer's own copy.",
             path.display(),
-            app_data.join("data-folder").display()
+            pointer.display()
         ));
     }
     Ok(path)
+}
+
+/// Identity of this computer, not of the work: a shared folder is opened by several computers, so
+/// this cannot come out of the database the way it used to.
+fn device_id(app_data: &Path) -> Result<String, String> {
+    let path = app_data.join("device-id");
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    if !existing.trim().is_empty() {
+        return Ok(existing.trim().to_string());
+    }
+    let id = token()?;
+    fs::write(&path, &id).map_err(|error| error.to_string())?;
+    Ok(id)
+}
+
+/// The lock this launch took, so quitting releases that one and never the folder we were refused
+/// or the folder the person switched to on the way out.
+static CLAIMED: OnceLock<PathBuf> = OnceLock::new();
+
+/// One computer at a time: two of them writing into the same synced folder corrupts the database.
+/// Nothing expires, because Google Drive can be slower to carry a lock than any wait worth having.
+fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
+    // Written either way: the plugin reads this id on every launch, shared folder or not.
+    let me = device_id(app_data)?;
+    if data == app_data {
+        return Ok(());
+    }
+    let lock = data.join("in-use");
+    // A lock that will not read counts as held: half a download is not permission.
+    if lock.exists() {
+        let held = fs::read_to_string(&lock).unwrap_or_default();
+        let mut lines = held.lines();
+        if lines.next().unwrap_or_default().trim() != me {
+            let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
+            return Err(format!(
+                "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here.",
+                computer.unwrap_or("Another computer")
+            ));
+        }
+    }
+    let computer = sysinfo::System::host_name().unwrap_or_default();
+    fs::write(&lock, format!("{me}\n{computer}")).map_err(|error| error.to_string())?;
+    let _ = CLAIMED.set(lock);
+    Ok(())
 }
 
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -410,7 +460,8 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let home = app_data.join("dsh");
-    let data = data_dir(app)?;
+    let data = data_dir(&app_data)?;
+    startup::step("bees.data.claim", || claim_data_folder(&data, &app_data))?;
     let workspace = data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
     startup::step("runtime.profile.prepare", || prepare_profile(&runtime, &home))?;
@@ -667,6 +718,13 @@ fn open_external_url(url: String) -> Result<(), String> {
     Err("Opening website links is not supported on this device.".to_string())
 }
 
+/// A new data folder is only picked up at launch, so the app restarts itself rather than leaving
+/// the person to quit by hand and lose whatever they do in between.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.request_restart();
+}
+
 /// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
 /// and a second launch all route here.
 fn show_main_window(app: &tauri::AppHandle) {
@@ -748,6 +806,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ensure_dsh_runtime,
+            restart_app,
             local_model_status,
             local_model_hardware,
             ensure_local_model,
@@ -791,6 +850,11 @@ pub fn run() {
                 }
                 if let Ok(state) = state_dir(handle) {
                     reap_agent_browser(&state.join("browser-profile"));
+                }
+                // The only place the folder lock comes off. The harness cannot do it: quitting
+                // kills it outright, so a lock it held would outlive every ordinary quit.
+                if let Some(lock) = CLAIMED.get() {
+                    let _ = fs::remove_file(lock);
                 }
             }
         });

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, renameSync } from "node:fs";
+import { cpSync, existsSync, rmSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { dataDirectory, deviceId } from "./data-folder.js";
+import { dataDirectory, deviceId, mounted } from "./data-folder.js";
 import { EXECUTIVE_AGENTS } from "./executive-agents.js";
 
 export const DEFAULT_WORKSPACE_NAME = "Default workspace";
@@ -370,6 +370,9 @@ export function assertMcpAccess(access) {
 }
 
 export function initializeProductDatabase(database) {
+  // Run folders are written as absolute paths, and a shared folder sits somewhere different on
+  // every computer, so every query that reads one puts it back on this computer's mount.
+  database.function("mounted", (path) => path && mounted(path));
   const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
     PRAGMA foreign_keys = OFF;
@@ -927,7 +930,11 @@ export function initializeProductDatabase(database) {
     }
     const was = join(stateDirectory(), "api-specs");
     const now = join(dataDirectory(), "api-specs");
-    if (existsSync(was) && !existsSync(now)) renameSync(was, now);
+    // Copied rather than renamed: a shared folder is its own volume, and rename cannot cross one.
+    if (existsSync(was) && !existsSync(now)) {
+      cpSync(was, now, { recursive: true });
+      rmSync(was, { recursive: true, force: true });
+    }
     for (const row of database.prepare("SELECT id, args_json AS args FROM mcp_servers").all()) {
       if (!row.args.includes(was)) continue;
       database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")
