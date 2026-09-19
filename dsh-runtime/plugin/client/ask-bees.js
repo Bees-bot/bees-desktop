@@ -33,7 +33,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const catalog = capabilities.data?.catalog ?? [];
   const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
   const agentInputs = runAgents(stages, agents).flatMap(({ id }) => inheritedInputs(data, null, id));
-  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities });
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
 
   useEffect(() => heading.current?.focus(), []);
 

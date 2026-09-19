@@ -240,33 +240,42 @@ function runBlockers(stages, agents, servers) {
     .filter(({ missing }) => missing.length);
 }
 
-/** What a run needs before it starts. Installing from here refreshes the list, so it empties as you go. */
-function McpPreflight({ ctx, blockers, catalog, onServerAction, onCancel, onStart }) {
+/** What a run needs before it starts, with a button on every row that can fix it here. */
+function McpPreflight({ ctx, data, blockers, servers, tools, catalog, act, onServerAction, onCancel, onStart }) {
   const [reviewing, setReviewing] = useState("");
+  const [editing, setEditing] = useState("");
   const entry = catalog.find(({ id }) => id === reviewing);
-  const names = [...new Set(blockers.flatMap(({ missing }) => missing))];
-  const usedBy = (name) => blockers.filter(({ missing }) => missing.includes(name)).map(({ agent }) => agent.name).join(", ");
+  const agent = blockers.find((blocker) => blocker.agent.id === editing)?.agent;
   if (entry) return h(AgentDialog, { onClose: onCancel },
     h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""), onDone: () => setReviewing("") }));
+  // the agent form is the full picker: add from the catalog, switch one on, or drop a grant from another computer
+  if (agent) return h(AgentEditForm, { key: agent.id, ctx, data, servers, tools, catalog, onServerAction,
+    selected: agent, act, dialog: true, onCancel: () => setEditing(""), onSaved: () => setEditing("") });
   return h(AgentDialog, { onClose: onCancel },
     h("section", { className: "bees-box" },
-      h("h2", null, names.length ? "Set up these MCP servers first" : "Everything this run needs is here"),
-      h("p", { className: "bees-muted" }, names.length
-        ? "This run uses agents that need MCP servers this computer does not have. Their stages stop until the servers are added here."
+      h("h2", null, blockers.length ? "Add what this run needs" : "Everything this run needs is here"),
+      h("p", { className: "bees-muted" }, blockers.length
+        ? "These agents use MCP servers this computer does not have. Add them here and the run starts with everything it needs."
         : "Every MCP server this run needs is set up on this computer."),
-      ...names.map((name) => {
-        const item = catalog.find((one) => one.serverName === name && !one.installedAs);
-        return h("div", { className: "bees-row", key: name },
-          h("div", { className: "bees-row-main" },
-            h("strong", null, item?.label ?? (UUID.test(name) ? "An MCP server this computer cannot identify" : name)),
-            h("div", { className: "bees-muted" }, UUID.test(name)
-              ? `${usedBy(name)} lists a server that was set up on another computer. Open the agent and choose its MCP servers here.`
-              : `Used by ${usedBy(name)}${item ? ` · ${item.summary}` : " · not in the catalog, add it by hand under MCP servers"}`)),
-          item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null);
-      }),
+      ...blockers.flatMap(({ agent: blocked, missing }) => [
+        h("div", { className: "bees-row", key: blocked.id },
+          h("div", { className: "bees-row-main" }, h("strong", null, blocked.name),
+            h("div", { className: "bees-muted" }, `Needs ${missing.length} MCP server${missing.length === 1 ? "" : "s"} this computer does not have`)),
+          h(Button, { onClick: () => setEditing(blocked.id) }, "Choose MCP servers")),
+        ...missing.map((name) => {
+          const item = catalog.find((one) => one.serverName === name && !one.installedAs);
+          return h("div", { className: "bees-row", key: `${blocked.id}:${name}`, style: { paddingLeft: "16px" } },
+            h("div", { className: "bees-row-main" },
+              h("strong", null, item?.label ?? (UUID.test(name) ? "A server this computer cannot name" : name)),
+              h("div", { className: "bees-muted" }, item ? item.summary
+                : UUID.test(name) ? "Set up on another computer, so there is no name here. Choose the one this agent should use."
+                : "Not in the catalog. Choose MCP servers to pick one that is set up here.")),
+            item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null);
+        })
+      ]),
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "button", className: "bees-btn primary", onClick: onStart },
-          names.length ? "Start anyway" : "Start run"),
+          blockers.length ? "Start anyway" : "Start run"),
         h(Button, { onClick: onCancel }, "Cancel"))));
 }
 
@@ -275,7 +284,7 @@ function McpPreflight({ ctx, blockers, catalog, onServerAction, onCancel, onStar
  * missing, and otherwise opens the dialog the caller renders. The list is read again on every
  * render, so adding a server from inside the dialog clears it without starting over.
  */
-export function useMcpPreflight({ ctx, data, workspaceId, capabilities }) {
+export function useMcpPreflight({ ctx, data, workspaceId, capabilities, act }) {
   const [pending, setPending] = useState(null);
   const servers = capabilities?.data?.servers ?? [];
   const agents = data.assignments.filter((row) => row.workspaceId === workspaceId);
@@ -285,7 +294,8 @@ export function useMcpPreflight({ ctx, data, workspaceId, capabilities }) {
     return start();
   };
   const dialog = pending ? h(McpPreflight, {
-    ctx, catalog: capabilities?.data?.catalog ?? [], onServerAction: capabilities?.act,
+    ctx, data, servers, act, tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
+    onServerAction: capabilities?.act,
     blockers: runBlockers(stagesOf(pending.processId), agents, servers),
     onCancel: () => setPending(null),
     onStart: () => { const { start } = pending; setPending(null); return start(); }

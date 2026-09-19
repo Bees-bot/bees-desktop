@@ -592,7 +592,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
   const defaultOutputId = parent?.outputLocationId || process?.outputLocationId;
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
 
-  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities });
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const command = goal ? {
