@@ -3,6 +3,7 @@ identifier = "allow-bees-ui"
 description = "Allows the Bees interface to manage its bundled local runtimes."
 commands.allow = [
   "ensure_dsh_runtime",
+  "restart_app",
   "local_model_status",
   "local_model_hardware",
   "ensure_local_model",
@@ -10,7 +11,6 @@ commands.allow = [
   "stop_local_model",
   "cancel_local_model_download",
   "delete_local_model",
-  "local_model_base_url",
   "local_model_connection",
   "open_external_url"
 ]
