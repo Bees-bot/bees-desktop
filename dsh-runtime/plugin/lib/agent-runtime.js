@@ -13,6 +13,7 @@ import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles, outputLocation } from "./product-files.js";
+import { mountRepeatGuard } from "./repeat-guard.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
@@ -964,6 +965,7 @@ export class AgentRuntime {
     this.policyAgents.add(owner);
     if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials);
     installContextPolicy(agentCtx, this.ctx.tokenMeter, owner);
+    mountRepeatGuard(agentCtx, owner);
     mountPageFetch(agentCtx, this.ctx.web);
   }
 
