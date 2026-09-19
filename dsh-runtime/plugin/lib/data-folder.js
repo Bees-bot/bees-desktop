@@ -63,7 +63,8 @@ export async function useDataFolder(database, directory) {
   // A shared folder that already holds a database is the other computer's work: join it, never write
   // over it. This computer's own folder is the opposite, since the shared copy is always the newer
   // one. The database is copied last, so a half-finished copy never looks like a finished one.
-  if (target === appDirectory() || !existsSync(file)) {
+  const copied = target === appDirectory() || !existsSync(file);
+  if (copied) {
     for (const name of ["workspaces", "api-specs"])
       if (existsSync(join(dataDirectory(), name)))
         await cp(join(dataDirectory(), name), join(target, name), { recursive: true });
@@ -71,5 +72,5 @@ export async function useDataFolder(database, directory) {
     database.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
   }
   writeFileSync(join(appDirectory(), "data-folder"), target === appDirectory() ? "" : target);
-  return { path: target, shared: target !== appDirectory(), restart: true };
+  return { path: target, shared: target !== appDirectory(), restart: true, copied };
 }

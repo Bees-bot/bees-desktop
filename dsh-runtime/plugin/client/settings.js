@@ -580,7 +580,9 @@ function DataFolderSettings({ ctx, data, act }) {
     const picked = reset ? "" : await ctx.uiWorkspace.pickDirectory();
     if (!reset && !picked) return;
     const moved = await act({ action: "set_data_folder", directory: picked });
-    if (moved?.restart) setNotice("Your work is copied. Quit Bees and open it again to use the new folder.");
+    if (moved?.restart) setNotice(moved.copied
+      ? "Your work is copied over. Quit Bees and open it again to use that folder."
+      : "That folder already has Bees work in it, and nothing was written over. Quit Bees and open it again to use it.");
   });
   return h("section", { className: "bees-box bees-stack" },
     h("h2", null, "Data folder"),
@@ -589,13 +591,14 @@ function DataFolderSettings({ ctx, data, act }) {
       : "Bees keeps your work on this computer only."),
     h("p", null, path),
     h("p", { className: "bees-muted" },
-      "Put the folder in Google Drive, Dropbox or iCloud to share it. Pick an empty folder such as Drive/Bees. ",
+      "Pick a folder inside Google Drive, Dropbox or iCloud. An empty folder gets a copy of your work. ",
+      "A folder the other computer has already filled is used as it is, and nothing in it is written over. ",
       "Only one computer can have it open at a time. Quit Bees on the other computer and let Google Drive finish syncing before you open it here."),
     h("p", { className: "bees-muted" },
       "Your models, logs and saved keys stay on this computer, so on the other computer you enter each connection's key once."),
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
     h("div", { className: "bees-detail-actions" },
-      h(Button, { onClick: choose, disabled: busy }, busy ? "Copying…" : "Choose a shared folder"),
+      h(Button, { onClick: choose, disabled: busy }, busy ? "Switching…" : "Choose a shared folder"),
       shared ? h(Button, { onClick: (event) => choose(event, true), disabled: busy }, "Use this computer again") : null));
 }
 
