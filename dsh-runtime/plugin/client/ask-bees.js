@@ -1,6 +1,6 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
 import { Button, useSubmit } from "./shared.js";
-import { AgentCreateForm, AgentEditForm } from "./agents.js";
+import { AgentCreateForm, AgentEditForm, runAgents, useMcpPreflight } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
@@ -32,24 +32,27 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const tools = capabilities.data?.tools ?? [];
   const catalog = capabilities.data?.catalog ?? [];
   const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
-  const agentInputs = [...new Set(stages.filter((stage) => !["manual", "terminal"].includes(stage.driver)).flatMap((stage) =>
-    stage.agentIds?.length ? stage.agentIds : agents.filter((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker")).map(({ id }) => id)))]
-    .flatMap((id) => inheritedInputs(data, null, id));
+  const agentInputs = runAgents(stages, agents).flatMap(({ id }) => inheritedInputs(data, null, id));
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
 
   useEffect(() => heading.current?.focus(), []);
 
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
     setError("");
-    try {
-      const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
-      const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
-      if (result?.id) onStarted(result.id);
-      else setError("Could not start this work. Please try again.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
+    // the preflight may hold this back and run it once the person has added what is missing
+    await guardRun(process.id, async () => {
+      try {
+        const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
+        if (result?.id) onStarted(result.id);
+        else setError("Could not start this work. Please try again.");
+      } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    });
   });
 
   return h("div", { className: "bees-ask-setup" },
+    preflight,
     h("div", null,
       h(Button, { onClick: onBack, disabled: busy }, "← Back to Home"),
       h("header", { className: "bees-ask-heading" },

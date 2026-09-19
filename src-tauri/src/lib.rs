@@ -241,6 +241,27 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
+/// The work travels; the machine does not. A person can point this at a folder they share
+/// between computers, and only the database and the workspaces move there.
+fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let chosen = fs::read_to_string(app_data.join("data-folder")).unwrap_or_default();
+    if chosen.trim().is_empty() {
+        return Ok(app_data);
+    }
+    let path = PathBuf::from(chosen.trim());
+    // Starting on the old folder instead would open an empty database and split the person's work
+    // across two copies, so an unreachable folder stops the launch and says which one it is.
+    if !path.is_dir() {
+        return Err(format!(
+            "Bees keeps your work in {}, and that folder is not on this computer right now. Reconnect it and open Bees again, or delete {} to go back to this computer's own copy.",
+            path.display(),
+            app_data.join("data-folder").display()
+        ));
+    }
+    Ok(path)
+}
+
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -389,7 +410,8 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let home = app_data.join("dsh");
-    let workspace = app_data.join("workspaces");
+    let data = data_dir(app)?;
+    let workspace = data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
     startup::step("runtime.profile.prepare", || prepare_profile(&runtime, &home))?;
 
@@ -463,7 +485,9 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("DSH_TELEMETRY_DISABLED", "1")
         .env("BEES_DSH_TOKEN", &secret)
         .env("BEES_DSH_QUERY_PATH", home.join("session-query.sqlite"))
-        .env("BEES_DATABASE_PATH", app_data.join("bees-stage1.db"))
+        .env("BEES_DATABASE_PATH", data.join("bees-stage1.db"))
+        .env("BEES_DATA_DIR", &data)
+        .env("BEES_APP_DATA", &app_data)
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
         .env("BEES_STARTUP_LOG", state_dir(app)?.join("startup.log"))

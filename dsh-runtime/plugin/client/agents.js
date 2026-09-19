@@ -173,7 +173,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
-              ? "This MCP server was removed. Take it off the agent and pick the one it should use."
+              ? "This MCP server was set up on another computer. Take it off and pick the one this agent should use."
               : `${name} is set up on another computer. Add it under MCP servers, or remove it from this agent.`));
       })) : null,
       h("div", { className: "bees-mcp-grid" },
@@ -206,6 +206,101 @@ function AgentDialog({ onClose, children }) {
   useEffect(() => { if (ref.current && !ref.current.open) ref.current.showModal(); }, []);
   return h("dialog", { ref, className: "bees-agent-dialog", "aria-label": "Agent configuration",
     onCancel: (event) => { event.preventDefault(); onClose(); } }, children);
+}
+
+/** Servers an agent lists that this computer does not have, so its stage is refused here. */
+export function missingServers(agent, servers) {
+  if (agent?.mcpAccess !== "listed") return [];
+  return (agent.mcpServers ?? []).filter((name) => !servers.some((server) => server.serverName === name));
+}
+
+/** A one-line warning under an agent's name, wherever its stage is shown. */
+export function needsNote(agent, servers) {
+  const missing = missingServers(agent, servers);
+  if (!missing.length) return null;
+  const named = missing.filter((name) => !UUID.test(name));
+  return h("div", { className: "bees-error", style: { fontSize: "12px", marginTop: "2px" } },
+    named.length
+      ? `Needs ${named.join(", ")}, not set up on this computer. Runs stop here until you add ${named.length === 1 ? "it" : "them"} under Configure.`
+      : "Lists MCP servers this computer cannot identify. Runs stop here until you pick its MCP servers again under Configure.");
+}
+
+/** Agents a run of these stages would use here: the ones routed to a stage, or the automatic stand-in. */
+export function runAgents(stages, agents) {
+  return [...new Set(stages.filter((stage) => !["manual", "terminal"].includes(stage.driver)).flatMap((stage) =>
+    stage.agentIds?.length ? stage.agentIds
+      : agents.filter((agent) => agent.enabled && agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker")).map(({ id }) => id)))]
+    .map((id) => agents.find((agent) => agent.id === id)).filter(Boolean);
+}
+
+/** Agents of this run whose MCP servers are missing here, each with the names it cannot find. */
+function runBlockers(stages, agents, servers) {
+  return runAgents(stages, agents)
+    .map((agent) => ({ agent, missing: missingServers(agent, servers) }))
+    .filter(({ missing }) => missing.length);
+}
+
+/** What a run needs before it starts, with a button on every row that can fix it here. */
+function McpPreflight({ ctx, data, blockers, servers, tools, catalog, act, onServerAction, onCancel, onStart }) {
+  const [reviewing, setReviewing] = useState("");
+  const [editing, setEditing] = useState("");
+  const entry = catalog.find(({ id }) => id === reviewing);
+  const agent = blockers.find((blocker) => blocker.agent.id === editing)?.agent;
+  if (entry) return h(AgentDialog, { onClose: onCancel },
+    h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""), onDone: () => setReviewing("") }));
+  // the agent form is the full picker: add from the catalog, switch one on, or drop a grant from another computer
+  if (agent) return h(AgentEditForm, { key: agent.id, ctx, data, servers, tools, catalog, onServerAction,
+    selected: agent, act, dialog: true, onCancel: () => setEditing(""), onSaved: () => setEditing("") });
+  return h(AgentDialog, { onClose: onCancel },
+    h("section", { className: "bees-box" },
+      h("h2", null, blockers.length ? "Add what this run needs" : "Everything this run needs is here"),
+      h("p", { className: "bees-muted" }, blockers.length
+        ? "These agents use MCP servers this computer does not have. Add them here and the run starts with everything it needs."
+        : "Every MCP server this run needs is set up on this computer."),
+      ...blockers.flatMap(({ agent: blocked, missing }) => [
+        h("div", { className: "bees-row", key: blocked.id },
+          h("div", { className: "bees-row-main" }, h("strong", null, blocked.name),
+            h("div", { className: "bees-muted" }, `Needs ${missing.length} MCP server${missing.length === 1 ? "" : "s"} this computer does not have`)),
+          h(Button, { onClick: () => setEditing(blocked.id) }, "Choose MCP servers")),
+        ...missing.map((name) => {
+          const item = catalog.find((one) => one.serverName === name && !one.installedAs);
+          return h("div", { className: "bees-row", key: `${blocked.id}:${name}`, style: { paddingLeft: "16px" } },
+            h("div", { className: "bees-row-main" },
+              h("strong", null, item?.label ?? (UUID.test(name) ? "A server this computer cannot name" : name)),
+              h("div", { className: "bees-muted" }, item ? item.summary
+                : UUID.test(name) ? "Set up on another computer, so there is no name here. Choose the one this agent should use."
+                : "Not in the catalog. Choose MCP servers to pick one that is set up here.")),
+            item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null);
+        })
+      ]),
+      h("div", { className: "bees-detail-actions" },
+        h("button", { type: "button", className: "bees-btn primary", onClick: onStart },
+          blockers.length ? "Start anyway" : "Start run"),
+        h(Button, { onClick: onCancel }, "Cancel"))));
+}
+
+/**
+ * Checks a run's agents before it starts. `guard(processId, start)` runs `start` when nothing is
+ * missing, and otherwise opens the dialog the caller renders. The list is read again on every
+ * render, so adding a server from inside the dialog clears it without starting over.
+ */
+export function useMcpPreflight({ ctx, data, workspaceId, capabilities, act }) {
+  const [pending, setPending] = useState(null);
+  const servers = capabilities?.data?.servers ?? [];
+  const agents = data.assignments.filter((row) => row.workspaceId === workspaceId);
+  const stagesOf = (processId) => data.stages.filter((row) => row.processId === processId);
+  const guard = (processId, start) => {
+    if (runBlockers(stagesOf(processId), agents, servers).length) { setPending({ processId, start }); return null; }
+    return start();
+  };
+  const dialog = pending ? h(McpPreflight, {
+    ctx, data, servers, act, tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
+    onServerAction: capabilities?.act,
+    blockers: runBlockers(stagesOf(pending.processId), agents, servers),
+    onCancel: () => setPending(null),
+    onStart: () => { const { start } = pending; setPending(null); return start(); }
+  }) : null;
+  return [guard, dialog];
 }
 
 export function AgentCreateForm({ ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, onCancel, onCreated, setPageHeader, inline = false, dialog = false, processId = null }) {

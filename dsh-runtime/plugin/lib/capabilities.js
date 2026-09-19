@@ -6,7 +6,8 @@ import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
-import { iso, message, required, stateDirectory, transaction } from "./product-database.js";
+import { dataDirectory } from "./data-folder.js";
+import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { googleConsent } from "./google-consent.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
@@ -43,9 +44,10 @@ function secretRef(server, name) {
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
 const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
-// rows keep placeholders so one server definition works wherever Bees and its state directory live
+// rows keep placeholders so one server definition works on every computer that opens the folder
+const ROOTS = { "{lib}": () => dirname(fileURLToPath(import.meta.url)), "{data}": dataDirectory };
 const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
-  : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url)));
+  : value.replace(/\{lib\}|\{data\}/, (root) => ROOTS[root]());
 
 function rowToServer(row) {
   return {
@@ -359,14 +361,14 @@ export class Capabilities {
     return { ...rest, apiBaseUrl: new URL(address).origin, specUrl: await this.writeSpec(new URL(address).hostname, spec) };
   }
 
-  /** Hashed name, or a second endpoint on one host would overwrite the first server's spec. */
+  /** Hashed name, or a second endpoint on one host would overwrite the first server's spec.
+   *  Returns the placeholder form: the spec sits beside the database and travels with it. */
   async writeSpec(host, spec) {
-    const directory = join(stateDirectory(), "api-specs");
-    await mkdir(directory, { recursive: true });
+    await mkdir(join(dataDirectory(), "api-specs"), { recursive: true });
     const stamp = createHash("sha256").update(spec).digest("hex").slice(0, 12);
-    const file = join(directory, `${host.replace(/[^a-z0-9.-]/gi, "-")}-${stamp}.json`);
-    await writeFile(file, spec);
-    return file;
+    const name = `${host.replace(/[^a-z0-9.-]/gi, "-")}-${stamp}.json`;
+    await writeFile(join(dataDirectory(), "api-specs", name), spec);
+    return `{data}/api-specs/${name}`;
   }
 
   /** For an API that publishes nothing: each working request describes one endpoint, several describe several. */
@@ -456,7 +458,7 @@ export class Capabilities {
     const server = this.servers().find((row) => row.catalogId === entry.id && row.args[row.args.indexOf("--api-base-url") + 1] === found.apiBaseUrl);
     if (!server) return null;
     const at = server.args.indexOf("--openapi-spec");
-    const spec = JSON.parse(await readFile(server.args[at + 1], "utf8"));
+    const spec = JSON.parse(await readFile(placed(server.args[at + 1]), "utf8"));
     for (const [path, ops] of Object.entries(found.spec.paths))
       for (const [verb, op] of Object.entries(ops)) {
         const before = spec.paths[path]?.[verb]?.parameters ?? [];
@@ -496,9 +498,9 @@ export class Capabilities {
    *  fills that with nothing. A short spec drives far better as one typed tool per endpoint. */
   async typedTools(args, specFile) {
     const at = args.indexOf("--tools");
-    if (at < 0 || !String(specFile ?? "").startsWith("/")) return args;
+    if (at < 0 || !specFile || /^https?:/.test(specFile)) return args;
     try {
-      const { paths = {} } = JSON.parse(await readFile(specFile, "utf8"));
+      const { paths = {} } = JSON.parse(await readFile(placed(specFile), "utf8"));
       if (Object.keys(paths).length <= 12) args[at + 1] = "all";
     } catch { /* an unreadable spec keeps the mode it was installed with */ }
     return args;
@@ -513,7 +515,7 @@ export class Capabilities {
     try {
       const text = /^https?:/.test(specSource)
         ? await fetch(specSource, { signal: AbortSignal.timeout(8000) }).then((response) => response.text())
-        : await readFile(specSource, "utf8");
+        : await readFile(placed(specSource), "utf8");
       spec = JSON.parse(text);
     } catch { return; }
     const origin = spec.servers?.[0]?.url;
