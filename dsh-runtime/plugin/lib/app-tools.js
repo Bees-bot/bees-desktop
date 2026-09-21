@@ -45,7 +45,7 @@ export function mountAppTools(agentCtx, platform, app, data) {
       { destination: string, account: string, connectorId: { type: "string" }, content: string, rationale: string, costCents: { type: "integer", required: true } },
       (current, args) => platform.draft(current, data.workItemId, args));
   } else {
-    register("bees_app_review_action", "Independently check this work item's exact immutable action payload. Pass marks only this digest ready for the designated human's decision; revise clears readiness. This does not approve or send.",
+    register("bees_app_review_action", "Independently check this work item's exact immutable action payload. Take actionId and digest from the actions list in bees_app_read, never from a record. Pass marks only this digest ready for the designated human's decision; revise clears readiness. This does not approve or send.",
       { actionId: string, digest: string, decision: { type: "string", enum: ["pass", "revise"], required: true } },
       (current, args) => platform.reviewDraft(current, data.workItemId, args));
   }
