@@ -925,7 +925,8 @@ describe("Bees DSH product plugin", () => {
         { name: "Draft", driver: "agent", requiresHumanApproval: false },
         { name: "Polish", driver: "agent", requiresHumanApproval: false },
         { name: "Review", driver: "review", requiresHumanApproval: false },
-        { name: "Published", driver: "terminal", requiresHumanApproval: false }
+        { name: "Published", driver: "agent", requiresHumanApproval: false },
+        { name: "Done", driver: "terminal", requiresHumanApproval: false }
       ]
     }));
     await product.command({ action: "archive_process_template", templateId: savedTemplate.id });
