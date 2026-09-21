@@ -588,7 +588,20 @@ describe("Bees DSH product plugin", () => {
       .toEqual({ mcpAccess: "listed", mcpServers: ["beta"] });
     expect(mcpGrantFor(database.connection, agents[1], { mcpAccess: "none" }, process.id))
       .toEqual({ mcpAccess: "none", mcpServers: [] });
+    const stage = database.connection.prepare("SELECT id FROM stages WHERE process_id = ? ORDER BY position LIMIT 1").get(process.id)!;
+    database.connection.prepare(`INSERT INTO work_items (id, process_id, stage_id, title, created_at, updated_at)
+      VALUES ('active-work', ?, ?, 'In progress', '', '')`).run(process.id, String(stage.id));
+    const dispose = vi.fn();
+    const restrict = vi.fn(() => vi.fn());
+    const data = { workItemId: "active-work", agentId: agents[1], mode: "work", mcpAccess: "listed", mcpServers: ["alpha"] };
+    const activeRuntime = agentsRuntime as any;
+    activeRuntime.ctx.tools = { schemas: () => [{ name: "mcp__alpha__read" }, { name: "mcp__beta__read" }] };
+    activeRuntime.live.set("active", { data, handle: { agent: { ctx: { tools: { restrict } } } } });
+    activeRuntime.mcpRestrictions.set(data, dispose);
     await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "listed", mcpServers: ["b"] });
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(restrict).toHaveBeenCalledWith({ deny: ["mcp__alpha__read"] });
+    expect(data.mcpServers).toEqual(["beta"]);
     expect((await product.snapshot()).processes.find(({ id }: any) => id === process.id))
       .toMatchObject({ mcpAccess: "listed", mcpServers: ["beta"] });
     const copy = await product.command({ action: "copy_process", processId: process.id, name: "Shared tools copy" });

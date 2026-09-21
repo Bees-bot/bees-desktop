@@ -86,6 +86,8 @@ it("keeps MCP access compact unless selected servers need configuring", () => {
 
   expect(render({ access: "all" })).toContain("1 MCP connected");
   expect(render({ access: "none" })).toContain('data-mcp-mode="none"');
+  expect(render({ access: "none", showAll: true })).toContain("Search MCPs or tools");
+  expect(render({ access: "all", showAll: true })).toContain("bees-mcp-card added");
   const selected = render({ access: "listed", chosen: ["news"] });
   expect(selected).toContain("Search MCPs or tools");
   expect(selected).toContain("bees-mcp-card added");

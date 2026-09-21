@@ -842,13 +842,17 @@ export async function executeProductCommand(action, input) {
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
       return { id: processId };
     });
-    if (action === "set_process_mcp") return transaction(this.database, () => {
+    if (action === "set_process_mcp") {
+      const result = transaction(this.database, () => {
       const process = processContext(this.database, input.processId, ["admin", "member"]);
       const policy = checkMcpServers(this.database, mcpPolicy(input), process.mcpServers);
       this.database.prepare("UPDATE processes SET mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?")
         .run(policy.access, JSON.stringify(policy.servers), at, process.id);
       return { id: process.id };
-    });
+      });
+      await this.agents?.refreshMcpForProcess?.(result.id);
+      return result;
+    }
     if (action === "set_stage_route") return transaction(this.database, () => {
       const stageId = required(input.stageId, "Stage");
       const stage = this.database.prepare(`

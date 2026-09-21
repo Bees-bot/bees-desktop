@@ -121,7 +121,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
   );
 }
 
-function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act }) {
+export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     await act({ action: "set_process_mcp", processId: process.id,
@@ -129,7 +129,7 @@ function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction,
   });
   return h("form", { className: "bees-box bees-form", onSubmit },
     h("p", { className: "bees-muted" }, "Every agent in this process inherits these MCPs in addition to its own."),
-    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process" }),
+    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
     h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : "Save process MCPs"));
 }
 

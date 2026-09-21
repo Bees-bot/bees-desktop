@@ -19,7 +19,7 @@ import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { WorkContext } from "./work-context.js";
 import { assertPeersSettled, mountPeerCollaboration } from "./peer-collaboration.js";
-import { currentIdentity, itemContext, message, transaction } from "./product-database.js";
+import { currentIdentity, itemContext, mcpGrantFor, message, transaction } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -489,6 +489,7 @@ export class AgentRuntime {
     this.notify = notify;
     this.subscribe = subscribe;
     this.live = new Map();
+    this.mcpRestrictions = new WeakMap();
     this.workContext = new WorkContext(database, notify);
     this.peerWaiters = new Set();
     this.capabilities = capabilities;
@@ -910,7 +911,21 @@ export class AgentRuntime {
       return match && !allowed.has(match[1]);
     });
     if (!deny.length) return;
-    agentCtx.tools.restrict({ deny });
+    return agentCtx.tools.restrict({ deny });
+  }
+
+  async refreshMcpForProcess(processId) {
+    for (const { handle, data } of this.live.values()) {
+      if (!data.workItemId || data.mode === "planning") continue;
+      const item = itemContext(this.database, data.workItemId);
+      if (item.processId !== processId) continue;
+      const grant = mcpGrantFor(this.database, data.agentId, item.runSettings, processId);
+      const agentCtx = handle.agent.ctx;
+      this.mcpRestrictions.get(data)?.();
+      Object.assign(data, grant);
+      this.mcpRestrictions.set(data, this.restrictMcp(agentCtx, data));
+      await this.startBrowserIfGranted(data, agentCtx);
+    }
   }
 
   /** This run holds a browser when a browser server is enabled and nothing denies it that server.
@@ -977,7 +992,7 @@ export class AgentRuntime {
     await this.ctx.agentPresets.mount(agentCtx, data.agentPresetId);
     removeDshOneShotDelegationTools(agentCtx);
     if (data.mcpAccess !== "none") await this.capabilities?.retryFailed?.(data.mcpAccess === "listed" ? data.mcpServers : null);
-    this.restrictMcp(agentCtx, data);
+    this.mcpRestrictions.set(data, this.restrictMcp(agentCtx, data));
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
     this.installPolicies(agentCtx, { discovery: !installedApp });
@@ -1885,7 +1900,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
+    this.live.set(executionId, { handle, data, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       idempotencyKey: `running:${payload.idempotencyKey}`
