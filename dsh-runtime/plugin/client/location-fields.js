@@ -303,8 +303,8 @@ function OutputDirectory({ files, executionId, viewer, onOpen, act, outputsPath,
           h("div", { className: "bees-file-row-actions" },
             act ? h(Button, {
               className: "bees-file-action-btn",
-              title: "Open in Explorer",
-              "aria-label": `Open ${displayName} in file explorer`,
+              title: "Open the file",
+              "aria-label": `Open ${displayName}`,
               onClick: (e) => {
                 e.preventDefault();
                 e.stopPropagation();
