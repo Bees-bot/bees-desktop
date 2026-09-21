@@ -71,8 +71,7 @@ export function pruneToolResults(session, tokenMeter) {
     const recalled = ["bees_read_tool_result", "bees_read_work_evidence"].includes(calls.get(callId));
     // Age alone is not pressure. Keep small documents and recalled evidence usable;
     // native DSH compaction owns the overall model context limit.
-    // Two sizes, never one that slides: rewriting a result drops the provider's cache of everything
-    // after it, and a budget shrinking by a few characters a step rewrote old results for nothing.
+    // fixed sizes, not a slide: rewriting a result drops the provider's cache of everything after it
     const budget = recalled || laterResponses < 2 || remaining >= TOOL_PREVIEW_CHARS
       ? TOOL_PREVIEW_CHARS : TOOL_RECEIPT_CHARS;
     const result = event.data.message.content[0];
