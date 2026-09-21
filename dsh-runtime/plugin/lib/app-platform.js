@@ -318,6 +318,9 @@ export class AppPlatform {
     }
     if (action === "remove") {
       if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before removing this app; uncertain history will be retained");
+      // removing the app is the ask to stop it, so its own schedules pause instead of blocking the removal
+      for (const { id } of app.process_id ? this.db.prepare("SELECT id FROM recurring_work WHERE process_id=? AND status='active'").all(app.process_id) : [])
+        await this.product.command({ action: "pause_recurring_work", recurringWorkId: id });
       if (app.process_id) await this.product.command({ action: "archive_process", processId: app.process_id });
       this.db.prepare("UPDATE app_installations SET status='removed' WHERE id=?").run(app.id);
       this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE installation_id=? AND status IN ('draft','approved')").run(app.id);
