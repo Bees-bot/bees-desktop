@@ -40,14 +40,13 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
     setError("");
-    const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
-    await guardRun(process.id, async () => {
-      try {
-        const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
-        if (result?.id) onStarted(result.id);
-        else setError("Could not start this work. Please try again.");
-      } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    });
+    if (!await guardRun(process.id)) return;
+    try {
+      const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
+      const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
+      if (result?.id) onStarted(result.id);
+      else setError("Could not start this work. Please try again.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
 
   return h("div", { className: "bees-ask-setup" },

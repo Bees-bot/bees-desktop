@@ -670,14 +670,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       priority: String(form.get("priority") ?? "normal"),
       inputLocationIds, outputLocationId
     };
-    await guardRun(goal ? initialProcess?.id : processId, async () => {
-      const created = await act(command); if (created?.id) onCreated(created.id);
-    });
+    if (!await guardRun(goal ? initialProcess?.id : processId)) return;
+    const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel), h("h2", null, heading)),
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
-  // the dialog stays outside the form so a click inside it can never submit this one
   return h(React.Fragment, null, preflight, h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
       h("div", null, h("h2", null, heading),
