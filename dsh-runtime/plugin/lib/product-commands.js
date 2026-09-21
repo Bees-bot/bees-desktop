@@ -3,7 +3,7 @@ import { useDataFolder } from "./data-folder.js";
 import { randomUUID } from "node:crypto";
 import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
 
-import { existsSync, lstatSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
   agentCapabilities, agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
@@ -1318,26 +1318,12 @@ export async function executeProductCommand(action, input) {
         throw new Error("Only absolute paths can be opened");
       if (!existsSync(targetPath))
         throw new Error("The path does not exist on this device");
-      const stat = lstatSync(targetPath);
-      const isFile = stat.isFile();
       const { execFile } = await import("node:child_process");
-      const platform = process.platform;
-      let command;
-      let args;
-      if (platform === "darwin") {
-        command = "open";
-        args = isFile ? ["-R", targetPath] : [targetPath];
-      } else if (platform === "win32") {
-        command = "explorer";
-        args = isFile ? [`/select,${targetPath}`] : [targetPath];
-      } else {
-        command = "xdg-open";
-        const { dirname } = await import("node:path");
-        args = [isFile ? dirname(targetPath) : targetPath];
-      }
-      execFile(command, args, (error) => {
-        if (error) console.error("open_in_explorer:", error.message);
-      });
+      const mac = process.platform === "darwin";
+      const log = (error) => error && console.error("open_in_explorer:", error.message);
+      // a file opens in its own app; no app claims .md on a fresh mac, so fall back to the text editor
+      execFile(mac ? "open" : process.platform === "win32" ? "explorer" : "xdg-open", [targetPath],
+        (error) => error && mac ? execFile("open", ["-t", targetPath], log) : log(error));
       return { opened: true };
     }
     if (action === "stop_run") {

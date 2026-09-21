@@ -274,6 +274,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
   const visibleHistory = history?.executionId === run?.id ? history : null;
   const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  const [showSteps, setShowSteps] = useState(false);
   useEffect(() => {
     if (isScrolledUpRef.current) return;
     const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
@@ -299,8 +300,13 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const conversation = h("div", { className: "bees-convo-panel" },
     h("div", { className: "bees-convo-header" },
       h("div", { className: "bees-convo-title" }, "Conversation"),
-      isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null),
-    h("div", {
+      isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null,
+      pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", style: { marginLeft: "auto" }, onClick: () => setShowSteps((value) => !value) },
+        showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
+    pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
+      h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
+    // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
+    pendingRun && !showSteps ? null : h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
         const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
@@ -308,8 +314,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
       }
     },
       ...convoItems,
-      pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
-        h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
       ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
         onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
@@ -759,6 +763,13 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
   const question = questions[index];
   if (!question) return h(Empty, null, "The agent sent an empty question request.");
   const draft = drafts[index];
+  // the sign-in page the question names, so the browser opens right on it
+  const links = `${question.question} ${question.detail ?? ""}`.match(/https:\/\/[^\s<>()"'`]+/g)?.map((link) => link.replace(/[.,;:!?*_\]]+$/, "")) ?? [];
+  const signInUrl = links.find((link) => /sign.?in|log.?in|auth|account/i.test(link)) ?? links[0];
+  const signInOption = /sign(ed|ing)?.?in|log.?in/i;
+  // a sign-in question has to be answered, skipping it just asks again
+  const signInQuestion = signInUrl && (question.options ?? []).some((option) => signInOption.test(option.label));
+  const openBrowser = () => act({ action: "open_agent_browser", executionId, ...(signInUrl ? { url: signInUrl } : {}) });
   const setDraft = (change) => setDrafts((current) => current.map((value, itemIndex) => itemIndex === index ? change(value) : value));
   const choose = (label) => setDraft((current) => ({
     ...current,
@@ -811,7 +822,10 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           type: "button", key: `${option.label}:${optionIndex}`, disabled: busy,
           className: `bees-choice ${selected ? "selected" : ""}`,
           role: question.multiSelect === true ? "checkbox" : "radio", "aria-checked": selected,
-          onClick: () => choose(option.label)
+          onClick: () => {
+            choose(option.label);
+            if (browser && act && executionId && signInUrl && !selected && signInOption.test(option.label)) void openBrowser();
+          }
         }, h("span", { className: "bees-choice-mark", "aria-hidden": "true" }, question.multiSelect === true ? selected ? "✓" : "" : optionIndex + 1),
           h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
@@ -830,10 +844,10 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-answer-actions" },
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
-      h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
+      signInQuestion ? null : h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
       browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
-        onClick: () => act({ action: "open_agent_browser", executionId })
+        onClick: openBrowser
       }, "Open browser") : null,
       h(Button, { className: "primary", disabled: busy, onClick: () => continueFlow() }, busy ? "Sending…" : index < questions.length - 1 ? "Next" : "Send answer"))
   );
